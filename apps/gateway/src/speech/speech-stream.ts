@@ -20,6 +20,49 @@ interface SpeechEvent {
 	message?: string;
 }
 
+/** Usage fields added to the `speech.audio.done` event, e.g. its cost. */
+export type SpeechCompletedUsage = (
+	inputTokens: number | null,
+	outputTokens: number | null,
+) => object;
+
+const encoder = new TextEncoder();
+
+/** One `speech.audio.delta` event carrying a piece of audio. */
+export function speechDeltaFrame(audio: Uint8Array): Uint8Array {
+	return encoder.encode(
+		`data: ${JSON.stringify({ type: "speech.audio.delta", audio: Buffer.from(audio).toString("base64") })}\n\n`,
+	);
+}
+
+/** The `speech.audio.done` event that ends a stream with its usage. */
+export function speechDoneFrame(usage: object): Uint8Array {
+	return encoder.encode(
+		`data: ${JSON.stringify({ type: "speech.audio.done", usage })}\n\n`,
+	);
+}
+
+const SPEECH_DELTA_BYTES = 32 * 1024;
+
+/**
+ * Speech events for audio generated in one piece: the audio in deltas, then
+ * the completion event with its usage. Gives `stream_format: "sse"` the same
+ * shape on every provider.
+ */
+export function encodeSpeechEvents(
+	audio: Uint8Array,
+	usage: object,
+): Uint8Array {
+	const frames: Uint8Array[] = [];
+	for (let offset = 0; offset < audio.length; offset += SPEECH_DELTA_BYTES) {
+		frames.push(
+			speechDeltaFrame(audio.subarray(offset, offset + SPEECH_DELTA_BYTES)),
+		);
+	}
+	frames.push(speechDoneFrame(usage));
+	return Buffer.concat(frames);
+}
+
 export class SpeechStreamError extends Error {}
 
 function usageTokenCount(value: unknown): number | null {
@@ -33,8 +76,29 @@ class SpeechEventParser {
 	private pending = "";
 	private readonly decoder = new TextDecoder();
 	public completed = false;
+	/** Complete events to forward to an SSE client, in order. */
+	public frames: Uint8Array[] = [];
 
-	public constructor(private readonly stats: SpeechStreamStats) {}
+	/**
+	 * With `completedUsage`, complete events are collected for an SSE client,
+	 * and the `speech.audio.done` event gets those usage fields added.
+	 */
+	public constructor(
+		private readonly stats: SpeechStreamStats,
+		private readonly completedUsage?: SpeechCompletedUsage,
+	) {}
+
+	public takeFrames(): Uint8Array[] {
+		const frames = this.frames;
+		this.frames = [];
+		return frames;
+	}
+
+	private forward(frame: string) {
+		if (this.completedUsage) {
+			this.frames.push(encoder.encode(`${frame}\n\n`));
+		}
+	}
 
 	public parse(bytes: Uint8Array, final = false): Uint8Array[] {
 		let text = this.decoder.decode(bytes, { stream: !final });
@@ -64,6 +128,7 @@ class SpeechEventParser {
 				.map((line) => line.slice(5).replace(/^ /, ""))
 				.join("\n");
 			if (!payload || payload === "[DONE]") {
+				this.forward(frame);
 				continue;
 			}
 			let event: SpeechEvent;
@@ -103,7 +168,23 @@ class SpeechEventParser {
 				this.completed = true;
 				this.stats.inputTokens = usageTokenCount(event.usage?.input_tokens);
 				this.stats.outputTokens = usageTokenCount(event.usage?.output_tokens);
+				if (this.completedUsage) {
+					this.forward(
+						`data: ${JSON.stringify({
+							...event,
+							usage: {
+								...event.usage,
+								...this.completedUsage(
+									this.stats.inputTokens,
+									this.stats.outputTokens,
+								),
+							},
+						})}`,
+					);
+					continue;
+				}
 			}
+			this.forward(frame);
 		}
 		if (Buffer.byteLength(this.pending) > 1024 * 1024) {
 			throw new SpeechStreamError("Speech event exceeded size limit");
@@ -122,6 +203,8 @@ export async function prepareSpeechStream(options: {
 	signal: AbortSignal;
 	clientSignal: AbortSignal;
 	abort: () => void;
+	/** Usage added to the completion event an SSE client receives. */
+	completedUsage?: SpeechCompletedUsage;
 	onSettled: (stats: SpeechStreamStats) => Promise<void>;
 }): Promise<ReadableStream<Uint8Array>> {
 	const stats: SpeechStreamStats = {
@@ -134,7 +217,12 @@ export async function prepareSpeechStream(options: {
 		error: null,
 	};
 	const reader = options.response.body?.getReader();
-	const parser = new SpeechEventParser(stats);
+	// An SSE client receives complete events re-framed from the upstream, so
+	// the completion event can carry what the stream was billed.
+	const parser = new SpeechEventParser(
+		stats,
+		options.clientSse ? (options.completedUsage ?? (() => ({}))) : undefined,
+	);
 	const buffered: Uint8Array[] = [];
 	let bufferedBytes = 0;
 	let sourceDone = false;
@@ -250,11 +338,8 @@ export async function prepareSpeechStream(options: {
 			checkAbort();
 			if (chunk.done) {
 				if (options.upstreamSse) {
-					for (const audio of parser.parse(new Uint8Array(), true)) {
-						if (!options.clientSse) {
-							yield audio;
-						}
-					}
+					const audio = parser.parse(new Uint8Array(), true);
+					yield* options.clientSse ? parser.takeFrames() : audio;
 				}
 				if (options.upstreamSse && !parser.completed) {
 					throw new SpeechStreamError("Speech stream ended before completion");
@@ -263,6 +348,9 @@ export async function prepareSpeechStream(options: {
 					throw new SpeechStreamError(
 						"The model did not return any audio. The content may have been filtered.",
 					);
+				}
+				if (!options.upstreamSse && options.clientSse) {
+					yield speechDoneFrame(options.completedUsage?.(null, null) ?? {});
 				}
 				return;
 			}
@@ -273,18 +361,16 @@ export async function prepareSpeechStream(options: {
 						"The model did not return any audio. The content may have been filtered.",
 					);
 				}
-				if (options.clientSse) {
-					yield chunk.value;
-				} else {
-					yield* audio;
-				}
+				yield* options.clientSse ? parser.takeFrames() : audio;
 				if (parser.completed) {
 					return;
 				}
 			} else if (chunk.value.length) {
 				stats.firstAudioAt ??= Date.now();
 				stats.audioBytes += chunk.value.length;
-				yield chunk.value;
+				// Audio from a binary upstream is re-framed as speech events for an
+				// SSE client.
+				yield options.clientSse ? speechDeltaFrame(chunk.value) : chunk.value;
 			}
 		}
 	}

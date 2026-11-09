@@ -39,7 +39,7 @@ Browse all speech generation models, with up-to-date pricing, on the
 | `input`           | string | required | The text to synthesize into speech                                                                                                                                              |
 | `voice`           | string | model    | A prebuilt voice. Defaults to `Kore` (Gemini), `alloy` (OpenAI), `Sarah` (ElevenLabs), or the model's first voice on Qwen (`longanlingxin` on Plus, `longanhuan_v3.6` on Flash) |
 | `response_format` | string | model    | Audio format. OpenAI: `mp3` (default), `opus`, `aac`, `flac`, `wav`, `pcm`. ElevenLabs: `mp3` (default), `wav`, `pcm`, `opus`. Gemini: `wav` (default), `pcm`. Qwen: `wav`      |
-| `stream_format`   | string | `audio`  | Binary `audio` or native `sse` events where supported; see Streaming below                                                                                                      |
+| `stream_format`   | string | `audio`  | Binary `audio`, or `sse` events ending with usage and cost; see Streaming below                                                                                                 |
 | `instructions`    | string | —        | Optional style/delivery directive prepended to the input (e.g. `"Say cheerfully"`)                                                                                              |
 | `speed`           | number | —        | Accepted for OpenAI compatibility, but not applied by Gemini speech models                                                                                                      |
 
@@ -96,12 +96,33 @@ produces it. Omit `stream_format` or use `"audio"` for binary audio; existing cl
 can still read the complete response with `arrayBuffer()`. Playback latency also
 depends on the selected audio format and your player.
 
-Use `stream_format: "sse"` on token-billed speech models that support native speech
-events. The gateway forwards `speech.audio.delta` events with base64 audio and
-`speech.audio.done` with provider usage without buffering the complete generation.
-SSE is not available on legacy character-billed speech models. Unsupported
-`stream_format` combinations return `400` rather than silently ignoring the field.
-Other provider-specific speech endpoints retain their existing response behavior.
+Use `stream_format: "sse"` to receive speech events instead: `speech.audio.delta`
+events with base64 audio, then one `speech.audio.done` event whose `usage` reports
+what the request was billed. This works on every speech model. Native speech events
+are forwarded as the provider produces them; audio from other models arrives in
+deltas as it is generated or, for models that return it in one piece, at once.
+
+```json
+{
+	"type": "speech.audio.done",
+	"usage": {
+		"input_tokens": 7,
+		"output_tokens": 42,
+		"total_tokens": 49,
+		"cost": 0.0005082,
+		"cost_details": {
+			"input_cost": 0.0000042,
+			"output_cost": 0.000504,
+			"request_cost": 0,
+			"total_cost": 0.0005082
+		}
+	}
+}
+```
+
+Models priced per token report `input_tokens`, `output_tokens` and `total_tokens`;
+models priced per character report `input_characters`. Binary audio has no body to
+carry a cost, so use SSE when you need the cost with the response.
 
 ```bash
 curl -N "https://api.llmgateway.io/v1/audio/speech" \

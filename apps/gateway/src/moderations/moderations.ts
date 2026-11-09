@@ -50,6 +50,7 @@ import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
 
 import {
 	getProviderDefaultBaseUrl,
@@ -172,6 +173,7 @@ const moderationResponseSchema = z
 		results: z.array(moderationResultSchema).optional().openapi({
 			description: "Moderation results for the submitted input.",
 		}),
+		usage: usageWithCostSchema.optional(),
 	})
 	.passthrough()
 	.openapi({
@@ -990,10 +992,16 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				{ retentionLevel },
 			);
 
-			return c.json({
-				...(upstreamJson as Record<string, unknown>),
-				model: CANONICAL_MODERATION_MODEL,
-			});
+			return c.json(
+				withUsageCost(
+					{
+						...(upstreamJson as Record<string, unknown>),
+						model: CANONICAL_MODERATION_MODEL,
+					},
+					MODERATION_REQUEST_PRICE,
+					{ request_cost: MODERATION_REQUEST_PRICE },
+				),
+			);
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

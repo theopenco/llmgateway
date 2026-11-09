@@ -62,6 +62,7 @@ import {
 	shouldRedactProviderError,
 } from "@/lib/stealth-provider-errors.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
 import {
@@ -179,6 +180,7 @@ const searchResponseSchema = z
 		model: z.string(),
 		results: z.array(searchResultSchema),
 		server_time: z.string().nullable().optional(),
+		usage: usageWithCostSchema.optional(),
 	})
 	.passthrough()
 	.openapi({
@@ -1315,7 +1317,11 @@ search.openapi(createSearch, async (c): Promise<any> => {
 				{ retentionLevel },
 			);
 
-			return c.json(normalizedResponse);
+			return c.json(
+				withUsageCost(normalizedResponse, requestCost, {
+					request_cost: requestCost,
+				}),
+			);
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

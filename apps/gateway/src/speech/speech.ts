@@ -70,7 +70,11 @@ import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { trackPendingWork } from "@/lib/pending-work.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
-import { prepareSpeechStream } from "@/speech/speech-stream.js";
+import { usageCost } from "@/lib/usage-cost.js";
+import {
+	encodeSpeechEvents,
+	prepareSpeechStream,
+} from "@/speech/speech-stream.js";
 
 import { RedirectError } from "@llmgateway/actions";
 import {
@@ -115,7 +119,7 @@ const speechRequestSchema = z.object({
 	}),
 	stream_format: z.enum(["audio", "sse"]).optional().openapi({
 		description:
-			"Stream binary audio (default) or native speech events where supported.",
+			"Return binary audio (default) or `sse` speech events: `speech.audio.delta` events with base64 audio, then a `speech.audio.done` event whose `usage` carries the request's `cost`.",
 	}),
 	voice: z.string().optional().openapi({
 		description:
@@ -306,6 +310,24 @@ function toArrayBuffer(buf: Buffer): ArrayBuffer {
 		buf.byteOffset,
 		buf.byteOffset + buf.byteLength,
 	) as ArrayBuffer;
+}
+
+/** Audio generated in one piece, returned as `stream_format: "sse"` events. */
+function speechEventsResponse(
+	c: Context<ServerTypes>,
+	audio: Buffer,
+	requestId: string,
+	usage: object,
+): Response {
+	return c.body(
+		toArrayBuffer(Buffer.from(encodeSpeechEvents(audio, usage))),
+		200,
+		{
+			"Content-Type": "text/event-stream",
+			"Cache-Control": "no-store",
+			"x-request-id": requestId,
+		},
+	);
 }
 
 function findSpeechMapping(modelId: string): {
@@ -558,23 +580,9 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 	const billByCharacters =
 		isOpenAI && mapping.inputCharacterPrice !== undefined;
 	const useSse = isOpenAI && !billByCharacters;
+	// Every model streams speech events on request; they end with a
+	// `speech.audio.done` event carrying usage and cost.
 	const clientSse = request.stream_format === "sse";
-	if (
-		request.stream_format !== undefined &&
-		(!isOpenAI || (clientSse && billByCharacters))
-	) {
-		return c.json(
-			{
-				error: {
-					message: "This model does not support the requested stream_format.",
-					type: "invalid_request_error",
-					param: "stream_format",
-					code: "unsupported_stream_format",
-				},
-			} satisfies SpeechErrorBody,
-			400,
-		);
-	}
 
 	if (!SUPPORTED_PROVIDERS.has(providerId)) {
 		return c.json(
@@ -1617,6 +1625,33 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 							OPENAI_CONTENT_TYPES[responseFormat] ??
 							"audio/mpeg");
 				streamingResponse = true;
+				const passthroughCosts = (
+					billable: boolean,
+					inputTokens: number | null,
+					outputTokens: number | null,
+				) => {
+					const inputCost = !billable
+						? new Decimal(0)
+						: useSse
+							? new Decimal(
+									inputTokens ?? Math.ceil(request.input.length / 4),
+								).mul(mapping.inputPrice ?? "0")
+							: new Decimal(request.input.length).mul(
+									mapping.inputCharacterPrice ?? "0",
+								);
+					const outputCost = new Decimal(outputTokens ?? 0).mul(
+						mapping.outputAudioPrice ?? mapping.outputPrice ?? "0",
+					);
+					const requestCost = new Decimal(
+						billable ? (mapping.requestPrice ?? "0") : "0",
+					);
+					return {
+						inputCost,
+						outputCost,
+						requestCost,
+						cost: inputCost.plus(outputCost).plus(requestCost).toNumber(),
+					};
+				};
 				try {
 					const body = await prepareSpeechStream({
 						response: upstreamResponse,
@@ -1625,6 +1660,28 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 						signal: fetchSignal,
 						clientSignal: c.req.raw.signal,
 						abort: () => controller.abort(),
+						// The completion event reports what the stream is billed: it
+						// carries audio, so it is billable.
+						completedUsage: (inputTokens, outputTokens) => {
+							const costs = passthroughCosts(true, inputTokens, outputTokens);
+							return {
+								...(useSse
+									? {
+											input_tokens: inputTokens,
+											output_tokens: outputTokens,
+											total_tokens:
+												inputTokens !== null && outputTokens !== null
+													? inputTokens + outputTokens
+													: null,
+										}
+									: { input_characters: request.input.length }),
+								...usageCost(costs.cost, {
+									input_cost: costs.inputCost.toNumber(),
+									output_cost: costs.outputCost.toNumber(),
+									request_cost: costs.requestCost.toNumber(),
+								}),
+							};
+						},
 						onSettled: async (stats) => {
 							c.req.raw.signal.removeEventListener("abort", onAbort);
 							const timedOut =
@@ -1646,21 +1703,12 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 								stats.audioBytes > 0 ||
 								stats.inputTokens !== null ||
 								stats.outputTokens !== null;
-							const inputCost = !billable
-								? new Decimal(0)
-								: useSse
-									? new Decimal(
-											stats.inputTokens ?? Math.ceil(request.input.length / 4),
-										).mul(mapping.inputPrice ?? "0")
-									: new Decimal(request.input.length).mul(
-											mapping.inputCharacterPrice ?? "0",
-										);
-							const outputCost = new Decimal(stats.outputTokens ?? 0).mul(
-								mapping.outputAudioPrice ?? mapping.outputPrice ?? "0",
-							);
-							const requestCost = new Decimal(
-								billable ? (mapping.requestPrice ?? "0") : "0",
-							);
+							const { inputCost, outputCost, requestCost, cost } =
+								passthroughCosts(
+									billable,
+									stats.inputTokens,
+									stats.outputTokens,
+								);
 							const totalTokens =
 								stats.inputTokens !== null || stats.outputTokens !== null
 									? (stats.inputTokens ?? 0) + (stats.outputTokens ?? 0)
@@ -1739,7 +1787,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 									imageOutputTokens: null,
 									imageInputCost: null,
 									imageOutputCost: null,
-									cost: inputCost.plus(outputCost).plus(requestCost).toNumber(),
+									cost,
 									estimatedCost:
 										useSse &&
 										(stats.inputTokens === null || stats.outputTokens === null),
@@ -1988,6 +2036,15 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 					{ retentionLevel },
 				);
 
+				if (clientSse) {
+					return speechEventsResponse(c, out, requestId, {
+						input_characters: characters,
+						...usageCost(cost, {
+							input_cost: inputCost,
+							request_cost: requestCost,
+						}),
+					});
+				}
 				return c.body(toArrayBuffer(out), 200, {
 					"Content-Type": "audio/wav",
 					"Content-Length": String(out.length),
@@ -2207,6 +2264,18 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 				{ retentionLevel },
 			);
 
+			if (clientSse) {
+				return speechEventsResponse(c, out, requestId, {
+					input_tokens: promptTokens,
+					output_tokens: audioOutputTokens,
+					total_tokens: totalTokens,
+					...usageCost(cost, {
+						input_cost: inputCost,
+						output_cost: outputCost,
+						request_cost: requestCost,
+					}),
+				});
+			}
 			return c.body(toArrayBuffer(out), 200, {
 				"Content-Type": contentType,
 				"Content-Length": String(out.length),

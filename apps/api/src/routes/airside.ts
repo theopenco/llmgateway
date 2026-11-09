@@ -13,7 +13,7 @@ import {
 	assertProviderKeyIsSeparate,
 	discardPendingProviderKey,
 	fileProviderKey,
-	latestListing,
+	smokeTestListing,
 	fileVerifiedProviderKey,
 } from "@/lib/airside-carrier-keys.js";
 import {
@@ -2575,7 +2575,7 @@ airside.openapi(submitProviderKey, async (c) => {
 	await assertProviderKeyIsSeparate(claim, apiKey);
 	// Only a key smoke-tested against one of the carrier's listings reaches
 	// review; before the first listing, the key is filed with that model.
-	const listing = await latestListing(claim);
+	const listing = await smokeTestListing(claim);
 	if (!listing) {
 		throw new HTTPException(409, {
 			message:

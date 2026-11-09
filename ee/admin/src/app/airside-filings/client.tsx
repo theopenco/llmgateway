@@ -46,7 +46,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { canWrite } from "@/lib/admin-role";
+import { canWrite, canReadFinancials } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useApi } from "@/lib/fetch-client";
@@ -165,7 +165,9 @@ const STATUS_BADGE: Record<
 export function AirsideFilingsClient() {
 	const $api = useApi();
 	const queryClient = useQueryClient();
-	const isAdmin = canWrite(useAdminRole());
+	const role = useAdminRole();
+	const isAdmin = canWrite(role);
+	const showFinancials = canReadFinancials(role);
 	const [status, setStatus] = useState<FilingStatus | "all">("pending");
 	const [filingsPage, setFilingsPage] = useState(1);
 	const [routingPage, setRoutingPage] = useState(1);
@@ -1234,7 +1236,7 @@ export function AirsideFilingsClient() {
 				<CardHeader>
 					<CardTitle>Fare changes</CardTitle>
 					<CardDescription>
-						{isAdmin
+						{showFinancials
 							? "Carrier requests to move their routing discount or accepted gateway margin. Approving writes the values into the live routing settings."
 							: "Carrier requests to move their routing discount. Approving writes the values into the live routing settings."}
 						{query.data ? ` ${query.data.routingPendingCount} pending.` : ""}
@@ -1261,8 +1263,8 @@ export function AirsideFilingsClient() {
 									<TableHead>Provider</TableHead>
 									<TableHead>Scope</TableHead>
 									<TableHead>Discount</TableHead>
-									{isAdmin && <TableHead>Margin</TableHead>}
-									{isAdmin && <TableHead>Adjustment</TableHead>}
+									{showFinancials && <TableHead>Margin</TableHead>}
+									{showFinancials && <TableHead>Adjustment</TableHead>}
 									<TableHead>Status</TableHead>
 									<TableHead className="text-right">Actions</TableHead>
 								</TableRow>
@@ -1294,13 +1296,13 @@ export function AirsideFilingsClient() {
 											{Math.round(filing.currentDiscountPercent * 100)}% →{" "}
 											{Math.round(filing.discountPercent * 100)}%
 										</TableCell>
-										{isAdmin && (
+										{showFinancials && (
 											<TableCell className="font-mono text-xs">
 												{Math.round(filing.currentMarginPercent * 100)}% →{" "}
 												{Math.round(filing.marginPercent * 100)}%
 											</TableCell>
 										)}
-										{isAdmin && (
+										{showFinancials && (
 											<TableCell className="font-mono text-xs">
 												{filing.routingAdjustment > 0 ? "+" : ""}
 												{Math.round(filing.routingAdjustment * 100)}%

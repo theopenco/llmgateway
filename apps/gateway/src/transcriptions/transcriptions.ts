@@ -55,6 +55,7 @@ import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
 
 import {
 	getProviderDefaultBaseUrl,
@@ -132,6 +133,7 @@ const transcriptionResponseSchema = z
 		duration: z.number().optional(),
 		words: z.array(transcriptionWordSchema).optional(),
 		channels: z.array(z.record(z.string(), z.unknown())).optional(),
+		usage: usageWithCostSchema.optional(),
 	})
 	.passthrough()
 	.openapi({
@@ -1255,9 +1257,19 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			);
 
 			return c.json(
-				(responseObject && typeof responseObject.model === "string"
-					? { ...responseObject, model: responseModel }
-					: upstreamJson) as z.infer<typeof transcriptionResponseSchema>,
+				withUsageCost(
+					(responseObject && typeof responseObject.model === "string"
+						? { ...responseObject, model: responseModel }
+						: (responseObject ?? {})) as z.infer<
+						typeof transcriptionResponseSchema
+					>,
+					cost,
+					{ audio_input_cost: audioCost, request_cost: requestCost },
+					// OpenAI's usage shape for audio billed by duration.
+					audioDurationSeconds !== null
+						? { type: "duration", seconds: audioDurationSeconds }
+						: {},
+				),
 			);
 		}
 	} finally {

@@ -124,7 +124,13 @@ The endpoint returns responses in Anthropic's message format:
 	"stop_sequence": null,
 	"usage": {
 		"input_tokens": 13,
-		"output_tokens": 20
+		"output_tokens": 20,
+		"cost": 0.0002325,
+		"cost_details": {
+			"input_cost": 0.0000325,
+			"output_cost": 0.0002,
+			"total_cost": 0.0002325
+		}
 	},
 	"metadata": {
 		"requested_model": "gpt-5",
@@ -133,6 +139,8 @@ The endpoint returns responses in Anthropic's message format:
 	}
 }
 ```
+
+`usage.cost` and `usage.cost_details` are what the request was billed in USD, the same figures `/v1/chat/completions` returns (see [Cost Breakdown](/features/cost-breakdown)); on streaming responses they are part of the `message_delta` event's `usage`.
 
 `metadata` is the same gateway object `/v1/chat/completions` returns: it names the provider, model and region that served the request, and lists every attempt in `routing` when a fallback happened (see [Routing Transparency](/features/routing#routing-transparency)). On streaming responses it is attached to the `message_delta` event.
 
