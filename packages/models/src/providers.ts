@@ -2486,6 +2486,50 @@ export function isLiveMapping(
 	);
 }
 
+export const BATCH_ENDPOINTS = [
+	"/v1/chat/completions",
+	"/v1/responses",
+	"/v1/embeddings",
+] as const;
+
+export type BatchEndpoint = (typeof BATCH_ENDPOINTS)[number];
+
+export interface BatchEndpointMapping extends ModelMappingAvailability {
+	streaming?: boolean | "only" | null;
+	realtime?: boolean | null;
+	realtimeTranscription?: boolean | null;
+	embeddings?: boolean | null;
+}
+
+/**
+ * Batch API endpoints that can run a mapping's requests. Batches replay each
+ * line as a non-streaming request, so realtime and streaming-only mappings run
+ * none. /v1/responses bridges every request to chat completions, so it accepts
+ * every chat model.
+ */
+export function getBatchEndpoints(
+	mapping: BatchEndpointMapping,
+	model: { output?: readonly string[] | null },
+	now: Date = new Date(),
+): BatchEndpoint[] {
+	if (
+		!isLiveMapping(mapping, now) ||
+		mapping.realtime ||
+		mapping.realtimeTranscription ||
+		mapping.streaming === "only"
+	) {
+		return [];
+	}
+	const output = model.output;
+	if (output?.includes("embedding")) {
+		return mapping.embeddings ? ["/v1/embeddings"] : [];
+	}
+	if (!output || output.length === 0 || output.includes("text")) {
+		return ["/v1/chat/completions", "/v1/responses"];
+	}
+	return [];
+}
+
 /**
  * Providers that serve `modelId` under the policy: active,
  * non-deprecated mappings whose provider has no compliance failures. Unknown

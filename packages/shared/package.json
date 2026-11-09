@@ -26,6 +26,10 @@
 			"import": "./dist/airside-billing.js",
 			"default": "./dist/airside-billing.js"
 		},
+		"./batch": {
+			"types": "./dist/batch.d.ts",
+			"import": "./dist/batch.js"
+		},
 		"./gcs": {
 			"types": "./dist/gcs.d.ts",
 			"import": "./dist/gcs.js",

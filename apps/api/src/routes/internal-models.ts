@@ -32,6 +32,8 @@ import {
 	tables,
 } from "@llmgateway/db";
 import {
+	BATCH_ENDPOINTS,
+	getBatchEndpoints,
 	models as modelDefinitions,
 	providers as providerDefinitions,
 	type PeakPricing,
@@ -168,6 +170,7 @@ const modelProviderMappingSchema = z.object({
 	realtimeTranscription: z.boolean().nullable(),
 	realtimeTranscriptionTurnDetection: z.boolean().nullable(),
 	supportedVoices: z.array(z.string()).nullable(),
+	batchEndpoints: z.array(z.enum(BATCH_ENDPOINTS)).nullable(),
 	discount: z.string().nullable(),
 	stability: z.enum(["stable", "beta", "unstable", "experimental"]).nullable(),
 	supportedParameters: z.array(z.string()).nullable(),
@@ -320,6 +323,19 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				realtimeTranscriptionTurnDetection:
 					sharedMapping?.realtimeTranscriptionTurnDetection ?? null,
 				supportedVoices: sharedMapping?.supportedVoices ?? null,
+				batchEndpoints: getBatchEndpoints(
+					{
+						providerId: mapping.providerId,
+						deprecatedAt: mapping.deprecatedAt,
+						deactivatedAt: mapping.deactivatedAt,
+						streaming: sharedMapping?.streaming ?? mapping.streaming,
+						realtime: sharedMapping?.realtime,
+						realtimeTranscription: sharedMapping?.realtimeTranscription,
+						embeddings: sharedMapping?.embeddings,
+					},
+					{ output: model.output },
+					now,
+				),
 				imageOutputPrice:
 					sharedMapping?.imageOutputPrice !== undefined
 						? String(sharedMapping.imageOutputPrice)

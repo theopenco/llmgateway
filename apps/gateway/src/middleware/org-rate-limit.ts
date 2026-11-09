@@ -66,7 +66,7 @@ export async function orgRateLimitMiddleware(
 		return await next();
 	}
 
-	const config = resolvePathRateLimit(c.req.path);
+	const config = resolvePathRateLimit(c.req.path, c.req.method);
 	if (!config) {
 		return await next();
 	}
