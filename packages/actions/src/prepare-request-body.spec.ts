@@ -7282,20 +7282,30 @@ describe("prepareRequestBody - Alibaba Wan 2.7 image size", () => {
 		expect(body.parameters.size).toBe("4K");
 	});
 
-	test("rejects 4K with an input image", async () => {
-		await expect(
-			prepareWanImageRequest(
-				[
-					{ type: "text", text: "Make it blue" },
-					{
-						type: "image_url",
-						image_url: { url: "https://example.com/teapot.png" },
-					},
-				],
-				"4K",
-			),
-		).rejects.toThrow('image_size "4K" is only supported for text-to-image');
-	});
+	const editContent: BaseMessage["content"] = [
+		{ type: "text", text: "Make it blue" },
+		{
+			type: "image_url",
+			image_url: { url: "https://example.com/teapot.png" },
+		},
+	];
+
+	test.each(["4K", "4096x4096", "3000x2000"])(
+		"rejects %s with an input image",
+		async (size) => {
+			await expect(prepareWanImageRequest(editContent, size)).rejects.toThrow(
+				"Wan 2.7 image edits support at most 2K",
+			);
+		},
+	);
+
+	test.each(["2K", "2048x2048", "1536x1024"])(
+		"forwards %s with an input image",
+		async (size) => {
+			const body = await prepareWanImageRequest(editContent, size);
+			expect(body.parameters.size).toBe(size.replace("x", "*"));
+		},
+	);
 });
 
 describe("prepareRequestBody - Alibaba cache_control", () => {
