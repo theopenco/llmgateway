@@ -76,7 +76,8 @@ describe("Seedance pricing", () => {
 	});
 });
 
-test("every ByteDance video mapping declares token billing", () => {
+// The worker falls back to the per-second list price when usage never arrives.
+test("every ByteDance video mapping declares token billing and a list-price fallback", () => {
 	const definitions: readonly ModelDefinition[] = bytedanceModels;
 	for (const model of definitions) {
 		if (!model.output?.includes("video")) {
@@ -84,6 +85,7 @@ test("every ByteDance video mapping declares token billing", () => {
 		}
 		for (const provider of model.providers) {
 			expect(provider.videoOutputPrice).toBeDefined();
+			expect(provider.perSecondPrice).toBeDefined();
 		}
 	}
 });

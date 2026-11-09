@@ -973,6 +973,7 @@ async function getPendingVideoReservationUsd(
 						or(
 							sql`${tables.videoJob.upstreamStatusResponse} ->> 'llmgateway_billing_pending' = 'true'`,
 							sql`${tables.videoJob.upstreamStatusResponse} ->> 'llmgateway_billing_quarantined' = 'true'`,
+							sql`${tables.videoJob.upstreamStatusResponse} ->> 'llmgateway_billing_fallback' = 'true'`,
 						),
 					),
 				),
