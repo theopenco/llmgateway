@@ -9,6 +9,7 @@ type Database = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 export function createAuthDatabase(database: Database) {
 	return drizzleAdapter(database, {
 		provider: "pg",
+		transaction: true,
 		schema: {
 			user: tables.user,
 			session: tables.session,

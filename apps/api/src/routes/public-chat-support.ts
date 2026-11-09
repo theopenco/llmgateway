@@ -22,6 +22,7 @@ import {
 	getKnowledgeUrls,
 	type CatalogueSummary,
 } from "@/utils/chat-support-knowledge.js";
+import { PRO_SUBSCRIPTION_PAYMENT_TX_TYPES } from "@/utils/devpass-filter.js";
 import { notifyChatSupportEscalation } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { consumeRateLimit } from "@/utils/public-rate-limit.js";
@@ -491,7 +492,7 @@ const chatSupportRequestSchema = z.object({
 
 // Transaction types that mean real money changed hands for the organization.
 const PAID_TRANSACTION_TYPES = [
-	"subscription_start",
+	...PRO_SUBSCRIPTION_PAYMENT_TX_TYPES,
 	"credit_topup",
 	"credit_manual_payment",
 	"enterprise_license_fee",

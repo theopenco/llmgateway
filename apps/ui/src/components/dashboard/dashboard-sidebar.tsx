@@ -283,7 +283,6 @@ const ORGANIZATION_NAVIGATION: readonly {
 		href: "org/sso",
 		label: "SSO",
 		icon: AnimatedBuilding2,
-		enterpriseGated: true,
 	},
 ];
 
@@ -291,6 +290,13 @@ const ORGANIZATION_SETTINGS = [
 	{
 		href: "org/billing",
 		label: "Billing",
+		search: { success: undefined, canceled: undefined },
+	},
+	{
+		href: "org/plan",
+		label: "Plan",
+		// Stripe Checkout returns to this page with ?success/?canceled — clear
+		// them on nav so the status toast doesn't re-fire.
 		search: { success: undefined, canceled: undefined },
 	},
 	{

@@ -76,7 +76,7 @@ export async function acceptPendingInvitesForUser(user: {
 					where: { organizationId: { eq: invite.organizationId } },
 					columns: { id: true },
 				});
-				const seatLimit = resolveSeatLimit(org.id, org.plan, org.seats);
+				const seatLimit = resolveSeatLimit(org);
 				if (currentMembers.length >= seatLimit) {
 					// Leave the invite pending so admins still see it and can free a
 					// seat; it will be retried on the user's next sign-in.
@@ -99,17 +99,28 @@ export async function acceptPendingInvitesForUser(user: {
 				const [membership] = await withEnterpriseSeatForOrganization(
 					invite.organizationId,
 					user.id,
-					async (tx) =>
-						await tx
+					async (tx) => {
+						const pending = await tx.query.organizationInvite.findFirst({
+							where: { id: { eq: invite.id }, status: { eq: "pending" } },
+						});
+						if (!pending || pending.expiresAt <= new Date()) {
+							return [];
+						}
+						return await tx
 							.insert(tables.userOrganization)
 							.values({
 								userId: user.id,
 								organizationId: invite.organizationId,
 								role: invite.role,
 							})
-							.returning({ id: tables.userOrganization.id }),
+							.onConflictDoNothing()
+							.returning({ id: tables.userOrganization.id });
+					},
 				);
 
+				if (!membership) {
+					continue;
+				}
 				if (isProjectScopedRole(invite.role) && invite.projectIds?.length) {
 					// Grant only the invited projects that still exist in the org.
 					const projects = await db.query.project.findMany({

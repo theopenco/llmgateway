@@ -3,7 +3,9 @@ import {
 	withEnterpriseSeatForOrganization,
 } from "@/lib/enterprise-seats.js";
 import { licenseSeatDetail, notifyOrgLimit } from "@/lib/org-limit-alerts.js";
+import { hasSsoAccess } from "@/lib/sso-access.js";
 import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
+import { extractEmailDomain } from "@/lib/sso-domains.js";
 import { recomputeUserTeam } from "@/lib/sso-teams.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -12,6 +14,8 @@ import { logger } from "@llmgateway/logger";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import { generateAutoJoinEmailHtml, sendTransactionalEmail } from "./email.js";
+
+export { extractEmailDomain } from "@/lib/sso-domains.js";
 
 // Common consumer email providers. Auto-join must never target these: any org
 // could otherwise claim e.g. "gmail.com" and absorb unrelated users.
@@ -39,18 +43,6 @@ const DOMAIN_PATTERN = /^[a-z0-9.-]+\.[a-z]{2,}$/;
  */
 export function normalizeDomain(input: string): string {
 	return input.trim().toLowerCase().replace(/^@/, "");
-}
-
-/**
- * Extracts the lowercased domain part after the last "@" of an email address,
- * or null if the value is not a well-formed address.
- */
-export function extractEmailDomain(email: string): string | null {
-	const at = email.lastIndexOf("@");
-	if (at <= 0 || at === email.length - 1) {
-		return null;
-	}
-	return email.slice(at + 1).toLowerCase();
 }
 
 /**
@@ -169,8 +161,8 @@ export async function autoJoinByEmailDomain(
 	const organization = await db.query.organization.findFirst({
 		where: {
 			ssoAutoJoinDomain: { eq: domain },
-			status: { ne: "deleted" },
 			plan: { eq: "enterprise" },
+			status: { ne: "deleted" },
 		},
 	});
 
@@ -243,10 +235,7 @@ export async function autoJoinSsoProviderOrganization({
 		},
 	});
 
-	if (
-		!organization ||
-		!hasOrganizationEnterpriseAccess(organization.id, organization.plan)
-	) {
+	if (!organization || !hasSsoAccess(organization)) {
 		return null;
 	}
 

@@ -30,6 +30,7 @@
 		"data-streams",
 		"---Account & Billing---",
 		"billing",
+		"plan",
 		"transactions",
 		"invoices",
 		"refunds",

@@ -42,7 +42,7 @@ const pricingSchema = {
 		"@type": "AggregateOffer",
 		priceCurrency: "USD",
 		lowPrice: "0",
-		offerCount: 2,
+		offerCount: 3,
 		offers: [
 			{
 				"@type": "Offer",
@@ -51,6 +51,15 @@ const pricingSchema = {
 				priceCurrency: "USD",
 				description:
 					"Access all 200+ models with a flat 5% platform fee on credit purchases, or bring your own provider keys for free.",
+				url: "https://llmgateway.io/pricing",
+			},
+			{
+				"@type": "Offer",
+				name: "Pro",
+				price: "15",
+				priceCurrency: "USD",
+				description:
+					"Everything in Free, per seat: $15 per user per month (3-seat minimum, up to 500 users), one API key included per seat ($5/month per extra key), 10 projects included ($5/month per extra project), plus optional add-ons for teams up to 100 users — SSO for $300/month and SCIM provisioning for $200/month.",
 				url: "https://llmgateway.io/pricing",
 			},
 			{

@@ -125,6 +125,17 @@ const organizationSchema = z
 		apiKeyLimit: z.number().nullable(),
 		// Manual project-limit override; null = use the plan default.
 		projectLimit: z.number().nullable(),
+		// Seat quantity purchased on a self-serve Pro subscription; null for
+		// non-Pro orgs and legacy flat-fee Pro subscribers.
+		proSeats: z.number().nullable(),
+		// Extra API keys purchased beyond the one included per Pro seat.
+		proExtraApiKeys: z.number(),
+		// Extra projects purchased beyond the included allowance.
+		proExtraProjects: z.number(),
+		// Whether the Pro subscription includes the SSO add-on.
+		proSsoEnabled: z.boolean(),
+		// Whether the Pro subscription includes the SCIM add-on (requires SSO).
+		proScimEnabled: z.boolean(),
 		retentionLevel: z.enum(["retain", "none"]),
 		providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 		smartRoutingConfig: smartRoutingConfigInputSchema.nullable(),
@@ -179,6 +190,8 @@ const organizationSchema = z
 		// "developer" members). Omitted by single-org endpoints.
 		role: z.enum(["owner", "admin", "project_admin", "developer"]).optional(),
 		enterpriseAccess: z.boolean().optional(),
+		ssoAccess: z.boolean().optional(),
+		scimAccess: z.boolean().optional(),
 	})
 	.partial(organizationBillingFields);
 
@@ -279,6 +292,8 @@ const transactionSchema = z.object({
 	organizationId: z.string(),
 	type: z.enum([
 		"subscription_start",
+		"subscription_renewal",
+		"subscription_update",
 		"subscription_cancel",
 		"subscription_end",
 		"credit_topup",
@@ -846,20 +861,21 @@ organization.openapi(updateOrganization, async (c) => {
 		}
 	}
 
-	// Google SSO domain auto-join is an enterprise feature managed by owners and
-	// admins. The value is normalized and validated before storage.
+	// Google domain auto-join is Enterprise-only; owners can clear stale settings.
 	let normalizedSsoDomain: string | null | undefined;
-	if (ssoAutoJoinDomain !== undefined) {
-		if (
+	if (
+		ssoAutoJoinDomain &&
+		(!userOrganization.organization ||
 			!hasOrganizationEnterpriseAccess(
-				userOrganization.organization?.id,
-				userOrganization.organization?.plan,
-			)
-		) {
-			throw new HTTPException(403, {
-				message: "SSO auto-join requires an enterprise plan",
-			});
-		}
+				userOrganization.organization.id,
+				userOrganization.organization.plan,
+			))
+	) {
+		throw new HTTPException(403, {
+			message: "Google Workspace domain auto-join requires Enterprise access",
+		});
+	}
+	if (ssoAutoJoinDomain !== undefined) {
 		if (
 			userOrganization.role !== "owner" &&
 			userOrganization.role !== "admin"

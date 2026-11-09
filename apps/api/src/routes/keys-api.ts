@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { resolveApiKeyLimit } from "@/lib/api-key-limit.js";
 import { readApiKeyMask } from "@/lib/api-key-mask.js";
 import {
 	apiKeyUsagePeriods,
@@ -19,7 +20,7 @@ import {
 	iamRuleValueSchema,
 	validateIamRuleInput,
 } from "@/lib/iam-rules.js";
-import { notifyOrgLimit } from "@/lib/org-limit-alerts.js";
+import { withOrganizationCapacity } from "@/lib/organization-capacity.js";
 import { platformKeyMode } from "@/lib/platform-secret-auth.js";
 import {
 	assertEnterpriseForCompliancePolicy,
@@ -54,13 +55,13 @@ import {
 	inArray,
 } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
-import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { maskToken } from "@llmgateway/shared/mask-token";
 import {
 	canManageProject,
 	isOrganizationAdmin,
 } from "@llmgateway/shared/organization-roles";
 
+import type { CapacityTransaction } from "@/lib/organization-capacity.js";
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderCompliancePolicy } from "@llmgateway/models";
 
@@ -828,44 +829,24 @@ export const iamRuleSchema = z.object({
 	status: iamRuleStatusEnum,
 });
 
-// Org-wide cap on active developer API keys. An explicit `organization.apiKeyLimit`
-// override (set by admins) always takes precedence over these plan defaults.
-export function resolveApiKeyLimit(
-	organizationId: string | null | undefined,
-	plan: string | null | undefined,
-	apiKeyLimit: number | null | undefined,
-): number {
-	if (
-		plan === "enterprise" &&
-		!hasOrganizationEnterpriseAccess(organizationId, plan)
-	) {
-		return 5;
-	}
-	if (apiKeyLimit !== null && apiKeyLimit !== undefined) {
-		return apiKeyLimit;
-	}
-	return hasOrganizationEnterpriseAccess(organizationId, plan)
-		? 500
-		: plan === "pro"
-			? 20
-			: 5;
-}
-
 type ApiKeyPlanOrganization = Pick<
 	InferSelectModel<typeof tables.organization>,
-	"id" | "plan" | "apiKeyLimit"
+	"id" | "plan" | "apiKeyLimit" | "proSeats" | "proExtraApiKeys"
 >;
 
 /** Active developer keys across all of an organization's projects. */
-async function countOrgActiveApiKeys(organizationId: string): Promise<number> {
-	const orgProjects = await db.query.project.findMany({
+async function countOrgActiveApiKeys(
+	organizationId: string,
+	client: typeof db | CapacityTransaction = db,
+): Promise<number> {
+	const orgProjects = await client.query.project.findMany({
 		where: { organizationId: { eq: organizationId } },
 		columns: { id: true },
 	});
 	if (!orgProjects.length) {
 		return 0;
 	}
-	const orgActiveKeys = await db.query.apiKey.findMany({
+	const orgActiveKeys = await client.query.apiKey.findMany({
 		where: {
 			projectId: { in: orgProjects.map((p) => p.id) },
 			status: { eq: "active" },
@@ -883,11 +864,7 @@ async function getApiKeyPlanLimits(organization: ApiKeyPlanOrganization) {
 	const plan = organization.plan as "free" | "pro" | "enterprise";
 	return {
 		currentCount: await countOrgActiveApiKeys(organization.id),
-		maxKeys: resolveApiKeyLimit(
-			organization.id,
-			plan,
-			organization.apiKeyLimit,
-		),
+		maxKeys: resolveApiKeyLimit(organization),
 		plan,
 	};
 }
@@ -1169,146 +1146,125 @@ export async function createApiKeyForProject(
 		});
 	}
 
-	assertOrgAllowsManualApiKeys(project.organization);
-	assertEnterpriseForCompliancePolicy(
-		input.providerCompliancePolicy,
-		project.organization,
-	);
+	const prefix =
+		process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
+	const token = prefix + shortid(40);
 
-	const orgProjects = await db.query.project.findMany({
-		where: { organizationId: { eq: project.organization.id } },
-		columns: { id: true },
-	});
-	const orgProjectIds = orgProjects.map((p) => p.id);
-
-	// Org-wide cap on active developer API keys across all of the org's projects.
-	// Platform, LLM SDK aggregate, and playground session keys are excluded.
-	const orgActiveApiKeys = await db.query.apiKey.findMany({
-		where: {
-			projectId: { in: orgProjectIds },
-			status: { eq: "active" },
-			keyType: { eq: "user" },
-			kind: { ne: "playground" },
-		},
-		columns: { id: true },
-	});
-
-	const maxApiKeys = resolveApiKeyLimit(
+	const apiKey = await withOrganizationCapacity(
 		project.organization.id,
-		project.organization.plan,
-		project.organization.apiKeyLimit,
-	);
+		async (tx, organization, deferAlert) => {
+			assertOrgAllowsManualApiKeys(organization);
+			assertEnterpriseForCompliancePolicy(
+				input.providerCompliancePolicy,
+				organization,
+			);
 
-	if (orgActiveApiKeys.length >= maxApiKeys) {
-		await notifyOrgLimit(project.organization.id, {
-			limit: "api_keys",
-			projectId: project.id,
-			maxApiKeys,
-		});
-		throw new HTTPException(400, {
-			message: `API key limit reached. Maximum ${maxApiKeys} active API keys per organization. Contact us at contact@llmgateway.io to unlock more.`,
-		});
-	}
-
-	// Enforce the per-member active-key cap. The creator's own per-member cap
-	// wins; for developers with no explicit cap the org-wide default developer
-	// cap applies.
-	const creatorMembership = await db.query.userOrganization.findFirst({
-		where: {
-			userId: { eq: userId },
-			organizationId: { eq: project.organization.id },
-		},
-		columns: {
-			role: true,
-			maxApiKeys: true,
-			usageLimit: true,
-			periodUsageLimit: true,
-			periodUsageDurationValue: true,
-			periodUsageDurationUnit: true,
-		},
-		with: {
-			team: {
+			const orgProjects = await tx.query.project.findMany({
+				where: { organizationId: { eq: organization.id } },
+				columns: { id: true },
+			});
+			const orgProjectIds = orgProjects.map((p) => p.id);
+			const maxApiKeys = resolveApiKeyLimit(organization);
+			const orgActiveApiKeys = await tx.query.apiKey.findMany({
+				where: {
+					projectId: { in: orgProjectIds },
+					status: { eq: "active" },
+					keyType: { eq: "user" },
+					kind: { ne: "playground" },
+				},
+				columns: { id: true },
+			});
+			if (orgActiveApiKeys.length >= maxApiKeys) {
+				deferAlert({
+					limit: "api_keys",
+					projectId: project.id,
+					maxApiKeys,
+				});
+				throw new HTTPException(400, {
+					message: `API key limit reached. Maximum ${maxApiKeys} active API keys per organization. Upgrade to Pro on the plan page for more, or contact us at contact@llmgateway.io.`,
+				});
+			}
+			const creatorMembership = await tx.query.userOrganization.findFirst({
+				where: {
+					userId: { eq: userId },
+					organizationId: { eq: organization.id },
+				},
 				columns: {
+					role: true,
 					maxApiKeys: true,
 					usageLimit: true,
 					periodUsageLimit: true,
 					periodUsageDurationValue: true,
 					periodUsageDurationUnit: true,
 				},
-			},
-		},
-	});
-
-	assertCanManageCompliancePolicy(
-		input.providerCompliancePolicy,
-		creatorMembership?.role,
-	);
-
-	assertApiKeyComplianceWritesEnabled(input.providerCompliancePolicy);
-
-	// A key's limits must stay at or below the creator's effective member budget.
-	// Skipped for programmatic (master-key) creation, which has no interactive
-	// member context; the gateway still enforces the member budget at request time.
-	if (!options.skipAccessCheck) {
-		assertApiKeyLimitsWithinMemberBudget(
-			creatorMembership,
-			project.organization,
-			{
-				usageLimit: usageLimit ?? null,
-				periodUsageLimit: periodUsageLimit ?? null,
-				periodUsageDurationValue: periodUsageDurationValue ?? null,
-				periodUsageDurationUnit: periodUsageDurationUnit ?? null,
-			},
-		);
-	}
-
-	const maxApiKeyPolicies = creatorMembership
-		? memberBudgetPolicies(creatorMembership, project.organization)
-				.map(({ budget }) => budget.maxApiKeys)
-				.filter((value): value is number => value !== null)
-		: [];
-	const effectiveMaxApiKeys = maxApiKeyPolicies.length
-		? Math.min(...maxApiKeyPolicies)
-		: null;
-
-	if (typeof effectiveMaxApiKeys === "number") {
-		const memberActiveKeys = await db.query.apiKey.findMany({
-			where: {
-				createdBy: { eq: userId },
-				status: { eq: "active" },
-				keyType: { eq: "user" },
-				kind: { ne: "playground" },
-				projectId: { in: orgProjectIds },
-			},
-			columns: { id: true },
-		});
-
-		if (memberActiveKeys.length >= effectiveMaxApiKeys) {
-			throw new HTTPException(400, {
-				message: `You have reached your limit of ${effectiveMaxApiKeys} active API keys set by an organization admin.`,
+				with: {
+					team: {
+						columns: {
+							maxApiKeys: true,
+							usageLimit: true,
+							periodUsageLimit: true,
+							periodUsageDurationValue: true,
+							periodUsageDurationUnit: true,
+						},
+					},
+				},
 			});
-		}
-	}
-
-	const prefix =
-		process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
-	const token = prefix + shortid(40);
-
-	const [apiKey] = await cdb
-		.insert(tables.apiKey)
-		.values({
-			...hashApiKeyForStorage(token),
-			projectId,
-			description,
-			usageLimit,
-			periodUsageLimit,
-			periodUsageDurationValue,
-			periodUsageDurationUnit,
-			expiresAt,
-			createdBy: userId,
-			providerCompliancePolicy: input.providerCompliancePolicy ?? null,
-		})
-		.returning();
+			assertCanManageCompliancePolicy(
+				input.providerCompliancePolicy,
+				creatorMembership?.role,
+			);
+			assertApiKeyComplianceWritesEnabled(input.providerCompliancePolicy);
+			if (!options.skipAccessCheck) {
+				assertApiKeyLimitsWithinMemberBudget(creatorMembership, organization, {
+					usageLimit: usageLimit ?? null,
+					periodUsageLimit: periodUsageLimit ?? null,
+					periodUsageDurationValue: periodUsageDurationValue ?? null,
+					periodUsageDurationUnit: periodUsageDurationUnit ?? null,
+				});
+			}
+			const maxApiKeyPolicies = creatorMembership
+				? memberBudgetPolicies(creatorMembership, organization)
+						.map(({ budget }) => budget.maxApiKeys)
+						.filter((value): value is number => value !== null)
+				: [];
+			const effectiveMaxApiKeys = maxApiKeyPolicies.length
+				? Math.min(...maxApiKeyPolicies)
+				: null;
+			if (effectiveMaxApiKeys !== null) {
+				const memberActiveKeys = await tx.query.apiKey.findMany({
+					where: {
+						createdBy: { eq: userId },
+						status: { eq: "active" },
+						keyType: { eq: "user" },
+						kind: { ne: "playground" },
+						projectId: { in: orgProjectIds },
+					},
+					columns: { id: true },
+				});
+				if (memberActiveKeys.length >= effectiveMaxApiKeys) {
+					throw new HTTPException(400, {
+						message: `You have reached your limit of ${effectiveMaxApiKeys} active API keys set by an organization admin.`,
+					});
+				}
+			}
+			const [apiKey] = await tx
+				.insert(tables.apiKey)
+				.values({
+					...hashApiKeyForStorage(token),
+					projectId,
+					description,
+					usageLimit,
+					periodUsageLimit,
+					periodUsageDurationValue,
+					periodUsageDurationUnit,
+					expiresAt,
+					createdBy: userId,
+					providerCompliancePolicy: input.providerCompliancePolicy ?? null,
+				})
+				.returning();
+			return apiKey;
+		},
+	);
 
 	await logAuditEvent({
 		organizationId: project.organization.id,
@@ -1816,28 +1772,60 @@ keysApi.openapi(bulkAction, async (c) => {
 
 		const allowed: MutableApiKeyAccess[] = [];
 		for (const [organizationId, entries] of byOrganization) {
-			const organization = entries[0].organization!;
-			const maxApiKeys = resolveApiKeyLimit(
-				organization.id,
-				organization.plan,
-				organization.apiKeyLimit,
+			allowed.push(
+				...(await withOrganizationCapacity(
+					organizationId,
+					async (tx, organization, deferAlert) => {
+						const maxApiKeys = resolveApiKeyLimit(organization);
+						const currentKeys = await tx.query.apiKey.findMany({
+							where: { id: { in: entries.map((entry) => entry.apiKey.id) } },
+						});
+						const inactive = entries.filter((entry) => {
+							const key = currentKeys.find((key) => key.id === entry.apiKey.id);
+							if (!key || key.status === "deleted") {
+								fail(entry.apiKey.id, "not_found");
+								return false;
+							}
+							if (key.status === "active") {
+								skipped.push(key.id);
+								return false;
+							}
+							if (key.expiresAt && key.expiresAt.getTime() <= Date.now()) {
+								fail(key.id, "expired");
+								return false;
+							}
+							return true;
+						});
+						const remaining = Math.max(
+							0,
+							maxApiKeys - (await countOrgActiveApiKeys(organizationId, tx)),
+						);
+						const admitted = inactive.slice(0, remaining);
+						for (const entry of inactive.slice(remaining)) {
+							fail(entry.apiKey.id, "limit_reached");
+						}
+						if (inactive.length > admitted.length) {
+							deferAlert({
+								limit: "api_keys",
+								projectId: inactive[admitted.length].apiKey.projectId,
+								maxApiKeys,
+							});
+						}
+						if (admitted.length) {
+							await tx
+								.update(tables.apiKey)
+								.set({ status: "active" })
+								.where(
+									inArray(
+										tables.apiKey.id,
+										admitted.map((entry) => entry.apiKey.id),
+									),
+								);
+						}
+						return admitted;
+					},
+				)),
 			);
-			const remaining = Math.max(
-				0,
-				maxApiKeys - (await countOrgActiveApiKeys(organizationId)),
-			);
-			allowed.push(...entries.slice(0, remaining));
-			const overflow = entries.slice(remaining);
-			for (const entry of overflow) {
-				fail(entry.apiKey.id, "limit_reached");
-			}
-			if (overflow.length) {
-				await notifyOrgLimit(organizationId, {
-					limit: "api_keys",
-					projectId: overflow[0].apiKey.projectId,
-					maxApiKeys,
-				});
-			}
 		}
 		eligible = allowed;
 	}
@@ -1845,15 +1833,17 @@ keysApi.openapi(bulkAction, async (c) => {
 	if (eligible.length) {
 		// Write through the cached client so onMutate busts the gateway's cached
 		// token lookups; otherwise the change only applies once the cache expires.
-		await cdb
-			.update(tables.apiKey)
-			.set({ status: targetStatus })
-			.where(
-				inArray(
-					tables.apiKey.id,
-					eligible.map((entry) => entry.apiKey.id),
-				),
-			);
+		if (action !== "reactivate") {
+			await cdb
+				.update(tables.apiKey)
+				.set({ status: targetStatus })
+				.where(
+					inArray(
+						tables.apiKey.id,
+						eligible.map((entry) => entry.apiKey.id),
+					),
+				);
+		}
 
 		await Promise.all(
 			eligible.map(({ apiKey, organizationId }) =>
@@ -2218,25 +2208,51 @@ keysApi.openapi(updateStatus, async (c) => {
 		});
 	}
 
-	// Update the API key status
-	// Update through the cached client so its onMutate invalidates the gateway's
-	// cached token lookups (Drizzle cache + SWR mirror) for the api_key table.
-	// Otherwise a deactivated key keeps authenticating (and a reactivated one
-	// stays rejected) until the cache expires, so the change is not instant.
-	const [updatedApiKey] = await cdb
-		.update(tables.apiKey)
-		.set({
-			...(status !== undefined ? { status } : {}),
-			...(expiresAtProvided ? { expiresAt: nextExpiresAt } : {}),
-			...(descriptionInput !== undefined
-				? { description: descriptionInput }
-				: {}),
-			...(providerCompliancePolicy !== undefined
-				? { providerCompliancePolicy }
-				: {}),
-		})
-		.where(eq(tables.apiKey.id, id))
-		.returning();
+	const updatedApiKey = await withOrganizationCapacity(
+		projectOrgId,
+		async (tx, organization) => {
+			const currentKey = await tx.query.apiKey.findFirst({
+				where: { id: { eq: id } },
+			});
+			if (!currentKey || currentKey.status === "deleted") {
+				throw new HTTPException(404, { message: "API key not found" });
+			}
+			if (
+				status === "active" &&
+				currentKey.status !== "active" &&
+				apiKey.keyType === "user"
+			) {
+				const maxApiKeys = resolveApiKeyLimit(organization);
+				if ((await countOrgActiveApiKeys(organization.id, tx)) >= maxApiKeys) {
+					throw new HTTPException(400, {
+						message: `API key limit reached. Maximum ${maxApiKeys} active API keys per organization.`,
+					});
+				}
+			}
+
+			// Update the API key status
+			// Update through the cached client so its onMutate invalidates the gateway's
+			// cached token lookups (Drizzle cache + SWR mirror) for the api_key table.
+			// Otherwise a deactivated key keeps authenticating (and a reactivated one
+			// stays rejected) until the cache expires, so the change is not instant.
+			const [updatedApiKey] = await tx
+				.update(tables.apiKey)
+				.set({
+					...(status !== undefined ? { status } : {}),
+					...(expiresAtProvided ? { expiresAt: nextExpiresAt } : {}),
+					...(descriptionInput !== undefined
+						? { description: descriptionInput }
+						: {}),
+					...(providerCompliancePolicy !== undefined
+						? { providerCompliancePolicy }
+						: {}),
+				})
+				.where(eq(tables.apiKey.id, id))
+				.returning();
+
+			return updatedApiKey;
+		},
+	);
 
 	const statusChanged = status !== undefined && apiKey.status !== status;
 	const expiryChanged =

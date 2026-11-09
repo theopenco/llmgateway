@@ -1,3 +1,6 @@
+import { lockOrganizationBilling } from "@/lib/billing-operation.js";
+import { resolveSeatLimit } from "@/lib/seat-limit.js";
+
 import { and, db, eq, sql, tables } from "@llmgateway/db";
 import {
 	getEnterpriseLicenseStatus,
@@ -6,8 +9,6 @@ import {
 } from "@llmgateway/shared/enterprise-license";
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-const ENTERPRISE_SEAT_LOCK_ID = 4_547_101_761;
 
 export class EnterpriseSeatLimitError extends Error {
 	constructor(
@@ -70,17 +71,38 @@ async function assertCapacity(
 }
 
 async function withSeatLock<T>(
+	organizationId: string,
 	resolveCandidates: (tx: DbTransaction) => Promise<string[]>,
 	mutation: (tx: DbTransaction) => Promise<T>,
 	license: EnterpriseLicenseStatus,
 ): Promise<T> {
-	return await db.transaction(async (tx) => {
-		await tx.execute(
-			sql`SELECT pg_advisory_xact_lock(${ENTERPRISE_SEAT_LOCK_ID})`,
-		);
-		await assertCapacity(tx, await resolveCandidates(tx), license);
-		return await mutation(tx);
-	});
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return await db.transaction(
+				async (tx) => {
+					await lockOrganizationBilling(tx, organizationId);
+					await tx
+						.select({ id: tables.organization.id })
+						.from(tables.organization)
+						.where(eq(tables.organization.id, organizationId))
+						.for("no key update");
+					const candidates = await resolveCandidates(tx);
+					if (candidates.length) {
+						await assertCapacity(tx, candidates, license);
+					}
+					return await mutation(tx);
+				},
+				{
+					isolationLevel:
+						license.maxSeats === null ? "read committed" : "serializable",
+				},
+			);
+		} catch (error) {
+			if (attempt >= 3 || !isCapacitySerializationConflict(error)) {
+				throw error;
+			}
+		}
+	}
 }
 
 export async function withEnterpriseSeatForOrganization<T>(
@@ -90,11 +112,46 @@ export async function withEnterpriseSeatForOrganization<T>(
 	license: EnterpriseLicenseStatus = getEnterpriseLicenseStatus(),
 ): Promise<T> {
 	return await withSeatLock(
+		organizationId,
 		async (tx) => {
-			const organization = await tx.query.organization.findFirst({
-				where: { id: { eq: organizationId } },
-				columns: { plan: true, kind: true, status: true },
-			});
+			const [organization] = await tx
+				.select()
+				.from(tables.organization)
+				.where(eq(tables.organization.id, organizationId))
+				.for("no key update");
+			if (organization?.plan === "pro" && organization.proSeats !== null) {
+				const members = await tx.query.userOrganization.findMany({
+					where: { organizationId: { eq: organizationId } },
+					columns: { userId: true },
+				});
+				if (!members.some((member) => member.userId === userId)) {
+					const user = await tx.query.user.findFirst({
+						where: { id: { eq: userId } },
+						columns: { email: true },
+					});
+					const invites = await tx.query.organizationInvite.findMany({
+						where: {
+							organizationId: { eq: organizationId },
+							status: { eq: "pending" },
+						},
+					});
+					const reserved = invites.filter(
+						(invite) =>
+							invite.expiresAt > new Date() &&
+							invite.email !== user?.email.trim().toLowerCase(),
+					).length;
+					const limit = resolveSeatLimit(organization);
+					if (members.length + reserved >= limit) {
+						throw new OrganizationSeatLimitError(
+							limit,
+							members.length + reserved,
+						);
+					}
+				}
+			}
+			if (!organization || organization.status === "deleted") {
+				throw new Error("Organization is unavailable");
+			}
 			return organization?.kind === "default" &&
 				organization.status === "active" &&
 				hasOrganizationEnterpriseAccessForLicense(
@@ -105,7 +162,47 @@ export async function withEnterpriseSeatForOrganization<T>(
 				? [userId]
 				: [];
 		},
-		mutation,
+		async (tx) => {
+			const result = await mutation(tx);
+			const organization = await tx.query.organization.findFirst({
+				where: { id: { eq: organizationId } },
+				columns: { plan: true, proSeats: true },
+			});
+			if (organization?.plan === "pro" && organization.proSeats !== null) {
+				const user = await tx.query.user.findFirst({
+					where: { id: { eq: userId } },
+					columns: { email: true },
+				});
+				const membership = await tx.query.userOrganization.findFirst({
+					where: {
+						userId: { eq: userId },
+						organizationId: { eq: organizationId },
+					},
+					columns: { id: true },
+				});
+				if (user && membership) {
+					await tx
+						.update(tables.organizationInvite)
+						.set({
+							status: "accepted",
+							acceptedAt: new Date(),
+							acceptedByUserId: userId,
+						})
+						.where(
+							and(
+								eq(tables.organizationInvite.organizationId, organizationId),
+								eq(
+									tables.organizationInvite.email,
+									user.email.trim().toLowerCase(),
+								),
+								eq(tables.organizationInvite.status, "pending"),
+								sql`${tables.organizationInvite.expiresAt} > NOW()`,
+							),
+						);
+				}
+			}
+			return result;
+		},
 		license,
 	);
 }
@@ -116,6 +213,7 @@ export async function withEnterpriseSeatsForPromotion<T>(
 	license: EnterpriseLicenseStatus = getEnterpriseLicenseStatus(),
 ): Promise<T> {
 	return await withSeatLock(
+		organizationId,
 		async (tx) => {
 			const organization = await tx.query.organization.findFirst({
 				where: { id: { eq: organizationId } },
@@ -144,6 +242,7 @@ export async function withEnterpriseSeatsForActivation<T>(
 	license: EnterpriseLicenseStatus = getEnterpriseLicenseStatus(),
 ): Promise<T> {
 	return await withSeatLock(
+		organizationId,
 		async (tx) => {
 			const organization = await tx.query.organization.findFirst({
 				where: { id: { eq: organizationId } },
@@ -164,4 +263,28 @@ export async function withEnterpriseSeatsForActivation<T>(
 		mutation,
 		license,
 	);
+}
+
+export class OrganizationSeatLimitError extends EnterpriseSeatLimitError {
+	constructor(maxSeats: number, seatsUsed: number) {
+		super(maxSeats, seatsUsed);
+		this.name = "OrganizationSeatLimitError";
+		this.message = `The organization has reached its ${maxSeats} user seat limit`;
+	}
+}
+
+function isCapacitySerializationConflict(error: unknown): boolean {
+	let current = error;
+	for (
+		let depth = 0;
+		depth < 5 && typeof current === "object" && current !== null;
+		depth++
+	) {
+		const detail = current as { code?: unknown; cause?: unknown };
+		if (detail.code === "40001" || detail.code === "40P01") {
+			return true;
+		}
+		current = detail.cause;
+	}
+	return false;
 }
