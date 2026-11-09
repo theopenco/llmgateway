@@ -64,12 +64,14 @@ export function getModelImageConfig(model: string) {
 	const isReve = lower.includes("reve");
 	const isMuseImage = lower.includes("muse-image");
 	const isHyImage = lower.includes("hy-image");
+	const isWanImagePro = lower.includes("wan-2-7-image-pro");
+	const isWanImage = lower.includes("wan-2-7-image");
 
 	const usesPixelDimensions =
 		isGptImage ||
 		isMuseImage ||
 		isHyImage ||
-		lower.includes("alibaba") ||
+		(lower.includes("alibaba") && !isWanImage) ||
 		lower.includes("qwen-image") ||
 		lower.includes("zai") ||
 		lower.includes("cogview");
@@ -94,37 +96,39 @@ export function getModelImageConfig(model: string) {
 			? (["1024x1024", "1024x1536", "1536x1024"] as const)
 			: isHyImage
 				? HY_IMAGE_SIZES
-				: usesPixelDimensions
-					? ([
-							"1024x1024",
-							"720x1280",
-							"1280x720",
-							"1024x1536",
-							"1536x1024",
-							"2048x1024",
-							"1024x2048",
-						] as const)
-					: isReve
-						? (["2K"] as const)
-						: isSeedreamPro || isGrokImagine20
-							? (["1K", "2K"] as const)
-							: isSeedreamFlash
-								? (["1K", "1.5K", "2K"] as const)
-								: isSeedream
-									? (["2K", "4K"] as const)
-									: isGemini31FlashLiteImage || isGemini25FlashImage
-										? (["1K"] as const)
-										: isGemini31FlashImage
-											? (["0.5K", "1K", "2K", "4K"] as const)
-											: (["1K", "2K", "4K"] as const);
+				: isWanImagePro
+					? (["1K", "2K", "4K"] as const)
+					: isWanImage
+						? (["1K", "2K"] as const)
+						: usesPixelDimensions
+							? ([
+									"1024x1024",
+									"720x1280",
+									"1280x720",
+									"1024x1536",
+									"1536x1024",
+									"2048x1024",
+									"1024x2048",
+								] as const)
+							: isReve
+								? (["2K"] as const)
+								: isSeedreamPro || isGrokImagine20
+									? (["1K", "2K"] as const)
+									: isSeedreamFlash
+										? (["1K", "1.5K", "2K"] as const)
+										: isSeedream
+											? (["2K", "4K"] as const)
+											: isGemini31FlashLiteImage || isGemini25FlashImage
+												? (["1K"] as const)
+												: isGemini31FlashImage
+													? (["0.5K", "1K", "2K", "4K"] as const)
+													: (["1K", "2K", "4K"] as const);
 
 	const defaultSize = usesPixelDimensions
 		? "1024x1024"
-		: isReve
+		: isReve || isSeedream || isWanImage
 			? "2K"
-			: isSeedream
-				? "2K"
-				: "1K";
+			: "1K";
 
 	const supportsQuality = isGptImage || isGrokImagine20;
 	const availableQualities = hasGptImageMaxQuality
@@ -218,6 +222,9 @@ function getMaxInputImages(lowerModel: string): number {
 	}
 	if (lowerModel.includes("qwen-image-2.1")) {
 		return 10;
+	}
+	if (lowerModel.includes("wan-2-7-image")) {
+		return 9;
 	}
 	if (lowerModel.includes("qwen-image-edit")) {
 		return 5;

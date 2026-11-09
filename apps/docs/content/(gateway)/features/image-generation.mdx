@@ -793,17 +793,21 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 Available Alibaba models (see the [models page](https://llmgateway.io/models?filters=1&imageGeneration=true) for current pricing):
 
-| Model                          | Description                                                                                       |
-| ------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `alibaba/qwen-image-2.1-pro`   | Generation and editing from up to 10 reference images, flat price per output image                |
-| `alibaba/qwen-image-2.1-turbo` | Fast, low-cost generation and editing from up to 10 reference images, flat price per output image |
-| `alibaba/qwen-image-3.0`       | Third-generation image generation and editing                                                     |
-| `alibaba/qwen-image-3.0-pro`   | Highest quality third-generation generation and editing. Priced per output size tier              |
+| Model                          | Description                                                                                          |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `alibaba/qwen-image-2.1-pro`   | Generation and editing from up to 10 reference images, flat price per output image                   |
+| `alibaba/qwen-image-2.1-turbo` | Fast, low-cost generation and editing from up to 10 reference images, flat price per output image    |
+| `alibaba/qwen-image-3.0`       | Third-generation image generation and editing                                                        |
+| `alibaba/qwen-image-3.0-pro`   | Highest quality third-generation generation and editing. Priced per output size tier                 |
+| `alibaba/wan-2-7-image`        | Fast Wan 2.7 generation and editing from up to 9 input images, up to 2K, flat price per image        |
+| `alibaba/wan-2-7-image-pro`    | Flagship Wan 2.7 generation up to 4K (text-to-image only) and editing up to 2K, flat price per image |
 
 <Callout type="info">
 	Alibaba models use explicit pixel dimensions (e.g., `"1024x1536"`) instead of
 	aspect ratios. For portrait orientation use `"1024x1536"`, for landscape use
-	`"1536x1024"`.
+	`"1536x1024"`. Wan 2.7 models also accept the tiers `"1K"` and `"2K"`
+	(default), plus `"4K"` on `wan-2-7-image-pro` for text-to-image; tiers without
+	an input image produce square output.
 </Callout>
 
 ### Z.AI Models

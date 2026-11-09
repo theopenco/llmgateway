@@ -7245,6 +7245,69 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 	});
 });
 
+describe("prepareRequestBody - Alibaba Wan 2.7 image size", () => {
+	async function prepareWanImageRequest(
+		content: BaseMessage["content"],
+		image_size: string,
+	) {
+		return (await prepareRequestBody(
+			"alibaba",
+			"wan-2-7-image-pro",
+			null,
+			"wan2.7-image-pro",
+			[{ role: "user", content }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			{ image_size },
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("forwards 4K for text-to-image", async () => {
+		const body = await prepareWanImageRequest("A teapot", "4K");
+		expect(body.parameters.size).toBe("4K");
+	});
+
+	const editContent: BaseMessage["content"] = [
+		{ type: "text", text: "Make it blue" },
+		{
+			type: "image_url",
+			image_url: { url: "https://example.com/teapot.png" },
+		},
+	];
+
+	test.each(["4K", "4096x4096", "3000x2000"])(
+		"rejects %s with an input image",
+		async (size) => {
+			await expect(prepareWanImageRequest(editContent, size)).rejects.toThrow(
+				"Wan 2.7 image edits support at most 2K",
+			);
+		},
+	);
+
+	test.each(["2K", "2048x2048", "1536x1024"])(
+		"forwards %s with an input image",
+		async (size) => {
+			const body = await prepareWanImageRequest(editContent, size);
+			expect(body.parameters.size).toBe(size.replace("x", "*"));
+		},
+	);
+});
+
 describe("prepareRequestBody - Alibaba cache_control", () => {
 	test("forwards cache_control: {type: 'ephemeral'} unchanged", async () => {
 		const requestBody = (await prepareRequestBody(

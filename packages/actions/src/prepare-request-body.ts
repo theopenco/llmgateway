@@ -1764,6 +1764,18 @@ function attachToolResultCacheControl(message: BaseMessage): BaseMessage {
  *   `auto` forwards caller markers and injects more on long prompts,
  *   `passthrough` only forwards, `off` strips everything.
  */
+const WAN_EDIT_MAX_PIXELS = 2048 * 2048;
+
+function exceedsWanEditPixelLimit(imageSize: string): boolean {
+	if (imageSize.toUpperCase() === "4K") {
+		return true;
+	}
+	const match = /^(\d+)[x*](\d+)$/.exec(imageSize);
+	return (
+		match !== null && Number(match[1]) * Number(match[2]) > WAN_EDIT_MAX_PIXELS
+	);
+}
+
 export async function prepareRequestBody(
 	usedProvider: ProviderId,
 	usedInternalModel: string,
@@ -2275,6 +2287,18 @@ export async function prepareRequestBody(
 				...(image_config?.seed !== undefined && { seed: image_config.seed }),
 			},
 		};
+
+		// Wan 2.7 caps edits at 2K (2048*2048 pixels); 4K is text-to-image only.
+		if (
+			imageUrls.length > 0 &&
+			image_config?.image_size &&
+			usedExternalId.startsWith("wan2.7-image") &&
+			exceedsWanEditPixelLimit(image_config.image_size)
+		) {
+			throw new RequestError(
+				'Wan 2.7 image edits support at most 2K (2048x2048 pixels); use "1K", "2K" or a smaller size with input images',
+			);
+		}
 
 		// Map image_size to Alibaba format (uses * instead of x)
 		if (image_config?.image_size) {

@@ -461,6 +461,10 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 		return providerId === undefined || providerId === "atlascloud";
 	}
 
+	if (isAlibabaWan3VideoModel(canonicalModelId)) {
+		return providerId === undefined || providerId === "alibaba";
+	}
+
 	if (
 		canonicalModelId !== "veo-3.1-generate-preview" &&
 		canonicalModelId !== "veo-3.1-fast-generate-preview"
@@ -497,6 +501,13 @@ function isGrokImagineVideoModel(canonicalModelId: string): boolean {
 	);
 }
 
+function isAlibabaWan3VideoModel(canonicalModelId: string): boolean {
+	return (
+		canonicalModelId === "wan-3-0-video" ||
+		canonicalModelId === "wan-3-0-video-prime"
+	);
+}
+
 function isAtlasCloudKlingVideoModel(canonicalModelId: string): boolean {
 	return (
 		canonicalModelId === "kling-v3-0" ||
@@ -526,6 +537,10 @@ export function supportsVideoReferenceInput(modelId: string): boolean {
 
 	if (isVeedFabricVideoModel(canonicalModelId)) {
 		return providerId === undefined || providerId === "atlascloud";
+	}
+
+	if (isAlibabaWan3VideoModel(canonicalModelId)) {
+		return providerId === undefined || providerId === "alibaba";
 	}
 
 	if (providerId === "bytedance") {
@@ -634,6 +649,10 @@ function mappingSupportsVideoRequest(
 			return isSeedance2ReferenceModel(mapping.modelId);
 		}
 
+		if (mapping.providerId === "alibaba") {
+			return isAlibabaWan3VideoModel(mapping.modelId);
+		}
+
 		if (
 			mapping.providerId !== "google-vertex" &&
 			mapping.providerId !== "google-ai-studio" &&
@@ -657,6 +676,10 @@ function mappingSupportsVideoRequest(
 
 		if (mapping.providerId === "atlascloud") {
 			return isVeedFabricVideoModel(mapping.modelId);
+		}
+
+		if (mapping.providerId === "alibaba") {
+			return isAlibabaWan3VideoModel(mapping.modelId);
 		}
 
 		// Veo reference images are only supported on the veo-3.1 family.
