@@ -331,7 +331,7 @@ Generated audio does not change these Seedance 2.x token rates. Reference images
 
 `seedance-1-5-pro` costs **$2.40 / 1M tokens with generated audio** or **$1.20 / 1M tokens without audio**, at either supported resolution. Its requested resolution is forwarded explicitly. This mapping retires on **November 11, 2026**. Offline/flex and Draft settings are not exposed by this API.
 
-A successful provider response without valid billing usage is retried up to 12 times before settlement and completion callbacks. If billing data is still missing, the completed video remains available with its cost unsettled, automatic polling stops, and an operator must reconcile the verified usage and pricing context. Its credit reservation remains held beyond the normal two-hour window until settlement; the gateway never substitutes a guessed charge. See the [official BytePlus pricing and billing rules](https://docs.byteplus.com/docs/modelark/model-pricing).
+A successful provider response without valid billing usage is retried up to 12 times before settlement and completion callbacks. If billing data is still missing, the job is billed once at the model's per-second list price for the requested duration and resolution (the figure shown on the models page), its log is marked as an estimated cost, and the job then reports `usage.cost` and sends its completion callback like any other. See the [official BytePlus pricing and billing rules](https://docs.byteplus.com/docs/modelark/model-pricing).
 
 KLING (AtlasCloud):
 

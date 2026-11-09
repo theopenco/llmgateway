@@ -1446,20 +1446,7 @@ function getVideoOutputCost(job: VideoJobRecord): number {
 	// rather than the requested duration) is billed exactly as reported.
 	const videoOutputPrice = getVideoMapping(job)?.videoOutputPrice;
 	if (isBytedanceVideoProvider(job.usedProvider)) {
-		const completionTokens = getByteDanceVideoCompletionTokens(job);
-		const tokenPrice = getVideoOutputTokenPrice(
-			videoOutputPrice,
-			getByteDanceVideoTokenPricingOptions(job),
-		);
-		if (tokenPrice === undefined) {
-			throw new VideoBillingPendingError(
-				"ByteDance video token price is unavailable",
-			);
-		}
-		return new Decimal(completionTokens)
-			.mul(tokenPrice)
-			.toDecimalPlaces(6)
-			.toNumber();
+		return getByteDanceVideoBilling(job).outputCost;
 	}
 	const usage = getUpstreamVideoUsage(job);
 	const videoOutputTokens = usage ? getVideoOutputTokens(usage) : 0;
@@ -1474,7 +1461,17 @@ function getVideoOutputCost(job: VideoJobRecord): number {
 	if (!pricing) {
 		return getVideoRequestPrice(job) ?? 0;
 	}
+	return getVideoPerSecondOutputCost(job, pricing) ?? 0;
+}
 
+/**
+ * Requested duration × the mapping's per-second list price for the job's
+ * resolution and audio setting; null (with a warning) when either is unknown.
+ */
+function getVideoPerSecondOutputCost(
+	job: VideoJobRecord,
+	pricing: Record<string, string>,
+): number | null {
 	const durationSeconds = extractVideoDurationSeconds(job);
 	if (durationSeconds === null) {
 		logger.warn("Could not determine video duration for billing", {
@@ -1482,7 +1479,7 @@ function getVideoOutputCost(job: VideoJobRecord): number {
 			model: job.model,
 			upstreamId: job.upstreamId,
 		});
-		return 0;
+		return null;
 	}
 
 	const requestedResolution =
@@ -1535,7 +1532,7 @@ function getVideoOutputCost(job: VideoJobRecord): number {
 			resolutionKey,
 			includesAudio,
 		});
-		return 0;
+		return null;
 	}
 
 	return Number((durationSeconds * pricePerSecond).toFixed(6));
@@ -1621,6 +1618,10 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 			const tokenCosts =
 				jobToLog.status === "completed" ? getVideoTokenCosts(jobToLog) : null;
 			const totalCost = getVideoBilledCost(jobToLog);
+			const estimatedCost =
+				jobToLog.status === "completed" &&
+				isBytedanceVideoProvider(jobToLog.usedProvider) &&
+				getByteDanceVideoBilling(jobToLog).estimated;
 			const costFields = {
 				cost: totalCost,
 				videoOutputCost,
@@ -1729,7 +1730,7 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 							outputCost: tokenCosts.outputCost,
 						}
 					: {}),
-				estimatedCost: false,
+				estimatedCost,
 				messages: [
 					{
 						role: "user",
@@ -3153,6 +3154,62 @@ function getByteDanceVideoCompletionTokens(job: VideoJobRecord): number {
 	return tokens;
 }
 
+interface ByteDanceVideoBilling {
+	outputCost: number;
+	completionTokens: number | null;
+	estimated: boolean;
+}
+
+/**
+ * Exact cost from the reported `completion_tokens`. Once billing deferrals are
+ * exhausted (`llmgateway_billing_fallback`), a job whose usage or pricing
+ * context is still unusable bills the per-second list price for its requested
+ * duration instead, so a delivered video is never left unbilled.
+ */
+function getByteDanceVideoBilling(job: VideoJobRecord): ByteDanceVideoBilling {
+	try {
+		const completionTokens = getByteDanceVideoCompletionTokens(job);
+		const tokenPrice = getVideoOutputTokenPrice(
+			getVideoMapping(job)?.videoOutputPrice,
+			getByteDanceVideoTokenPricingOptions(job),
+		);
+		if (tokenPrice === undefined) {
+			throw new VideoBillingPendingError(
+				"ByteDance video token price is unavailable",
+			);
+		}
+		return {
+			outputCost: new Decimal(completionTokens)
+				.mul(tokenPrice)
+				.toDecimalPlaces(6)
+				.toNumber(),
+			completionTokens,
+			estimated: false,
+		};
+	} catch (error) {
+		if (
+			!(error instanceof VideoBillingPendingError) ||
+			!hasVideoBillingFallback(job)
+		) {
+			throw error;
+		}
+		const pricing = getVideoPricing(job);
+		const outputCost = pricing
+			? getVideoPerSecondOutputCost(job, pricing)
+			: null;
+		if (outputCost === null || outputCost <= 0) {
+			throw new Error(
+				`ByteDance video list-price fallback is unavailable: ${error.message}`,
+			);
+		}
+		return { outputCost, completionTokens: null, estimated: true };
+	}
+}
+
+function hasVideoBillingFallback(job: VideoJobRecord): boolean {
+	return getVideoStatusResponse(job)?.llmgateway_billing_fallback === true;
+}
+
 function hasPendingVideoBilling(job: VideoJobRecord): boolean {
 	return (
 		isBytedanceVideoProvider(job.usedProvider) &&
@@ -3173,14 +3230,16 @@ async function deferVideoJobBilling(
 		previousCount >= 0
 			? previousCount + 1
 			: 1;
-	const quarantined = retryCount >= VIDEO_JOB_MAX_BILLING_DEFERRALS;
+	// Out of retries: complete the job and let finalization bill it from the
+	// list-price fallback (see getByteDanceVideoBilling).
+	const fallback = retryCount >= VIDEO_JOB_MAX_BILLING_DEFERRALS;
 	const now = new Date();
 	const deferred = await db
 		.update(tables.videoJob)
 		.set({
-			status: quarantined ? "completed" : "in_progress",
-			progress: quarantined ? 100 : job.progress,
-			completedAt: quarantined
+			status: fallback ? "completed" : "in_progress",
+			progress: fallback ? 100 : job.progress,
+			completedAt: fallback
 				? (parseTimestamp(status?.completed_at) ?? job.completedAt ?? now)
 				: null,
 			contentUrl: status
@@ -3194,7 +3253,7 @@ async function deferVideoJobBilling(
 			cost: null,
 			videoOutputCost: null,
 			lastPolledAt: now,
-			nextPollAt: quarantined
+			nextPollAt: fallback
 				? now
 				: new Date(
 						now.getTime() + calculateNextVideoPollErrorDelayMs(retryCount),
@@ -3202,8 +3261,8 @@ async function deferVideoJobBilling(
 			pollAttemptCount: job.pollAttemptCount + 1,
 			upstreamStatusResponse: {
 				...status,
-				llmgateway_billing_pending: true,
-				llmgateway_billing_quarantined: quarantined,
+				llmgateway_billing_pending: !fallback,
+				llmgateway_billing_fallback: fallback,
 				llmgateway_billing_retry_count: retryCount,
 				llmgateway_last_billing_error: error.message,
 			},
@@ -3225,10 +3284,10 @@ async function deferVideoJobBilling(
 		retryCount,
 		error: error.message,
 	};
-	if (quarantined) {
-		logger.error(
-			"Video billing quarantined; manual reconciliation required",
-			error,
+	if (fallback) {
+		// Billed by the terminal-job sweep at the end of this poll tick.
+		logger.warn(
+			"Billing completed video from list price; upstream usage unavailable",
 			context,
 		);
 	} else {
@@ -3256,6 +3315,11 @@ function matchVideoJobSnapshot(job: VideoJobRecord) {
 			: isNull(tables.videoJob.lastPolledAt),
 	);
 }
+/**
+ * Legacy hold from before the list-price fallback: a quarantined job stays
+ * unbilled until released by setting `llmgateway_billing_fallback` and
+ * clearing `llmgateway_billing_quarantined`.
+ */
 function videoBillingNotQuarantined() {
 	return sql<boolean>`(${tables.videoJob.upstreamStatusResponse}->>'llmgateway_billing_quarantined') IS DISTINCT FROM 'true'`;
 }
@@ -3443,13 +3507,16 @@ function readTokenCount(value: unknown): number {
  */
 function getVideoTokenCosts(job: VideoJobRecord): VideoTokenCosts | null {
 	if (isBytedanceVideoProvider(job.usedProvider)) {
-		return {
-			promptTokens: 0,
-			completionTokens: getByteDanceVideoCompletionTokens(job),
-			reasoningTokens: 0,
-			inputCost: 0,
-			outputCost: 0,
-		};
+		const { completionTokens } = getByteDanceVideoBilling(job);
+		return completionTokens === null
+			? null
+			: {
+					promptTokens: 0,
+					completionTokens,
+					reasoningTokens: 0,
+					inputCost: 0,
+					outputCost: 0,
+				};
 	}
 	const mapping = getVideoMapping(job);
 	if (!mapping?.inputPrice && !mapping?.outputPrice) {
