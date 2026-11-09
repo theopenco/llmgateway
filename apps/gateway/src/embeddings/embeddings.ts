@@ -64,6 +64,7 @@ import {
 	shouldRedactProviderError,
 } from "@/lib/stealth-provider-errors.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { usageCostSchema, withUsageCost } from "@/lib/usage-cost.js";
 
 import {
 	getGoogleVertexPublisherModelPath,
@@ -139,6 +140,7 @@ const embeddingUsageSchema = z
 	.object({
 		prompt_tokens: z.number().int(),
 		total_tokens: z.number().int(),
+		...usageCostSchema,
 	})
 	.passthrough();
 
@@ -1622,7 +1624,12 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				{ retentionLevel },
 			);
 
-			return c.json(normalizedResponse);
+			return c.json(
+				withUsageCost(normalizedResponse, cost, {
+					input_cost: inputCost,
+					request_cost: requestCost,
+				}),
+			);
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);
