@@ -64,6 +64,7 @@ export const curatedCategoryModelIds: Record<
 		"claude-opus-4-8",
 	]),
 	coding: new Set([
+		"claude-fable-5-2",
 		"claude-fable-5-1",
 		"claude-opus-5-5",
 		"claude-fable-5",
@@ -111,6 +112,7 @@ export const curatedCategoryModelIds: Record<
 		"claude-opus-4-8",
 		"claude-sonnet-5-5",
 		"claude-sonnet-5",
+		"claude-fable-5-2",
 		"claude-fable-5-1",
 		"claude-fable-5",
 		"kimi-k2.5",
@@ -159,6 +161,7 @@ export const curatedCategoryModelIds: Record<
 		"gpt-5.2-pro",
 		"claude-opus-4-8",
 		"claude-opus-5-5",
+		"claude-fable-5-2",
 		"claude-fable-5-1",
 		"claude-fable-5",
 		"gemini-3.1-pro-preview",
