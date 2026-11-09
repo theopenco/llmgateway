@@ -2,16 +2,25 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, CreditCard, Sparkles, TrendingUp } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useState } from "react";
 
 import { useApi } from "@/lib/fetch-client";
 import { formatCredits } from "@/lib/format-credits";
 
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
-import { TopUpCreditsDialog } from "./top-up-credits-dialog";
-
 import type { Organization } from "@/lib/types";
+
+// Every studio sidebar renders this component, so a static import here would
+// put the Stripe top-up dialog and @stripe/react-stripe-js back into each
+// page's initial bundle — exactly what the page clients' own lazy dialogs
+// avoid. It renders nothing until opened, so there is no SSR output to lose.
+const TopUpCreditsDialog = dynamic(
+	() => import("./top-up-credits-dialog").then((m) => m.TopUpCreditsDialog),
+	{ ssr: false },
+);
 
 interface CreditsDisplayProps {
 	organization: Organization | null;
@@ -27,6 +36,7 @@ export function CreditsDisplay({
 	isChatPlanOrg = false,
 }: CreditsDisplayProps) {
 	const api = useApi();
+	const [showTopUp, setShowTopUp] = useState(false);
 	const planQuery = useQuery({
 		...api.queryOptions("get", "/chat-plans/status"),
 		enabled: Boolean(organization) && isChatPlanOrg,
@@ -95,8 +105,11 @@ export function CreditsDisplay({
 			    Chat plan context we hide them so users top up / use credits by
 			    switching to an organization instead. */}
 			{!isChatPlanOrg && (
-				<TopUpCreditsDialog organizationId={organization?.id}>
-					<button className="w-full flex items-center justify-between p-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors text-left">
+				<>
+					<button
+						onClick={() => setShowTopUp(true)}
+						className="w-full flex items-center justify-between p-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors text-left"
+					>
 						<div className="flex items-center gap-2">
 							<CreditCard
 								className={`h-4 w-4 ${hasNoCredits ? "text-destructive" : isLowCredits ? "text-yellow-500" : "text-muted-foreground"}`}
@@ -112,7 +125,12 @@ export function CreditsDisplay({
 						</div>
 						<span className="text-xs text-muted-foreground">Add</span>
 					</button>
-				</TopUpCreditsDialog>
+					<TopUpCreditsDialog
+						open={showTopUp}
+						onOpenChange={setShowTopUp}
+						organizationId={organization?.id}
+					/>
+				</>
 			)}
 			{isChatPlanOrg && !hasActivePlan && (
 				<Link

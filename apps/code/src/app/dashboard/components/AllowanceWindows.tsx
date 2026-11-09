@@ -141,7 +141,12 @@ function AllowanceTile({ tile }: { tile: WindowTile }) {
 				{tile.resetsAt ? (
 					<p className="truncate">
 						{tile.resetVerb}{" "}
-						<span className="font-medium text-foreground">
+						{/* Clock-relative, so server render and hydration can round
+						    to different values. */}
+						<span
+							suppressHydrationWarning
+							className="font-medium text-foreground"
+						>
 							in {formatDistanceToNowStrict(tile.resetsAt)}
 						</span>{" "}
 						·{" "}
