@@ -58,8 +58,6 @@ import { searchRoute } from "./search/route.js";
 import { speechRoute } from "./speech/route.js";
 import { systemoneRoute } from "./systemone/route.js";
 import { transcriptionsRoute } from "./transcriptions/route.js";
-import { usageReceiptMiddleware } from "./usage/middleware.js";
-import { usageRoute } from "./usage/route.js";
 import { videosRoute } from "./videos/route.js";
 import { videoAssets } from "./videos/videos.js";
 
@@ -168,10 +166,6 @@ app.use("*", async (c, next) => {
 	}
 	return await next();
 });
-
-// Opt-in usage receipts. After the request gates above, so rejected requests
-// get no receipt.
-app.use("*", usageReceiptMiddleware);
 
 app.onError((error, c) => {
 	if (error instanceof UnsupportedAudioFormatError) {
@@ -441,7 +435,6 @@ v1.route("/audio/transcriptions", transcriptionsRoute);
 v1.route("/realtime", realtimeClientSecretsRoute);
 v1.route("/videos", videosRoute);
 v1.route("/credits", creditsRoute);
-v1.route("/usage", usageRoute);
 
 v1.route("/", airsideInference);
 

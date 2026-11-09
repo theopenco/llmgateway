@@ -1,5 +1,3 @@
-import { recordUsageReceiptLog } from "@/usage/receipts.js";
-
 import { publishToQueue, LOG_QUEUE } from "@llmgateway/cache";
 import {
 	stripRetentionSensitiveLogFields,
@@ -524,7 +522,6 @@ export async function insertLog(
 	await recordRateLimitUsage(logData);
 
 	await publishToQueue(LOG_QUEUE, logData);
-	await recordUsageReceiptLog(logData);
 	markRequestLogged();
 	return 1; // Return 1 to match test expectations
 }
