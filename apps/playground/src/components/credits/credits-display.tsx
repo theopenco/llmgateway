@@ -37,6 +37,10 @@ export function CreditsDisplay({
 }: CreditsDisplayProps) {
 	const api = useApi();
 	const [showTopUp, setShowTopUp] = useState(false);
+	// Mounted on first open and kept mounted after, so the chunk is never
+	// fetched for sidebars whose dialog is never opened, while closing keeps
+	// Radix's exit animation and the dialog's state.
+	const [topUpMounted, setTopUpMounted] = useState(false);
 	const planQuery = useQuery({
 		...api.queryOptions("get", "/chat-plans/status"),
 		enabled: Boolean(organization) && isChatPlanOrg,
@@ -107,7 +111,10 @@ export function CreditsDisplay({
 			{!isChatPlanOrg && (
 				<>
 					<button
-						onClick={() => setShowTopUp(true)}
+						onClick={() => {
+							setTopUpMounted(true);
+							setShowTopUp(true);
+						}}
 						className="w-full flex items-center justify-between p-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors text-left"
 					>
 						<div className="flex items-center gap-2">
@@ -125,11 +132,13 @@ export function CreditsDisplay({
 						</div>
 						<span className="text-xs text-muted-foreground">Add</span>
 					</button>
-					<TopUpCreditsDialog
-						open={showTopUp}
-						onOpenChange={setShowTopUp}
-						organizationId={organization?.id}
-					/>
+					{topUpMounted && (
+						<TopUpCreditsDialog
+							open={showTopUp}
+							onOpenChange={setShowTopUp}
+							organizationId={organization?.id}
+						/>
+					)}
 				</>
 			)}
 			{isChatPlanOrg && !hasActivePlan && (
