@@ -1238,6 +1238,44 @@ describe("airside provider portal", () => {
 		expect((await queued.json()).message).toContain("provider API key");
 	});
 
+	it("verifies a catalogue claim with a stored base URL on the managed key", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const claim = await claimProvider(cookie, company.id);
+		await db
+			.update(tables.providerClaim)
+			.set({ providerKeyId: null, customBaseUrl: "https://api.mistral.ai" })
+			.where(eq(tables.providerClaim.id, claim.id));
+		await activateClaim();
+		const providerKeyId = `managed-key-${crypto.randomUUID()}`;
+		await db.insert(tables.providerKey).values({
+			id: providerKeyId,
+			provider: "mistral",
+			...encryptProviderKeyForStorage(
+				"managed-provider-test-key",
+				providerKeyId,
+				null,
+			),
+			managed: true,
+		});
+
+		const queued = await app.request(
+			"/airside/model-verifications",
+			json(cookie, {
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				modelName: "mistral-public-id",
+				pricing: { inputPrice: "2e-6", outputPrice: "6e-6" },
+			}),
+		);
+
+		expect(queued.status).toBe(202);
+		const row = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: (await queued.json()).verification.id } },
+		});
+		expect(row?.credentialSource).toBe("managed");
+	});
+
 	it("reuses the linked provider key without copying a verification credential", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);

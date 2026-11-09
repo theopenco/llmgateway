@@ -2,6 +2,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {} from "@/lib/airside-carrier-keys.js";
+import { effectiveClaimKind } from "@/lib/airside-profile.js";
 
 import {
 	createQueuedModelVerificationChecks,
@@ -304,7 +305,9 @@ export async function resolveVerificationCredential(
 			message: "The carrier provider key is unavailable for this deployment.",
 		});
 	}
-	if (claim?.kind === "custom" || claim?.customBaseUrl) {
+	// A catalogue claim's admin-set base URL only takes over once the static
+	// provider is gone; until then it serves, and verifies, on managed keys.
+	if (claim && effectiveClaimKind(claim) === "custom") {
 		throw new HTTPException(400, {
 			message: "Add a provider API key before running verification.",
 		});
