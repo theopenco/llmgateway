@@ -24,8 +24,8 @@ import { fetchServerData } from "@/lib/server-api";
 
 import type { Metadata } from "next";
 
-// Below-the-fold client sections, split out of the route's initial bundle the
-// same way the home page loads Uptime.
+// Below-the-fold client sections, loaded the same way the home page loads
+// Uptime.
 const UptimeVisualization = dynamic(() =>
 	import("@/components/enterprise/uptime").then(
 		(mod) => mod.UptimeVisualization,
