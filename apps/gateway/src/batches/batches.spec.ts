@@ -706,6 +706,23 @@ describe("Batch API", () => {
 		expect((await createBatch("file-no-credits")).status).toBe(200);
 	});
 
+	test("rejects batch storage while zero data retention is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: { enabled: true, zeroDataRetention: true },
+			})
+			.where(eq(tables.organization.id, "org-id"));
+		await clearCache();
+
+		const upload = await uploadFile(chatLine("a"));
+		expect(upload.status).toBe(400);
+		expect((await upload.json()).error.code).toBe("zdr_storage_conflict");
+		const create = await createBatch("file-missing");
+		expect(create.status).toBe(400);
+		expect(await db.select().from(tables.batchFile)).toHaveLength(0);
+	});
+
 	test("caps the batches an organization can run at once", async () => {
 		const file = await (await uploadFile(chatLine("a"))).json();
 		await db.insert(tables.batch).values(

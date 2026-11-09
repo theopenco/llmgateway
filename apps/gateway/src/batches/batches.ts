@@ -3,6 +3,8 @@ import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 
 import { getAvailableCredits } from "@/chat/tools/resolve-provider-context.js";
+import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
+import { CodedHTTPException } from "@/lib/error-response.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { getAuthenticatedReadAccess } from "@/lib/gateway-read-access.js";
@@ -100,7 +102,19 @@ const authenticateFirst: MiddlewareHandler<ServerTypes> = async (c, next) => {
  * Batch requests are billed like live ones, so a project paying from credits
  * needs a balance or a plan allowance before it can queue work.
  */
-function assertCanQueueBatchWork({ project, organization }: BatchAccess) {
+function assertCanQueueBatchWork({
+	apiKey,
+	project,
+	organization,
+}: BatchAccess) {
+	// Batch files store prompts and completions for up to 30 days.
+	if (isZeroDataRetentionEnabled(organization, apiKey)) {
+		throw new CodedHTTPException(400, {
+			message:
+				"The Batch API stores request and response files, so it is unavailable while zero data retention is active.",
+			code: "zdr_storage_conflict",
+		});
+	}
 	if (
 		project.mode !== "credits" ||
 		organization.plan === "enterprise" ||

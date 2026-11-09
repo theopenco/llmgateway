@@ -111,6 +111,7 @@ The output file holds requests that returned a 2xx response. The error file hold
 - A response larger than 10 MB is not stored; its line fails with `response_too_large`.
 - IP restrictions on the API key apply to the client IP that created the batch.
 - `/v1/files` and `/v1/batches` have their own per-minute [rate limits](/resources/rate-limits), tighter for uploads and batch creation than for reads.
+- Batch requests run as regular requests, so they count toward your organization's per-minute and concurrent request limits alongside live traffic. Up to 16 requests per organization run at once.
 
 | Limit                                        | Value     |
 | -------------------------------------------- | --------- |
@@ -144,5 +145,7 @@ Files and batches belong to the API key's project: any key in the same project c
 	for 30 days, or until you delete them, regardless of your organization's [data
 	retention](/features/data-retention) setting. The key used to create a batch
 	is stored encrypted until the batch finishes, or until the key is disabled,
-	deleted, or rolled, so the gateway can run its requests.
+	deleted, or rolled, so the gateway can run its requests. While [zero data
+	retention](/features/compliance) is active, uploading files and creating
+	batches return `400` with code `zdr_storage_conflict`.
 </Callout>
