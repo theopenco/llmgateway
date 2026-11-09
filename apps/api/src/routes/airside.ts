@@ -112,7 +112,7 @@ import { sendTransactionalEmail } from "@/utils/email.js";
 
 import {
 	hasMessageContentVerification,
-	isDailyModelVerification,
+	DAILY_MODEL_VERIFICATION_PREFIX,
 } from "@llmgateway/actions";
 import {
 	AIRSIDE_BASELINE_MARGIN,
@@ -3737,19 +3737,36 @@ async function requirePassingPreflight(
 	since: Date | null,
 	action: string,
 ) {
-	const runs = await db.query.providerModelVerification.findMany({
+	const dailyIds = `${DAILY_MODEL_VERIFICATION_PREFIX}%`;
+	const carrierRun = await db.query.providerModelVerification.findFirst({
 		where: {
 			draftModelId: { eq: model.id },
+			id: { notLike: dailyIds },
 			...(since ? { createdAt: { gte: since } } : {}),
 		},
 		orderBy: { createdAt: "desc" },
-		limit: 50,
 	});
-	const latest = runs.find(
-		(run) =>
-			!isDailyModelVerification(run) ||
-			verificationTargetCovers(run.target, required),
+	const dailyRuns = await db.query.providerModelVerification.findMany({
+		columns: { id: true, target: true },
+		where: {
+			draftModelId: { eq: model.id },
+			id: { like: dailyIds },
+			...(carrierRun
+				? { createdAt: { gt: carrierRun.createdAt } }
+				: since
+					? { createdAt: { gte: since } }
+					: {}),
+		},
+		orderBy: { createdAt: "desc" },
+	});
+	const coveringDaily = dailyRuns.find((run) =>
+		verificationTargetCovers(run.target, required),
 	);
+	const latest = coveringDaily
+		? await db.query.providerModelVerification.findFirst({
+				where: { id: { eq: coveringDaily.id } },
+			})
+		: carrierRun;
 	if (latest?.status === "queued" || latest?.status === "running") {
 		throw new HTTPException(409, {
 			message: `Preflight is still running — ${action} once it passes.`,
