@@ -214,11 +214,12 @@ export async function assertProviderKeyServes(
 }
 
 /**
- * The carrier's most recently submitted listing, live or in review — every
- * one passed preflight, so its mapping is a fair smoke-test target.
+ * The listing to smoke-test a replacement provider key against: the newest one
+ * in service, else the newest in review, else the newest remaining one. Every
+ * one passed preflight, but a paused listing may no longer be served upstream.
  */
-export async function latestListing(claim: ProviderClaimRow) {
-	return await db.query.providerDraftModel.findFirst({
+export async function smokeTestListing(claim: ProviderClaimRow) {
+	const listings = await db.query.providerDraftModel.findMany({
 		where: {
 			providerCompanyId: { eq: claim.providerCompanyId },
 			providerId: { eq: claim.providerId },
@@ -229,10 +230,18 @@ export async function latestListing(claim: ProviderClaimRow) {
 			externalId: true,
 			apiFormat: true,
 			decisions: true,
+			status: true,
+			pausedAt: true,
 		},
 		orderBy: { createdAt: "desc" },
 	});
+	return (
+		listings.find((l) => l.status === "active" && !l.pausedAt) ??
+		listings.find((l) => l.status === "draft") ??
+		listings[0]
+	);
 }
+
 async function storeCarrierProviderKey(
 	tx: CacheTransaction,
 	claim: ProviderClaimRow,

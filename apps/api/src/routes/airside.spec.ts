@@ -6448,6 +6448,54 @@ describe("airside provider portal", () => {
 		expect(remaining.map((k) => k.id)).toEqual([pending.id]);
 	});
 
+	it("smoke-tests a replacement provider key against a listing in service", async () => {
+		const { company, claim } = await approvedCarrier();
+		const upstream = stubCarrierUpstream(
+			new Set(["sk-acme-sky-serving-key", "sk-acme-sky-rotated"]),
+		);
+		const approve = async (res: Response) => {
+			const { model } = await res.json();
+			const approved = await app.request(
+				`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+				json(cookie),
+			);
+			expect(approved.status).toBe(200);
+			return model as { id: string };
+		};
+		await approve(
+			await createModel(
+				cookie,
+				company.id,
+				sky("sky-large", "sk-acme-sky-serving-key"),
+			),
+		);
+		// The newest listing is paused, so it may no longer be served upstream.
+		const newest = await approve(
+			await createModel(cookie, company.id, sky("sky-small")),
+		);
+		const paused = await app.request(
+			`/airside/models/${newest.id}/pause`,
+			json(cookie),
+		);
+		expect(paused.status).toBe(200);
+
+		upstream.mockClear();
+		const res = await app.request(
+			`/airside/claims/${claim.id}/provider-key`,
+			json(cookie, { apiKey: "sk-acme-sky-rotated" }, "PUT"),
+		);
+		expect(res.status).toBe(200);
+		const targets = upstream.mock.calls.map(
+			([, init]) =>
+				openAirsideInference(
+					JSON.parse(String(init?.body)),
+					"fixture-operator-token",
+				).payload.target.modelName,
+		);
+		expect(targets.length).toBeGreaterThan(0);
+		expect(targets.every((name) => name === "sky-large")).toBe(true);
+	});
+
 	it("lets an admin set or override a carrier's provider key", async () => {
 		const { company, claim } = await approvedCarrier();
 		stubCarrierUpstream(new Set(["sk-admin-set"]));
