@@ -34,8 +34,6 @@ const readRoutes = [
 	"GET /v1/credits",
 	"GET /v1/models",
 	"GET /v1/responses/:response_id",
-	// Scoped to the API key's project (usage/auth.ts).
-	"GET /v1/usage/receipts/:id",
 	"GET /v1/videos/:video_id",
 	"GET /v1/videos/:video_id/content",
 	"GET /v1/videos/logs/:log_id/content",
@@ -81,7 +79,7 @@ describe("complete gateway route inventory", () => {
 			"ALL /mcp",
 		].sort();
 		expect(actual).toEqual(classified);
-		expect(actual).toHaveLength(51);
+		expect(actual).toHaveLength(50);
 	});
 
 	test("tracks the separate realtime upgrade and internal-only metrics router", () => {
