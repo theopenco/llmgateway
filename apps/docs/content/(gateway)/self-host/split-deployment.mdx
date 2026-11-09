@@ -34,6 +34,12 @@ Use origins without a trailing slash or `/v1` suffix:
 | `MCP_GATEWAY_URL`      | Gateway                                           | Optional HTTPS origin for MCP generation; overrides both gateway URL variables |
 | `REALTIME_BACKEND_URL` | Lounge when realtime is served separately         | Optional realtime backend origin; otherwise uses the gateway backend           |
 
+The worker runs [Batch API](/features/batch) requests through the gateway and
+forwards each batch creator's IP in `CLIENT_IP_HEADER`. Behind an edge that
+overwrites that header, set `GATEWAY_BACKEND_URL` and `CLIENT_IP_HEADER` on the
+worker so batch requests reach the gateway directly; otherwise IP-restricted
+keys fail their batch requests.
+
 Always set `GATEWAY_URL` explicitly on testing deployments. The shared gateway
 helper defaults to the hosted production gateway when `NODE_ENV=production`.
 `API_URL` instead defaults to `http://localhost:4002` in the frontends; in a
