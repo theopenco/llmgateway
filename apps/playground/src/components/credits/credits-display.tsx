@@ -115,6 +115,11 @@ export function CreditsDisplay({
 							setTopUpMounted(true);
 							setShowTopUp(true);
 						}}
+						// Mount the closed dialog on intent so its chunk and /orgs
+						// lookup are warm before the click; the dialog renders null
+						// until that lookup resolves.
+						onMouseEnter={() => setTopUpMounted(true)}
+						onFocus={() => setTopUpMounted(true)}
 						className="w-full flex items-center justify-between p-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors text-left"
 					>
 						<div className="flex items-center gap-2">
