@@ -118,9 +118,21 @@ curl -X POST "https://api.llmgateway.io/v1/decisions" \
 			"confidence": 0.88
 		}
 	],
-	"usage": { "input_tokens": 318, "output_tokens": 0, "total_tokens": 318 }
+	"usage": {
+		"input_tokens": 318,
+		"output_tokens": 0,
+		"total_tokens": 318,
+		"cost": 0.0000318,
+		"cost_details": {
+			"input_cost": 0.0000318,
+			"request_cost": 0,
+			"total_cost": 0.0000318
+		}
+	}
 }
 ```
+
+`usage.cost` is what the request was billed in USD (see [Cost Breakdown](/features/cost-breakdown)).
 
 ## OpenAI SDK
 

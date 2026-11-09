@@ -61,9 +61,21 @@ timestamps:
 		{ "text": "balance", "start": 0.48, "end": 0.96 },
 		{ "text": "is", "start": 0.96, "end": 1.12 },
 		{ "text": "$167,983.15.", "start": 1.12, "end": 3.2 }
-	]
+	],
+	"usage": {
+		"type": "duration",
+		"seconds": 3.45,
+		"cost": 0.0000958333,
+		"cost_details": {
+			"audio_input_cost": 0.0000958333,
+			"request_cost": 0,
+			"total_cost": 0.0000958333
+		}
+	}
 }
 ```
+
+`usage.cost` is what the request was billed in USD for `usage.seconds` of audio (see [Cost Breakdown](/features/cost-breakdown)).
 
 ## curl
 

@@ -140,7 +140,7 @@ function speechStreamingTests() {
 			}
 		},
 	);
-	test("forwards native SSE without re-encoding and logs terminal usage", async () => {
+	test("forwards native SSE events, adds the cost to the completion event and logs terminal usage", async () => {
 		await seed();
 		const payload = delta("FIRST") + done;
 		const spy = upstream(
@@ -158,7 +158,13 @@ function speechStreamingTests() {
 		});
 		expect(response.status).toBe(200);
 		expect(response.headers.get("Content-Type")).toBe("text/event-stream");
-		expect(await response.text()).toBe(payload);
+		const text = await response.text();
+		expect(text.startsWith(delta("FIRST"))).toBe(true);
+		const doneEvent = JSON.parse(text.slice(delta("FIRST").length + 6));
+		expect(doneEvent).toMatchObject({
+			type: "speech.audio.done",
+			usage: { input_tokens: 7, output_tokens: 42, total_tokens: 49 },
+		});
 		const speechCall = spy.mock.calls.find(([url]) =>
 			String(url).endsWith("/audio/speech"),
 		);
@@ -175,19 +181,54 @@ function speechStreamingTests() {
 		});
 	});
 
-	test("rejects SSE for legacy speech and retains string-only voice validation", async () => {
+	test("retains string-only voice validation for legacy speech", async () => {
 		await seed();
 		const spy = vi.spyOn(globalThis, "fetch");
-		for (const extra of [
-			{ stream_format: "sse" },
-			{ voice: { id: "custom-voice" } },
-		]) {
-			const response = await speak("azure/tts-1", extra);
-			expect(response.status).toBe(400);
-		}
+		const response = await speak("azure/tts-1", {
+			voice: { id: "custom-voice" },
+		});
+		expect(response.status).toBe(400);
 		expect(
 			spy.mock.calls.some(([url]) => String(url).endsWith("/audio/speech")),
 		).toBe(false);
+	});
+
+	test("re-frames legacy binary speech as SSE events without asking the upstream for SSE", async () => {
+		await seed();
+		const spy = upstream(
+			new ReadableStream({
+				start(controller) {
+					controller.enqueue(encode("FIRST"));
+					controller.enqueue(encode("SECOND"));
+					controller.close();
+				},
+			}),
+			false,
+		);
+		const input = "Hello legacy speech";
+		const response = await speak("azure/tts-1", {
+			input,
+			stream_format: "sse",
+		});
+		expect(response.status).toBe(200);
+		expect(response.headers.get("Content-Type")).toBe("text/event-stream");
+		const text = await response.text();
+		expect(text.startsWith(delta("FIRST") + delta("SECOND"))).toBe(true);
+		const doneEvent = JSON.parse(
+			text.slice((delta("FIRST") + delta("SECOND")).length + 6),
+		);
+		expect(doneEvent).toMatchObject({
+			type: "speech.audio.done",
+			usage: { input_characters: input.length },
+		});
+		const speechCall = spy.mock.calls.find(([url]) =>
+			String(url).endsWith("/audio/speech"),
+		);
+		expect(JSON.parse(String(speechCall?.[1]?.body))).not.toHaveProperty(
+			"stream_format",
+		);
+		const [log] = await waitForLogs(1);
+		expect(Number(log.cost)).toBe(doneEvent.usage.cost);
 	});
 
 	test("disconnect drains native usage and bills authorized generation exactly once", async () => {

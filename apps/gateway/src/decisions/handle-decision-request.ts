@@ -67,6 +67,7 @@ import {
 	shouldRedactProviderError,
 } from "@/lib/stealth-provider-errors.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { withUsageCost } from "@/lib/usage-cost.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
 import {
@@ -1310,7 +1311,12 @@ export async function handleDecisionRequest(
 				{ retentionLevel },
 			);
 
-			return c.json(normalized.body);
+			return c.json(
+				withUsageCost(normalized.body, cost, {
+					input_cost: inputCost,
+					request_cost: requestCostNum,
+				}),
+			);
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);
