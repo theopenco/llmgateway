@@ -7245,6 +7245,59 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 	});
 });
 
+describe("prepareRequestBody - Alibaba Wan 2.7 image size", () => {
+	async function prepareWanImageRequest(
+		content: BaseMessage["content"],
+		image_size: string,
+	) {
+		return (await prepareRequestBody(
+			"alibaba",
+			"wan-2-7-image-pro",
+			null,
+			"wan2.7-image-pro",
+			[{ role: "user", content }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			{ image_size },
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("forwards 4K for text-to-image", async () => {
+		const body = await prepareWanImageRequest("A teapot", "4K");
+		expect(body.parameters.size).toBe("4K");
+	});
+
+	test("rejects 4K with an input image", async () => {
+		await expect(
+			prepareWanImageRequest(
+				[
+					{ type: "text", text: "Make it blue" },
+					{
+						type: "image_url",
+						image_url: { url: "https://example.com/teapot.png" },
+					},
+				],
+				"4K",
+			),
+		).rejects.toThrow('image_size "4K" is only supported for text-to-image');
+	});
+});
+
 describe("prepareRequestBody - Alibaba cache_control", () => {
 	test("forwards cache_control: {type: 'ephemeral'} unchanged", async () => {
 		const requestBody = (await prepareRequestBody(

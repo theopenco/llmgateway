@@ -2338,6 +2338,29 @@ describe("videos", () => {
 			}
 		});
 
+		test("accepts 10 Wan 3.0 reference images and rejects 11", async () => {
+			const mock = await startAlibabaVideoMock();
+			try {
+				const ten = await createVideo({
+					model: "alibaba/wan-3-0-video",
+					size: "1280x720",
+					seconds: 5,
+					reference_images: Array.from({ length: 10 }, () => image),
+				});
+				expect(ten.status, await ten.clone().text()).toBe(200);
+				const eleven = await createVideo({
+					model: "alibaba/wan-3-0-video",
+					size: "1280x720",
+					seconds: 5,
+					reference_images: Array.from({ length: 11 }, () => image),
+				});
+				expect(eleven.status).toBe(400);
+				expect(mock.requests).toHaveLength(1);
+			} finally {
+				await mock.close();
+			}
+		});
+
 		test("keeps the pixel size protocol for Wan 2.6", async () => {
 			const mock = await startAlibabaVideoMock();
 			try {

@@ -2276,6 +2276,17 @@ export async function prepareRequestBody(
 			},
 		};
 
+		// Wan 2.7 accepts 4K only for text-to-image.
+		if (
+			imageUrls.length > 0 &&
+			image_config?.image_size?.toUpperCase() === "4K" &&
+			usedExternalId.startsWith("wan2.7-image")
+		) {
+			throw new RequestError(
+				'image_size "4K" is only supported for text-to-image on Wan 2.7 Image Pro; use "1K" or "2K" with input images',
+			);
+		}
+
 		// Map image_size to Alibaba format (uses * instead of x)
 		if (image_config?.image_size) {
 			alibabaImageRequest.parameters.size = image_config.image_size.replace(

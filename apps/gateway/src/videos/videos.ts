@@ -311,12 +311,17 @@ const videoImageInputSchema = z
 const SEEDANCE_2_MAX_REFERENCE_IMAGES = 9;
 const DEFAULT_MAX_REFERENCE_IMAGES = 3;
 const ALIBABA_WAN3_MAX_REFERENCE_IMAGES = 10;
+// Per-provider checks enforce lower limits.
+const MAX_REFERENCE_IMAGES = Math.max(
+	SEEDANCE_2_MAX_REFERENCE_IMAGES,
+	ALIBABA_WAN3_MAX_REFERENCE_IMAGES,
+);
 const GEMINI_OMNI_MAX_SOURCE_VIDEO_SECONDS = 10;
 
 const videoReferenceImagesSchema = z
 	.array(videoImageInputSchema)
 	.min(1)
-	.max(SEEDANCE_2_MAX_REFERENCE_IMAGES);
+	.max(MAX_REFERENCE_IMAGES);
 
 const referenceVideoUrlSchema = z
 	.string()
@@ -452,7 +457,7 @@ const createVideoRequestSchema = z
 		image: videoImageInputSchema.optional(),
 		reference_images: videoReferenceImagesSchema.optional().openapi({
 			description:
-				"Reference images for provider-specific asset or material-guided video generation. ByteDance Seedance 2.x models accept up to 9; other providers accept up to 3.",
+				"Reference images for provider-specific asset or material-guided video generation. ByteDance Seedance 2.x models accept up to 9 and Alibaba Wan 3.0 up to 10; other providers accept up to 3.",
 			example: [
 				{
 					image_url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
