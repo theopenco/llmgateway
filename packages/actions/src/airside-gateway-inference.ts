@@ -16,6 +16,9 @@ import type { ProviderModelVerificationTarget } from "@llmgateway/db";
 import type { ProviderModelMapping } from "@llmgateway/models";
 
 export const AIRSIDE_INFERENCE_PATH = "/v1/internal/airside/inference";
+/** `log.source` of internal Airside inference (verification and benchmark
+ *  probes). Client sources never normalize to it, so it marks synthetic traffic. */
+export const AIRSIDE_INFERENCE_LOG_SOURCE = "airside";
 const PURPOSE = "airside-gateway-inference:v1";
 const ENVELOPE_TTL_MS = 300_000;
 

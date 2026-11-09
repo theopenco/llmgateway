@@ -123,7 +123,13 @@ export function mappingTarget(
 		providerId: mapping.providerId,
 		modelName: mapping.modelId,
 		externalId: mapping.externalId,
-		apiFormat: mapping.apiFormat,
+		// The gateway serves a catalogue mapping without an `apiFormat` on its
+		// provider's native API; the chat-completions default is for listings.
+		apiFormat:
+			mapping.apiFormat ??
+			(mapping.source === "catalogue"
+				? (catalogueMapping?.apiFormat ?? "provider-native")
+				: null),
 		decisions: catalogueMapping?.decisions ?? mapping.decisions,
 		region: mapping.region,
 		streaming: mapping.streaming,

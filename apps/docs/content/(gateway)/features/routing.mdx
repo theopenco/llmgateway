@@ -448,7 +448,8 @@ Operator-run Airside preflight, daily verification when enabled, and Airside
 benchmarks use an authenticated internal gateway path. They pin the exact
 deployment, declared capabilities, and provider credential without fallback or
 response caching, including listings not yet public. Usage is logged and billed
-to the operator benchmark project. Public inference requests cannot override
+to the operator benchmark project, but excluded from the uptime and latency
+history that routing scores. Public inference requests cannot override
 provider credentials or access unpublished listings through this path. Regular
 session and DevPass routing is unchanged.
 

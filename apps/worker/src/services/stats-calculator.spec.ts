@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
+import { AIRSIDE_INFERENCE_LOG_SOURCE } from "@llmgateway/actions";
 import {
 	db,
 	provider,
@@ -1166,6 +1167,70 @@ describe("stats-calculator", () => {
 			);
 			expect(gpt4ModelHistory?.logsCount).toBe(2);
 			expect(gpt4ModelHistory?.errorsCount).toBe(2);
+		});
+
+		it("should exclude internal Airside inference from health stats", async () => {
+			const previousMinuteStart = new Date("2024-01-01T12:29:00.000Z");
+			const base = {
+				organizationId: "org-1",
+				projectId: "proj-1",
+				apiKeyId: "key-1",
+				duration: 300,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "openai/gpt-4",
+				usedProvider: "openai",
+				responseSize: 0,
+				mode: "credits" as const,
+				usedMode: "credits" as const,
+				createdAt: new Date(previousMinuteStart.getTime() + 5000),
+			};
+			await db.insert(log).values([
+				{
+					...base,
+					id: "log-airside-probe",
+					requestId: "req-airside-probe",
+					source: AIRSIDE_INFERENCE_LOG_SOURCE,
+					hasError: true,
+					unifiedFinishReason: "upstream_error",
+				},
+				{
+					...base,
+					id: "log-customer",
+					requestId: "req-customer",
+					hasError: false,
+					unifiedFinishReason: "completed",
+				},
+			]);
+
+			await calculateMinutelyHistory();
+
+			const openaiHistory = (
+				await db
+					.select()
+					.from(modelProviderMappingHistory)
+					.where(
+						eq(
+							modelProviderMappingHistory.minuteTimestamp,
+							previousMinuteStart,
+						),
+					)
+			).find(
+				(record) =>
+					record.modelProviderMappingId === "mapping-1" &&
+					record.usedMode === "credits",
+			);
+			expect(openaiHistory?.logsCount).toBe(1);
+			expect(openaiHistory?.errorsCount).toBe(0);
+
+			const gpt4ModelHistory = (await db.select().from(modelHistory)).find(
+				(record) =>
+					record.modelId === "gpt-4" &&
+					record.usedMode === "credits" &&
+					record.minuteTimestamp.getTime() === previousMinuteStart.getTime(),
+			);
+			expect(gpt4ModelHistory?.logsCount).toBe(1);
+			expect(gpt4ModelHistory?.errorsCount).toBe(0);
 		});
 
 		it("should handle cached requests correctly by ignoring tokens but counting requests", async () => {

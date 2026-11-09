@@ -10,6 +10,7 @@ import {
 } from "@/test-utils/test-helpers.js";
 
 import {
+	AIRSIDE_INFERENCE_LOG_SOURCE,
 	AIRSIDE_INFERENCE_PATH,
 	AirsideGatewayInfrastructureError,
 	createAirsideGatewayFetch,
@@ -157,6 +158,7 @@ describe("signed exact Airside inference", () => {
 			expect(log.projectId).toBe("project-id");
 			expect(log.apiKeyId).toBe("operator-api-key");
 			expect(log.usedMode).toBe("credits");
+			expect(log.source).toBe(AIRSIDE_INFERENCE_LOG_SOURCE);
 			expect(log.providerKeyId).toBe(payload.providerKeyId);
 			expect(log.usedModelMapping).toBe(payload.target.externalId);
 			expect(log.cached).toBe(false);
