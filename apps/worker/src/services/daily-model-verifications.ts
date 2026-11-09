@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
 import {
+	DAILY_MODEL_VERIFICATION_PREFIX,
 	createQueuedModelVerificationChecks,
 	mappingTarget,
 	buildVerificationTarget,
@@ -25,17 +26,9 @@ import type { ProviderModelVerificationTarget } from "@llmgateway/db";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Verification = typeof tables.providerModelVerification.$inferSelect;
-const DAILY_PREFIX = "daily-verification:";
-
-export function isDailyModelVerification(
-	job: Pick<Verification, "id">,
-): boolean {
-	return job.id.startsWith(DAILY_PREFIX);
-}
-
 export function dailyModelVerificationId(mappingId: string, now: Date): string {
 	return (
-		DAILY_PREFIX +
+		DAILY_MODEL_VERIFICATION_PREFIX +
 		now.toISOString().slice(0, 10) +
 		":" +
 		createHash("sha256").update(mappingId).digest("hex")

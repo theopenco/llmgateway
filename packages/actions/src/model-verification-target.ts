@@ -17,6 +17,14 @@ import type {
 } from "@llmgateway/models";
 
 type MappingRow = typeof tables.modelProviderMapping.$inferSelect;
+
+export const DAILY_MODEL_VERIFICATION_PREFIX = "daily-verification:";
+
+/** The worker's daily re-check of a live listing, not a carrier preflight. */
+export function isDailyModelVerification(job: { id: string }): boolean {
+	return job.id.startsWith(DAILY_MODEL_VERIFICATION_PREFIX);
+}
+
 export interface VerificationTargetInput {
 	providerId: string;
 	modelName: string;

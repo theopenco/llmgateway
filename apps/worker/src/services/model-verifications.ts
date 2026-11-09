@@ -1,5 +1,6 @@
 import {
 	disprovedCapabilities,
+	isDailyModelVerification,
 	managedCredentialOptions,
 	readProviderKey,
 	redactToken,
@@ -15,7 +16,6 @@ import { logger } from "@llmgateway/logger";
 import { REASONING_EFFORTS, TOOL_CHOICE_MODES } from "@llmgateway/models";
 
 import {
-	isDailyModelVerification,
 	resolveDailyVerificationCredential,
 	claimVerificationProviderKey,
 	managedVerificationProviderKey,

@@ -110,7 +110,10 @@ import {
 } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
-import { hasMessageContentVerification } from "@llmgateway/actions";
+import {
+	hasMessageContentVerification,
+	DAILY_MODEL_VERIFICATION_PREFIX,
+} from "@llmgateway/actions";
 import {
 	AIRSIDE_BASELINE_MARGIN,
 	AIRSIDE_DISCOUNT_MAX,
@@ -3725,6 +3728,8 @@ airside.openapi(deleteModel, async (c) => {
  * Gate for anything that puts claims about a model in front of us: the
  * model's latest preflight must have passed and prove `required`. Only claims
  * beyond what the listing already proved need this; narrowing never does.
+ * A daily re-check tests the live listing, so it only counts when it covers
+ * `required`; otherwise it would shadow the carrier's preflight of an edit.
  */
 async function requirePassingPreflight(
 	model: DraftModelRow,
@@ -3732,13 +3737,36 @@ async function requirePassingPreflight(
 	since: Date | null,
 	action: string,
 ) {
-	const latest = await db.query.providerModelVerification.findFirst({
+	const dailyIds = `${DAILY_MODEL_VERIFICATION_PREFIX}%`;
+	const carrierRun = await db.query.providerModelVerification.findFirst({
 		where: {
 			draftModelId: { eq: model.id },
+			id: { notLike: dailyIds },
 			...(since ? { createdAt: { gte: since } } : {}),
 		},
 		orderBy: { createdAt: "desc" },
 	});
+	const dailyRuns = await db.query.providerModelVerification.findMany({
+		columns: { id: true, target: true },
+		where: {
+			draftModelId: { eq: model.id },
+			id: { like: dailyIds },
+			...(carrierRun
+				? { createdAt: { gt: carrierRun.createdAt } }
+				: since
+					? { createdAt: { gte: since } }
+					: {}),
+		},
+		orderBy: { createdAt: "desc" },
+	});
+	const coveringDaily = dailyRuns.find((run) =>
+		verificationTargetCovers(run.target, required),
+	);
+	const latest = coveringDaily
+		? await db.query.providerModelVerification.findFirst({
+				where: { id: { eq: coveringDaily.id } },
+			})
+		: carrierRun;
 	if (latest?.status === "queued" || latest?.status === "running") {
 		throw new HTTPException(409, {
 			message: `Preflight is still running — ${action} once it passes.`,
