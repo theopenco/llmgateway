@@ -731,7 +731,7 @@ function fallbackWarnings(spy: { mock: { calls: unknown[][] } }) {
 	return spy.mock.calls.filter(([message]) => message === FALLBACK_MESSAGE);
 }
 
-async function expectBilledOnceFromListPrice() {
+async function expectBilledOnceFromListPrice(expectedCost = FALLBACK_COST) {
 	const job = await db.query.videoJob.findFirst({ where: { id: jobId } });
 	expect(job).toMatchObject({
 		status: "completed",
@@ -739,8 +739,8 @@ async function expectBilledOnceFromListPrice() {
 		contentUrl: "https://example.com/generated.mp4",
 		upstreamStatusResponse: { llmgateway_billing_fallback: true },
 	});
-	expect(job?.cost).toBeCloseTo(FALLBACK_COST, 6);
-	expect(job?.videoOutputCost).toBeCloseTo(FALLBACK_COST, 6);
+	expect(job?.cost).toBeCloseTo(expectedCost, 6);
+	expect(job?.videoOutputCost).toBeCloseTo(expectedCost, 6);
 	expect(job?.resultLoggedAt).toBeInstanceOf(Date);
 	const logs = await db.query.log.findMany({ where: { projectId } });
 	expect(logs).toHaveLength(1);
@@ -750,7 +750,7 @@ async function expectBilledOnceFromListPrice() {
 		estimatedCost: true,
 		completionTokens: null,
 	});
-	expect(logs[0].cost).toBeCloseTo(FALLBACK_COST, 6);
+	expect(logs[0].cost).toBeCloseTo(expectedCost, 6);
 	const deliveries = await db.query.webhookDeliveryLog.findMany({
 		where: { videoJobId: jobId },
 	});
@@ -950,6 +950,30 @@ async function testMissingContextFallback() {
 	expect(fetchMock).toHaveBeenCalledTimes(1);
 }
 
+async function testSilentFallbackPrice() {
+	await createJob({ model: "seedance-1-5-pro", includeAudio: false });
+	await db
+		.update(tables.videoJob)
+		.set({
+			upstreamStatusResponse: {
+				status: "succeeded",
+				llmgateway_billing_pending: true,
+				llmgateway_billing_retry_count: 11,
+			},
+			callbackUrl: "https://example.com/webhook",
+			callbackSecret: "test-secret",
+			callbackStatus: "pending",
+		})
+		.where(eq(tables.videoJob.id, jobId));
+	respond({
+		status: "succeeded",
+		content: { video_url: "https://example.com/generated.mp4" },
+	});
+	await processPendingVideoJobs();
+	// seedance-1-5-pro silent list price (0.02592/s), not the audio rate.
+	await expectBilledOnceFromListPrice(0.10368);
+}
+
 async function testLegacyQuarantineRelease() {
 	await createJob();
 	const quarantinedStatus = {
@@ -996,6 +1020,11 @@ async function testLegacyQuarantineRelease() {
 test(
 	"bills missing trusted context from the list price once retries run out",
 	testMissingContextFallback,
+);
+
+test(
+	"charges the requested silent list price when a silent job falls back",
+	testSilentFallbackPrice,
 );
 
 test(

@@ -1471,6 +1471,7 @@ function getVideoOutputCost(job: VideoJobRecord): number {
 function getVideoPerSecondOutputCost(
 	job: VideoJobRecord,
 	pricing: Record<string, string>,
+	trustedIncludesAudio: boolean | null = null,
 ): number | null {
 	const durationSeconds = extractVideoDurationSeconds(job);
 	if (durationSeconds === null) {
@@ -1508,7 +1509,9 @@ function getVideoPerSecondOutputCost(
 			typeof candidate === "string" && array.indexOf(candidate) === index,
 	);
 	const includesAudio =
-		videoIncludesAudio(job) ?? inferVideoIncludesAudioFromPricing(pricing);
+		trustedIncludesAudio ??
+		videoIncludesAudio(job) ??
+		inferVideoIncludesAudioFromPricing(pricing);
 	const priceCandidates =
 		includesAudio === null
 			? resolutionCandidates
@@ -3195,7 +3198,11 @@ function getByteDanceVideoBilling(job: VideoJobRecord): ByteDanceVideoBilling {
 		}
 		const pricing = getVideoPricing(job);
 		const outputCost = pricing
-			? getVideoPerSecondOutputCost(job, pricing)
+			? getVideoPerSecondOutputCost(
+					job,
+					pricing,
+					getByteDanceRequestedAudio(job),
+				)
 			: null;
 		if (outputCost === null || outputCost <= 0) {
 			throw new Error(
@@ -3208,6 +3215,40 @@ function getByteDanceVideoBilling(job: VideoJobRecord): ByteDanceVideoBilling {
 
 function hasVideoBillingFallback(job: VideoJobRecord): boolean {
 	return getVideoStatusResponse(job)?.llmgateway_billing_fallback === true;
+}
+
+/**
+ * The audio setting persisted at submit time, read independently of the token
+ * pricing context so the list-price fallback charges the requested tier.
+ */
+function getByteDanceRequestedAudio(job: VideoJobRecord): boolean | null {
+	const createResponse = job.upstreamCreateResponse;
+	if (
+		!createResponse ||
+		typeof createResponse !== "object" ||
+		Array.isArray(createResponse)
+	) {
+		return null;
+	}
+	const record = createResponse as Record<string, unknown>;
+	for (const key of [
+		"llmgateway_video_token_pricing",
+		"llmgateway_upstream_request",
+	] as const) {
+		const value = record[key];
+		if (!value || typeof value !== "object" || Array.isArray(value)) {
+			continue;
+		}
+		const nested = value as Record<string, unknown>;
+		const audio =
+			key === "llmgateway_video_token_pricing"
+				? nested.includeAudio
+				: nested.generate_audio;
+		if (typeof audio === "boolean") {
+			return audio;
+		}
+	}
+	return null;
 }
 
 function hasPendingVideoBilling(job: VideoJobRecord): boolean {

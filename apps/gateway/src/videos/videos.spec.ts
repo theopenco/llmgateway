@@ -3937,13 +3937,44 @@ function seedanceBillingReservationExpiryTests() {
 	});
 
 	test.each([
-		{ status: "in_progress", pending: true, quarantined: false, expected: 402 },
-		{ status: "completed", pending: true, quarantined: true, expected: 402 },
-		{ status: "completed", pending: false, quarantined: true, expected: 402 },
-		{ status: "completed", pending: false, quarantined: false, expected: 200 },
+		{
+			status: "in_progress",
+			pending: true,
+			quarantined: false,
+			fallback: false,
+			expected: 402,
+		},
+		{
+			status: "completed",
+			pending: true,
+			quarantined: true,
+			fallback: false,
+			expected: 402,
+		},
+		{
+			status: "completed",
+			pending: false,
+			quarantined: true,
+			fallback: false,
+			expected: 402,
+		},
+		{
+			status: "completed",
+			pending: false,
+			quarantined: false,
+			fallback: true,
+			expected: 402,
+		},
+		{
+			status: "completed",
+			pending: false,
+			quarantined: false,
+			fallback: false,
+			expected: 200,
+		},
 	] as const)(
-		"retains aged billing holds: $status pending=$pending quarantined=$quarantined",
-		async ({ status, pending, quarantined, expected }) => {
+		"retains aged billing holds: $status pending=$pending quarantined=$quarantined fallback=$fallback",
+		async ({ status, pending, quarantined, fallback, expected }) => {
 			await db.insert(tables.videoJob).values({
 				id: "old-seedance-video",
 				requestId: "old-seedance-request",
@@ -3965,6 +3996,7 @@ function seedanceBillingReservationExpiryTests() {
 				upstreamStatusResponse: {
 					llmgateway_billing_pending: pending,
 					llmgateway_billing_quarantined: quarantined,
+					llmgateway_billing_fallback: fallback,
 				},
 			});
 			const response = await app.request("/v1/videos", {
