@@ -478,7 +478,13 @@ export async function processNextModelVerification(
 			) {
 				throw new Error("Verification credential changed.");
 			}
-		} catch {
+		} catch (error) {
+			logger.warn("Airside verification credential could not be resolved", {
+				verificationId: job.id,
+				providerId: job.target.providerId,
+				credentialSource: job.credentialSource,
+				error: error instanceof Error ? error.message : String(error),
+			});
 			infrastructureError = new Error(
 				"Verification configuration is unavailable or changed. Re-run verification.",
 			);

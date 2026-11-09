@@ -359,6 +359,27 @@ describe("daily model verification scheduling", () => {
 		expect((await job(id)).credentialCiphertext).toBeNull();
 	});
 
+	it("runs a catalogue claim with a dormant base URL on the managed key", async () => {
+		const { id, claimId } = await seed("airside");
+		await db
+			.update(tables.providerClaim)
+			.set({
+				kind: "catalogue",
+				providerKeyId: null,
+				customBaseUrl: "https://dormant.example.com",
+			})
+			.where(eq(tables.providerClaim.id, claimId!));
+		expect(await scheduleDailyModelVerifications(now)).toBe(1);
+		expect((await job(id)).credentialSource).toBe("managed");
+		const runner = vi.fn(async (options) => {
+			expect(options.baseUrl).toBe("https://provider.example.com");
+			return { passed: true, summary: "Passed", checks: [check("passed")] };
+		});
+		await processNextModelVerification(runner);
+		expect(runner).toHaveBeenCalledOnce();
+		expect((await job(id)).status).toBe("passed");
+	});
+
 	it.each(["inactive", "credential-removed", "changed"])(
 		"rechecks %s before execution without bogus failed checks",
 		async (kind) => {
