@@ -278,20 +278,24 @@ export async function currentVerificationTarget(
 	live: NonNullable<Awaited<ReturnType<typeof liveVerificationMapping>>>,
 	client: Transaction | typeof db,
 ) {
-	const key =
+	const carrierKeyed =
 		live.claim &&
 		(live.claim.providerKeyId ||
 			live.claim.pendingProviderKeyId ||
-			live.claim.kind !== "catalogue")
+			live.claim.kind !== "catalogue");
+	const key =
+		live.claim && carrierKeyed
 			? await claimVerificationProviderKey(live.claim, live.target, client)
 			: await managedVerificationProviderKey(live.target, client);
 	if (key) {
+		// Managed keys run on the static provider endpoint, so a catalogue
+		// claim's dormant base URL must not enter their fingerprint.
 		return {
 			...live.target,
 			providerKeyId: key.id,
 			credentialFingerprint: providerVerificationCredentialFingerprint(
 				key,
-				live.claim?.customBaseUrl,
+				carrierKeyed ? live.claim?.customBaseUrl : undefined,
 			),
 		};
 	}
