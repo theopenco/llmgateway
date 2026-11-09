@@ -110,7 +110,10 @@ import {
 } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
-import { hasMessageContentVerification } from "@llmgateway/actions";
+import {
+	hasMessageContentVerification,
+	isDailyModelVerification,
+} from "@llmgateway/actions";
 import {
 	AIRSIDE_BASELINE_MARGIN,
 	AIRSIDE_DISCOUNT_MAX,
@@ -3725,6 +3728,8 @@ airside.openapi(deleteModel, async (c) => {
  * Gate for anything that puts claims about a model in front of us: the
  * model's latest preflight must have passed and prove `required`. Only claims
  * beyond what the listing already proved need this; narrowing never does.
+ * A daily re-check tests the live listing, so it only counts when it covers
+ * `required`; otherwise it would shadow the carrier's preflight of an edit.
  */
 async function requirePassingPreflight(
 	model: DraftModelRow,
@@ -3732,13 +3737,19 @@ async function requirePassingPreflight(
 	since: Date | null,
 	action: string,
 ) {
-	const latest = await db.query.providerModelVerification.findFirst({
+	const runs = await db.query.providerModelVerification.findMany({
 		where: {
 			draftModelId: { eq: model.id },
 			...(since ? { createdAt: { gte: since } } : {}),
 		},
 		orderBy: { createdAt: "desc" },
+		limit: 50,
 	});
+	const latest = runs.find(
+		(run) =>
+			!isDailyModelVerification(run) ||
+			verificationTargetCovers(run.target, required),
+	);
 	if (latest?.status === "queued" || latest?.status === "running") {
 		throw new HTTPException(409, {
 			message: `Preflight is still running — ${action} once it passes.`,

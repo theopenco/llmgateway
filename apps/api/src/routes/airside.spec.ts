@@ -1651,6 +1651,30 @@ describe("airside provider portal", () => {
 			.update(tables.providerModelVerification)
 			.set({ checks: latest!.checks })
 			.where(eq(tables.providerModelVerification.id, latest!.id));
+		// A later daily re-check of the narrower live listing doesn't shadow it.
+		await db.insert(tables.providerModelVerification).values({
+			id: `daily-verification:2026-01-01:${crypto.randomUUID()}`,
+			providerCompanyId: company.id,
+			draftModelId: model.id,
+			target: {
+				providerId: "mistral",
+				modelName: model.modelName,
+				externalId: model.modelName,
+				streaming: true,
+				vision: false,
+				audio: false,
+				tools: false,
+				jsonOutput: false,
+				jsonOutputSchema: false,
+				reasoning: false,
+				reasoningMaxTokens: false,
+				reasoningEfforts: null,
+				webSearch: false,
+			},
+			checks: [],
+			status: "failed",
+			completedAt: new Date(),
+		});
 		expect((await patch({ vision: true })).status).toBe(200);
 		// Only the latest run counts: a later failure blocks again.
 		await db.insert(tables.providerModelVerification).values({
