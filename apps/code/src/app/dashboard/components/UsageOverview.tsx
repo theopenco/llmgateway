@@ -285,7 +285,12 @@ export default function UsageOverview({
 							</span>
 						)}
 					</div>
-					<p className="mt-0.5 text-xs text-muted-foreground">
+					{/* The relative "(in …)" part is clock-derived and can round
+					    differently between server render and hydration. */}
+					<p
+						suppressHydrationWarning
+						className="mt-0.5 text-xs text-muted-foreground"
+					>
 						{cycleLabel} · {cycleEndsHint}
 					</p>
 				</div>
