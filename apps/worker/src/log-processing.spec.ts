@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 
-import { afterAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { redisClient } from "@llmgateway/cache";
 import {
 	cdb,
 	eq,
 	isNull,
+	sql,
 	db,
 	organizationCacheTag,
 	tables,
@@ -21,7 +23,7 @@ import {
 	LOUNGE_SOURCE,
 } from "@llmgateway/shared";
 
-import { batchProcessLogs } from "./worker.js";
+import { acquireLease, batchProcessLogs, releaseLease } from "./worker.js";
 
 describe("Log Processing", () => {
 	interface TestIds {
@@ -59,6 +61,13 @@ describe("Log Processing", () => {
 		// stray unprocessed logs left in the shared test DB by an earlier suite can
 		// starve this test's own logs out of the batch. Clear them up front.
 		await db.delete(log).where(isNull(log.processedAt));
+
+		// The quarantine budget is a Redis counter keyed on the wall-clock window,
+		// so it would otherwise carry over between tests and runs.
+		const budgetKeys = await redisClient.keys("credit-quarantine-budget:*");
+		if (budgetKeys.length > 0) {
+			await redisClient.del(budgetKeys);
+		}
 
 		const testIdSuffix = randomUUID();
 		currentTestIds = {
@@ -1547,6 +1556,467 @@ describe("Log Processing", () => {
 			});
 			expect(Number(updated!.usage)).toBeCloseTo(0.06, 8);
 			expect(updated!.status).toBe("inactive");
+		});
+	});
+
+	// Isolate unreadable rows within the shared budget. SQL failures stay queued
+	// until recovery; they do not prove that the selected row is corrupt.
+	describe("poison log isolation", () => {
+		const insertLog = async (overrides: Partial<typeof log.$inferInsert>) => {
+			const [entry] = await db
+				.insert(log)
+				.values({
+					requestId: `poison-request-${randomUUID()}`,
+					organizationId: testOrg.id,
+					projectId: testProject.id,
+					apiKeyId: testApiKey.id,
+					cost: 0.01,
+					cached: false,
+					usedMode: "credits",
+					duration: 1000,
+					requestedModel: "openai/gpt-4o-mini",
+					requestedProvider: "openai",
+					usedModel: "gpt-4o-mini",
+					usedProvider: "openai",
+					responseSize: 100,
+					mode: "credits",
+					...overrides,
+				})
+				.returning();
+			return entry;
+		};
+
+		/**
+		 * Runs the queue until it is empty, with a hard cap so a stall fails the
+		 * test rather than hanging. beforeEach clears stray unprocessed rows, so
+		 * checking globally is safe and covers logs from any organization.
+		 */
+		const drainQueue = async (maxPasses = 15) => {
+			for (let pass = 0; pass < maxPasses; pass++) {
+				const [remaining] = await db
+					.select({ id: log.id })
+					.from(log)
+					.where(isNull(log.processedAt))
+					.limit(1);
+				if (!remaining) {
+					return pass;
+				}
+				await batchProcessLogs();
+			}
+			throw new Error(`queue still not drained after ${maxPasses} passes`);
+		};
+
+		test("processes logs whose project was hard-deleted", async () => {
+			// project_mode comes from a left join, so a deleted project yields NULL.
+			const entry = await insertLog({
+				projectId: `deleted-project-${randomUUID()}`,
+			});
+
+			await batchProcessLogs();
+
+			const processed = await db.query.log.findFirst({
+				where: { id: { eq: entry.id } },
+			});
+			expect(processed!.processedAt).toBeTruthy();
+
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+			expect(Number(org!.credits)).toBeCloseTo(99.99, 8);
+		});
+
+		test("processes logs carrying a non-finite cost", async () => {
+			const entry = await insertLog({});
+			await db.execute(
+				sql`update "log" set cost = 'NaN'::real where id = ${entry.id}`,
+			);
+
+			await batchProcessLogs();
+
+			const processed = await db.query.log.findFirst({
+				where: { id: { eq: entry.id } },
+			});
+			expect(processed!.processedAt).toBeTruthy();
+
+			// NaN is read as "no cost recorded", so the balance stays intact
+			// instead of being poisoned.
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+			expect(Number(org!.credits)).toBeCloseTo(100, 8);
+		});
+
+		test("tolerates nullable cache flags and malformed error telemetry", async () => {
+			const entry = await insertLog({ cost: 0.02 });
+			await db.execute(
+				sql`update "log" set cached = NULL, error_details = '{"message":"unexpected"}'::json where id = ${entry.id}`,
+			);
+			expect(await batchProcessLogs()).toBe(1);
+			expect(
+				Number(
+					(await db.query.organization.findFirst({
+						where: { id: { eq: testOrg.id } },
+					}))!.credits,
+				),
+			).toBeCloseTo(99.98, 8);
+			expect(await redisClient.keys("credit-quarantine-budget:*")).toHaveLength(
+				0,
+			);
+		});
+
+		test("quarantines an unreadable row without blocking the rest", async () => {
+			const poison = await insertLog({});
+			// `used_mode` has no database-level constraint, so an out-of-enum value
+			// is exactly the kind of row the strict parse chokes on.
+			await db.execute(
+				sql`update "log" set used_mode = 'bogus' where id = ${poison.id}`,
+			);
+			const healthy = await insertLog({ cost: 0.02 });
+
+			await batchProcessLogs();
+
+			const quarantined = await db.query.log.findFirst({
+				where: { id: { eq: poison.id } },
+			});
+			expect(quarantined!.processedAt).toBeTruthy();
+
+			const processed = await db.query.log.findFirst({
+				where: { id: { eq: healthy.id } },
+			});
+			expect(processed!.processedAt).toBeTruthy();
+
+			// Only the healthy log was billed.
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+			expect(Number(org!.credits)).toBeCloseTo(99.98, 8);
+		});
+
+		test("preserves failed SQL charges and bills once after recovery", async () => {
+			const poisonOrgId = "poison-guard-org";
+			await db.delete(organization).where(eq(organization.id, poisonOrgId));
+			await db.insert(organization).values({
+				id: poisonOrgId,
+				name: "Poison Org",
+				billingEmail: "poison@example.com",
+				credits: "50.00",
+			});
+			const older = await insertLog({
+				cost: 0.01,
+				createdAt: new Date(Date.now() - 3000),
+			});
+			const poison = await insertLog({
+				organizationId: poisonOrgId,
+				cost: 0.05,
+				createdAt: new Date(Date.now() - 2000),
+			});
+			const newer = await insertLog({
+				cost: 0.02,
+				createdAt: new Date(Date.now() - 1000),
+			});
+			try {
+				await db.execute(
+					sql`drop trigger if exists poison_org_guard on "organization"`,
+				);
+				await db.execute(
+					sql`create or replace function poison_org_guard() returns trigger as $$ begin if new.id = 'poison-guard-org' then raise exception 'update fault'; end if; return new; end; $$ language plpgsql`,
+				);
+				await db.execute(
+					sql`create trigger poison_org_guard before update on "organization" for each row execute function poison_org_guard()`,
+				);
+				expect(await batchProcessLogs()).toBe(1);
+				expect(await batchProcessLogs()).toBe(0);
+				expect(
+					(await db.query.log.findFirst({ where: { id: { eq: poison.id } } }))!
+						.processedAt,
+				).toBeNull();
+				expect(
+					Number(
+						(await db.query.organization.findFirst({
+							where: { id: { eq: poisonOrgId } },
+						}))!.credits,
+					),
+				).toBe(50);
+				await db.execute(sql`drop trigger poison_org_guard on "organization"`);
+				await drainQueue();
+				await batchProcessLogs();
+				expect(
+					Number(
+						(await db.query.organization.findFirst({
+							where: { id: { eq: poisonOrgId } },
+						}))!.credits,
+					),
+				).toBeCloseTo(49.95, 8);
+				for (const entry of [older, poison, newer]) {
+					expect(
+						(await db.query.log.findFirst({ where: { id: { eq: entry.id } } }))!
+							.processedAt,
+					).toBeTruthy();
+				}
+				expect(
+					Number(
+						(await db.query.organization.findFirst({
+							where: { id: { eq: testOrg.id } },
+						}))!.credits,
+					),
+				).toBeCloseTo(99.97, 8);
+				expect(
+					Number(
+						(await db.query.apiKey.findFirst({
+							where: { id: { eq: testApiKey.id } },
+						}))!.usage,
+					),
+				).toBeCloseTo(0.08, 8);
+			} finally {
+				await db.execute(
+					sql`drop trigger if exists poison_org_guard on "organization"`,
+				);
+				await db.execute(sql`drop function if exists poison_org_guard()`);
+				await db.delete(log).where(eq(log.organizationId, poisonOrgId));
+				await db.delete(organization).where(eq(organization.id, poisonOrgId));
+			}
+		});
+
+		test.each(["0", "-1", "NaN", "Infinity", "101"])(
+			"fails closed for quarantine budget %s",
+			async (budget) => {
+				const previous = process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW;
+				process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW = budget;
+				try {
+					const bad = await insertLog({});
+					await db.execute(
+						sql`update "log" set used_mode = 'bogus' where id = ${bad.id}`,
+					);
+					await insertLog({ cost: 0.02 });
+					expect(await batchProcessLogs()).toBe(1);
+					expect(
+						(await db.query.log.findFirst({ where: { id: { eq: bad.id } } }))!
+							.processedAt,
+					).toBeNull();
+					expect(
+						Number(
+							(await db.query.organization.findFirst({
+								where: { id: { eq: testOrg.id } },
+							}))!.credits,
+						),
+					).toBeCloseTo(99.98, 8);
+				} finally {
+					if (previous === undefined) {
+						delete process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW;
+					} else {
+						process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW = previous;
+					}
+				}
+			},
+		);
+
+		test.each(["billing_cost", "data_storage_cost"])(
+			"contains nonfinite decimal %s without corrupting balances",
+			async (column) => {
+				const bad = await insertLog({});
+				await db.execute(
+					sql`update "log" set ${sql.identifier(column)} = 'Infinity'::numeric where id = ${bad.id}`,
+				);
+				await insertLog({ cost: 0.02 });
+				expect(await batchProcessLogs()).toBe(2);
+				expect(
+					Number(
+						(await db.query.organization.findFirst({
+							where: { id: { eq: testOrg.id } },
+						}))!.credits,
+					),
+				).toBeCloseTo(99.98, 8);
+				expect(
+					Number(
+						(await db.query.apiKey.findFirst({
+							where: { id: { eq: testApiKey.id } },
+						}))!.usage,
+					),
+				).toBeCloseTo(0.02, 8);
+			},
+		);
+
+		test("leaves unreadable rows billable when the budget store fails", async () => {
+			const bad = await insertLog({});
+			await db.execute(
+				sql`update "log" set used_mode = 'bogus' where id = ${bad.id}`,
+			);
+			await insertLog({ cost: 0.02 });
+			const fault = vi
+				.spyOn(redisClient, "eval")
+				.mockRejectedValueOnce(new Error("budget unavailable"));
+			try {
+				expect(await batchProcessLogs()).toBe(1);
+				expect(
+					(await db.query.log.findFirst({ where: { id: { eq: bad.id } } }))!
+						.processedAt,
+				).toBeNull();
+			} finally {
+				fault.mockRestore();
+			}
+			expect(await batchProcessLogs()).toBe(1);
+			expect(await batchProcessLogs()).toBe(0);
+			expect(
+				Number(
+					(await db.query.organization.findFirst({
+						where: { id: { eq: testOrg.id } },
+					}))!.credits,
+				),
+			).toBeCloseTo(99.98, 8);
+		});
+
+		test("does not release a successor's credit-processing lease", async () => {
+			const bad = await insertLog({});
+			await db.execute(
+				sql`update "log" set used_mode = 'bogus' where id = ${bad.id}`,
+			);
+			let enter!: () => void;
+			let resume!: () => void;
+			const entered = new Promise<void>((resolve) => {
+				enter = resolve;
+			});
+			const resumed = new Promise<void>((resolve) => {
+				resume = resolve;
+			});
+			const pause = vi
+				.spyOn(redisClient, "eval")
+				.mockImplementationOnce(async () => {
+					enter();
+					await resumed;
+					return 0;
+				});
+			let lease: string | null = null;
+			const running = batchProcessLogs();
+			try {
+				await entered;
+				expect(await batchProcessLogs()).toBe(0);
+				await db
+					.update(tables.lock)
+					.set({ updatedAt: new Date(Date.now() - 360_000) })
+					.where(eq(tables.lock.key, "credit_processing"));
+				lease = await acquireLease("credit_processing");
+				expect(lease).toBeTruthy();
+				resume();
+				expect(await running).toBe(0);
+				expect(
+					(await db.query.lock.findFirst({
+						where: { key: { eq: "credit_processing" } },
+					}))!.id,
+				).toBe(lease);
+			} finally {
+				resume();
+				await running;
+				pause.mockRestore();
+				if (lease) {
+					await releaseLease(lease);
+				}
+			}
+		});
+
+		test("bounds unreadable quarantines and counts committed rows", async () => {
+			const previous = process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW;
+			process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW = "1";
+			try {
+				const bad = await Promise.all([
+					insertLog({}),
+					insertLog({}),
+					insertLog({}),
+				]);
+				for (const entry of bad) {
+					await db.execute(
+						sql`update "log" set used_mode = 'bogus' where id = ${entry.id}`,
+					);
+				}
+				const good = await insertLog({ cost: 0.02 });
+				expect(await batchProcessLogs()).toBe(2);
+				expect(await batchProcessLogs()).toBe(0);
+				const states = await Promise.all(
+					bad.map(
+						async (entry) =>
+							await db.query.log.findFirst({ where: { id: { eq: entry.id } } }),
+					),
+				);
+				expect(states.filter((entry) => entry!.processedAt)).toHaveLength(1);
+				expect(
+					(await db.query.log.findFirst({ where: { id: { eq: good.id } } }))!
+						.processedAt,
+				).toBeTruthy();
+				expect(
+					Number(
+						(await db.query.organization.findFirst({
+							where: { id: { eq: testOrg.id } },
+						}))!.credits,
+					),
+				).toBeCloseTo(99.98, 8);
+			} finally {
+				if (previous === undefined) {
+					delete process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW;
+				} else {
+					process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW = previous;
+				}
+			}
+		});
+
+		test("never quarantines healthy rows for a systemic SQL outage", async () => {
+			// A fault that is not row-specific fails every batch down to size 1, so
+			// an uncapped loop would retire the whole queue unbilled. Past the
+			// budget the queue must stall instead, keeping the rows billable.
+			const previousBudget = process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW;
+			process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW = "1";
+
+			const entries = [
+				await insertLog({ createdAt: new Date(Date.now() - 3000) }),
+				await insertLog({ createdAt: new Date(Date.now() - 2000) }),
+				await insertLog({ createdAt: new Date(Date.now() - 1000) }),
+			];
+
+			try {
+				await db.execute(
+					sql`drop trigger if exists global_org_guard on "organization"`,
+				);
+				// Raises for every organization row, the way a worker running ahead
+				// of its migration or a broken trigger would.
+				await db.execute(sql`
+					create or replace function global_org_guard() returns trigger as $$
+					begin
+						raise exception 'global fault';
+					end;
+					$$ language plpgsql
+				`);
+				await db.execute(
+					sql`create trigger global_org_guard before update on "organization" for each row execute function global_org_guard()`,
+				);
+
+				await batchProcessLogs();
+				await batchProcessLogs();
+			} finally {
+				await db.execute(
+					sql`drop trigger if exists global_org_guard on "organization"`,
+				);
+				await db.execute(sql`drop function if exists global_org_guard()`);
+				if (previousBudget === undefined) {
+					delete process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW;
+				} else {
+					process.env.CREDIT_QUARANTINE_MAX_PER_WINDOW = previousBudget;
+				}
+			}
+
+			const states = await Promise.all(
+				entries.map(
+					async (entry) =>
+						await db.query.log.findFirst({ where: { id: { eq: entry.id } } }),
+				),
+			);
+			const quarantined = states.filter((entry) => entry!.processedAt);
+			// No SQL exception proves row corruption, regardless of the budget.
+			expect(quarantined).toHaveLength(0);
+			expect(await batchProcessLogs()).toBe(3);
+			expect(await batchProcessLogs()).toBe(0);
+
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+			expect(Number(org!.credits)).toBeCloseTo(99.97, 8);
 		});
 	});
 });
