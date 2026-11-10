@@ -8,8 +8,7 @@
  *   past-due   Running plans whose last renewal payment failed.
  *
  * Recipients are de-duplicated by email, and addresses that unsubscribed from
- * marketing email are skipped. Bodies for the win-back and the failed-renewal
- * reminder are in packages/scripts/emails.
+ * marketing email are skipped.
  *
  * Usage:
  *   # dry run: print the resolved recipient list and exit without sending
@@ -18,7 +17,7 @@
  *   # actually send
  *   RESEND_API_KEY=re_xxx pnpm --filter @llmgateway/scripts send-devpass \
  *     --audience=past --subject="Unused DevPass allowance now carries over" \
- *     --body=emails/devpass-winback.txt
+ *     --body=body.txt
  *
  * Flags:
  *   --audience=...    active (default), past or past-due.
