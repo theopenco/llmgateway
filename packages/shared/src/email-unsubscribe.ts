@@ -49,7 +49,7 @@ const CATEGORY_LABELS: Record<EmailCategory, string> = {
 	credit_alerts: "credit balance reminders",
 };
 
-const POSTAL_ADDRESS =
+export const POSTAL_ADDRESS =
 	"Polar Lights LLC, 16192 Coastal Highway, Lewes, DE 19958, United States";
 
 interface UnsubscribeTokenPayload {

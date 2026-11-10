@@ -224,7 +224,7 @@ importers:
     dependencies:
       '@better-auth/passkey':
         specifier: 1.7.16
-        version: 1.7.16(29a1bc0ab46bb04ab65870debe47c4f9)
+        version: 1.7.16(3fb03ba4c315ce5102ec340d51e3dfd6)
       '@fontsource-variable/archivo':
         specifier: 5.3.0
         version: 5.3.0
@@ -360,7 +360,7 @@ importers:
         version: 9.38.0(jiti@2.6.1)
       eslint-config-next:
         specifier: 16.4.3
-        version: 16.4.3(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.3))(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.3)
+        version: 16.4.3(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.3)
       openapi-typescript:
         specifier: 7.10.1
         version: 7.10.1(typescript@5.9.3)
@@ -541,7 +541,7 @@ importers:
     dependencies:
       '@better-auth/passkey':
         specifier: 1.7.16
-        version: 1.7.16(29a1bc0ab46bb04ab65870debe47c4f9)
+        version: 1.7.16(3fb03ba4c315ce5102ec340d51e3dfd6)
       '@content-collections/core':
         specifier: 0.15.0
         version: 0.15.0(typescript@5.9.3)
@@ -719,7 +719,7 @@ importers:
         version: 9.38.0(jiti@2.6.1)
       eslint-config-next:
         specifier: 16.4.3
-        version: 16.4.3(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.2))(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.3)
+        version: 16.4.3(@typescript-eslint/parser@8.56.0(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.3))(eslint@9.38.0(jiti@2.6.1))(typescript@5.9.3)
       openapi-typescript:
         specifier: 7.10.1
         version: 7.10.1(typescript@5.9.3)
@@ -1112,7 +1112,7 @@ importers:
         version: 4.0.99(react@19.3.1)(zod@4.6.7)
       '@better-auth/passkey':
         specifier: 1.7.16
-        version: 1.7.16(29a1bc0ab46bb04ab65870debe47c4f9)
+        version: 1.7.16(3fb03ba4c315ce5102ec340d51e3dfd6)
       '@fontsource-variable/fraunces':
         specifier: 5.3.0
         version: 5.3.0
@@ -1401,7 +1401,7 @@ importers:
         version: 4.0.99(react@19.3.1)(zod@4.6.7)
       '@better-auth/passkey':
         specifier: 1.7.16
-        version: 1.7.16(29a1bc0ab46bb04ab65870debe47c4f9)
+        version: 1.7.16(3fb03ba4c315ce5102ec340d51e3dfd6)
       '@better-auth/sso':
         specifier: 1.7.16
         version: 1.7.16(64cb3601092e4b614381c0cd007c2d72)
@@ -1711,7 +1711,7 @@ importers:
     dependencies:
       '@better-auth/passkey':
         specifier: 1.7.16
-        version: 1.7.16(29a1bc0ab46bb04ab65870debe47c4f9)
+        version: 1.7.16(3fb03ba4c315ce5102ec340d51e3dfd6)
       '@fontsource-variable/geist-mono':
         specifier: 5.3.0
         version: 5.3.0
@@ -2092,6 +2092,9 @@ importers:
       '@llmgateway/shared':
         specifier: workspace:*
         version: link:../shared
+      decimal.js:
+        specifier: 10.5.0
+        version: 10.5.0
       nanoid:
         specifier: 5.1.16
         version: 5.1.16
@@ -16084,7 +16087,7 @@ snapshots:
       '@better-auth/core': 1.7.16(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.0)(better-call@1.4.5(zod@4.6.7))(jose@6.2.9)(kysely@0.28.17)(nanostores@1.5.0)
       '@better-auth/utils': 0.5.1
 
-  '@better-auth/passkey@1.7.16(29a1bc0ab46bb04ab65870debe47c4f9)':
+  '@better-auth/passkey@1.7.16(3fb03ba4c315ce5102ec340d51e3dfd6)':
     dependencies:
       '@better-auth/core': 1.7.16(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.0)(better-call@1.4.5(zod@4.6.7))(jose@6.2.9)(kysely@0.28.17)(nanostores@1.5.0)
       '@better-auth/utils': 0.5.1

@@ -1,0 +1,56 @@
+name: new-models-digest
+
+on:
+  schedule:
+    # Weekly — Mondays 14:00 UTC, covers releases from the last 7 days.
+    - cron: "0 14 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Collect versions
+        run: |
+          echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
+          echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
+
+      - uses: pnpm/action-setup@v6.1.1
+        with:
+          version: ${{ env.pnpm_version }}
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: ${{ env.nodejs_version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the package the script imports
+        run: pnpm exec turbo run build --filter=@llmgateway/shared
+
+      # The script only creates a draft; a person reviews and sends it in
+      # Resend. Without the secrets it prints the issue instead.
+      - name: Draft the new-models issue
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_NEWSLETTER_SEGMENT_ID: ${{ secrets.RESEND_NEWSLETTER_SEGMENT_ID }}
+          RESEND_NEWSLETTER_TOPIC_ID: ${{ secrets.RESEND_NEWSLETTER_TOPIC_ID }}
+          DISCORD_NEWSLETTER_NOTIFICATION_URL: ${{ secrets.DISCORD_NEWSLETTER_NOTIFICATION_URL }}
+        run: |
+          if [[ -n "$RESEND_API_KEY" && -n "$RESEND_NEWSLETTER_SEGMENT_ID" ]]; then
+            pnpm --filter @llmgateway/scripts new-models-digest --create-draft
+          else
+            echo "Resend secrets are not set; printing the issue only."
+            pnpm --filter @llmgateway/scripts new-models-digest
+            cat packages/scripts/new-models-digest.txt
+          fi
