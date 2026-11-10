@@ -106,6 +106,8 @@ function speechStreamTests() {
 			} else {
 				stream.client.abort();
 			}
+			// An errored body makes @hono/node-server log the disconnect as an error.
+			await expect(reader.closed).resolves.toBeUndefined();
 			source.controller.enqueue(encode(delta("DISCARDED") + done));
 			source.controller.close();
 			await drainPendingWork(1000);
@@ -351,10 +353,7 @@ function speechStreamTests() {
 			const reader = (await stream.result).getReader();
 			await reader.read();
 			const read = reader.read();
-			const assertion =
-				action === "abort"
-					? expect(read).rejects.toThrow("canceled")
-					: expect(read).resolves.toMatchObject({ done: true });
+			const assertion = expect(read).resolves.toMatchObject({ done: true });
 			if (action === "abort") {
 				stream.client.abort();
 			} else {
