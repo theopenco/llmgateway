@@ -3,7 +3,7 @@ id: claude-code
 slug: claude-code
 title: Claude Code Integration
 seoTitle: Use Claude Code with Other Models via LLM Gateway
-description: Point Claude Code at LLM Gateway with two environment variables, run it on any tool-capable model, and verify a real file edit and test run.
+description: Point Claude Code at LLM Gateway with two environment variables, run it on a compatible tool-capable model, and verify a real file edit and test run.
 date: 2026-09-07
 ---
 
