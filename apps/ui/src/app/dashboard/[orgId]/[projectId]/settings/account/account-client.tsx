@@ -1,6 +1,7 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
+import { Download } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -34,6 +35,7 @@ import {
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { toast } from "@/lib/components/use-toast";
+import { useFetchClient } from "@/lib/fetch-client";
 import { usePostHog } from "@/lib/posthog";
 
 import { TimeZoneSetting } from "@llmgateway/shared";
@@ -59,30 +61,6 @@ function formatCredits(credits: string): string {
 
 function titleCase(value: string): string {
 	return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function describeSubscription(org: DeletionPreviewOrganization): string {
-	switch (org.kind) {
-		case "devpass":
-			return `DevPass ${titleCase(org.devPlan)}`;
-		case "chat":
-			return `Chat ${titleCase(org.chatPlan)}`;
-		default:
-			return `${org.name} — ${titleCase(org.plan)} plan`;
-	}
-}
-
-function formatProviderName(providerId: string): string {
-	switch (providerId) {
-		case "github":
-			return "GitHub";
-		case "google":
-			return "Google";
-		case "credential":
-			return "Email & Password";
-		default:
-			return providerId.charAt(0).toUpperCase() + providerId.slice(1);
-	}
 }
 
 export function AccountClient() {
@@ -268,6 +246,7 @@ export function AccountClient() {
 							</Button>
 						</CardFooter>
 					</Card>
+					<DownloadDataCard />
 					<Card>
 						<CardHeader>
 							<CardTitle>Time display</CardTitle>
@@ -386,4 +365,102 @@ export function AccountClient() {
 			</div>
 		</div>
 	);
+}
+function DownloadDataCard() {
+	const fetchClient = useFetchClient();
+
+	const exportData = useMutation({
+		mutationFn: async () => {
+			const { data, response } = await fetchClient.GET("/user/me/export", {
+				parseAs: "blob",
+			});
+
+			if (!response.ok || !data) {
+				throw new Error("Failed to export data");
+			}
+
+			const url = URL.createObjectURL(data as unknown as Blob);
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = "llmgateway-data-export.json";
+			document.body.appendChild(link);
+			link.click();
+			link.remove();
+			// Revoking synchronously can cancel a download the browser has only
+			// just started reading the blob for. One turn of the event loop is
+			// enough for the fetch to be underway.
+			setTimeout(() => URL.revokeObjectURL(url), 0);
+		},
+		onError: () => {
+			toast({
+				title: "Could not export your data",
+				description: "Please try again later.",
+				variant: "destructive",
+			});
+		},
+	});
+
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle>Download Your Data</CardTitle>
+				<CardDescription>
+					Get a copy of the personal data we hold about you
+				</CardDescription>
+			</CardHeader>
+			<CardContent className="space-y-2">
+				<p className="text-muted-foreground text-sm">
+					Downloads a JSON file containing your profile, organization
+					memberships, API key details, chats, playground history and
+					preferences. It is machine-readable, so you can take it to another
+					service.
+				</p>
+				<p className="text-muted-foreground text-sm">
+					Gateway request logs are not included — those belong to the
+					organization that submitted them. Large histories and records can be
+					truncated. The file identifies limits and explains how to request the
+					remainder.
+				</p>
+				<p className="text-muted-foreground text-sm">
+					For your safety the file never contains credentials — API key tokens,
+					passwords and passkeys are excluded. The file itself lists everything
+					that was left out and why.
+				</p>
+			</CardContent>
+			<CardFooter>
+				<Button
+					variant="outline"
+					onClick={() => exportData.mutate()}
+					disabled={exportData.isPending}
+				>
+					<Download className="mr-2 h-4 w-4" />
+					{exportData.isPending ? "Preparing..." : "Download my data"}
+				</Button>
+			</CardFooter>
+		</Card>
+	);
+}
+
+function describeSubscription(org: DeletionPreviewOrganization): string {
+	switch (org.kind) {
+		case "devpass":
+			return `DevPass ${titleCase(org.devPlan)}`;
+		case "chat":
+			return `Chat ${titleCase(org.chatPlan)}`;
+		default:
+			return `${org.name} — ${titleCase(org.plan)} plan`;
+	}
+}
+
+function formatProviderName(providerId: string): string {
+	switch (providerId) {
+		case "github":
+			return "GitHub";
+		case "google":
+			return "Google";
+		case "credential":
+			return "Email & Password";
+		default:
+			return providerId.charAt(0).toUpperCase() + providerId.slice(1);
+	}
 }

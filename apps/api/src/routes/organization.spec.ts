@@ -506,7 +506,7 @@ describe("organization route", () => {
 		expect((await patchCountries()).status).toBe(200);
 	});
 
-	test("non-enterprise orgs can clear a leftover compliance policy but not enable one", async () => {
+	test("non-enterprise orgs can clear a leftover compliance policy and enable only data-protection controls", async () => {
 		// The gateway enforces enabled policies fail-closed regardless of plan,
 		// so a downgraded org must still be able to turn its policy off.
 		await db
@@ -524,10 +524,47 @@ describe("organization route", () => {
 				Cookie: token,
 			},
 			body: JSON.stringify({
-				providerCompliancePolicy: { enabled: true, requireGdpr: true },
+				providerCompliancePolicy: { enabled: true, requireSoc2: true },
 			}),
 		});
 		expect(enableResponse.status).toBe(403);
+
+		// The data-protection subset is configurable on every plan.
+		const dataProtectionResponse = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					requireGdpr: true,
+					allowedCountries: ["US"],
+				},
+			}),
+		});
+		expect(dataProtectionResponse.status).toBe(200);
+		expect(
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: "test-org-id" } },
+				})
+			)?.providerCompliancePolicy,
+		).toMatchObject({ enabled: true, requireGdpr: true });
+
+		// Disabling a policy that still carries enterprise-only keys stays allowed.
+		const disableResponse = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: { enabled: false, requireSoc2: true },
+			}),
+		});
+		expect(disableResponse.status).toBe(200);
 
 		const clearResponse = await app.request("/orgs/test-org-id", {
 			method: "PATCH",

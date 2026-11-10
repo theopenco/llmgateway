@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 
 import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
@@ -11,6 +11,7 @@ import type { ProviderCompliancePolicy } from "@llmgateway/models";
 
 const policies = vi.hoisted(() => ({
 	organization: null as ProviderCompliancePolicy | null,
+	signatures: vi.fn<() => Promise<string[]>>(),
 	key: null as ProviderCompliancePolicy | null,
 }));
 
@@ -39,6 +40,7 @@ vi.mock("@/lib/cached-queries.js", () => ({
 		providerCompliancePolicy: policies.organization,
 	})),
 	findProviderKey: vi.fn(),
+	findDpaSignedProviderIds: policies.signatures,
 }));
 vi.mock("@/lib/api-key-usage-limits.js", () => ({
 	assertApiKeyWithinUsageLimits: vi.fn(),
@@ -72,6 +74,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	policies.organization = null;
 	policies.key = null;
+	policies.signatures.mockReset().mockResolvedValue([]);
 });
 
 const connect = () =>
@@ -192,4 +195,62 @@ describe("ASR client secret compliance", () => {
 			}
 		},
 	);
+});
+describe("realtime DPA scope before credentials or minting", () => {
+	beforeEach(() => {
+		vi.stubEnv("REQUIRE_PROVIDER_DPA_FOR_GDPR", "true");
+		vi.stubEnv("REALTIME_ENABLED", "true");
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+	const scopes = ["org", "key", "both-org", "both-key", "both"] as const;
+	function configure(scope: (typeof scopes)[number]) {
+		policies.organization =
+			scope === "key"
+				? null
+				: { enabled: true, requireGdpr: scope !== "both-key" };
+		policies.key =
+			scope === "org"
+				? null
+				: { enabled: true, requireGdpr: scope !== "both-org" };
+	}
+	it.each(scopes)(
+		"%s rejects unsigned preflight before credentials",
+		async (scope) => {
+			configure(scope);
+			await expect(connect()).rejects.toMatchObject({ status: 403 });
+			expect(policies.signatures).toHaveBeenCalled();
+			expect(resolvePlatformCredential).not.toHaveBeenCalled();
+		},
+	);
+	it("both scopes can proceed with a signed eligible provider", async () => {
+		configure("both");
+		policies.signatures.mockResolvedValue(["openai"]);
+		expect((await connect()).allowedTranscriptionModelIds).toContain(
+			"gpt-4o-transcribe",
+		);
+		expect(resolvePlatformCredential).toHaveBeenCalled();
+	});
+	it("lookup failure does not resolve credentials or mint a secret", async () => {
+		configure("both");
+		policies.signatures.mockRejectedValue(new Error("Synthetic DPA outage"));
+		const response = await realtimeClientSecretsRoute.request(
+			"/client_secrets",
+			{
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					authorization: "Bearer test-token",
+				},
+				body: JSON.stringify({
+					session: { type: "realtime", model: "gpt-realtime" },
+				}),
+			},
+		);
+		expect(response.status).toBe(500);
+		expect(policies.signatures).toHaveBeenCalled();
+		expect(resolvePlatformCredential).not.toHaveBeenCalled();
+		expect(createClientSecret).not.toHaveBeenCalled();
+	});
 });

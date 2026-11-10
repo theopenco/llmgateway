@@ -19,9 +19,73 @@ import {
 	type ComplianceFailureReason,
 	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
+	providers,
 } from "@llmgateway/models";
 
+import { findDpaSignedProviderIds } from "./cached-queries.js";
+
 import type { ProviderDefinition } from "@llmgateway/models";
+
+const DPA_EXEMPT_PROVIDER_IDS = new Set(["llmgateway", "custom"]);
+
+export function isDpaEnforcementEnabled(): boolean {
+	return process.env.REQUIRE_PROVIDER_DPA_FOR_GDPR === "true";
+}
+
+export function applyDpaRequirement(
+	policy: ActiveCompliancePolicy,
+	signedProviderIds: ReadonlySet<string>,
+	candidateProviders: readonly ProviderDefinition[] = providers,
+): ActiveCompliancePolicy {
+	if (policy.allOf) {
+		return {
+			...policy,
+			allOf: policy.allOf.map((constraint) =>
+				constraint.requireGdpr
+					? applyDpaRequirement(
+							constraint,
+							signedProviderIds,
+							candidateProviders,
+						)
+					: constraint,
+			),
+		};
+	}
+	const unsigned = candidateProviders
+		.filter(
+			(provider) =>
+				!DPA_EXEMPT_PROVIDER_IDS.has(provider.id) &&
+				!signedProviderIds.has(provider.id),
+		)
+		.map((provider) => provider.id);
+	return unsigned.length === 0
+		? policy
+		: {
+				...policy,
+				blockedProviders: [...(policy.blockedProviders ?? []), ...unsigned],
+			};
+}
+
+/** Preserve independent org/key floors; an outer blocklist would be ignored by allOf. */
+export async function withDpaEnforcement(
+	policy: ActiveCompliancePolicy | undefined,
+): Promise<ActiveCompliancePolicy | undefined> {
+	if (
+		!policy ||
+		!isDpaEnforcementEnabled() ||
+		!(
+			policy.requireGdpr ||
+			policy.allOf?.some((constraint) => constraint.requireGdpr)
+		)
+	) {
+		return policy;
+	}
+	const [signedIds, effectiveProviders] = await Promise.all([
+		findDpaSignedProviderIds(),
+		getEffectiveProviders(),
+	]);
+	return applyDpaRequirement(policy, new Set(signedIds), effectiveProviders);
+}
 
 interface CompliancePolicySource {
 	providerCompliancePolicy?: ProviderCompliancePolicy | null;
@@ -267,7 +331,9 @@ export async function assertProviderCompliant(
 	},
 	apiKey?: CompliancePolicySource | null,
 ): Promise<void> {
-	const policy = getActiveCompliancePolicy(organization, apiKey);
+	const policy = await withDpaEnforcement(
+		getActiveCompliancePolicy(organization, apiKey),
+	);
 	if (
 		!policy ||
 		(isProviderIdCompliant(providerId, policy, {

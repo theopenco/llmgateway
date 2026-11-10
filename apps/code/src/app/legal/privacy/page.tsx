@@ -173,11 +173,12 @@ export default function PrivacyPage() {
 			<ul>
 				<li>
 					<strong>Account and billing data</strong> — kept for the life of your
-					account, and deleted promptly when you delete it. Billing and
-					accounting records — purchases, payments, and the transaction history
-					of credits bought and spent — are retained to meet legal, tax, and
-					accounting obligations for 10 years, even after you delete your
-					account, after which they are deleted or anonymized
+					account. The local account record is deleted when the account-deletion
+					action completes. Billing and accounting records — purchases,
+					payments, and the transaction history of credits bought and spent —
+					are retained to meet legal, tax, and accounting obligations for 10
+					years, even after you delete your account, after which they are
+					deleted or anonymized
 				</li>
 				<li>
 					<strong>Request metadata</strong> — kept for the life of your active
@@ -197,7 +198,11 @@ export default function PrivacyPage() {
 			<hr />
 			<h2>6. Your Rights and Contact</h2>
 			<p>
-				Your privacy rights (including access, correction, deletion, export,
+				Processor-side cleanup and historical record attribution may require
+				separately verified follow-up under the Base Policy. The bounded account
+				download is not a complete response to every access or portability
+				request; use the Base Policy contact process for omitted records. Your
+				privacy rights (including access, correction, deletion, export,
 				objection, and the right to lodge a complaint with a supervisory
 				authority), our security practices, and international transfer
 				safeguards are described in the{" "}

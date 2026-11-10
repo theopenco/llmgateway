@@ -41,6 +41,10 @@ stop being available from that provider.
 
 [Compliance policies](/features/compliance) filter provider and model candidates before routing. Enterprise API keys can add their own policy, but every enabled organization restriction remains mandatory. Both policies apply to automatic selection, explicit provider pins, session reuse, and fallback; a request cannot override either policy. If the policies have no eligible provider in common, the gateway returns `403`.
 
+When a deployment enables `REQUIRE_PROVIDER_DPA_FOR_GDPR`, either enabled scope requiring GDPR also needs an administrator-recorded signed provider DPA. This applies to pins, fallback, your provider keys, Airside carriers and classifiers that receive prompt content. Custom endpoints use their organization attestation. Signature lookup failures do not permit egress or reuse an expired grant. The dashboard preview does not include this deployment-specific gate.
+
+This is a guard on new gateway inference/content submissions and realtime setup. Server-proxied realtime uses its existing account-gate rechecks for new content. Existing job polling, retrieval, cancellation/settlement and already-issued client-direct credentials retain their prior lifecycle behavior; this flag is not retroactive revocation of remote work. Public catalogue metadata and previews are not additional DPA guarantees.
+
 An organization can also carry a provider access restriction set by LLM Gateway. Requests pinned to a restricted provider or model return `403`. Unpinned and `auto` requests, including DevPass, route to an unrestricted provider when one serves the model, and return `403` when none does; the log's routing metadata lists each skipped provider under filtered providers with the reason `provider access is restricted for this organization`.
 
 ## Reasoning-effort compatibility

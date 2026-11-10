@@ -48,6 +48,7 @@ import {
 	assertProviderCompliant,
 	getActiveCompliancePolicy,
 	getEffectiveRetentionLevel,
+	withDpaEnforcement,
 } from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
@@ -1114,7 +1115,9 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 	if (tieredContentFilterPlan) {
 		// Prompts never reach a classifier's provider when the org's compliance
 		// policy excludes it.
-		const compliancePolicy = getActiveCompliancePolicy(organization, apiKey);
+		const compliancePolicy = await withDpaEnforcement(
+			getActiveCompliancePolicy(organization, apiKey),
+		);
 		const classifierAllowed = (classifier: ContentFilterClassifier) =>
 			isContentFilterClassifierCompliant(classifier, compliancePolicy);
 		const started = await startTieredContentFilter({

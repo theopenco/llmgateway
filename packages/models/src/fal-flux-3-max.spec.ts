@@ -17,7 +17,12 @@ describe("fal FLUX 3 Max", () => {
 	it("discovers the exact API key and optional base URL for provider credentials", () => {
 		expect(getProviderDefinition("fal-ai")).toMatchObject({
 			name: "fal",
-			dataPolicy: null,
+			dataPolicy: {
+				apiTraining: null,
+				promptLogging: null,
+				retentionPeriod: null,
+				gdpr: null,
+			},
 		});
 		expect(getProviderEnvVar("fal-ai")).toBe("LLM_FAL_AI_API_KEY");
 		expect(getProviderEnvKeys("fal-ai")).toEqual([

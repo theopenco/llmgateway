@@ -1,3 +1,32 @@
+export const DATA_PROTECTION_POLICY_KEYS = [
+	"requireGdpr",
+	"blockApiTraining",
+	"blockPromptLogging",
+	"blockStealthProviders",
+	"allowedCountries",
+] as const satisfies readonly (keyof ProviderCompliancePolicy)[];
+
+/**
+ * Projects a policy onto the data-protection controls in
+ * {@link DATA_PROTECTION_POLICY_KEYS}, preserving `enabled`.
+ *
+ * This is the subset a non-enterprise organization may configure, so the
+ * dashboard uses it for eligible saves. Never use it to hide active stored
+ * restrictions in previews or runtime enforcement.
+ */
+export function projectPolicyToDataProtection(
+	policy: ProviderCompliancePolicy,
+): ProviderCompliancePolicy {
+	return {
+		enabled: policy.enabled,
+		requireGdpr: policy.requireGdpr,
+		blockApiTraining: policy.blockApiTraining,
+		blockPromptLogging: policy.blockPromptLogging,
+		blockStealthProviders: policy.blockStealthProviders,
+		allowedCountries: policy.allowedCountries,
+	};
+}
+
 /**
  * Placeholder inside a `regionConfig.endpointMap` entry for a region whose
  * host is not a fixed domain but is derived from a per-credential workspace
@@ -344,7 +373,20 @@ export const providers: ProviderDefinition[] = [
 		privacyPolicyUrl: "https://fal.ai/legal/privacy-policy",
 		usagePolicyUrl: "https://fal.ai/legal/acceptable-use-policy",
 		legalEntity: "Features & Labels, Inc.",
-		dataPolicy: null,
+		headquarters: "US",
+		// API terms exclude some third-party models, so no blanket guarantees.
+		dataPolicy: {
+			apiTraining: null,
+			promptLogging: null,
+			retentionPeriod: null,
+			gdpr: null,
+		},
+		additionalLinks: [
+			{
+				desc: "API data handling and exclusions",
+				link: "https://fal.ai/legal/api-services",
+			},
+		],
 	},
 	{
 		id: "llmgateway",
@@ -1407,6 +1449,7 @@ export const providers: ProviderDefinition[] = [
 			apiTraining: null,
 			promptLogging: null,
 			retentionPeriod: null,
+			gdpr: null,
 		},
 	},
 	{
@@ -1999,6 +2042,7 @@ export const providers: ProviderDefinition[] = [
 			apiTraining: false,
 			promptLogging: false,
 			retentionPeriod: null,
+			gdpr: null,
 		},
 		priority: 1.2,
 	},
@@ -2057,6 +2101,7 @@ export const providers: ProviderDefinition[] = [
 			apiTraining: false,
 			promptLogging: null,
 			retentionPeriod: null,
+			gdpr: null,
 		},
 		additionalLinks: [
 			{

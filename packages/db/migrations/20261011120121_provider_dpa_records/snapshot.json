@@ -1,0 +1,115 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "be3c235e-0faf-458f-805a-4998cedbed53",
+  "prevIds": [
+    "fab7b173-4466-4d8b-982a-e1cd9062e8a9"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider",
+        "dpa_signed_at"
+      ],
+      "writes": [
+        "s|col|public.provider.dpa_signed_at",
+        "n|col|public.provider.dpa_signed_at",
+        "e|col|public.provider.dpa_signed_at"
+      ],
+      "reads": [
+        "n|tbl|public.provider",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider",
+        "dpa_signed_by"
+      ],
+      "writes": [
+        "s|col|public.provider.dpa_signed_by",
+        "n|col|public.provider.dpa_signed_by",
+        "e|col|public.provider.dpa_signed_by"
+      ],
+      "reads": [
+        "n|tbl|public.provider",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider",
+        "dpa_note"
+      ],
+      "writes": [
+        "s|col|public.provider.dpa_note",
+        "n|col|public.provider.dpa_note",
+        "e|col|public.provider.dpa_note"
+      ],
+      "reads": [
+        "n|tbl|public.provider",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider",
+        "name": "dpa_signed_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider",
+        "name": "dpa_signed_by",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider",
+        "name": "dpa_note",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

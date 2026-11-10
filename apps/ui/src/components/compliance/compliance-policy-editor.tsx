@@ -12,6 +12,10 @@ import { useCustomProviderSelection } from "@/hooks/useCustomProviders";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
+import {
+	compliancePolicyForSave,
+	hasEnterpriseComplianceRules,
+} from "@/lib/compliance-policy";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -44,6 +48,7 @@ import {
 	type ProviderCompliancePolicy,
 	type ProviderDefinition,
 	type ProviderId,
+	DATA_PROTECTION_POLICY_KEYS,
 } from "@llmgateway/models";
 import { failureLabel } from "@llmgateway/shared";
 import {
@@ -443,8 +448,17 @@ export function CompliancePolicyEditor({
 
 	const canManageStoredPolicy =
 		currentUserRole === "owner" || currentUserRole === "admin";
+	const hasEnterpriseAccess = selectedOrganization?.enterpriseAccess === true;
+	const orgPrivacyAllowed =
+		!apiKey &&
+		selectedOrganization?.id === organizationId &&
+		selectedOrganization.kind !== "devpass";
+	const inheritedPremiumRules =
+		orgPrivacyAllowed &&
+		!hasEnterpriseAccess &&
+		hasEnterpriseComplianceRules(policy);
 	const canManage =
-		selectedOrganization?.enterpriseAccess === true && canManageStoredPolicy;
+		(hasEnterpriseAccess || orgPrivacyAllowed) && canManageStoredPolicy;
 	const payloadRetentionEnabled =
 		selectedOrganization?.retentionLevel === "retain";
 	const cachedProjects = projects.filter(
@@ -481,19 +495,32 @@ export function CompliancePolicyEditor({
 	};
 
 	const savePolicy = async (nextPolicy: ProviderCompliancePolicy | null) => {
+		const body =
+			orgPrivacyAllowed && nextPolicy !== null
+				? compliancePolicyForSave(nextPolicy, hasEnterpriseAccess)
+				: nextPolicy;
+		if (body === undefined) {
+			toast({
+				title: "Saved restrictions remain active",
+				description:
+					"Disable and save the policy before replacing its Enterprise-only rules, or restore Enterprise access.",
+				variant: "destructive",
+			});
+			return;
+		}
 		try {
 			if (apiKey) {
 				await updateKey.mutateAsync({
 					params: { path: { id: apiKey.id } },
-					body: { providerCompliancePolicy: nextPolicy },
+					body: { providerCompliancePolicy: body },
 				});
 			} else {
 				await updateOrganization.mutateAsync({
 					params: { path: { id: organizationId } },
-					body: { providerCompliancePolicy: nextPolicy },
+					body: { providerCompliancePolicy: body },
 				});
 			}
-			setPolicy(nextPolicy ?? DEFAULT_POLICY);
+			setPolicy(body ?? DEFAULT_POLICY);
 			toast({
 				title: "Settings saved",
 				description: "Your provider compliance policy has been updated.",
@@ -517,7 +544,7 @@ export function CompliancePolicyEditor({
 		);
 	}
 
-	if (selectedOrganization?.enterpriseAccess !== true) {
+	if (!hasEnterpriseAccess && !orgPrivacyAllowed) {
 		if (
 			(policy.enabled || apiKey?.providerCompliancePolicy) &&
 			canManageStoredPolicy
@@ -587,6 +614,15 @@ export function CompliancePolicyEditor({
 				disabled={isSaving}
 				className="flex-1 min-w-0 space-y-6 p-4 pt-6 md:p-8"
 			>
+				{orgPrivacyAllowed && !hasEnterpriseAccess && (
+					<p role="status" className="text-sm text-muted-foreground">
+						Organization data-protection controls are available on this plan.
+						ZDR, certifications and provider/model restrictions require
+						Enterprise.{" "}
+						{inheritedPremiumRules &&
+							"Saved Enterprise-only rules remain enforced; explicitly disable and save before replacing them, or restore Enterprise access."}
+					</p>
+				)}
 				{apiKey ? (
 					<>
 						<Button asChild variant="outline" size="sm" className="w-fit">
@@ -704,7 +740,11 @@ export function CompliancePolicyEditor({
 								</div>
 								<Button
 									onClick={handleSave}
-									disabled={isSaving || zdrConflictsWithSettings}
+									disabled={
+										isSaving ||
+										zdrConflictsWithSettings ||
+										(inheritedPremiumRules && policy.enabled)
+									}
 								>
 									<Save className="h-4 w-4 mr-2" />
 									{isSaving ? "Saving..." : "Save Changes"}
@@ -823,6 +863,10 @@ export function CompliancePolicyEditor({
 								policy.zeroDataRetention === true;
 							const inherited = floor?.[requirement.key] === true;
 							const requirementDisabled =
+								(!hasEnterpriseAccess &&
+									!(DATA_PROTECTION_POLICY_KEYS as readonly string[]).includes(
+										requirement.key,
+									)) ||
 								inherited ||
 								(!policy.enabled && !canClearInactiveZdr) ||
 								(requirement.key === "zeroDataRetention" &&
@@ -894,6 +938,10 @@ export function CompliancePolicyEditor({
 										key={country.code}
 										type="button"
 										disabled={
+											(!hasEnterpriseAccess &&
+												!(
+													DATA_PROTECTION_POLICY_KEYS as readonly string[]
+												).includes("allowedCountries")) ||
 											!policy.enabled ||
 											(!!floor?.allowedCountries?.length &&
 												!floor.allowedCountries.includes(country.code) &&
@@ -943,7 +991,7 @@ export function CompliancePolicyEditor({
 						}
 					>
 						<fieldset
-							disabled={!policy.enabled}
+							disabled={!hasEnterpriseAccess || !policy.enabled}
 							className="grid gap-6 md:grid-cols-2"
 						>
 							<div className="space-y-2">
@@ -1148,7 +1196,7 @@ export function CompliancePolicyEditor({
 					)}
 				</Card>
 
-				{!apiKey && savedPolicy?.enabled ? (
+				{!apiKey && hasEnterpriseAccess && savedPolicy?.enabled ? (
 					<ComplianceAlertsCard
 						organizationId={organizationId}
 						savedPolicy={savedPolicy}
