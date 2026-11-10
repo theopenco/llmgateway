@@ -20,8 +20,9 @@ import {
 // (added after its release date, or between two runs), or is announced twice;
 // a model nobody can call or that the site hides gets in; a price or context
 // reads wrong; markup in a name breaks the email; an empty week or a failed
-// catalogue read still produces an issue; the subject mangles the count; or
-// the broadcast is created as anything but a draft.
+// catalogue read still produces an issue; a database placeholder is printed as
+// a description; the subject mangles the count; or the broadcast is created as
+// anything but a draft.
 
 // A Tuesday. The issue covers the seven UTC days before it: Nov 3 to Nov 9.
 const now = new Date("2026-11-10T12:00:00Z");
@@ -300,6 +301,27 @@ describe("the live catalogue", () => {
 		]);
 		expect(selected[0].price).toBe("from $4 in / $20 out per 1M tokens");
 		expect(selected[0].description).toBe("");
+	});
+
+	test("a name or description nobody filled in is left out, not printed", () => {
+		const digest = buildDigest({
+			models: fromCatalogue([
+				{ ...listed, id: "unnamed-model", name: "(empty)" },
+				{ ...listed, id: "bare", name: "Bare", description: "(empty)" },
+			]),
+			providerNames,
+			changelog: [],
+			now,
+			days: 7,
+			postalAddress: "1 Example Street",
+		});
+
+		expect(digest?.models.map((m) => [m.name, m.description])).toEqual([
+			["Bare", ""],
+			["unnamed-model", ""],
+		]);
+		expect(digest?.html).not.toContain("(empty)");
+		expect(digest?.text).not.toContain("(empty)");
 	});
 
 	test("an empty or malformed read is an error, not a quiet week", () => {

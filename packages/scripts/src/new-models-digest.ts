@@ -186,7 +186,13 @@ async function main() {
 	}
 	const id = await createDraft(digest);
 	console.log(`Created Resend broadcast draft ${id}. Review and send it there.`);
-	await notify(digest.subject, digest.models.length);
+	// The draft exists by now. A failed note must not fail the run, or a rerun
+	// would save the same draft twice.
+	try {
+		await notify(digest.subject, digest.models.length);
+	} catch (error) {
+		console.error("The draft is saved, but the Discord note failed:", error);
+	}
 }
 
 void main();

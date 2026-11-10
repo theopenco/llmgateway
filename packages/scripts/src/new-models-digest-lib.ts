@@ -9,6 +9,8 @@ const REPLY_TO = "contact@llmgateway.io";
 const DAY_MS = 86_400_000;
 const PER_MILLION = 1_000_000;
 const MIN_PRICE_DECIMALS = 2;
+// What the database stores for a name or description nobody filled in.
+const EMPTY_TEXT = "(empty)";
 
 export interface DigestModelInput {
 	id: string;
@@ -180,6 +182,10 @@ export function readCatalogueList<T>(
 	return items as T[];
 }
 
+function filledIn(text: string | null): string | undefined {
+	return text && text !== EMPTY_TEXT ? text : undefined;
+}
+
 /**
  * Drops what the site hides: inactive models and mappings, and provider
  * listings that are paused or delisted.
@@ -193,8 +199,8 @@ export function fromCatalogue(
 			const unlisted = new Set(model.unlistedProviderIds ?? []);
 			return {
 				id: model.id,
-				name: model.name ?? undefined,
-				description: model.description ?? undefined,
+				name: filledIn(model.name),
+				description: filledIn(model.description),
 				releasedAt: model.releasedAt ? new Date(model.releasedAt) : undefined,
 				addedAt: new Date(model.createdAt),
 				providers: model.mappings
