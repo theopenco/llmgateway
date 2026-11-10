@@ -1041,7 +1041,7 @@ adminCrm.openapi(deleteActivity, async (c) => {
 	if (activity && isLeadFollowUpRef(activity.externalRef)) {
 		throw new HTTPException(400, {
 			message:
-				"This follow-up belongs to an inquiry. Mark it done, or archive the inquiry to remove it.",
+				"An inquiry's follow-up cannot be deleted. It records whether the inquiry was answered; an open one goes away when the inquiry is archived.",
 		});
 	}
 	await db
