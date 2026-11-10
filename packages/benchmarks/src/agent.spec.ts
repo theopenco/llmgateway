@@ -201,3 +201,50 @@ describe("executeAgentRequest", () => {
 		expect(outcome.evaluation).toBeNull();
 	});
 });
+
+it("replays assistant opaque reasoning and provider metadata on the next tool turn", async () => {
+	const replay = {
+		reasoning_details: [
+			{
+				type: "reasoning.encrypted",
+				format: "openai-responses-v1",
+				data: "opaque-fixture",
+			},
+		],
+		anthropic_native_blocks: [
+			{ type: "opaque_fixture", data: "native-fixture" },
+		],
+		provider_extra: { vendor: { opaque: "provider-fixture" } },
+		extra_content: { vendor: { opaque: "extra-fixture" } },
+		phase: "commentary",
+	};
+	const bodies: Array<{ messages: unknown[] }> = [];
+	const responses = [
+		sse([
+			{ choices: [{ delta: { ...replay, reasoning: "thinking fixture" } }] },
+			toolCallChunk("ping", "{}"),
+		]),
+		sse([textChunk("DONE")]),
+	];
+	await executeAgentRequest({
+		client: { url: "https://gateway.example" },
+		request: { messages: [{ role: "user", content: "start" }] },
+		model: "fixture",
+		timeoutMs: 1000,
+		fetch: async (_input, init) => {
+			bodies.push(JSON.parse(String(init?.body)) as { messages: unknown[] });
+			const response = responses.shift();
+			if (!response) {
+				throw new Error("Unexpected turn");
+			}
+			return response;
+		},
+		agent: { maxTurns: 2, createSession: () => session([]) },
+		context,
+	});
+	expect(bodies[1].messages[1]).toMatchObject({
+		role: "assistant",
+		reasoning: "thinking fixture",
+		...replay,
+	});
+});

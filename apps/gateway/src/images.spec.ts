@@ -45,10 +45,14 @@ describe("image generation upstream streaming", () => {
 		size?: unknown;
 		quality?: unknown;
 		moderation?: unknown;
+		complexity?: unknown;
 		background?: unknown;
 		outputFormat?: unknown;
 		outputCompression?: unknown;
 		svg?: unknown;
+		frameCount?: unknown;
+		frameDuration?: unknown;
+		markup?: unknown;
 	}> = [];
 	let failOpenai = false;
 	let imageBase64Prefix = "";
@@ -109,10 +113,14 @@ describe("image generation upstream streaming", () => {
 				size: body.size,
 				quality: body.quality,
 				moderation: body.moderation,
+				complexity: body.complexity,
 				background: body.background,
 				outputFormat: body.output_format,
 				outputCompression: body.output_compression,
 				svg: body.svg,
+				frameCount: body.frame_count,
+				frameDuration: body.frame_duration_ms,
+				markup: body.markup,
 			});
 			if (endpoint === "edits") {
 				expect(multipart).toBe(true);
@@ -141,6 +149,14 @@ describe("image generation upstream streaming", () => {
 					{ error: { message: "Streaming is only supported with n=1." } },
 					{ status: 400 },
 				);
+			}
+			if (body.output_format === "gif") {
+				return Response.json({
+					created: 1,
+					data: [{ b64_json: gifBase64 }],
+					output_format: "gif",
+					usage,
+				});
 			}
 			if (body.output_format === "svg") {
 				return Response.json({
@@ -831,6 +847,270 @@ describe("image generation upstream streaming", () => {
 			}
 		});
 	});
+
+	describe.each(["gpt-image-2.6-sunburst", "gpt-image-2.6-flare"])(
+		"%s complexity",
+		(model) => {
+			describe.each(["generations", "edits", "multipart", "chat"])(
+				"%s",
+				(endpoint) => {
+					test.each(["low", "medium", "high", undefined, "invalid"])(
+						"handles complexity=%s",
+						async (complexity) => {
+							const headers = {
+								Authorization: "Bearer test-token",
+								"x-no-fallback": "true",
+							};
+							const form = new FormData();
+							form.set("model", `openai/${model}`);
+							form.set("prompt", "Change the background");
+							form.set(
+								"image",
+								new File([pngBytes], "image.png", { type: "image/png" }),
+							);
+							if (complexity !== undefined) {
+								form.set("complexity", complexity);
+							}
+							const res = await app.request(
+								endpoint === "chat"
+									? "/v1/chat/completions"
+									: `/v1/images/${endpoint === "multipart" ? "edits" : endpoint}`,
+								{
+									method: "POST",
+									headers:
+										endpoint === "multipart"
+											? headers
+											: { ...headers, "Content-Type": "application/json" },
+									body:
+										endpoint === "multipart"
+											? form
+											: JSON.stringify({
+													model: `openai/${model}`,
+													...(endpoint === "chat"
+														? {
+																messages: [
+																	{
+																		role: "user",
+																		content: "Change the background",
+																	},
+																],
+																image_config: { complexity },
+															}
+														: { prompt: "Change the background", complexity }),
+													...(endpoint === "edits" && {
+														images: [{ image_url: inputImage }],
+													}),
+												}),
+								},
+							);
+							const json = await res.json();
+							expect(res.status, JSON.stringify(json)).toBe(
+								complexity === "invalid" ? 400 : 200,
+							);
+							if (complexity === "invalid") {
+								expect(upstreamRequests).toHaveLength(0);
+								return;
+							}
+							expect(upstreamRequests).toHaveLength(1);
+							expect(upstreamRequests[0].complexity).toBe(complexity);
+						},
+					);
+				},
+			);
+		},
+	);
+
+	describe.each(["generations", "edits", "multipart", "chat"])(
+		"GIF %s",
+		(endpoint) => {
+			test.each(["gpt-image-2.6-sunburst", "gpt-image-2.6-flare"])(
+				"forwards animation settings for %s",
+				async (model) => {
+					const form = new FormData();
+					for (const [key, value] of Object.entries({
+						model: `openai/${model}`,
+						prompt: "Animate a circle",
+						output_format: "gif",
+						frame_count: "2",
+						frame_duration_ms: "20",
+					})) {
+						form.set(key, value);
+					}
+					form.set(
+						"image",
+						new File([pngBytes], "image.png", { type: "image/png" }),
+					);
+					const res = await app.request(
+						endpoint === "chat"
+							? "/v1/chat/completions"
+							: `/v1/images/${endpoint === "multipart" ? "edits" : endpoint}`,
+						{
+							method: "POST",
+							headers: {
+								Authorization: "Bearer test-token",
+								"x-no-fallback": "true",
+								...(endpoint !== "multipart" && {
+									"Content-Type": "application/json",
+								}),
+							},
+							body:
+								endpoint === "multipart"
+									? form
+									: JSON.stringify({
+											model: `openai/${model}`,
+											...(endpoint === "chat"
+												? {
+														messages: [
+															{ role: "user", content: "Animate a circle" },
+														],
+														image_config: {
+															output_format: "gif",
+															frame_count: 2,
+															frame_duration_ms: 20,
+														},
+													}
+												: {
+														prompt: "Animate a circle",
+														output_format: "gif",
+														frame_count: 2,
+														frame_duration_ms: 20,
+													}),
+											...(endpoint === "edits" && {
+												images: [{ image_url: inputImage }],
+											}),
+										}),
+						},
+					);
+					const json = await res.json();
+					expect(res.status, JSON.stringify(json)).toBe(200);
+					expect(upstreamRequests).toHaveLength(1);
+					expect(upstreamRequests[0]).toMatchObject({
+						outputFormat: "gif",
+						frameCount:
+							endpoint === "edits" || endpoint === "multipart" ? "2" : 2,
+						frameDuration:
+							endpoint === "edits" || endpoint === "multipart" ? "20" : 20,
+						stream: undefined,
+						partialImages: undefined,
+					});
+					if (endpoint === "chat") {
+						expect(json.choices[0].message.images[0].image_url.url).toBe(
+							`data:image/gif;base64,${gifBase64}`,
+						);
+					} else {
+						expect(json.data[0].b64_json).toBe(gifBase64);
+						expect(json.output_format).toBe("gif");
+					}
+				},
+			);
+		},
+	);
+	test.each(["json", "multipart"])(
+		"forwards %s markup as a separate PNG",
+		async (format) => {
+			const form = new FormData();
+			form.set("model", "openai/gpt-image-2.6-flare");
+			form.set("prompt", "Edit the circled region");
+			form.set(
+				"image",
+				new File([pngBytes], "image.png", { type: "image/png" }),
+			);
+			form.set(
+				"markup",
+				new File([pngBytes], "markup.png", { type: "image/png" }),
+			);
+			const res = await app.request("/v1/images/edits", {
+				method: "POST",
+				headers: {
+					Authorization: "Bearer test-token",
+					"x-no-fallback": "true",
+					...(format === "json" && { "Content-Type": "application/json" }),
+				},
+				body:
+					format === "multipart"
+						? form
+						: JSON.stringify({
+								model: "openai/gpt-image-2.6-flare",
+								prompt: "Edit the circled region",
+								images: [{ image_url: inputImage }],
+								markup: {
+									image_url: `data:image/png;base64,${pngBytes.toString("base64")}`,
+								},
+							}),
+			});
+			const json = await res.json();
+			expect(res.status, JSON.stringify(json)).toBe(200);
+			expect(upstreamRequests).toHaveLength(1);
+			expect(upstreamRequests[0].markup).toBeInstanceOf(Blob);
+			const blob = upstreamRequests[0].markup as Blob;
+			expect(blob.type).toBe("image/png");
+			expect(Buffer.from(await blob.arrayBuffer())).toEqual(pngBytes);
+		},
+	);
+
+	test.each([
+		{ frame_count: 1 },
+		{ frame_count: 17 },
+		{ frame_count: 2.5 },
+		{ frame_duration_ms: 19 },
+		{ frame_duration_ms: 2001 },
+		{ frame_duration_ms: 20.5 },
+		{ output_compression: 80 },
+		{ output_format: "png", frame_count: 2 },
+	])("rejects invalid GIF options %j", async (options) => {
+		for (const endpoint of ["generations", "edits"]) {
+			const res = await app.request(`/v1/images/${endpoint}`, {
+				method: "POST",
+				headers: {
+					Authorization: "Bearer test-token",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					model: "openai/gpt-image-2.6-flare",
+					prompt: "Animate a circle",
+					output_format: "gif",
+					...options,
+					...(endpoint === "edits" && { images: [{ image_url: inputImage }] }),
+				}),
+			});
+			expect(res.status, await res.text()).toBe(400);
+		}
+		expect(upstreamRequests).toHaveLength(0);
+	});
+	test("leaves GIF timing defaults to the provider", async () => {
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				Authorization: "Bearer test-token",
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-image-2.6-flare",
+				prompt: "Animate a circle",
+				output_format: "gif",
+			}),
+		});
+		expect(res.status, await res.text()).toBe(200);
+		expect(upstreamRequests[0].frameCount).toBeUndefined();
+		expect(upstreamRequests[0].frameDuration).toBeUndefined();
+	});
+	test("rejects unsafe markup URLs before any upstream request", async () => {
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				Authorization: "Bearer test-token",
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-image-2.6-flare",
+				prompt: "Edit the circled region",
+				images: [{ image_url: inputImage }],
+				markup: { image_url: "https://127.0.0.1/markup.png" },
+			}),
+		});
+		expect(res.status, await res.text()).toBe(400);
+		expect(upstreamRequests).toHaveLength(0);
+	});
 });
 
 describe("image service tiers", () => {
@@ -1025,3 +1305,4 @@ describe("image service tiers", () => {
 		expect(json.output_format).toBe("jpeg");
 	});
 });
+const gifBase64 = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";

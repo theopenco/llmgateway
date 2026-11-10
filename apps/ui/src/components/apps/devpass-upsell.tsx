@@ -1,5 +1,3 @@
-"use client";
-
 import { ArrowRight } from "lucide-react";
 
 import { AnimatedGroup } from "@/components/landing/animated-group";

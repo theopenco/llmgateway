@@ -2,6 +2,7 @@
 id: n8n
 slug: n8n
 title: n8n Integration
+seoTitle: Use n8n with LLM Gateway
 date: 2026-09-23
 description: Connect n8n chat workflows to LLM Gateway with an OpenAI Chat Model, then verify a real execution.
 ---

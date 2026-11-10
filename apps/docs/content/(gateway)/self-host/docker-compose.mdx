@@ -73,6 +73,14 @@ LLM_OPENAI_API_KEY=sk-...
 LLM_ANTHROPIC_API_KEY=sk-ant-...
 ```
 
+## Airside verification
+
+Configure `AIRSIDE_GATEWAY_API_KEY` with a dedicated operator project API key and
+set `GATEWAY_URL` to your gateway origin on the API and worker. These calls use
+the carrier provider key, with inference logged and billed to the operator
+project. See [split deployment configuration](/self-host/split-deployment#airside-inference-credentials)
+for credential isolation, daily scheduling, and Helm Secret references.
+
 ## Enterprise license
 
 Add the signed license supplied with your Enterprise agreement to `.env`:
@@ -121,6 +129,14 @@ The admin dashboard's **Provider Credentials** page lets you add, edit and remov
 them without redeploying, and each credential carries every setting the provider
 needs — API key, base URL, project, region, resource, API version — plus a free-form
 note so several keys for the same provider stay tellable apart.
+
+The credentials table's **Period** selector beside **Show deleted** controls both
+attributed spend and error rates and defaults to **7d**. Choose **All time**,
+**4h**, **24h**, **7d**, or **30d**, and rank by **Spend (selected window)**.
+Totals use hourly aggregates; error trends show hourly points for short periods,
+daily points for 7d and 30d, and monthly points for All time. Limits and their
+progress always use all-time spend. Daily spend bars still cover the last seven
+UTC days.
 
 Resolution is per provider: as soon as a provider has at least one managed
 credential, credits-mode requests to it use those credentials and its `LLM_*`

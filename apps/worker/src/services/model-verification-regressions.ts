@@ -1,4 +1,7 @@
-import { createQueuedModelVerificationChecks } from "@llmgateway/actions";
+import {
+	createQueuedModelVerificationChecks,
+	isDailyModelVerification,
+} from "@llmgateway/actions";
 import {
 	and,
 	asc,
@@ -20,6 +23,8 @@ import {
 	sameVerificationDeployment,
 	currentCredentialSource,
 	sameVerificationDeclaration,
+	currentVerificationTarget,
+	sameVerificationCredential,
 } from "./daily-model-verifications.js";
 
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
@@ -196,7 +201,15 @@ export async function deliverModelVerificationRegressions(
 				: null;
 			if (
 				!live ||
-				!sameVerificationDeclaration(job.target, live.target) ||
+				!sameVerificationDeclaration(
+					job.target,
+					live.target,
+					isDailyModelVerification(job),
+				) ||
+				!sameVerificationCredential(
+					job.target,
+					await currentVerificationTarget(live, tx),
+				) ||
 				!(await currentCredentialSource(live, tx))
 			) {
 				await finish();

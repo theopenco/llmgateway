@@ -243,9 +243,12 @@ interface OpenAIImageRequest {
 	size?: string;
 	quality?: OpenAIImageQuality;
 	moderation?: OpenAIImageModeration;
+	complexity?: "low" | "medium" | "high";
 	background?: string;
 	output_format?: string;
 	output_compression?: number;
+	frame_count?: number;
+	frame_duration_ms?: number;
 	n?: number;
 	image?: string | string[];
 	svg?: SvgImageOptions | null;
@@ -336,6 +339,40 @@ async function fetchImageAsBlob(
 		blob: new Blob([buffer], { type: mimeType }),
 		filename: `image-${index}.${ext}`,
 	};
+}
+
+async function fetchMarkupAsBlob(
+	url: string,
+	isProd: boolean,
+	maxSizeMB: number,
+	userPlan: "free" | "pro" | "enterprise" | null,
+): Promise<Blob> {
+	try {
+		const { data, mimeType } = await processImageUrl(
+			url,
+			isProd,
+			maxSizeMB,
+			userPlan,
+		);
+		if (mimeType !== "image/png") {
+			throw new RequestError("markup must be a PNG image.");
+		}
+		const { blob } = await fetchImageAsBlob(
+			`data:${mimeType};base64,${data}`,
+			0,
+			isProd,
+			maxSizeMB,
+			userPlan,
+		);
+		return blob;
+	} catch (error) {
+		if (error instanceof RequestError) {
+			throw error;
+		}
+		throw new RequestError(
+			"Invalid markup image. Use a publicly accessible HTTPS PNG or a PNG data URL.",
+		);
+	}
 }
 
 /**
@@ -1727,6 +1764,18 @@ function attachToolResultCacheControl(message: BaseMessage): BaseMessage {
  *   `auto` forwards caller markers and injects more on long prompts,
  *   `passthrough` only forwards, `off` strips everything.
  */
+const WAN_EDIT_MAX_PIXELS = 2048 * 2048;
+
+function exceedsWanEditPixelLimit(imageSize: string): boolean {
+	if (imageSize.toUpperCase() === "4K") {
+		return true;
+	}
+	const match = /^(\d+)[x*](\d+)$/.exec(imageSize);
+	return (
+		match !== null && Number(match[1]) * Number(match[2]) > WAN_EDIT_MAX_PIXELS
+	);
+}
+
 export async function prepareRequestBody(
 	usedProvider: ProviderId,
 	usedInternalModel: string,
@@ -1754,10 +1803,14 @@ export async function prepareRequestBody(
 		image_size?: string;
 		image_quality?: string;
 		moderation?: string;
+		complexity?: "low" | "medium" | "high";
 		background?: string;
 		output_format?: string;
 		svg?: SvgImageOptions | null;
 		output_compression?: number;
+		frame_count?: number;
+		frame_duration_ms?: number;
+		markup?: { image_url: string };
 		n?: number;
 		seed?: number;
 	},
@@ -2006,6 +2059,13 @@ export async function prepareRequestBody(
 			...(openaiSize && { size: openaiSize }),
 			...(openaiQuality && { quality: openaiQuality }),
 			...(openaiModeration && { moderation: openaiModeration }),
+			...(image_config?.complexity && { complexity: image_config.complexity }),
+			...(image_config?.frame_count !== undefined && {
+				frame_count: image_config.frame_count,
+			}),
+			...(image_config?.frame_duration_ms !== undefined && {
+				frame_duration_ms: image_config.frame_duration_ms,
+			}),
 			...(image_config?.background && { background: image_config.background }),
 			...(image_config?.output_format && {
 				output_format: image_config.output_format,
@@ -2035,6 +2095,9 @@ export async function prepareRequestBody(
 			if (openaiImageRequest.moderation) {
 				formData.append("moderation", openaiImageRequest.moderation);
 			}
+			if (openaiImageRequest.complexity) {
+				formData.append("complexity", openaiImageRequest.complexity);
+			}
 			if (openaiImageRequest.background) {
 				formData.append("background", openaiImageRequest.background);
 			}
@@ -2051,6 +2114,20 @@ export async function prepareRequestBody(
 				formData.append("n", String(openaiImageRequest.n));
 			}
 
+			for (const field of ["frame_count", "frame_duration_ms"] as const) {
+				if (openaiImageRequest[field] !== undefined) {
+					formData.append(field, String(openaiImageRequest[field]));
+				}
+			}
+			if (image_config?.markup) {
+				const blob = await fetchMarkupAsBlob(
+					image_config.markup.image_url,
+					isProd,
+					maxImageSizeMB,
+					userPlan,
+				);
+				formData.append("markup", blob, "markup.png");
+			}
 			const decoded = await Promise.all(
 				imageUrls.map((url, index) =>
 					fetchImageAsBlob(url, index, isProd, maxImageSizeMB, userPlan),
@@ -2210,6 +2287,18 @@ export async function prepareRequestBody(
 				...(image_config?.seed !== undefined && { seed: image_config.seed }),
 			},
 		};
+
+		// Wan 2.7 caps edits at 2K (2048*2048 pixels); 4K is text-to-image only.
+		if (
+			imageUrls.length > 0 &&
+			image_config?.image_size &&
+			usedExternalId.startsWith("wan2.7-image") &&
+			exceedsWanEditPixelLimit(image_config.image_size)
+		) {
+			throw new RequestError(
+				'Wan 2.7 image edits support at most 2K (2048x2048 pixels); use "1K", "2K" or a smaller size with input images',
+			);
+		}
 
 		// Map image_size to Alibaba format (uses * instead of x)
 		if (image_config?.image_size) {
@@ -2733,7 +2822,8 @@ export async function prepareRequestBody(
 	// incomplete prior turn replayed for the Responses API) becomes empty here,
 	// so drop it.
 	const replaysAnthropicThinking =
-		modelDef?.family === "anthropic" &&
+		(modelDef?.family === "anthropic" ||
+			resolvedProviderMapping?.reasoning === true) &&
 		(usesAnthropicMessagesApi(usedProvider) ||
 			(usedProvider === "aws-bedrock" &&
 				providerMappingForOptions?.apiFormat !== "openai-chat-completions"));

@@ -1,18 +1,16 @@
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
+import { Suspense } from "react";
 
 import { DashboardDemo } from "@/components/home/dashboard-demo";
+import {
+	LandingStats,
+	LandingStatsView,
+} from "@/components/landing/landing-stats";
 import { AuthLink } from "@/components/shared/auth-link";
 import { ShimmerButton } from "@/lib/components/shimmer-button";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
-
-const STATS = [
-	{ value: MARKETING_STATS.tokensRouted, label: "tokens routed" },
-	{ value: MARKETING_STATS.requestsRouted, label: "requests routed" },
-	{ value: MARKETING_STATS.models, label: "models" },
-	{ value: MARKETING_STATS.providers, label: "providers" },
-];
 
 export function LandingHero() {
 	return (
@@ -146,22 +144,12 @@ export function LandingHero() {
 
 					<div className="animate-hero-enter hero-enter-delay-3">
 						<div className="mx-auto mt-8 max-w-7xl px-4 pb-16 sm:mt-12 sm:px-6 md:mt-20 md:pb-24">
-							<DashboardDemo />
-							<dl className="mt-10 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border bg-border sm:grid-cols-4">
-								{STATS.map((stat) => (
-									<div
-										key={stat.label}
-										className="flex flex-col-reverse bg-background px-5 py-4"
-									>
-										<dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-											{stat.label}
-										</dt>
-										<dd className="font-display text-2xl font-bold tracking-tight md:text-3xl">
-											{stat.value}
-										</dd>
-									</div>
-								))}
-							</dl>
+							<Suspense fallback={<LandingStatsView totals={undefined} />}>
+								<LandingStats />
+							</Suspense>
+							<div className="mt-10">
+								<DashboardDemo />
+							</div>
 						</div>
 					</div>
 				</div>

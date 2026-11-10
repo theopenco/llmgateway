@@ -32,6 +32,11 @@ export * from "./time-zone-setting";
 export * from "./use-rerender-at";
 export * from "./ui/index";
 export * from "./models-directory/capability-filters";
+export {
+	BATCH_DOCS_URL,
+	batchSupportDescription,
+	hasBatchSupport,
+} from "./models-directory/mapping-capabilities";
 export * from "./models-directory/pricing-schedule";
 export * from "./models-directory/use-case-filters";
 export { RoutingMetadataExpired } from "./routing-metadata-expired.js";

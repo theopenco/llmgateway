@@ -186,6 +186,60 @@ describe("FLUX 3 Max", () => {
 	});
 });
 
+describe("Alibaba Wan 3.0", () => {
+	const sizes: VideoSize[] = [
+		"854x480",
+		"480x854",
+		"1280x720",
+		"720x1280",
+		"1920x1080",
+		"1080x1920",
+	];
+	const durations = Array.from({ length: 29 }, (_, i) => i + 2);
+	const wan = (modelId: string): VideoCatalogModel => ({
+		id: modelId,
+		mappings: [
+			{
+				...mapping,
+				modelId,
+				providerId: "alibaba",
+				supportedVideoSizes: sizes,
+				supportedVideoDurationsSeconds: durations,
+				supportedVideoDurationsSecondsImageToVideo: null,
+			},
+		],
+	});
+
+	test.each(["wan-3-0-video", "alibaba/wan-3-0-video-prime"])(
+		"offers text, frame and reference image menus for %s",
+		(modelId) => {
+			const model = wan(modelId.replace("alibaba/", ""));
+			for (const mode of ["none", "frames", "reference"] as const) {
+				expect(
+					getSupportedVideoRequestOptions([model], [modelId], mode).sizes,
+				).toEqual(sizes);
+			}
+			expect(supportsVideoFrameInput(modelId)).toBe(true);
+			expect(supportsVideoEndFrameInput(modelId)).toBe(true);
+			expect(supportsVideoReferenceInput(modelId)).toBe(true);
+			expect(supportsVideoReferenceVideoInput(modelId)).toBe(false);
+			expect(supportsVideoReferenceAudioInput(modelId)).toBe(false);
+		},
+	);
+
+	test("keeps Wan 2.6 text-only", () => {
+		expect(supportsVideoFrameInput("alibaba/wan-2-6-t2v")).toBe(false);
+		expect(supportsVideoReferenceInput("alibaba/wan-2-6-t2v")).toBe(false);
+		expect(
+			getSupportedVideoRequestOptions(
+				[wan("wan-2-6-t2v")],
+				["wan-2-6-t2v"],
+				"frames",
+			),
+		).toEqual({ sizes: [], durations: [] });
+	});
+});
+
 describe("video size options", () => {
 	const sizes: VideoSize[] = ["854x480", "848x480", "1280x720", "1080x1920"];
 

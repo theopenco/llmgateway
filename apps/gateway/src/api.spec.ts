@@ -5300,13 +5300,14 @@ describe("api", () => {
 		expect(Array.isArray(json.data)).toBe(true);
 		expect(json.data[0]).toHaveProperty("embedding");
 		expect(Array.isArray(json.data[0].embedding)).toBe(true);
-		expect(json.usage).toEqual({
+		expect(json.usage).toMatchObject({
 			prompt_tokens: inputText.length,
 			total_tokens: inputText.length,
 		});
 
 		const logs = await waitForLogs(1);
 		const embeddingLog = logs.find((log) => log.requestId === requestId);
+		expect(json.usage.cost).toBe(Number(embeddingLog?.cost));
 
 		expect(embeddingLog).toBeTruthy();
 		expect(embeddingLog?.usedModel).toBe("openai/text-embedding-3-small");
@@ -5479,7 +5480,7 @@ describe("api", () => {
 					Authorization: "Bearer real-token-spend-cap",
 				},
 				body: JSON.stringify({
-					model: "gpt-4o-mini",
+					model: "openai/gpt-4o-mini",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -9380,7 +9381,7 @@ describe("api", () => {
 				Authorization: `Bearer real-token`,
 			},
 			body: JSON.stringify({
-				model: "gpt-4o-mini",
+				model: "openai/gpt-4o-mini",
 				messages: [
 					{
 						role: "user",

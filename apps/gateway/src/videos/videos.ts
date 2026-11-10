@@ -310,12 +310,18 @@ const videoImageInputSchema = z
 
 const SEEDANCE_2_MAX_REFERENCE_IMAGES = 9;
 const DEFAULT_MAX_REFERENCE_IMAGES = 3;
+const ALIBABA_WAN3_MAX_REFERENCE_IMAGES = 10;
+// Per-provider checks enforce lower limits.
+const MAX_REFERENCE_IMAGES = Math.max(
+	SEEDANCE_2_MAX_REFERENCE_IMAGES,
+	ALIBABA_WAN3_MAX_REFERENCE_IMAGES,
+);
 const GEMINI_OMNI_MAX_SOURCE_VIDEO_SECONDS = 10;
 
 const videoReferenceImagesSchema = z
 	.array(videoImageInputSchema)
 	.min(1)
-	.max(SEEDANCE_2_MAX_REFERENCE_IMAGES);
+	.max(MAX_REFERENCE_IMAGES);
 
 const referenceVideoUrlSchema = z
 	.string()
@@ -451,7 +457,7 @@ const createVideoRequestSchema = z
 		image: videoImageInputSchema.optional(),
 		reference_images: videoReferenceImagesSchema.optional().openapi({
 			description:
-				"Reference images for provider-specific asset or material-guided video generation. ByteDance Seedance 2.x models accept up to 9; other providers accept up to 3.",
+				"Reference images for provider-specific asset or material-guided video generation. ByteDance Seedance 2.x models accept up to 9 and Alibaba Wan 3.0 up to 10; other providers accept up to 3.",
 			example: [
 				{
 					image_url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
@@ -973,6 +979,7 @@ async function getPendingVideoReservationUsd(
 						or(
 							sql`${tables.videoJob.upstreamStatusResponse} ->> 'llmgateway_billing_pending' = 'true'`,
 							sql`${tables.videoJob.upstreamStatusResponse} ->> 'llmgateway_billing_quarantined' = 'true'`,
+							sql`${tables.videoJob.upstreamStatusResponse} ->> 'llmgateway_billing_fallback' = 'true'`,
 						),
 					),
 				),
@@ -1242,6 +1249,10 @@ function isAtlasCloudCollapsedKlingModel(externalId: string): boolean {
 	);
 }
 
+function isAlibabaWan3VideoModel(externalId: string): boolean {
+	return externalId === "wan3.0-video" || externalId === "wan3.0-video-prime";
+}
+
 function isAtlasCloudFabricModel(externalId: string): boolean {
 	return (
 		externalId === "veed/fabric-1.0" || externalId === "veed/fabric-1.0/fast"
@@ -1328,6 +1339,26 @@ function getVideoProviderConstraintReasons(
 		) {
 			reasons.push(
 				"FLUX 3 Max supports only a single reference image or first/last frames",
+			);
+		}
+		return reasons;
+	}
+
+	if (provider.providerId === "alibaba") {
+		if (inputMode !== "none" && !isAlibabaWan3VideoModel(provider.externalId)) {
+			reasons.push(
+				"image inputs are only supported on Alibaba Wan 3.0 video models (wan-3-0-video, wan-3-0-video-prime)",
+			);
+		}
+		if (referenceVideoCount > 0 || referenceAudioCount > 0) {
+			reasons.push("reference videos and audio are unsupported on alibaba");
+		}
+		if (
+			inputMode === "reference" &&
+			inputImageCount > ALIBABA_WAN3_MAX_REFERENCE_IMAGES
+		) {
+			reasons.push(
+				`Wan 3.0 supports at most ${ALIBABA_WAN3_MAX_REFERENCE_IMAGES} reference images`,
 			);
 		}
 		return reasons;
@@ -4330,28 +4361,87 @@ async function createXaiVideoJob(
 	return { upstreamId, upstreamRequest, upstreamResponse };
 }
 
+function toDataUrl(image: ProcessedVideoImageInput): string {
+	return `data:${image.mimeType};base64,${image.bytesBase64Encoded}`;
+}
+
+function buildAlibabaWan3VideoRequest(
+	upstreamModelName: string,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	includeAudio: boolean,
+	processedFirstFrame: ProcessedVideoImageInput | null,
+	processedLastFrame: ProcessedVideoImageInput | null,
+	processedReferenceImages: ProcessedVideoImageInput[],
+): Record<string, unknown> {
+	const media = [
+		...(processedFirstFrame
+			? [{ type: "first_frame", url: toDataUrl(processedFirstFrame) }]
+			: []),
+		...(processedLastFrame
+			? [{ type: "last_frame", url: toDataUrl(processedLastFrame) }]
+			: []),
+		...processedReferenceImages.map((image) => ({
+			type: "reference_image",
+			url: toDataUrl(image),
+		})),
+	];
+	return {
+		model: upstreamModelName,
+		input: {
+			prompt,
+			...(media.length > 0 && { media }),
+		},
+		parameters: {
+			resolution: videoSize.resolution.toUpperCase(),
+			ratio: videoSize.orientation === "portrait" ? "9:16" : "16:9",
+			duration: durationSeconds,
+			audio: includeAudio,
+		},
+	};
+}
+
 async function createAlibabaVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
 	videoSize: VideoSizeConfig,
 	prompt: string,
 	durationSeconds: number,
+	includeAudio: boolean,
+	processedFirstFrame: ProcessedVideoImageInput | null,
+	processedLastFrame: ProcessedVideoImageInput | null,
+	processedReferenceImages: ProcessedVideoImageInput[],
 ): Promise<{
 	upstreamId: string;
 	upstreamRequest: Record<string, unknown>;
 	upstreamResponse: Record<string, unknown>;
 }> {
 	const upstreamModelName = providerMapping.externalId;
-	const upstreamRequest: Record<string, unknown> = {
-		model: upstreamModelName,
-		input: {
-			prompt,
-		},
-		parameters: {
-			size: `${videoSize.width}*${videoSize.height}`,
-			duration: durationSeconds,
-		},
-	};
+	// Wan 3.0 takes a resolution tier and ratio; older Wan models take a pixel size.
+	const upstreamRequest: Record<string, unknown> = isAlibabaWan3VideoModel(
+		upstreamModelName,
+	)
+		? buildAlibabaWan3VideoRequest(
+				upstreamModelName,
+				videoSize,
+				prompt,
+				durationSeconds,
+				includeAudio,
+				processedFirstFrame,
+				processedLastFrame,
+				processedReferenceImages,
+			)
+		: {
+				model: upstreamModelName,
+				input: {
+					prompt,
+				},
+				parameters: {
+					size: `${videoSize.width}*${videoSize.height}`,
+					duration: durationSeconds,
+				},
+			};
 
 	const upstreamUrl = joinUrl(
 		providerContext.baseUrl,
@@ -4581,6 +4671,10 @@ async function createUpstreamVideoJob(
 				videoSize,
 				prompt,
 				durationSeconds,
+				includeAudio,
+				processedFirstFrame,
+				processedLastFrame,
+				processedReferenceImages,
 			);
 		case "google-ai-studio":
 			return await createGoogleAiStudioVideoJob(

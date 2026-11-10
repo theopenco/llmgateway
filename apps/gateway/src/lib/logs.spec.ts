@@ -414,3 +414,22 @@ describe("calculateDataStorageCost", () => {
 		expect(cost).toBe("0.01");
 	});
 });
+
+describe.each(["anthropic", "vertex-anthropic", "azure-anthropic"])(
+	"normalized finish reasons for %s",
+	(provider) => {
+		it.each([
+			["stop", UnifiedFinishReason.COMPLETED],
+			["length", UnifiedFinishReason.LENGTH_LIMIT],
+			["tool_calls", UnifiedFinishReason.TOOL_CALLS],
+			["content_filter", UnifiedFinishReason.CONTENT_FILTER],
+		] as const)("maps %s to %s", (reason, expected) => {
+			expect(getUnifiedFinishReason(reason, provider)).toBe(expected);
+		});
+		it("keeps unrecognized reasons unknown", () => {
+			expect(getUnifiedFinishReason("unexpected_reason", provider)).toBe(
+				UnifiedFinishReason.UNKNOWN,
+			);
+		});
+	},
+);

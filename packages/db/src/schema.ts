@@ -6120,6 +6120,11 @@ export interface ProviderModelVerificationCheck {
 
 export interface ProviderModelVerificationTarget {
 	providerId: string;
+	/** Carrier credential used to prove this snapshot; absent on legacy runs. */
+	providerKeyId?: string;
+	credentialFingerprint?: string;
+	/** Set only by the worker after gateway-accounted execution. */
+	gatewayExecutionVersion?: 1;
 	modelName: string;
 	externalId: string;
 	apiFormat?: ProviderApiFormat;
@@ -6146,6 +6151,13 @@ export interface ProviderModelVerificationTarget {
 	maxOutput?: number | null;
 	/** The listing declares a cached input price, so repeats must report cache hits. */
 	promptCaching?: boolean;
+	/** Proposed prices before a new listing has a filing. */
+	pricing?: {
+		inputPrice: string;
+		outputPrice: string;
+		cachedInputPrice?: string | null;
+		requestPrice?: string | null;
+	};
 }
 
 // One queued verification of an Airside mapping or a catalogue mapping. The
@@ -8196,5 +8208,187 @@ export const globalHourlyProviderKeyModelStats = snakeCase.table(
 		index("global_hourly_provider_key_model_stats_hour_idx").on(
 			table.hourTimestamp,
 		),
+	],
+);
+
+// Mirrors BATCH_ENDPOINTS in @llmgateway/models; schema.ts only takes types
+// from the catalogue.
+const BATCH_ENDPOINTS = [
+	"/v1/chat/completions",
+	"/v1/responses",
+	"/v1/embeddings",
+] as const;
+
+export const BATCH_STATUSES = [
+	"validating",
+	"failed",
+	"in_progress",
+	"finalizing",
+	"completed",
+	"expired",
+	"cancelling",
+	"cancelled",
+] as const;
+
+export type BatchStatus = (typeof BATCH_STATUSES)[number];
+
+export interface BatchError {
+	code: string;
+	message: string;
+	param?: string | null;
+	line?: number | null;
+}
+
+// Files uploaded for, or produced by, the OpenAI-compatible Batch API.
+// Uploaded files hold their JSONL in `content`; output and error files are
+// rendered from batch_request rows of `batchId`.
+export const batchFile = snakeCase.table(
+	"batch_file",
+	{
+		id: text().primaryKey().notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		apiKeyId: text().references(() => apiKey.id, { onDelete: "set null" }),
+		purpose: text({ enum: ["batch", "batch_output", "batch_error"] }).notNull(),
+		filename: text().notNull(),
+		bytes: integer().notNull(),
+		content: text(),
+		batchId: text(),
+		expiresAt: timestamp().notNull(),
+	},
+	(table) => [
+		index("batch_file_project_id_created_at_idx").on(
+			table.projectId,
+			table.createdAt,
+		),
+		index("batch_file_expires_at_idx").on(table.expiresAt),
+	],
+);
+
+export const batch = snakeCase.table(
+	"batch",
+	{
+		id: text().primaryKey().notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		apiKeyId: text().references(() => apiKey.id, { onDelete: "set null" }),
+		endpoint: text({ enum: BATCH_ENDPOINTS }).notNull(),
+		inputFileId: text().notNull(),
+		completionWindow: text().notNull().default("24h"),
+		status: text({ enum: BATCH_STATUSES }).notNull().default("validating"),
+		metadata: jsonb().$type<Record<string, string>>(),
+		errors: jsonb().$type<BatchError[]>(),
+		outputFileId: text(),
+		errorFileId: text(),
+		requestTotal: integer().notNull().default(0),
+		requestCompleted: integer().notNull().default(0),
+		requestFailed: integer().notNull().default(0),
+		// Trusted client IP of the creating request, replayed on each upstream
+		// call so API key IP rules apply to batch traffic.
+		clientIp: text(),
+		claimedUntil: timestamp(),
+		inProgressAt: timestamp(),
+		finalizingAt: timestamp(),
+		completedAt: timestamp(),
+		failedAt: timestamp(),
+		expiredAt: timestamp(),
+		cancellingAt: timestamp(),
+		cancelledAt: timestamp(),
+		expiresAt: timestamp().notNull(),
+	},
+	(table) => [
+		index("batch_project_id_created_at_idx").on(
+			table.projectId,
+			table.createdAt,
+		),
+		index("batch_active_status_idx")
+			.on(table.status)
+			.where(
+				sql`${table.status} in ('validating', 'in_progress', 'finalizing', 'cancelling')`,
+			),
+		// Retention cleanup of finished batches.
+		index("batch_finished_updated_at_idx")
+			.on(table.updatedAt)
+			.where(
+				sql`${table.status} in ('completed', 'failed', 'expired', 'cancelled')`,
+			),
+	],
+);
+
+// The bearer token that created a batch, encrypted with the provider-key
+// keyring. The gateway stores only token hashes, so the worker needs it to call
+// the gateway as the key. Deleted when the batch reaches a terminal state or
+// its key is disabled, deleted or rolled.
+export const batchCredential = snakeCase.table("batch_credential", {
+	batchId: text()
+		.primaryKey()
+		.notNull()
+		.references(() => batch.id, { onDelete: "cascade" }),
+	createdAt: timestamp().notNull().defaultNow(),
+	apiKeyId: text()
+		.notNull()
+		.references(() => apiKey.id, { onDelete: "cascade" }),
+	encryptedToken: text().notNull(),
+});
+
+export const batchRequest = snakeCase.table(
+	"batch_request",
+	{
+		id: text().primaryKey().notNull(),
+		batchId: text()
+			.notNull()
+			.references(() => batch.id, { onDelete: "cascade" }),
+		lineNumber: integer().notNull(),
+		customId: text().notNull(),
+		body: text().notNull(),
+		status: text({
+			enum: [
+				"pending",
+				"in_progress",
+				"completed",
+				"failed",
+				"cancelled",
+				"expired",
+			],
+		})
+			.notNull()
+			.default("pending"),
+		attempts: integer().notNull().default(0),
+		nextAttemptAt: timestamp().notNull().defaultNow(),
+		claimedUntil: timestamp(),
+		responseStatus: integer(),
+		// Raw upstream response body, kept verbatim for the output file.
+		responseBody: text(),
+		requestId: text(),
+		error: jsonb().$type<BatchError>(),
+		completedAt: timestamp(),
+	},
+	(table) => [
+		unique().on(table.batchId, table.customId),
+		index("batch_request_batch_id_line_number_idx").on(
+			table.batchId,
+			table.lineNumber,
+		),
+		index("batch_request_batch_id_status_idx").on(table.batchId, table.status),
+		index("batch_request_pending_idx")
+			.on(table.batchId, table.nextAttemptAt)
+			.where(sql`${table.status} = 'pending'`),
+		index("batch_request_in_progress_idx")
+			.on(table.claimedUntil)
+			.where(sql`${table.status} = 'in_progress'`),
 	],
 );

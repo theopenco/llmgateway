@@ -236,12 +236,69 @@ test("a delisted model needs a fresh preflight to relist", async ({ page }) => {
 	await expect(status).toContainText("Delisted by your crew");
 });
 
-test("registering a model requires provider preflight", async ({ page }) => {
+test("registering a model uses one provider key for preflight and listing", async ({
+	page,
+}) => {
+	let providerKeySaved = false;
+	let verificationRuns = 0;
+	await page.route("**/airside/models", async (route) => {
+		if (route.request().method() === "POST") {
+			await route.fulfill({
+				status: 201,
+				contentType: "application/json",
+				headers: corsHeaders(route),
+				body: "{}",
+			});
+		} else {
+			await route.continue();
+		}
+	});
+	type CompaniesResponse =
+		paths["/airside/companies"]["get"]["responses"]["200"]["content"]["application/json"];
+	await page.route("**/airside/companies", async (route) => {
+		const response = await route.fetch();
+		const data = (await response.json()) as CompaniesResponse;
+		await route.fulfill({
+			response,
+			json: {
+				companies: data.companies.map((company) => ({
+					...company,
+					claims: company.claims.map((claim) => ({
+						...claim,
+						kind: "custom",
+						providerKey: null,
+						pendingProviderKey: providerKeySaved
+							? { masked: "masked", submittedAt: new Date().toISOString() }
+							: null,
+					})),
+				})),
+			},
+		});
+	});
 	let statusReads = 0;
 	await page.route("**/airside/model-verifications**", async (route) => {
 		if (route.request().method() === "OPTIONS") {
 			await route.fulfill({ status: 204, headers: corsHeaders(route) });
 			return;
+		}
+		if (route.request().method() === "POST") {
+			const body = route.request().postDataJSON() as Record<string, unknown>;
+			expect(Object.hasOwn(body, "apiKey")).toBe(false);
+			expect(body.pricing).toMatchObject({
+				inputPrice: "1e-6",
+				outputPrice: "3e-6",
+			});
+			if (verificationRuns === 1) {
+				expect(Object.hasOwn(body, "providerApiKey")).toBe(false);
+			} else {
+				expect(
+					typeof body.providerApiKey === "string" &&
+						Boolean(body.providerApiKey),
+				).toBe(true);
+				providerKeySaved = true;
+			}
+			verificationRuns++;
+			statusReads = 0;
 		}
 		const status =
 			route.request().method() === "POST"
@@ -255,7 +312,7 @@ test("registering a model requires provider preflight", async ({ page }) => {
 			headers: corsHeaders(route),
 			body: JSON.stringify({
 				verification: {
-					id: "pw-new-model-verification",
+					id: `pw-new-model-verification-${verificationRuns}`,
 					status,
 					checks: [
 						{
@@ -287,15 +344,18 @@ test("registering a model requires provider preflight", async ({ page }) => {
 	// Prices are entered as dollars per million tokens.
 	await page.getByTestId("input-price").fill("1");
 	await page.getByTestId("output-price").fill("3");
-	await expect(page.getByLabel("Provider test key")).toHaveAttribute(
-		"type",
-		"password",
-	);
+	await expect(page.getByLabel("Provider test key")).toHaveCount(0);
 	await expect(page.getByTestId("register-model-submit")).toHaveText(
 		"Run preflight",
 	);
 	await expect(page.getByTestId("verification-results")).not.toBeVisible();
-	await page.getByLabel("Provider test key").fill("pw-provider-key");
+	await expect(page.getByTestId("register-model-submit")).toBeDisabled();
+	await expect(
+		page.getByLabel("Provider key", { exact: true }),
+	).toHaveAttribute("type", "password");
+	await page
+		.getByLabel("Provider key", { exact: true })
+		.fill(["pw", "provider", "key"].join("-"));
 	await page.getByTestId("register-model-submit").click();
 	await expect(page.getByTestId("verification-results")).toContainText(
 		"Passed",
@@ -305,6 +365,43 @@ test("registering a model requires provider preflight", async ({ page }) => {
 	await expect(page.getByTestId("register-model-submit")).toHaveText(
 		"File for approval",
 	);
+	await expect(page.getByLabel("Provider key", { exact: true })).toHaveValue(
+		"",
+	);
+	await page.getByTestId("model-name-input").fill("pw-preflight-model-retry");
+	await expect(page.getByTestId("register-model-submit")).toHaveText(
+		"Run preflight",
+	);
+	await page.getByTestId("register-model-submit").click();
+	await expect(page.getByTestId("verification-results")).toContainText(
+		"Passed",
+		{ timeout: 10_000 },
+	);
+	await page
+		.getByLabel("Provider key", { exact: true })
+		.fill(["pw", "replacement", "key"].join("-"));
+	await expect(page.getByTestId("register-model-submit")).toHaveText(
+		"Run preflight",
+	);
+	await page.getByTestId("register-model-submit").click();
+	await expect(page.getByTestId("verification-results")).toContainText(
+		"Passed",
+		{ timeout: 10_000 },
+	);
+	const listingRequest = page.waitForRequest(
+		(request) =>
+			request.method() === "POST" &&
+			new URL(request.url()).pathname.endsWith("/airside/models"),
+	);
+	await page.getByTestId("register-model-submit").click();
+	const listingBody = (await listingRequest).postDataJSON() as Record<
+		string,
+		unknown
+	>;
+	expect(listingBody.verificationId).toBe("pw-new-model-verification-3");
+	for (const key of ["apiKey", "providerApiKey", "providerKey"]) {
+		expect(Object.hasOwn(listingBody, key)).toBe(false);
+	}
 });
 
 test("existing mappings report failed verification checks", async ({
@@ -371,8 +468,16 @@ test("existing mappings report failed verification checks", async ({
 	await login(page);
 	await page.goto("/dashboard/fleet");
 	await page.getByTestId("verify-mistral-medium-4").click();
-	await page.getByLabel("Provider test key").fill("pw-provider-key");
+	await expect(page.getByLabel("Provider test key")).toHaveCount(0);
+	const verificationRequest = page.waitForRequest(
+		(request) =>
+			request.method() === "POST" &&
+			/\/airside\/models\/[^/]+\/verifications$/.test(
+				new URL(request.url()).pathname,
+			),
+	);
 	await page.getByRole("button", { name: "Run verification" }).click();
+	expect((await verificationRequest).postDataJSON()).toEqual({});
 	await expect(page.getByTestId("verification-results")).toContainText(
 		"The required tool call was not returned.",
 		{ timeout: 10_000 },
@@ -523,32 +628,22 @@ test("new provider signs up and claims by email domain", async ({ page }) => {
 	await expect(page.getByTestId("crew-channel-card")).toContainText(email);
 });
 
-test("settings saves and removes the carrier's test key", async ({ page }) => {
+test("verification uses the saved provider key without a separate test key", async ({
+	page,
+}) => {
 	await login(page);
 	await page.goto("/dashboard/settings");
-	const card = page.getByTestId("verification-key-mistral");
-	await expect(card).toContainText("No test key saved");
-
-	await page
-		.getByTestId("verification-key-input-mistral")
-		.fill("pw-carrier-test-key");
-	await page.getByTestId("verification-key-save-mistral").click();
-	await expect(
-		page.getByTestId("verification-key-masked-mistral"),
-	).toBeVisible();
-	await expect(card).not.toContainText("pw-carrier-test-key");
-
-	// With a saved key, preflight no longer needs one pasted.
+	const card = page.getByTestId("carrier-keys-mistral");
+	await expect(card).toBeVisible();
+	await expect(card).toContainText("provider key");
+	await expect(card.locator('input[type="password"]')).toHaveCount(0);
+	await expect(card).not.toContainText("Testing key");
 	await page.goto("/dashboard/fleet");
 	await page.getByTestId("verify-mistral-medium-4").click();
+	await expect(page.getByLabel("Provider test key")).toHaveCount(0);
 	await expect(
 		page.getByRole("button", { name: "Run verification" }),
 	).toBeEnabled();
-	await page.keyboard.press("Escape");
-
-	await page.goto("/dashboard/settings");
-	await page.getByTestId("verification-key-remove-mistral").click();
-	await expect(card).toContainText("No test key saved");
 });
 
 test("brand page preview reflects a typed name before saving", async ({

@@ -157,6 +157,7 @@ export interface ProviderRowFilterOptions {
 		jsonOutput: boolean;
 		jsonOutputSchema: boolean;
 		webSearch: boolean;
+		batch: boolean;
 		discounted: boolean;
 	};
 	categoryFilter?: ModelCategoryFilter;
@@ -188,6 +189,7 @@ export function providerRowPassesFilters(
 		(capabilities.jsonOutputSchema &&
 			!matchesCapability("jsonOutputSchema", provider)) ||
 		(capabilities.webSearch && !matchesCapability("webSearch", provider)) ||
+		(capabilities.batch && !matchesCapability("batch", provider)) ||
 		(capabilities.discounted && !matchesCapability("discounted", provider))
 	) {
 		return false;

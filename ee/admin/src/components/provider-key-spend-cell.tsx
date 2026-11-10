@@ -20,15 +20,25 @@ import { cn } from "@/lib/utils";
 export function ProviderKeySpendCell({
 	keyRow,
 	daily,
+	periodUsage,
 }: {
 	keyRow: SpendLimited;
 	daily?: DailyCredentialPoint[];
+	periodUsage?: { usage: string; label: string };
 }) {
 	const state = getSpendLimitState(keyRow);
 	const fraction = spendLimitFraction(keyRow);
 
 	return (
 		<div className="min-w-[110px] space-y-1">
+			{periodUsage ? (
+				<div
+					className="tabular-nums"
+					title={`Attributed spend over the last ${periodUsage.label}`}
+				>
+					{formatUsd(periodUsage.usage)}
+				</div>
+			) : null}
 			<div
 				className={cn(
 					"tabular-nums",
@@ -37,7 +47,13 @@ export function ProviderKeySpendCell({
 						"text-destructive",
 				)}
 			>
-				{formatUsd(keyRow.usage)}
+				{periodUsage ? (
+					<span className="text-[11px]">
+						All time: {formatUsd(keyRow.usage)}
+					</span>
+				) : (
+					formatUsd(keyRow.usage)
+				)}
 			</div>
 			{keyRow.usageLimit !== null ? (
 				<>

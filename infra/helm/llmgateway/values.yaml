@@ -8,6 +8,11 @@ fullnameOverride: ""
 # -- Use an existing Kubernetes Secret instead of creating one (must contain all required keys)
 existingSecret: ""
 
+# Operator project key for Airside inference; inject only into API and worker.
+airsideVerification:
+  existingSecret: ""
+  apiKeyKey: AIRSIDE_GATEWAY_API_KEY
+
 # =============================================================================
 # Global settings
 # =============================================================================

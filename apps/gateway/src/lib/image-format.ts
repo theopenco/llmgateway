@@ -1,4 +1,4 @@
-export type ImageFormat = "png" | "jpeg" | "webp" | "svg";
+export type ImageFormat = "png" | "jpeg" | "webp" | "svg" | "gif";
 
 export function imageMimeType(format: ImageFormat): string {
 	return format === "svg" ? "image/svg+xml" : `image/${format}`;
@@ -28,6 +28,10 @@ export function imageFormatFromBase64(b64: string): ImageFormat | undefined {
 		header.toString("latin1", 8, 12) === "WEBP"
 	) {
 		return "webp";
+	}
+	const signature = header.toString("ascii", 0, 6);
+	if (signature === "GIF87a" || signature === "GIF89a") {
+		return "gif";
 	}
 	return isSvgDocument(b64) ? "svg" : undefined;
 }

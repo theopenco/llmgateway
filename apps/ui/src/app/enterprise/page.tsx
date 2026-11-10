@@ -1,6 +1,8 @@
+import dynamic from "next/dynamic";
+import { Suspense } from "react";
+
 import { AdminDashboardEnterprise } from "@/components/enterprise/admin-dashboard";
 import { EnterpriseCapabilities } from "@/components/enterprise/capabilities";
-import { ContactFormEnterprise } from "@/components/enterprise/contact";
 import { FeaturesEnterprise } from "@/components/enterprise/features";
 import { HeroEnterprise } from "@/components/enterprise/hero";
 import { InfrastructureAsCodeEnterprise } from "@/components/enterprise/iac";
@@ -11,14 +13,29 @@ import { ProductShowcase } from "@/components/enterprise/product-showcase";
 import { SecurityEnterprise } from "@/components/enterprise/security";
 import { SupportEnterprise } from "@/components/enterprise/support";
 import { TrustBarEnterprise } from "@/components/enterprise/trust-bar";
-import { UptimeVisualization } from "@/components/enterprise/uptime";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
-import { Testimonials } from "@/components/landing/testimonials";
+import {
+	Testimonials,
+	TestimonialsFallback,
+} from "@/components/landing/testimonials";
 import { pageTitle } from "@/lib/page-title";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Metadata } from "next";
+
+// Below-the-fold client sections, loaded the same way the home page loads
+// Uptime.
+const UptimeVisualization = dynamic(() =>
+	import("@/components/enterprise/uptime").then(
+		(mod) => mod.UptimeVisualization,
+	),
+);
+const ContactFormEnterprise = dynamic(() =>
+	import("@/components/enterprise/contact").then(
+		(mod) => mod.ContactFormEnterprise,
+	),
+);
 
 export const metadata: Metadata = {
 	title: pageTitle("Enterprise LLM Gateway – SSO, Audit Logs & Guardrails"),
@@ -69,7 +86,9 @@ export default function EnterprisePage() {
 	return (
 		<div>
 			<HeroRSC />
-			<HeroEnterpriseWithStats />
+			<Suspense fallback={<HeroEnterprise />}>
+				<HeroEnterpriseWithStats />
+			</Suspense>
 			<TrustBarEnterprise />
 			<SecurityEnterprise />
 			<SupportEnterprise />
@@ -78,7 +97,9 @@ export default function EnterprisePage() {
 			<FeaturesEnterprise />
 			<ProductShowcase />
 			<AdminDashboardEnterprise />
-			<Testimonials />
+			<Suspense fallback={<TestimonialsFallback />}>
+				<Testimonials />
+			</Suspense>
 			<PricingEnterprise />
 			<InfrastructureAsCodeEnterprise />
 			<OpenSourceEnterprise />

@@ -42,6 +42,10 @@ Do not pass `--output` or `--format`; the wrapper owns them. Set
 `LLM_GATEWAY_API_KEY`, falls back to `LLMGATEWAY_API_KEY`, and loads the root
 `.env` file when it exists.
 
+Airside portal checks use `createAirsideGatewayFetch` with the dedicated
+`AIRSIDE_GATEWAY_API_KEY` on API and worker. Never fetch the provider directly
+from those flows; generic admin benchmarks keep `BENCHMARK_GATEWAY_API_KEY`.
+
 ## Profiles
 
 `smoke` (default), `standard`, `load`, and `coding`. `coding` measures agentic

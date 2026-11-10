@@ -530,6 +530,44 @@ describe("keys route", () => {
 		expect(apiKey?.usageLimit).toBe("100");
 	});
 
+	test.each([
+		["disabled", "PATCH", "", JSON.stringify({ status: "inactive" })],
+		["rolled", "POST", "/roll", undefined],
+		["deleted", "DELETE", "", undefined],
+	] as const)(
+		"drops stored Batch API credentials when the key is %s",
+		async (_action, method, suffix, body) => {
+			await db.insert(tables.batch).values({
+				id: "batch_keys_test",
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				endpoint: "/v1/chat/completions",
+				inputFileId: "file-keys-test",
+				status: "in_progress",
+				expiresAt: new Date(Date.now() + ONE_HOUR_MS),
+			});
+			await db.insert(tables.batchCredential).values({
+				batchId: "batch_keys_test",
+				apiKeyId: "test-api-key-id",
+				encryptedToken: "sealed",
+			});
+
+			const res = await app.request(`/keys/api/test-api-key-id${suffix}`, {
+				method,
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body,
+			});
+			expect(res.status).toBe(200);
+
+			const credentials = await db
+				.select()
+				.from(tables.batchCredential)
+				.where(eq(tables.batchCredential.batchId, "batch_keys_test"));
+			expect(credentials).toEqual([]);
+		},
+	);
+
 	test("POST /keys/api/{id}/roll returns 404 for unknown key", async () => {
 		const res = await app.request("/keys/api/does-not-exist/roll", {
 			method: "POST",

@@ -41,6 +41,7 @@ import {
 	isSvgMediaType,
 	readImageGenerationResponse,
 	toDataUrl,
+	selectionSupportsSvgOutput,
 } from "@/lib/image-gen";
 import { mapModels } from "@/lib/mapmodels";
 import {
@@ -228,6 +229,11 @@ export default function ImagePageClient({
 				modelSupportsFlex,
 			),
 		[comparisonMode, selectedModels, modelSupportsFlex],
+	);
+
+	const supportsSvgOutput = useMemo(
+		() => selectionSupportsSvgOutput(selectedModels, comparisonMode),
+		[selectedModels, comparisonMode],
 	);
 
 	// Detect if all selected models support image input (editing)
@@ -525,11 +531,15 @@ export default function ImagePageClient({
 		if (!isEditModel) {
 			setInputImages([]);
 		}
-		if (!config.supportsSvgOutput) {
-			setImageFormatState("image");
-		}
+
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally exclude size/quality values to avoid clobbering the user's explicit selection
 	}, [selectedModels, isEditModel]);
+
+	useEffect(() => {
+		if (!supportsSvgOutput) {
+			setImageFormatState("image");
+		}
+	}, [supportsSvgOutput]);
 
 	// SVG output returns one image and takes no reference images upstream.
 	const setImageFormat = useCallback((value: ImageOutputFormat) => {
@@ -1003,6 +1013,7 @@ export default function ImagePageClient({
 						imageCount={imageCount}
 						setImageCount={setImageCount}
 						imageFormat={imageFormat}
+						supportsSvgOutput={supportsSvgOutput}
 						setImageFormat={setImageFormat}
 						serviceTier={imageServiceTier}
 						setServiceTier={handleServiceTierChange}

@@ -19,14 +19,14 @@ import {
 	runDecisionVerification,
 } from "./decision-verification.js";
 import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
-import { getProviderEndpoint } from "./get-provider-endpoint.js";
+import {
+	getProviderEndpoint,
+	ProviderConfigError,
+} from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { requiresMessageContentVerification } from "./model-verification-compatibility.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
-import {
-	getProviderApiTransport,
-	getUpstreamModelId,
-} from "./provider-api-format.js";
+import { getProviderApiTransport } from "./provider-api-format.js";
 import {
 	decryptProviderKey,
 	encryptProviderKey,
@@ -44,6 +44,7 @@ import type {
 	ProviderModelVerificationProbe,
 	ProviderModelVerificationTarget,
 } from "@llmgateway/db";
+import type { Provider } from "@llmgateway/models";
 
 export type ModelVerificationCheckId =
 	| "basic"
@@ -729,7 +730,7 @@ function textFromContent(value: unknown): string {
 		.join("");
 }
 
-function extractAssistantText(body: unknown): string {
+export function extractAssistantText(body: unknown): string {
 	const candidates = [
 		atPath(body, ["choices", "0", "message", "content"]),
 		atPath(body, ["candidates", "0", "content", "parts"]),
@@ -1355,6 +1356,8 @@ interface CheckFailure {
 	rejected: boolean;
 	/** Not the upstream's verdict (timeout, 5xx, auth): never narrows a listing. */
 	transient?: boolean;
+	/** A local configuration defect cannot be fixed by another probe. */
+	configuration?: boolean;
 	/**
 	 * The response was served but carries a protocol defect no other probe
 	 * variant would fix, so a ladder stops instead of narrowing the listing.
@@ -1401,6 +1404,7 @@ async function attemptCheck(
 			return await executeCheck(definition, options, context);
 		} catch (error) {
 			const timedOut = isTimeoutError(error);
+			const configuration = error instanceof ProviderConfigError;
 			if (timedOut && attempt < CHECK_TIMEOUT_ATTEMPTS) {
 				await onTimeout?.(attempt);
 				continue;
@@ -1417,7 +1421,8 @@ async function attemptCheck(
 					? `${message} (timed out on all ${CHECK_TIMEOUT_ATTEMPTS} attempts)`
 					: message,
 				rejected: false,
-				transient: true,
+				transient: !configuration,
+				...(configuration ? { configuration: true } : {}),
 			};
 		}
 	}
@@ -1752,7 +1757,7 @@ async function runCheck(
 		if (!failure) {
 			return { failure: null, unsupportedToolChoices, probes };
 		}
-		if (failure.transient) {
+		if (failure.transient || failure.configuration) {
 			return { failure, probes };
 		}
 		if (failure.conclusive) {
@@ -1768,154 +1773,13 @@ async function executeCheck(
 	options: RunModelVerificationOptions,
 	context: CheckContext,
 ): Promise<CheckFailure | null> {
-	const knownProvider = providers.some(
-		(provider) => provider.id === options.target.providerId,
-	);
-	if (!knownProvider && !options.baseUrl) {
-		return {
-			message: `Provider ${options.target.providerId} has no registered endpoint.`,
-			rejected: false,
-		};
-	}
-	if (options.baseUrl) {
-		await assertSafeProviderUrl(options.baseUrl);
-	}
-	const provider = (
-		knownProvider ? options.target.providerId : "custom"
-	) as ProviderId;
-	const transportProvider = getProviderApiTransport(
-		provider,
-		options.target.apiFormat,
-	);
-	let requestToken = options.token;
-	if (
-		provider === "vertex-anthropic" ||
-		provider === "vertex-openai" ||
-		(provider === "google-vertex" && options.token.trim().startsWith("{"))
-	) {
-		requestToken = await getGcpServiceAccountAccessToken(options.token);
-	}
+	const { endpoint, headers, payload, requestToken } =
+		await prepareProviderModelVerificationRequest(
+			definition.request,
+			options,
+			definition.id === "reasoning_budget" ? 256 : undefined,
+		);
 	context.secrets.add(requestToken);
-	const endpoint = getProviderEndpoint(
-		provider,
-		options.baseUrl,
-		options.target.externalId,
-		isGoogleQueryTokenProvider(provider) ||
-			transportProvider === "google-vertex"
-			? requestToken
-			: undefined,
-		definition.request.stream ?? false,
-		options.target.reasoning,
-		false,
-		options.providerKeyOptions,
-		undefined,
-		false,
-		options.target.region ?? undefined,
-		options.skipEnvVars,
-		options.target.modelName,
-		transportProvider === "google-vertex" && provider !== "google-vertex"
-			? "api-key"
-			: undefined,
-		undefined,
-		options.target.apiFormat,
-	);
-	const useResponsesApi = options.target.apiFormat === "openai-responses";
-	const { functionTools, webSearchTool } = splitTools(
-		definition.request.tools,
-		definition.request.tool_choice,
-	);
-	// The gateway forces the tool shape with "required"; a listing that does not
-	// take that mode is probed the way it will be served, unforced.
-	const declaredToolChoices = options.target.supportedToolChoices;
-	if (
-		webSearchTool?.forced &&
-		options.target.webSearchFormat === "web_search_tool" &&
-		declaredToolChoices?.length &&
-		!declaredToolChoices.includes("required")
-	) {
-		webSearchTool.forced = false;
-	}
-	let payload = await prepareRequestBody(
-		transportProvider,
-		options.target.modelName,
-		null,
-		getUpstreamModelId(
-			provider,
-			options.target.modelName,
-			options.target.externalId,
-			options.target.region,
-		),
-		definition.request.messages,
-		definition.request.stream ?? false,
-		definition.request.temperature,
-		definition.request.max_tokens,
-		undefined,
-		undefined,
-		undefined,
-		definition.request.response_format,
-		functionTools,
-		definition.request.tool_choice,
-		definition.request.reasoning_effort,
-		options.target.reasoning,
-		false,
-		20,
-		null,
-		undefined,
-		undefined,
-		undefined,
-		false,
-		webSearchTool,
-		definition.id === "reasoning_budget" ? 256 : undefined,
-		useResponsesApi,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		options.target.webSearchFormat ?? undefined,
-	);
-	// The OpenAI Responses body always carries a reasoning block (every OpenAI
-	// model on that surface reasons). A carrier listing that declares no
-	// reasoning runs against an endpoint that rejects it, so drop it — and the
-	// encrypted reasoning payload it would return — from the preflight.
-	if (
-		useResponsesApi &&
-		!options.target.reasoning &&
-		!(payload instanceof FormData)
-	) {
-		const {
-			reasoning: _reasoning,
-			include: _include,
-			...withoutReasoning
-		} = payload as OpenAIResponsesRequestBody;
-		payload = withoutReasoning as ProviderRequestBody;
-	}
-	const headers = getProviderHeaders(transportProvider, requestToken, {
-		providerKeyOptions: options.providerKeyOptions,
-		skipEnvVars: options.skipEnvVars,
-		tokenType:
-			transportProvider === "google-vertex" && provider !== "google-vertex"
-				? "api-key"
-				: undefined,
-	});
-	if (!(payload instanceof FormData)) {
-		headers["Content-Type"] = "application/json";
-	}
-	if (
-		provider === "anthropic" &&
-		definition.request.response_format?.type === "json_schema"
-	) {
-		headers["anthropic-beta"] = "structured-outputs-2025-11-13";
-	}
 	const response = await (options.fetchImplementation ?? fetch)(endpoint, {
 		method: "POST",
 		redirect: "error",
@@ -2089,13 +1953,19 @@ export async function runProviderModelVerification(
 		await options.onCheck?.(completed);
 		// A missed optional check means the endpoint served the request, so the
 		// capability checks still have something to verify.
-		if (definition.id === "basic" && failure && !failure.conclusive) {
+		if (
+			failure &&
+			(failure.configuration ||
+				(definition.id === "basic" && !failure.conclusive))
+		) {
 			for (let rest = index + 1; rest < definitions.length; rest++) {
 				const skipped: ProviderModelVerificationCheck = {
 					id: definitions[rest].id,
 					label: definitions[rest].label,
 					status: "skipped",
-					feedback: "Skipped because the basic completion failed.",
+					feedback: failure.configuration
+						? "Skipped because provider configuration is incomplete."
+						: "Skipped because the basic completion failed.",
 				};
 				checks[rest] = skipped;
 				await options.onCheck?.(skipped);
@@ -2272,7 +2142,7 @@ async function runMessageContentCheck(
 					...failure,
 					message: `${label}: ${failure.message}`,
 				};
-				if (failure.transient) {
+				if (failure.transient || failure.configuration) {
 					return { failure: firstFailure, probes };
 				}
 			}
@@ -2290,4 +2160,152 @@ export function hasMessageContentVerification(
 			(check) => check.id === "message_content" && check.status === "passed",
 		)
 	);
+}
+export async function prepareProviderModelVerificationRequest(
+	request: ModelVerificationRequest,
+	options: RunModelVerificationOptions,
+	reasoningBudget?: number,
+) {
+	const knownProvider = providers.some(
+		(provider) => provider.id === options.target.providerId,
+	);
+	if (!knownProvider && !options.baseUrl) {
+		throw new ProviderConfigError(
+			`Provider ${options.target.providerId} has no registered endpoint.`,
+		);
+	}
+	if (options.baseUrl) {
+		await assertSafeProviderUrl(options.baseUrl);
+	}
+	const provider = (
+		knownProvider ? options.target.providerId : "custom"
+	) as ProviderId;
+	const transportProvider = getProviderApiTransport(
+		provider,
+		options.target.apiFormat,
+	);
+	let requestToken = options.token;
+	if (
+		provider === "vertex-anthropic" ||
+		provider === "vertex-openai" ||
+		(provider === "google-vertex" && options.token.trim().startsWith("{"))
+	) {
+		requestToken = await getGcpServiceAccountAccessToken(options.token);
+	}
+	const endpoint = getProviderEndpoint(
+		provider,
+		options.baseUrl,
+		options.target.externalId,
+		isGoogleQueryTokenProvider(provider) ||
+			transportProvider === "google-vertex"
+			? requestToken
+			: undefined,
+		request.stream ?? false,
+		options.target.reasoning,
+		false,
+		options.providerKeyOptions,
+		undefined,
+		false,
+		options.target.region ?? undefined,
+		options.skipEnvVars,
+		"__airside_verification_snapshot__",
+		transportProvider === "google-vertex" && provider !== "google-vertex"
+			? "api-key"
+			: undefined,
+		undefined,
+		options.target.apiFormat,
+	);
+	const useResponsesApi = options.target.apiFormat === "openai-responses";
+	const { functionTools, webSearchTool } = splitTools(
+		request.tools,
+		request.tool_choice,
+	);
+	// The gateway forces the tool shape with "required"; a listing that does not
+	// take that mode is probed the way it will be served, unforced.
+	const declaredToolChoices = options.target.supportedToolChoices;
+	if (
+		webSearchTool?.forced &&
+		options.target.webSearchFormat === "web_search_tool" &&
+		declaredToolChoices?.length &&
+		!declaredToolChoices.includes("required")
+	) {
+		webSearchTool.forced = false;
+	}
+	const requestOptions: Parameters<typeof prepareRequestBody> = [
+		transportProvider,
+		options.target.modelName,
+		options.target.region ?? null,
+		options.target.externalId,
+		request.messages,
+		request.stream ?? false,
+		request.temperature,
+		request.max_tokens,
+		undefined,
+		undefined,
+		undefined,
+		request.response_format,
+		functionTools,
+		request.tool_choice,
+		request.reasoning_effort,
+		options.target.reasoning,
+		false,
+		20,
+		null,
+	];
+	requestOptions[23] = webSearchTool;
+	requestOptions[24] = reasoningBudget;
+	requestOptions[25] = useResponsesApi;
+	requestOptions[36] = {
+		providerId: transportProvider as Provider,
+		externalId: options.target.externalId,
+		streaming: options.target.streaming,
+		vision: options.target.vision,
+		tools: options.target.tools,
+		jsonOutput: options.target.jsonOutput,
+		jsonOutputSchema: options.target.jsonOutputSchema,
+		reasoning: options.target.reasoning,
+		reasoningMaxTokens: options.target.reasoningMaxTokens,
+		reasoningEfforts: options.target.reasoningEfforts as
+			ReasoningEffort[] | undefined,
+		supportedToolChoices: options.target.supportedToolChoices ?? undefined,
+		webSearch: options.target.webSearch,
+		webSearchFormat: options.target.webSearchFormat ?? undefined,
+		region: options.target.region ?? undefined,
+	};
+	requestOptions[40] = options.target.webSearchFormat ?? undefined;
+	let payload = await prepareRequestBody(...requestOptions);
+	// The OpenAI Responses body always carries a reasoning block (every OpenAI
+	// model on that surface reasons). A carrier listing that declares no
+	// reasoning runs against an endpoint that rejects it, so drop it — and the
+	// encrypted reasoning payload it would return — from the preflight.
+	if (
+		useResponsesApi &&
+		!options.target.reasoning &&
+		!(payload instanceof FormData)
+	) {
+		const {
+			reasoning: _reasoning,
+			include: _include,
+			...withoutReasoning
+		} = payload as OpenAIResponsesRequestBody;
+		payload = withoutReasoning as ProviderRequestBody;
+	}
+	const headers = getProviderHeaders(transportProvider, requestToken, {
+		providerKeyOptions: options.providerKeyOptions,
+		skipEnvVars: options.skipEnvVars,
+		tokenType:
+			transportProvider === "google-vertex" && provider !== "google-vertex"
+				? "api-key"
+				: undefined,
+	});
+	if (!(payload instanceof FormData)) {
+		headers["Content-Type"] = "application/json";
+	}
+	if (
+		provider === "anthropic" &&
+		request.response_format?.type === "json_schema"
+	) {
+		headers["anthropic-beta"] = "structured-outputs-2025-11-13";
+	}
+	return { endpoint, headers, payload, requestToken };
 }

@@ -2,34 +2,59 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
 import {
+	DAILY_MODEL_VERIFICATION_PREFIX,
 	createQueuedModelVerificationChecks,
-	decryptClaimVerificationKey,
 	mappingTarget,
 	buildVerificationTarget,
 	modelVerificationEnvironmentToken,
 	narrowManagedKeysToRegion,
+	providerVerificationCredentialFingerprint,
+	environmentVerificationCredentialFingerprint,
 } from "@llmgateway/actions";
-import { and, db, eq, gt, isNull, or, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	eq,
+	gt,
+	isNull,
+	or,
+	tables,
+	providerKeyAllowsModel,
+} from "@llmgateway/db";
 
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Verification = typeof tables.providerModelVerification.$inferSelect;
-const DAILY_PREFIX = "daily-verification:";
-
-export function isDailyModelVerification(
-	job: Pick<Verification, "id">,
-): boolean {
-	return job.id.startsWith(DAILY_PREFIX);
-}
-
 export function dailyModelVerificationId(mappingId: string, now: Date): string {
 	return (
-		DAILY_PREFIX +
+		DAILY_MODEL_VERIFICATION_PREFIX +
 		now.toISOString().slice(0, 10) +
 		":" +
 		createHash("sha256").update(mappingId).digest("hex")
 	);
+}
+
+/**
+ * The daily re-check leaves out the context-window, output-budget and
+ * prompt-cache probes: the first bills most of the declared window on every
+ * run. Carrier preflight still runs them.
+ */
+export const DAILY_SKIPPED_CHECK_IDS: ReadonlySet<string> = new Set([
+	"context_size",
+	"max_output",
+	"prompt_caching",
+]);
+
+export function dailyVerificationTarget(
+	target: ProviderModelVerificationTarget,
+): ProviderModelVerificationTarget {
+	return {
+		...target,
+		contextSize: null,
+		maxOutput: null,
+		promptCaching: false,
+	};
 }
 
 /** Read uncached service state again at each side-effect boundary. */
@@ -104,27 +129,18 @@ export async function currentCredentialSource(
 	client: Transaction | typeof db = db,
 ): Promise<Verification["credentialSource"] | null> {
 	if (live.claim) {
-		return live.claim.verificationKeyCiphertext ? "carrier" : null;
+		if (await claimVerificationProviderKey(live.claim, live.target, client)) {
+			return "carrier";
+		}
+		if (
+			live.claim.kind !== "catalogue" ||
+			live.claim.providerKeyId ||
+			live.claim.pendingProviderKeyId
+		) {
+			return null;
+		}
 	}
-	const keys = await client.query.providerKey.findMany({
-		where: {
-			provider: { eq: live.mapping.providerId },
-			managed: { eq: true },
-			status: { eq: "active" },
-		},
-		columns: { allowedModels: true, region: true },
-	});
-	if (
-		narrowManagedKeysToRegion(
-			keys.filter(
-				(key) =>
-					!key.allowedModels?.length ||
-					key.allowedModels.includes(live.mapping.externalId),
-			),
-			live.mapping.providerId,
-			live.target.region ?? undefined,
-		).length > 0
-	) {
+	if (await managedVerificationProviderKey(live.target, client)) {
 		return "managed";
 	}
 	return modelVerificationEnvironmentToken(live.target) ? "environment" : null;
@@ -184,8 +200,13 @@ export async function scheduleDailyModelVerifications(
 						draftModelId: live.draftModelId,
 						providerCompanyId: live.claim?.providerCompanyId ?? null,
 						initiatedBy: "admin",
-						target: live.target,
-						checks: createQueuedModelVerificationChecks(live.target),
+						target: dailyVerificationTarget({
+							...(await currentVerificationTarget(live, tx)),
+							gatewayExecutionVersion: undefined,
+						}),
+						checks: createQueuedModelVerificationChecks(
+							dailyVerificationTarget(live.target),
+						),
 						credentialSource,
 					})
 					.onConflictDoNothing()
@@ -198,12 +219,14 @@ export async function scheduleDailyModelVerifications(
 }
 
 /** Scheduled runs never reuse the terminal history's erased ciphertext. */
-export async function resolveDailyVerificationCredential(job: Verification) {
+export async function resolveDailyVerificationCredential(
+	job: Pick<Verification, "modelProviderMappingId" | "target">,
+) {
 	if (!job.modelProviderMappingId) {
 		throw new Error("Scheduled mapping is unavailable.");
 	}
 	const live = await liveVerificationMapping(job.modelProviderMappingId);
-	if (!live || !sameVerificationDeclaration(live.target, job.target)) {
+	if (!live || !sameVerificationDeclaration(live.target, job.target, true)) {
 		throw new Error(
 			"Scheduled listing is no longer eligible or its declaration changed.",
 		);
@@ -213,25 +236,30 @@ export async function resolveDailyVerificationCredential(job: Verification) {
 		throw new Error("No current verification credential is available.");
 	}
 	if (live.claim && credentialSource === "carrier") {
+		const key = await claimVerificationProviderKey(live.claim, live.target);
+		if (!key) {
+			throw new Error("No current verification credential is available.");
+		}
 		return {
 			credentialSource,
-			providerKey: decryptClaimVerificationKey(
-				live.claim.verificationKeyCiphertext!,
-				live.claim.id,
-				live.claim.providerCompanyId,
-			),
-			baseUrl: live.claim.customBaseUrl ?? undefined,
+			key,
+			baseUrl: live.claim.customBaseUrl ?? key.baseUrl,
 		};
 	}
-	return { credentialSource, providerKey: undefined, baseUrl: undefined };
+	return { credentialSource, key: undefined, baseUrl: undefined };
 }
+/** `daily` compares only what a daily run checks. */
 export function sameVerificationDeclaration(
 	left: ProviderModelVerificationTarget,
 	right: ProviderModelVerificationTarget,
+	daily = false,
 ): boolean {
+	const reduce = daily
+		? dailyVerificationTarget
+		: (target: ProviderModelVerificationTarget) => target;
 	return isDeepStrictEqual(
-		buildVerificationTarget(left),
-		buildVerificationTarget(right),
+		buildVerificationTarget(reduce(left)),
+		buildVerificationTarget(reduce(right)),
 	);
 }
 export function modelVerificationConcurrency(): number {
@@ -239,4 +267,111 @@ export function modelVerificationConcurrency(): number {
 	return Number.isInteger(configured) && configured >= 1 && configured <= 16
 		? configured
 		: 4;
+}
+export async function claimVerificationProviderKey(
+	claim: typeof tables.providerClaim.$inferSelect,
+	target: ProviderModelVerificationTarget,
+	client: Transaction | typeof db = db,
+	preferPending = false,
+) {
+	const keyId = preferPending
+		? (claim.providerKeyId ?? claim.pendingProviderKeyId)
+		: claim.providerKeyId;
+	if (!keyId) {
+		return null;
+	}
+	const key = await client.query.providerKey.findFirst({
+		where: {
+			id: { eq: keyId },
+			provider: { eq: claim.providerId },
+			managed: { eq: true },
+			organizationId: { isNull: true },
+		},
+	});
+	const pending = preferPending && keyId === claim.pendingProviderKeyId;
+	if (
+		!key ||
+		(key.status !== "active" && !(pending && key.status === "inactive")) ||
+		!providerKeyAllowsModel(key.allowedModels, target.modelName) ||
+		!narrowManagedKeysToRegion(
+			[key],
+			target.providerId,
+			target.region ?? undefined,
+		).length
+	) {
+		return null;
+	}
+	return key;
+}
+export async function currentVerificationTarget(
+	live: NonNullable<Awaited<ReturnType<typeof liveVerificationMapping>>>,
+	client: Transaction | typeof db,
+) {
+	const carrierKeyed =
+		live.claim &&
+		(live.claim.providerKeyId ||
+			live.claim.pendingProviderKeyId ||
+			live.claim.kind !== "catalogue");
+	const key =
+		live.claim && carrierKeyed
+			? await claimVerificationProviderKey(live.claim, live.target, client)
+			: await managedVerificationProviderKey(live.target, client);
+	if (key) {
+		// Managed keys run on the static provider endpoint, so a catalogue
+		// claim's dormant base URL must not enter their fingerprint.
+		return {
+			...live.target,
+			providerKeyId: key.id,
+			credentialFingerprint: providerVerificationCredentialFingerprint(
+				key,
+				carrierKeyed ? live.claim?.customBaseUrl : undefined,
+			),
+		};
+	}
+	const token = modelVerificationEnvironmentToken(live.target);
+	return token
+		? {
+				...live.target,
+				credentialFingerprint: environmentVerificationCredentialFingerprint(
+					live.target,
+					token,
+				),
+			}
+		: live.target;
+}
+export async function managedVerificationProviderKey(
+	target: ProviderModelVerificationTarget,
+	client: Transaction | typeof db = db,
+) {
+	const keys = await client.query.providerKey.findMany({
+		where: {
+			...(target.providerKeyId ? { id: { eq: target.providerKeyId } } : {}),
+			provider: { eq: target.providerId },
+			managed: { eq: true },
+			organizationId: { isNull: true },
+			status: { eq: "active" },
+		},
+		orderBy: { sortOrder: "asc", createdAt: "asc", id: "asc" },
+	});
+	return (
+		narrowManagedKeysToRegion(
+			keys.filter((key) =>
+				providerKeyAllowsModel(key.allowedModels, target.modelName),
+			),
+			target.providerId,
+			target.region ?? undefined,
+		)[0] ?? null
+	);
+}
+export function sameVerificationCredential(
+	proof: ProviderModelVerificationTarget,
+	current: ProviderModelVerificationTarget,
+): boolean {
+	// Only completed gateway proofs can describe the current credential.
+	return (
+		proof.gatewayExecutionVersion === 1 &&
+		(proof.providerKeyId ?? null) === (current.providerKeyId ?? null) &&
+		(proof.credentialFingerprint ?? null) ===
+			(current.credentialFingerprint ?? null)
+	);
 }

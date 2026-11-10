@@ -188,6 +188,7 @@ export const deepseekModels = [
 			{
 				providerId: "bytedance",
 				externalId: "deepseek-v3-2-251201",
+				deactivatedAt: new Date("2026-11-11T09:00:00Z"),
 				// Base fields are the [0, 32K] prompt-length band; Ark doubles the
 				// input and output rates above it.
 				inputPrice: "0.28e-6",

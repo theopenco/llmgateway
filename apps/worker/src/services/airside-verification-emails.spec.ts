@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createQueuedModelVerificationChecks,
 	mappingTarget,
+	encryptProviderKeyForStorage,
+	providerVerificationCredentialFingerprint,
 } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -14,6 +16,10 @@ import {
 	chooseAirsideVerificationEmail,
 	deliverAirsideVerificationEmails,
 } from "./airside-verification-emails.js";
+import {
+	currentVerificationTarget,
+	liveVerificationMapping,
+} from "./daily-model-verifications.js";
 
 import type {
 	AirsideVerificationEmail,
@@ -63,6 +69,9 @@ afterEach(async () => {
 			.where(eq(tables.providerCompany.id, id));
 	}
 	for (const id of providers.splice(0)) {
+		await db
+			.delete(tables.providerKey)
+			.where(eq(tables.providerKey.provider, id));
 		await db.delete(tables.provider).where(eq(tables.provider.id, id));
 	}
 	for (const id of models.splice(0)) {
@@ -110,6 +119,13 @@ async function seed(existing?: {
 			name: "Verification Provider",
 			description: "Test provider",
 		});
+		const keyId = randomUUID();
+		await db.insert(tables.providerKey).values({
+			id: keyId,
+			provider: providerId,
+			managed: true,
+			...encryptProviderKeyForStorage("test-carrier-key", keyId, null),
+		});
 		await db.insert(tables.providerClaim).values({
 			providerCompanyId: companyId,
 			providerId,
@@ -117,7 +133,7 @@ async function seed(existing?: {
 			matchedDomain: "example.com",
 			status: "active",
 			claimedBy: userId,
-			verificationKeyCiphertext: "fixture-ciphertext",
+			providerKeyId: keyId,
 		});
 	}
 	const modelId = "email-model-" + randomUUID();
@@ -157,7 +173,15 @@ async function verify(
 	date = now,
 	manual = false,
 ) {
-	const target = mappingTarget(fixture.mapping);
+	const live = await liveVerificationMapping(fixture.mapping.id, date);
+	const snapshot = live ? await currentVerificationTarget(live, db) : undefined;
+	const target = {
+		...mappingTarget(fixture.mapping),
+		providerKeyId: snapshot?.providerKeyId,
+		credentialFingerprint: snapshot?.credentialFingerprint,
+		gatewayExecutionVersion:
+			status === "passed" || status === "failed" ? (1 as const) : undefined,
+	};
 	const checks = createQueuedModelVerificationChecks(target).map((check) => ({
 		...check,
 		status: "passed" as const,
@@ -400,7 +424,7 @@ describe("carrier verification mail delivery", () => {
 			if (reason === "credentials") {
 				await db
 					.update(tables.providerClaim)
-					.set({ verificationKeyCiphertext: null })
+					.set({ providerKeyId: null })
 					.where(eq(tables.providerClaim.providerCompanyId, fixture.companyId));
 			}
 			if (reason === "declaration") {
@@ -514,7 +538,8 @@ describe("durable email attempt retirement", () => {
 		const job = await verify(fixture, "failed");
 		await db
 			.update(tables.modelProviderMapping)
-			.set({ source: "catalogue" })
+			// Keep the verified API surface; catalogue rows default to native.
+			.set({ source: "catalogue", apiFormat: "openai-chat-completions" })
 			.where(eq(tables.modelProviderMapping.id, fixture.mapping.id));
 		await db
 			.update(tables.providerModelVerification)
@@ -670,3 +695,79 @@ function additionalEmailTimingTests() {
 	});
 }
 additionalEmailTimingTests();
+
+it.each(["pending-replacement", "rotated-credential"])(
+	"does not notify a carrier about stale %s proof",
+	async (kind) => {
+		const fixture = await seed();
+		const key = (await db.query.providerKey.findFirst({
+			where: { provider: { eq: fixture.providerId } },
+		}))!;
+		const job = await verify(fixture, "failed", now, true);
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				target: {
+					...job.target,
+					providerKeyId:
+						kind === "pending-replacement" ? "different-pending-key" : key.id,
+					credentialFingerprint: providerVerificationCredentialFingerprint(
+						key,
+						key.baseUrl,
+					),
+				},
+			})
+			.where(eq(tables.providerModelVerification.id, job.id));
+		if (kind === "rotated-credential") {
+			await db
+				.update(tables.providerKey)
+				.set(encryptProviderKeyForStorage("rotated-carrier-key", key.id, null))
+				.where(eq(tables.providerKey.id, key.id));
+		}
+		expect(await deliverAirsideVerificationEmails(now, sender)).toBe(0);
+		expect(sender).not.toHaveBeenCalled();
+	},
+);
+
+it.each(["failed", "passed"] as const)(
+	"ignores legacy unbound %s proof for the current serving credential",
+	async (status) => {
+		const fixture = await seed();
+		if (status === "passed") {
+			await verify(fixture, "failed");
+			expect(await deliverAirsideVerificationEmails(now, sender)).toBe(1);
+			sender.mockClear();
+		}
+		const job = await verify(fixture, status, at(1000));
+		const target = { ...job.target };
+		delete target.providerKeyId;
+		delete target.credentialFingerprint;
+		await db
+			.update(tables.providerModelVerification)
+			.set({ target })
+			.where(eq(tables.providerModelVerification.id, job.id));
+		expect(await deliverAirsideVerificationEmails(at(1000), sender)).toBe(0);
+		expect(sender).not.toHaveBeenCalled();
+	},
+);
+
+it.each(["failed", "passed"] as const)(
+	"ignores legacy direct-worker %s proof even when credential identity matches",
+	async (status) => {
+		const fixture = await seed();
+		if (status === "passed") {
+			await verify(fixture, "failed");
+			expect(await deliverAirsideVerificationEmails(now, sender)).toBe(1);
+			sender.mockClear();
+		}
+		const job = await verify(fixture, status, at(1000));
+		const target = { ...job.target };
+		delete target.gatewayExecutionVersion;
+		await db
+			.update(tables.providerModelVerification)
+			.set({ target })
+			.where(eq(tables.providerModelVerification.id, job.id));
+		expect(await deliverAirsideVerificationEmails(at(1000), sender)).toBe(0);
+		expect(sender).not.toHaveBeenCalled();
+	},
+);

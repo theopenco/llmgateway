@@ -71,7 +71,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { canWrite } from "@/lib/admin-role";
+import { canReadFinancials, canWrite } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
 import {
 	apiErrorMessage,
@@ -82,15 +82,18 @@ import { useAppConfig } from "@/lib/config";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 import {
 	DEFAULT_ERROR_WINDOW,
-	ERROR_WINDOW_OPTIONS,
 	errorWindowOption,
-	parseErrorWindow,
 } from "@/lib/provider-key-error-window";
 import {
 	providerKeySelectionPositions,
 	providerKeySelectionOrder,
 } from "@/lib/provider-key-selection";
 import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
+import {
+	resolveCredentialPeriod,
+	USAGE_WINDOW_OPTIONS,
+	usageWindowLabel,
+} from "@/lib/provider-key-usage-window";
 import { parseProviderModelList } from "@/lib/provider-model-list";
 import { cn } from "@/lib/utils";
 
@@ -119,6 +122,7 @@ import type {
 	ProviderCredentialSelfTestResult,
 } from "@/lib/admin-provider-credentials";
 import type { ErrorWindow } from "@/lib/provider-key-error-window";
+import type { UsageWindow } from "@/lib/provider-key-usage-window";
 import type { ProviderModelKind } from "@llmgateway/shared";
 
 type Variant = "default" | "enterprise" | "plans";
@@ -381,7 +385,7 @@ type CredentialSort = "order" | "usage" | "spend7d" | "requests24h";
 
 const SORT_OPTIONS: { value: CredentialSort; label: string }[] = [
 	{ value: "order", label: "Rotation order" },
-	{ value: "usage", label: "Lifetime spend" },
+	{ value: "usage", label: "Spend (selected window)" },
 	{ value: "spend7d", label: "Spend (7d)" },
 	{ value: "requests24h", label: "Requests (24h)" },
 ];
@@ -399,7 +403,7 @@ function usageMetric(
 ): number {
 	switch (sort) {
 		case "usage":
-			return Number(credential.usage);
+			return Number(credential.windowUsage);
 		case "spend7d":
 			return credential.last7dDaily.reduce((total, day) => total + day.cost, 0);
 		case "requests24h":
@@ -457,12 +461,14 @@ function RotationPosition({
 function ManagedCredentialCells({
 	credential,
 	errorWindow,
+	usageWindow,
 	isAdmin,
 	onEdit,
 	onDelete,
 }: {
 	credential: ProviderCredential;
 	errorWindow: ErrorWindow;
+	usageWindow: UsageWindow;
 	isAdmin: boolean;
 	onEdit: (credential: ProviderCredential) => void;
 	onDelete: (credential: ProviderCredential) => void;
@@ -566,6 +572,14 @@ function ManagedCredentialCells({
 				<ProviderKeySpendCell
 					keyRow={credential}
 					daily={credential.last7dDaily}
+					periodUsage={
+						usageWindow === "all"
+							? undefined
+							: {
+									usage: credential.windowUsage,
+									label: usageWindowLabel(usageWindow),
+								}
+					}
 				/>
 			</TableCell>
 			<TableCell>
@@ -644,23 +658,34 @@ export function ProviderCredentialsManager({
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const providerFilter = searchParams.get("provider") ?? ALL_PROVIDERS;
-	// Staff roles cannot load the spend overview or change credentials.
-	const isAdmin = canWrite(useAdminRole());
+	const role = useAdminRole();
+	const isAdmin = canWrite(role);
+	const showSpend = canReadFinancials(role);
 	const view =
-		isAdmin && searchParams.get("view") === "spend" ? "spend" : "credentials";
+		showSpend && searchParams.get("view") === "spend" ? "spend" : "credentials";
 	// The page reads `deleted` server-side to decide whether the API returns
 	// soft-deleted credentials at all.
 	const showDeleted = searchParams.get("deleted") === "1";
 	const sort = parseSort(searchParams.get("sort"));
 	// Read server-side too: the page asks the API for this window's series.
-	const errorWindow = parseErrorWindow(searchParams.get("errors"));
+	const usageWindow = resolveCredentialPeriod({
+		period: searchParams.get("period"),
+		usage: searchParams.get("usage"),
+		errors: searchParams.get("errors"),
+	});
+	const errorWindow = usageWindow;
 	const errorWindowLabel = errorWindowOption(errorWindow);
+	const usageLabel = usageWindowLabel(usageWindow);
 
 	// View state lives in the URL so a filtered or sorted view can be reloaded,
 	// shared and navigated back to, matching the other admin tables.
 	const setParam = useCallback(
 		(key: string, value: string | null) => {
 			const params = new URLSearchParams(searchParams.toString());
+			if (key === "period") {
+				params.delete("usage");
+				params.delete("errors");
+			}
 			if (value === null) {
 				params.delete(key);
 			} else {
@@ -1007,6 +1032,7 @@ export function ProviderCredentialsManager({
 				<ManagedCredentialCells
 					credential={credential}
 					errorWindow={errorWindow}
+					usageWindow={usageWindow}
 					isAdmin={isAdmin}
 					onEdit={editCredential}
 					onDelete={requestDelete}
@@ -1060,7 +1086,7 @@ export function ProviderCredentialsManager({
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<TabsList>
 					<TabsTrigger value="credentials">Credentials</TabsTrigger>
-					{isAdmin && <TabsTrigger value="spend">Spend</TabsTrigger>}
+					{showSpend && <TabsTrigger value="spend">Spend</TabsTrigger>}
 				</TabsList>
 				<div className="flex flex-1 flex-wrap items-center justify-end gap-3">
 					<div className="w-full sm:w-72">
@@ -1091,7 +1117,7 @@ export function ProviderCredentialsManager({
 			{/* Inactive tab content is unmounted, so the charts and their query
 			    only exist once the Spend tab is opened — with dozens of providers
 			    the table view stays free of them entirely. */}
-			{isAdmin && (
+			{showSpend && (
 				<TabsContent value="spend">
 					<ProviderCredentialsSpendOverview
 						providerFilter={
@@ -1129,18 +1155,21 @@ export function ProviderCredentialsManager({
 							</Label>
 						</div>
 						<Select
-							value={errorWindow}
+							value={usageWindow}
 							onValueChange={(next) =>
-								setParam("errors", next === DEFAULT_ERROR_WINDOW ? null : next)
+								setParam("period", next === DEFAULT_ERROR_WINDOW ? null : next)
 							}
 						>
-							<SelectTrigger className="w-48" aria-label="Error rate window">
+							<SelectTrigger
+								className="w-48"
+								aria-label="Usage and errors period"
+							>
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								{ERROR_WINDOW_OPTIONS.map((option) => (
+								{USAGE_WINDOW_OPTIONS.map((option) => (
 									<SelectItem key={option.value} value={option.value}>
-										Errors: {option.label}
+										Period: {option.label}
 									</SelectItem>
 								))}
 							</SelectContent>
@@ -1179,8 +1208,8 @@ export function ProviderCredentialsManager({
 								<TableHead>Models</TableHead>
 								<TableHead>Settings</TableHead>
 								<TableHead>
-									<span title="Lifetime attributed spend against the configured cap. The bars below it are daily spend over the last 7 UTC days; hover one for its total.">
-										Spend
+									<span title="Attributed spend in the selected usage period. Limits and their progress always use all-time spend. Bars show the last 7 UTC days, independently of the usage period.">
+										Spend ({usageLabel})
 									</span>
 								</TableHead>
 								<TableHead className="whitespace-nowrap">
@@ -1309,6 +1338,7 @@ export function ProviderCredentialsManager({
 																			<ManagedCredentialCells
 																				credential={credential}
 																				errorWindow={errorWindow}
+																				usageWindow={usageWindow}
 																				isAdmin={isAdmin}
 																				onEdit={editCredential}
 																				onDelete={requestDelete}

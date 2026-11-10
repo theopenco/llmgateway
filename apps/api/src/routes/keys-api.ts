@@ -40,6 +40,7 @@ import {
 	apiKeyPeriodDurationUnits,
 	cdb,
 	db,
+	deleteBatchCredentialsForApiKeys,
 	eq,
 	getApiKeyCurrentPeriodState,
 	isValidApiKeyPeriodDuration,
@@ -1854,6 +1855,11 @@ keysApi.openapi(bulkAction, async (c) => {
 					eligible.map((entry) => entry.apiKey.id),
 				),
 			);
+		if (targetStatus !== "active") {
+			await deleteBatchCredentialsForApiKeys(
+				eligible.map((entry) => entry.apiKey.id),
+			);
+		}
 
 		await Promise.all(
 			eligible.map(({ apiKey, organizationId }) =>
@@ -2066,6 +2072,7 @@ keysApi.openapi(deleteKey, async (c) => {
 			status: "deleted",
 		})
 		.where(eq(tables.apiKey.id, id));
+	await deleteBatchCredentialsForApiKeys([id]);
 
 	await logAuditEvent({
 		organizationId: projectOrgId,
@@ -2237,6 +2244,9 @@ keysApi.openapi(updateStatus, async (c) => {
 		})
 		.where(eq(tables.apiKey.id, id))
 		.returning();
+	if (status !== undefined && status !== "active") {
+		await deleteBatchCredentialsForApiKeys([id]);
+	}
 
 	const statusChanged = status !== undefined && apiKey.status !== status;
 	const expiryChanged =
@@ -2446,6 +2456,8 @@ keysApi.openapi(roll, async (c) => {
 		.set(hashApiKeyForStorage(token))
 		.where(eq(tables.apiKey.id, id))
 		.returning();
+	// Batches hold the old secret, which no longer authenticates.
+	await deleteBatchCredentialsForApiKeys([id]);
 
 	await logAuditEvent({
 		organizationId: projectOrgId,

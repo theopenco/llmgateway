@@ -10,6 +10,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { usePlans } from "@/app/dashboard/plans";
+import { CHANGE_PLAN_SECTION_ID } from "@/app/dashboard/types";
 import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -289,6 +290,21 @@ export default function BillingClient({
 		}
 	};
 
+	// The cancel dialog's upgrade offer: the plan picker below already previews
+	// and confirms the charge, so the offer hands over to it and lands on the
+	// offered plan's own button.
+	const handleReviewUpgrade = (tier: PlanTier): void => {
+		const picker = document.getElementById(CHANGE_PLAN_SECTION_ID);
+		if (!picker) {
+			return;
+		}
+		picker.scrollIntoView({ behavior: "smooth", block: "start" });
+		const action = picker.querySelector<HTMLButtonElement>(
+			`[data-plan-tier="${tier}"] button:not(:disabled)`,
+		);
+		(action ?? picker).focus({ preventScroll: true });
+	};
+
 	const handleCancel = async (
 		reason: DevPlanCancellationReason,
 		comments: string | undefined,
@@ -545,11 +561,13 @@ export default function BillingClient({
 									)}
 									renewWhen={renewWhen}
 									pendingTier={pendingTier}
+									paygEnabled={devPlanStatus.devPlanPaygEnabled ?? false}
 									organizationId={devPlanStatus.organizationId ?? null}
 									isCancelling={isCancelling}
 									isDowngrading={subscribingTier !== null}
 									onCancel={handleCancel}
 									onDowngrade={handleDowngrade}
+									onUpgrade={handleReviewUpgrade}
 								/>
 							)}
 						</>

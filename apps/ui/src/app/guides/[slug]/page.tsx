@@ -7,6 +7,7 @@ import { notFound } from "next/navigation";
 import { ContentConversionRail } from "@/components/content-conversion-rail";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { pageTitle } from "@/lib/page-title";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
 import { CopyMarkdownButton } from "./copy-markdown-button";
@@ -187,7 +188,7 @@ export async function generateMetadata({
 	const description = guide.description ?? "LLM Gateway integration guide";
 	// `seoTitle`, when set, already reads as a full search-result headline, so it
 	// replaces the "<title> - Guides" composition rather than extending it.
-	const metaTitle = guide.seoTitle ?? `${guide.title} - Guides`;
+	const metaTitle = pageTitle(guide.seoTitle ?? `${guide.title} - Guides`);
 	const socialTitle = guide.seoTitle ?? `${guide.title} - Guides | LLM Gateway`;
 
 	return {

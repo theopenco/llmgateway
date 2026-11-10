@@ -16,6 +16,7 @@ import { processPendingVideoJobs } from "worker";
 import { app } from "@/app.js";
 import { waitForPendingWork } from "@/lib/pending-work.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
+import { readFixtureImageDataUrl } from "@/test-utils/image-fixture.js";
 import {
 	getMockVideo,
 	setMockVideoStatus,
@@ -2172,6 +2173,244 @@ describe("videos", () => {
 		expect(log?.unifiedFinishReason).toBe("content_filter");
 	});
 
+	describe("alibaba wan video", () => {
+		async function startAlibabaVideoMock() {
+			const requests: Array<{ url?: string; body: Record<string, unknown> }> =
+				[];
+			const server = createServer((req, res) => {
+				let body = "";
+				req.on("data", (chunk) => {
+					body += chunk;
+				});
+				req.on("end", () => {
+					res.setHeader("Content-Type", "application/json");
+					if (
+						req.method === "POST" &&
+						req.url === "/api/v1/services/aigc/video-generation/video-synthesis"
+					) {
+						requests.push({ url: req.url, body: JSON.parse(body) });
+						res.end(
+							JSON.stringify({
+								output: {
+									task_id: `task-${requests.length}`,
+									task_status: "PENDING",
+								},
+								request_id: "mock-request",
+							}),
+						);
+						return;
+					}
+					res.statusCode = 404;
+					res.end("{}");
+				});
+			});
+			await new Promise<void>((resolve) => {
+				server.listen(0, "127.0.0.1", resolve);
+			});
+			const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				...hashApiKeyForStorage("real-token"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-alibaba-video",
+				...encryptProviderKeyForStorage(
+					"alibaba-test-token",
+					"provider-key-alibaba-video",
+					"org-id",
+				),
+				provider: "alibaba",
+				organizationId: "org-id",
+				baseUrl: url,
+			});
+
+			return {
+				requests,
+				close: async () =>
+					await new Promise<void>((resolve) => {
+						server.close(() => resolve());
+					}),
+			};
+		}
+
+		async function createVideo(body: Record<string, unknown>) {
+			return await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					prompt: "A paper boat drifting on a pond",
+					...body,
+				}),
+			});
+		}
+
+		const image = readFixtureImageDataUrl();
+
+		test("sends Wan 3.0 text-to-video as resolution tier, ratio and audio", async () => {
+			const mock = await startAlibabaVideoMock();
+			try {
+				const res = await createVideo({
+					model: "alibaba/wan-3-0-video",
+					size: "480x854",
+					seconds: 2,
+					audio: false,
+				});
+				expect(res.status, await res.clone().text()).toBe(200);
+				expect(mock.requests).toHaveLength(1);
+				expect(mock.requests[0].body).toEqual({
+					model: "wan3.0-video",
+					input: { prompt: "A paper boat drifting on a pond" },
+					parameters: {
+						resolution: "480P",
+						ratio: "9:16",
+						duration: 2,
+						audio: false,
+					},
+				});
+			} finally {
+				await mock.close();
+			}
+		});
+
+		test("sends Wan 3.0 first and last frames as media", async () => {
+			const mock = await startAlibabaVideoMock();
+			try {
+				const res = await createVideo({
+					model: "alibaba/wan-3-0-video-prime",
+					size: "1920x1080",
+					seconds: 30,
+					image,
+					last_frame: image,
+				});
+				expect(res.status, await res.clone().text()).toBe(200);
+				const body = mock.requests[0].body as {
+					model: string;
+					input: { media: Array<{ type: string; url: string }> };
+					parameters: Record<string, unknown>;
+				};
+				expect(body.model).toBe("wan3.0-video-prime");
+				expect(body.input.media.map((item) => item.type)).toEqual([
+					"first_frame",
+					"last_frame",
+				]);
+				expect(
+					body.input.media.every((item) =>
+						item.url.startsWith("data:image/png;base64,"),
+					),
+				).toBe(true);
+				expect(body.parameters).toEqual({
+					resolution: "1080P",
+					ratio: "16:9",
+					duration: 30,
+					audio: true,
+				});
+			} finally {
+				await mock.close();
+			}
+		});
+
+		test("sends Wan 3.0 reference images as media", async () => {
+			const mock = await startAlibabaVideoMock();
+			try {
+				const res = await createVideo({
+					model: "alibaba/wan-3-0-video",
+					size: "1280x720",
+					seconds: 5,
+					reference_images: [image, image],
+				});
+				expect(res.status, await res.clone().text()).toBe(200);
+				const body = mock.requests[0].body as {
+					input: { media: Array<{ type: string }> };
+				};
+				expect(body.input.media.map((item) => item.type)).toEqual([
+					"reference_image",
+					"reference_image",
+				]);
+			} finally {
+				await mock.close();
+			}
+		});
+
+		test("accepts 10 Wan 3.0 reference images and rejects 11", async () => {
+			const mock = await startAlibabaVideoMock();
+			try {
+				const ten = await createVideo({
+					model: "alibaba/wan-3-0-video",
+					size: "1280x720",
+					seconds: 5,
+					reference_images: Array.from({ length: 10 }, () => image),
+				});
+				expect(ten.status, await ten.clone().text()).toBe(200);
+				const eleven = await createVideo({
+					model: "alibaba/wan-3-0-video",
+					size: "1280x720",
+					seconds: 5,
+					reference_images: Array.from({ length: 11 }, () => image),
+				});
+				expect(eleven.status).toBe(400);
+				expect(mock.requests).toHaveLength(1);
+			} finally {
+				await mock.close();
+			}
+		});
+
+		test("keeps the pixel size protocol for Wan 2.6", async () => {
+			const mock = await startAlibabaVideoMock();
+			try {
+				const res = await createVideo({
+					model: "alibaba/wan-2-6-t2v",
+					size: "1280x720",
+					seconds: 5,
+				});
+				expect(res.status, await res.clone().text()).toBe(200);
+				expect(mock.requests[0].body).toEqual({
+					model: "wan2.6-t2v",
+					input: { prompt: "A paper boat drifting on a pond" },
+					parameters: { size: "1280*720", duration: 5 },
+				});
+			} finally {
+				await mock.close();
+			}
+		});
+
+		test("rejects image inputs on Wan 2.6 and reference videos on Wan 3.0", async () => {
+			const mock = await startAlibabaVideoMock();
+			try {
+				const frames = await createVideo({
+					model: "alibaba/wan-2-6-t2v",
+					size: "1280x720",
+					seconds: 5,
+					image,
+				});
+				expect(frames.status).toBe(400);
+				expect(JSON.stringify(await frames.json())).toContain(
+					"only supported on Alibaba Wan 3.0",
+				);
+
+				const referenceVideo = await createVideo({
+					model: "alibaba/wan-3-0-video",
+					size: "1280x720",
+					seconds: 5,
+					reference_videos: ["https://example.com/reference.mp4"],
+				});
+				expect(referenceVideo.status).toBe(400);
+				expect(JSON.stringify(await referenceVideo.json())).toContain(
+					"reference videos and audio are unsupported on alibaba",
+				);
+				expect(mock.requests).toHaveLength(0);
+			} finally {
+				await mock.close();
+			}
+		});
+	});
+
 	describe("tiered gateway content filter", () => {
 		const MODERATION_URL = "https://api.openai.com/v1/moderations";
 		let moderationInputs: unknown[] = [];
@@ -3937,13 +4176,44 @@ function seedanceBillingReservationExpiryTests() {
 	});
 
 	test.each([
-		{ status: "in_progress", pending: true, quarantined: false, expected: 402 },
-		{ status: "completed", pending: true, quarantined: true, expected: 402 },
-		{ status: "completed", pending: false, quarantined: true, expected: 402 },
-		{ status: "completed", pending: false, quarantined: false, expected: 200 },
+		{
+			status: "in_progress",
+			pending: true,
+			quarantined: false,
+			fallback: false,
+			expected: 402,
+		},
+		{
+			status: "completed",
+			pending: true,
+			quarantined: true,
+			fallback: false,
+			expected: 402,
+		},
+		{
+			status: "completed",
+			pending: false,
+			quarantined: true,
+			fallback: false,
+			expected: 402,
+		},
+		{
+			status: "completed",
+			pending: false,
+			quarantined: false,
+			fallback: true,
+			expected: 402,
+		},
+		{
+			status: "completed",
+			pending: false,
+			quarantined: false,
+			fallback: false,
+			expected: 200,
+		},
 	] as const)(
-		"retains aged billing holds: $status pending=$pending quarantined=$quarantined",
-		async ({ status, pending, quarantined, expected }) => {
+		"retains aged billing holds: $status pending=$pending quarantined=$quarantined fallback=$fallback",
+		async ({ status, pending, quarantined, fallback, expected }) => {
 			await db.insert(tables.videoJob).values({
 				id: "old-seedance-video",
 				requestId: "old-seedance-request",
@@ -3965,6 +4235,7 @@ function seedanceBillingReservationExpiryTests() {
 				upstreamStatusResponse: {
 					llmgateway_billing_pending: pending,
 					llmgateway_billing_quarantined: quarantined,
+					llmgateway_billing_fallback: fallback,
 				},
 			});
 			const response = await app.request("/v1/videos", {
