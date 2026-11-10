@@ -40,6 +40,12 @@ export function dailyModelVerificationId(mappingId: string, now: Date): string {
  * prompt-cache probes: the first bills most of the declared window on every
  * run. Carrier preflight still runs them.
  */
+export const DAILY_SKIPPED_CHECK_IDS: ReadonlySet<string> = new Set([
+	"context_size",
+	"max_output",
+	"prompt_caching",
+]);
+
 export function dailyVerificationTarget(
 	target: ProviderModelVerificationTarget,
 ): ProviderModelVerificationTarget {
@@ -220,7 +226,7 @@ export async function resolveDailyVerificationCredential(
 		throw new Error("Scheduled mapping is unavailable.");
 	}
 	const live = await liveVerificationMapping(job.modelProviderMappingId);
-	if (!live || !sameVerificationDeclaration(live.target, job.target)) {
+	if (!live || !sameVerificationDeclaration(live.target, job.target, true)) {
 		throw new Error(
 			"Scheduled listing is no longer eligible or its declaration changed.",
 		);
@@ -242,13 +248,18 @@ export async function resolveDailyVerificationCredential(
 	}
 	return { credentialSource, key: undefined, baseUrl: undefined };
 }
+/** `daily` compares only what a daily run checks. */
 export function sameVerificationDeclaration(
 	left: ProviderModelVerificationTarget,
 	right: ProviderModelVerificationTarget,
+	daily = false,
 ): boolean {
+	const reduce = daily
+		? dailyVerificationTarget
+		: (target: ProviderModelVerificationTarget) => target;
 	return isDeepStrictEqual(
-		buildVerificationTarget(dailyVerificationTarget(left)),
-		buildVerificationTarget(dailyVerificationTarget(right)),
+		buildVerificationTarget(reduce(left)),
+		buildVerificationTarget(reduce(right)),
 	);
 }
 export function modelVerificationConcurrency(): number {

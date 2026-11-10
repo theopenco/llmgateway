@@ -3,6 +3,7 @@ import { createHash, randomUUID, createHmac } from "node:crypto";
 import {
 	buildVerificationTarget,
 	createQueuedModelVerificationChecks,
+	isDailyModelVerification,
 } from "@llmgateway/actions";
 import { and, db, desc, eq, isNull, like, or, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -14,7 +15,7 @@ import {
 } from "@llmgateway/shared/email";
 
 import {
-	dailyVerificationTarget,
+	DAILY_SKIPPED_CHECK_IDS,
 	liveVerificationMapping,
 	sameVerificationDeclaration,
 	currentCredentialSource,
@@ -109,14 +110,17 @@ function observation(
 	target: ProviderModelVerificationTarget,
 	job?: Verification,
 ): AirsideVerificationObservation {
-	// Daily runs omit the probes dailyVerificationTarget strips; carrier runs
-	// are judged on the full declaration.
-	const expected = createQueuedModelVerificationChecks(
-		job?.modelProviderMappingId ? dailyVerificationTarget(target) : target,
+	const daily = Boolean(job && isDailyModelVerification(job));
+	// A daily run queued without the heavy probes is judged without them.
+	const expected = createQueuedModelVerificationChecks(target).filter(
+		(check) =>
+			!daily ||
+			!DAILY_SKIPPED_CHECK_IDS.has(check.id) ||
+			job!.checks.some((actual) => actual.id === check.id),
 	);
 	const compatible =
 		job &&
-		sameVerificationDeclaration(target, job.target) &&
+		sameVerificationDeclaration(target, job.target, daily) &&
 		sameVerificationCredential(job.target, target);
 	const failedChecks =
 		compatible &&
