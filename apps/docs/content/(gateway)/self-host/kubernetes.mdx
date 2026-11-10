@@ -26,6 +26,8 @@ helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway \
   --set auth.gatewayApiKeyHashSecret="$(openssl rand -base64 32)"
 ```
 
+Save both generated values (they are in the chart-managed Secret) and pass the same ones on every reinstall or upgrade: a new `gatewayApiKeyHashSecret` makes stored provider keys unreadable. For production, use [`existingSecret`](#keep-credentials-in-a-secret).
+
 This installs the latest published version. To pin to a specific release, append `--version <version>`, matching a published release tag without the `v` prefix (e.g. `1.2.3`).
 
 ## Configure with values
