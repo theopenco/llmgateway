@@ -739,6 +739,14 @@ export const transaction = snakeCase.table(
 		uniqueIndex("transaction_stripe_invoice_id_unique")
 			.on(table.stripeInvoiceId)
 			.where(sql`${table.stripeInvoiceId} IS NOT NULL`),
+		// Backstop for top-up idempotency: at most one completed credit_topup
+		// row per PaymentIntent, even if app-level locking is bypassed. Failed
+		// attempts don't count, so a payment can fail and later succeed.
+		uniqueIndex("transaction_credit_topup_payment_intent_unique")
+			.on(table.stripePaymentIntentId)
+			.where(
+				sql`${table.type} = 'credit_topup' AND ${table.status} = 'completed'`,
+			),
 	],
 );
 
