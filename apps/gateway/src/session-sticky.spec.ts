@@ -253,7 +253,7 @@ describe("session stickiness across candidate changes", () => {
 	});
 
 	test("tool-choice capability takes precedence over an existing session pin", async () => {
-		const model = "deepseek-v4-flash";
+		const model = "deepseek-v4-pro";
 		const sessionId = "session-tool-choice-precedence";
 		const token = "real-token-session-sticky-tool-choice";
 

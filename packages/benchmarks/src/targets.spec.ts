@@ -81,19 +81,19 @@ describe("gateway catalogue descriptors", () => {
 describe("resolveBenchmarkTargets", () => {
 	it("resolves selected provider mappings to pinned model ids", () => {
 		const targets = resolveBenchmarkTargets({
-			modelIds: ["deepseek-v4-flash"],
+			modelIds: ["deepseek-v4-pro"],
 			mappings: ["deepinfra", "canopywave"],
 		});
 		expect(targets.map((target) => target.id)).toEqual([
-			"deepinfra/deepseek-v4-flash",
-			"canopywave/deepseek-v4-flash",
+			"deepinfra/deepseek-v4-pro",
+			"canopywave/deepseek-v4-pro",
 		]);
 	});
 
 	it("rejects unknown mappings", () => {
 		expect(() =>
 			resolveBenchmarkTargets({
-				modelIds: ["deepseek-v4-flash"],
+				modelIds: ["deepseek-v4-pro"],
 				mappings: ["not-a-provider"],
 			}),
 		).toThrow("No selected model has mapping(s): not-a-provider");

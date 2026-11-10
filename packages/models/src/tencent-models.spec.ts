@@ -39,6 +39,9 @@ describe("Tencent Singapore catalogue", () => {
 		expect(tencentMapping("deepseek-v4-flash")?.externalId).toBe(
 			"deepseek-v4-flash-202605",
 		);
+		expect(tencentMapping("deepseek-v4-flash-0731")?.externalId).toBe(
+			"deepseek-v4-flash-202605",
+		);
 	});
 
 	it("never duplicates a provider mapping within a model", () => {

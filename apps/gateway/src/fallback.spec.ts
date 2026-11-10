@@ -2094,15 +2094,23 @@ describe("fallback and error status code handling", () => {
 		test("direct provider selection picks the best available region", async () => {
 			await setupKeys("alibaba");
 
-			await ensureRegionalMapping("deepseek-v4-flash", "alibaba", "singapore");
-			await ensureRegionalMapping("deepseek-v4-flash", "alibaba", "cn-beijing");
+			await ensureRegionalMapping(
+				"deepseek-v4-flash-0731",
+				"alibaba",
+				"singapore",
+			);
+			await ensureRegionalMapping(
+				"deepseek-v4-flash-0731",
+				"alibaba",
+				"cn-beijing",
+			);
 
-			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash-0731", "alibaba", 100, {
 				region: "singapore",
 				routingLatency: 1200,
 				routingThroughput: 10,
 			});
-			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash-0731", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 900,
 				routingThroughput: 20,
@@ -2115,7 +2123,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "alibaba/deepseek-v4-flash",
+					model: "alibaba/deepseek-v4-flash-0731",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -2132,7 +2140,9 @@ describe("fallback and error status code handling", () => {
 					score.providerId === "alibaba" && score.region === "cn-beijing",
 			);
 
-			expect(logs[0].usedModel).toBe("alibaba/deepseek-v4-flash:cn-beijing");
+			expect(logs[0].usedModel).toBe(
+				"alibaba/deepseek-v4-flash-0731:cn-beijing",
+			);
 			expect(logs[0].routingMetadata?.selectionReason).toBe(
 				"direct-provider-specified",
 			);
@@ -2143,7 +2153,7 @@ describe("fallback and error status code handling", () => {
 			expect(logs[0].routingMetadata?.routing).toEqual([
 				expect.objectContaining({
 					provider: "alibaba",
-					model: "deepseek-v4-flash",
+					model: "deepseek-v4-flash-0731",
 					region: "cn-beijing",
 					status_code: 200,
 					succeeded: true,
@@ -2162,12 +2172,12 @@ describe("fallback and error status code handling", () => {
 				})
 				.where(eq(tables.providerKey.id, "provider-key-id"));
 
-			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash-0731", "alibaba", 100, {
 				region: "singapore",
 				routingLatency: 866,
 				routingThroughput: 1,
 			});
-			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash-0731", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 1767,
 				routingThroughput: 0.5,
@@ -2180,7 +2190,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "alibaba/deepseek-v4-flash",
+					model: "alibaba/deepseek-v4-flash-0731",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -2209,7 +2219,7 @@ describe("fallback and error status code handling", () => {
 			expect(logs[0].routingMetadata?.routing).toEqual([
 				expect.objectContaining({
 					provider: "alibaba",
-					model: "deepseek-v4-flash",
+					model: "deepseek-v4-flash-0731",
 					region: "singapore",
 					status_code: 200,
 					succeeded: true,
@@ -2226,26 +2236,34 @@ describe("fallback and error status code handling", () => {
 
 		test("direct provider selection follows the scoped key region after failover", async () => {
 			await setupSingleProviderWithRegionalKeys("alibaba");
-			await ensureRegionalMapping("deepseek-v4-flash", "alibaba", "singapore");
-			await ensureRegionalMapping("deepseek-v4-flash", "alibaba", "cn-beijing");
+			await ensureRegionalMapping(
+				"deepseek-v4-flash-0731",
+				"alibaba",
+				"singapore",
+			);
+			await ensureRegionalMapping(
+				"deepseek-v4-flash-0731",
+				"alibaba",
+				"cn-beijing",
+			);
 
 			reportTrackedKeyError(
 				"alibaba-key-singapore",
 				500,
 				undefined,
-				"deepseek-v4-flash",
+				"deepseek-v4-flash-0731",
 			);
 			reportTrackedKeyError(
 				"alibaba-key-singapore",
 				500,
 				undefined,
-				"deepseek-v4-flash",
+				"deepseek-v4-flash-0731",
 			);
 			reportTrackedKeyError(
 				"alibaba-key-singapore",
 				500,
 				undefined,
-				"deepseek-v4-flash",
+				"deepseek-v4-flash-0731",
 			);
 
 			const res = await app.request("/v1/chat/completions", {
@@ -2255,7 +2273,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "alibaba/deepseek-v4-flash",
+					model: "alibaba/deepseek-v4-flash-0731",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -2263,11 +2281,13 @@ describe("fallback and error status code handling", () => {
 			expect(res.status).toBe(200);
 
 			const logs = await waitForLogs(1);
-			expect(logs[0].usedModel).toBe("alibaba/deepseek-v4-flash:cn-beijing");
+			expect(logs[0].usedModel).toBe(
+				"alibaba/deepseek-v4-flash-0731:cn-beijing",
+			);
 			expect(logs[0].routingMetadata?.routing).toEqual([
 				expect.objectContaining({
 					provider: "alibaba",
-					model: "deepseek-v4-flash",
+					model: "deepseek-v4-flash-0731",
 					region: "cn-beijing",
 					status_code: 200,
 					succeeded: true,
@@ -2278,16 +2298,16 @@ describe("fallback and error status code handling", () => {
 		test("provider-agnostic routing keeps regional mappings aggregated", async () => {
 			await setupKeys("alibaba");
 
-			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 99, {
+			await setRoutingMetrics("deepseek-v4-flash-0731", "alibaba", 99, {
 				routingLatency: 950,
 				routingThroughput: 15,
 			});
-			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash-0731", "alibaba", 100, {
 				region: "singapore",
 				routingLatency: 1200,
 				routingThroughput: 10,
 			});
-			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash-0731", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 900,
 				routingThroughput: 20,
@@ -2300,7 +2320,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "deepseek-v4-flash",
+					model: "deepseek-v4-flash-0731",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
