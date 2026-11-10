@@ -28,10 +28,11 @@ for (const path of ["/pricing", "/enterprise"]) {
 	});
 }
 
-// The seeded organizations sit on small top-up allowances, which clamp the
-// amount long before the hint's threshold. The allowance is answered here so
-// the dialog accepts the amounts a steady buyer would type.
-async function openTopUp(page: Page, email: string, orgId: string) {
+async function openTopUpWithFullAllowance(
+	page: Page,
+	email: string,
+	orgId: string,
+) {
 	const signIn = await page.request.post(`${apiUrl}/auth/sign-in/email`, {
 		data: { email, password: email },
 	});
@@ -60,7 +61,11 @@ async function openTopUp(page: Page, email: string, orgId: string) {
 test("a pay-as-you-go organization sees committed use from a large top-up on", async ({
 	page,
 }) => {
-	const dialog = await openTopUp(page, "admin@example.com", "test-org-id");
+	const dialog = await openTopUpWithFullAllowance(
+		page,
+		"admin@example.com",
+		"test-org-id",
+	);
 	const amount = dialog.getByRole("textbox").first();
 	const hint = dialog.getByRole("link", { name: "See committed use" });
 	const higherTier = dialog.getByText("Need to top up more?");
@@ -77,7 +82,7 @@ test("a pay-as-you-go organization sees committed use from a large top-up on", a
 test("an enterprise organization is not offered the contract it has", async ({
 	page,
 }) => {
-	const dialog = await openTopUp(
+	const dialog = await openTopUpWithFullAllowance(
 		page,
 		"enterprise@example.com",
 		"enterprise-org-id",

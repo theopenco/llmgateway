@@ -40,9 +40,10 @@ export function CommittedUse({ location }: { location: string }) {
 							Buying credits every month? Ask for a contract.
 						</h2>
 						<p className="mt-4 text-base leading-relaxed text-muted-foreground">
-							Enterprise Cloud puts steady usage on a contract in place of
-							top-ups. It starts with the 30-Day Production Pilot, and
-							Enterprise is usually priced from $3,000 a year for
+							Enterprise Cloud puts steady usage on a contract with volume
+							discounts on the platform fee and invoicing options. It starts
+							with the 30-Day Production Pilot, and Enterprise is usually priced
+							from {MARKETING_STATS.enterpriseSmallTeamPrice} a year for
 							small&nbsp;teams.
 						</p>
 						<TrackedLink
