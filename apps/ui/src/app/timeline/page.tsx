@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ContentConversionRail } from "@/components/content-conversion-rail";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
+import { NewModelsSignup } from "@/components/timeline/new-models-signup";
 import { ModelCard } from "@/components/timeline/timeline-parts";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -251,6 +252,10 @@ export default async function TimelinePage() {
 									</li>
 								) : null}
 							</ul>
+
+							<div className="pt-3">
+								<NewModelsSignup />
+							</div>
 						</div>
 					</div>
 				</section>

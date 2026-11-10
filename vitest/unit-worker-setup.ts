@@ -18,3 +18,9 @@ process.env.STORAGE_REDIS_DB = String(workerId - 1);
 // pool would exhaust on its own once every worker opens one.
 process.env.DATABASE_POOL_MAX ??= "8";
 process.env.DATABASE_POOL_MIN ??= "1";
+// The API loads the developer's .env on import, and that file can hold live
+// mail credentials. No unit test may reach the provider with them: tests that
+// exercise Resend set their own values and stub fetch.
+process.env.RESEND_API_KEY = "";
+process.env.RESEND_NEWSLETTER_TOPIC_ID = "";
+process.env.RESEND_NEWSLETTER_SEGMENT_ID = "";

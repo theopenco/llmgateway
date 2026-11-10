@@ -95,6 +95,11 @@
 			"import": "./dist/email-unsubscribe.js",
 			"default": "./dist/email-unsubscribe.js"
 		},
+		"./resend-api": {
+			"types": "./dist/resend-api.d.ts",
+			"import": "./dist/resend-api.js",
+			"default": "./dist/resend-api.js"
+		},
 		"./security-txt": {
 			"types": "./dist/security-txt.d.ts",
 			"import": "./dist/security-txt.js",

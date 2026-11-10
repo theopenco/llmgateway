@@ -130,8 +130,9 @@ export default function Signup() {
 
 					toast({
 						title: "Account created",
-						description:
-							"Please check your email to verify your account before signing in.",
+						description: values.newsletter
+							? "Please check your email to verify your account before signing in. The newsletter has its own confirmation email."
+							: "Please check your email to verify your account before signing in.",
 					});
 					router.push(signupTarget as Route);
 				},
