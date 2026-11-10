@@ -26,6 +26,7 @@ import {
 	DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
 	DEV_PLAN_RESET_PASS_PRICES,
 	getDevPlanCreditsLimit,
+	getDevPlanRenewalRolloverCap,
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
 	SELF_REFUND_WINDOW_DAYS,
@@ -100,9 +101,9 @@ const usageRows: UsageRow[] = [
 	},
 	{
 		label: "Unused allowance carried into the next cycle",
-		lite: `up to ${formatUsd(liteCredits * DEV_PLAN_RENEWAL_ROLLOVER_PERCENT)}`,
-		pro: `up to ${formatUsd(proCredits * DEV_PLAN_RENEWAL_ROLLOVER_PERCENT)}`,
-		max: `up to ${formatUsd(maxCredits * DEV_PLAN_RENEWAL_ROLLOVER_PERCENT)}`,
+		lite: `up to ${formatUsd(getDevPlanRenewalRolloverCap(liteCredits))}`,
+		pro: `up to ${formatUsd(getDevPlanRenewalRolloverCap(proCredits))}`,
+		max: `up to ${formatUsd(getDevPlanRenewalRolloverCap(maxCredits))}`,
 	},
 	{
 		label: "Reset Passes (instant premium-allowance reset)",

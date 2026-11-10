@@ -1,3 +1,4 @@
+import { Decimal } from "decimal.js";
 import Stripe from "stripe";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -18,6 +19,7 @@ import { deleteAll } from "./testing.js";
 
 import type * as PaymentsModule from "./routes/payments.js";
 import type * as EmailModule from "./utils/email.js";
+import type * as InvoiceModule from "./utils/invoice.js";
 
 const stripeMock = vi.hoisted(() => ({
 	refunds: { list: vi.fn() },
@@ -52,8 +54,19 @@ vi.mock("./posthog.js", () => ({
 	},
 }));
 
+// The real function still runs; the wrapper only records what it was given.
+vi.mock("./utils/invoice.js", async (importOriginal) => {
+	const original = await importOriginal<typeof InvoiceModule>();
+	return {
+		...original,
+		generateAndEmailInvoice: vi.fn(original.generateAndEmailInvoice),
+	};
+});
+
 const { sendTransactionalEmail } = await import("./utils/email.js");
 const sendEmailMock = vi.mocked(sendTransactionalEmail);
+const { generateAndEmailInvoice } = await import("./utils/invoice.js");
+const invoiceMock = vi.mocked(generateAndEmailInvoice);
 
 const ORG_ID = "test-org-feedback";
 const SUB_ID = "sub_test_feedback_001";
@@ -458,18 +471,56 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(org?.devPlanCreditsLimit).toBe(PRO_ALLOTMENT);
 	});
 
-	test("itemizes the carried amount on the renewal invoice", async () => {
+	test("itemizes the carried amount on the renewal invoice, to the cent", async () => {
+		// Usage is a sum of per-request costs, so the remainder is rarely round.
+		const carried = "55.2968154877";
+		invoiceMock.mockClear();
 		await renewProOrg({
 			limit: PRO_ALLOTMENT,
-			used: String(getDevPlanCreditsLimit("pro") - 20),
+			used: new Decimal(PRO_ALLOTMENT).minus(carried).toString(),
 		});
 
 		const txns = await db.query.transaction.findMany({
 			where: { organizationId: { eq: ORG_ID } },
 		});
 		expect(txns).toHaveLength(1);
-		expect(txns[0].creditAmount).toBe(withCarryOver("pro", 20));
-		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		expect(txns[0].creditAmount).toBe(
+			new Decimal(PRO_ALLOTMENT).plus(carried).toString(),
+		);
+		expect(invoiceMock).toHaveBeenCalledTimes(1);
+		expect(invoiceMock.mock.calls[0][0].lineItems[0].description).toBe(
+			`Dev Plan PRO renewal ($${PRO_ALLOTMENT} credits included + $55.30 unused credits carried over)`,
+		);
+	});
+
+	test("carries what is left when the reset runs, not what the event first saw", async () => {
+		// Usage settles after the handler looked the organization up: its
+		// duplicate-invoice check is the next read, so the spend lands there.
+		const findInvoiceTransaction = db.query.transaction.findFirst.bind(
+			db.query.transaction,
+		);
+		const lookup = vi
+			.spyOn(db.query.transaction, "findFirst")
+			.mockImplementationOnce((config) => {
+				const settled = (async () => {
+					await db
+						.update(tables.organization)
+						.set({
+							devPlanCreditsUsed: String(getDevPlanCreditsLimit("pro") - 5),
+						})
+						.where(eq(tables.organization.id, ORG_ID));
+					return await findInvoiceTransaction(config);
+				})();
+				return settled as unknown as ReturnType<typeof findInvoiceTransaction>;
+			});
+
+		const org = await renewProOrg({
+			limit: PRO_ALLOTMENT,
+			used: String(getDevPlanCreditsLimit("pro") - 20.25),
+		});
+		lookup.mockRestore();
+
+		expect(org?.devPlanCreditsLimit).toBe(withCarryOver("pro", 5));
 	});
 
 	test("applies a scheduled downgrade at renewal: switches tier and grants the lower allotment", async () => {

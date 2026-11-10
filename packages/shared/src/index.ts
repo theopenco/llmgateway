@@ -67,6 +67,7 @@ export {
 	getDevPlanDailyLimit,
 	getDevPlanPremiumWeeklyLimit,
 	getDevPlanRenewalCredits,
+	getDevPlanRenewalRolloverCap,
 	getDevPlanUpgradeCredits,
 	getIncludedResetPassesRemaining,
 	getRemainingDailyAllowance,

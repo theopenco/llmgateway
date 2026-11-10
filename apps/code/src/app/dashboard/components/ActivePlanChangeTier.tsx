@@ -18,11 +18,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useApi } from "@/lib/fetch-client";
-import { cn, formatUsageRatio } from "@/lib/utils";
+import { cn, formatUsageRatio, formatUsd } from "@/lib/utils";
 
 import {
-	DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
 	formatDateTime,
+	getDevPlanRenewalRolloverCap,
 	useDisplayTimeZone,
 } from "@llmgateway/shared";
 
@@ -69,7 +69,7 @@ function formatUsageAmount(amount: number) {
 
 // The most unused allowance a renewal carries into a cycle on this plan.
 function renewalCarryOverCap(plan: PlanOption) {
-	return formatUsageAmount(plan.usage * DEV_PLAN_RENEWAL_ROLLOVER_PERCENT);
+	return formatUsd(getDevPlanRenewalRolloverCap(plan.usage));
 }
 
 export default function ActivePlanChangeTier({

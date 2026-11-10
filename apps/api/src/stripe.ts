@@ -34,6 +34,7 @@ import {
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
+import { devPlanInvoiceLine } from "./lib/dev-plan-invoice-line.js";
 import { computeReferralBonus } from "./lib/referral-bonus.js";
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
@@ -4763,10 +4764,11 @@ export async function handleInvoicePaymentSucceeded(event: {
 				...billingDetails,
 				lineItems: [
 					{
-						description:
-							rolloverCredits > 0
-								? `Dev Plan ${effectiveTier.toUpperCase()} renewal ($${getDevPlanCreditsLimit(effectiveTier)} credits included + $${rolloverCredits} unused credits carried over)`
-								: `Dev Plan ${effectiveTier.toUpperCase()} renewal ($${creditsLimit} credits included)`,
+						description: devPlanInvoiceLine(
+							"renewal",
+							effectiveTier,
+							rolloverCredits,
+						),
 						amount: invoice.amount_paid / 100,
 					},
 				],
@@ -4883,11 +4885,11 @@ export async function handleInvoicePaymentSucceeded(event: {
 					.where(eq(tables.organization.id, organizationId));
 			}
 
-			return created ? { created, rolloverCredits, creditsLimit } : null;
+			return created ? { created, rolloverCredits } : null;
 		});
 
 		if (upgradeResult) {
-			const { created, rolloverCredits, creditsLimit } = upgradeResult;
+			const { created, rolloverCredits } = upgradeResult;
 			try {
 				const billingDetails = await resolveDevPassBillingDetails(organization);
 				await generateAndEmailInvoice({
@@ -4898,10 +4900,11 @@ export async function handleInvoicePaymentSucceeded(event: {
 					...billingDetails,
 					lineItems: [
 						{
-							description:
-								rolloverCredits > 0
-									? `Dev Plan upgrade to ${toTier.toUpperCase()} ($${getDevPlanCreditsLimit(toTier)} credits included + $${rolloverCredits} unused credits rolled over)`
-									: `Dev Plan upgrade to ${toTier.toUpperCase()} ($${creditsLimit} credits included)`,
+							description: devPlanInvoiceLine(
+								"upgrade",
+								toTier,
+								rolloverCredits,
+							),
 							amount: invoice.amount_paid / 100,
 						},
 					],

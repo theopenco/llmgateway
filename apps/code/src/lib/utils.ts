@@ -6,9 +6,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatUsd(amount: number): string {
-	return Number.isInteger(amount)
-		? `$${amount}`
-		: `$${amount.toFixed(2).replace(/\.?0+$/, "")}`;
+	return Number.isInteger(amount) ? `$${amount}` : `$${amount.toFixed(2)}`;
 }
 
 export function formatUsageRatio(credits: number, price: number): string {

@@ -149,8 +149,8 @@ export default function TermsPage() {
 				<li>
 					Usage resets at the start of each billing cycle. Allowance left unused
 					when a cycle renews <strong>carries over</strong> into the next cycle,
-					up to 50% of the standard monthly allowance of the tier being renewed
-					(see &ldquo;Allowances and limits&rdquo; below)
+					up to 50% of the standard monthly allowance of the tier the new cycle
+					is billed at (see &ldquo;Allowances and limits&rdquo; below)
 				</li>
 				<li>
 					Allowances are paced. Each tier publishes a{" "}
@@ -218,8 +218,9 @@ export default function TermsPage() {
 				the carry-over limit below). <strong>Downgrades</strong> are scheduled
 				for your next renewal: you keep your current tier and its allowance
 				until the end of the period you have already paid for, the lower tier is
-				billed from the next renewal onward, and no charge or refund is issued
-				when you schedule the downgrade.
+				billed from the next renewal onward (unused allowance carries over
+				within the carry-over limit below, measured against the lower tier), and
+				no charge or refund is issued when you schedule the downgrade.
 			</p>
 			<p>
 				DevPass is intended for private, personal use by an individual developer
@@ -240,7 +241,8 @@ export default function TermsPage() {
 				<strong>Carry-over at renewal.</strong> When a paid renewal starts a new
 				billing cycle, allowance left unused in the cycle that ended is added to
 				the new cycle&rsquo;s allowance, up to 50% of the standard monthly
-				allowance of the tier being renewed. The amount is recalculated at every
+				allowance of the tier the new cycle is billed at, including after a
+				scheduled upgrade or downgrade. The amount is recalculated at every
 				renewal from the allowance unused at that time, so carried-over
 				allowance never exceeds that limit and anything above it expires.
 				Carried-over allowance has no cash value, is not refundable or

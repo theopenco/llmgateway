@@ -39,7 +39,7 @@ type Step = "survey" | "offer" | "confirm";
 type SaveOffer =
 	| { kind: "downgrade"; tier: PlanTier }
 	| { kind: "upgrade"; tier: PlanTier }
-	| { kind: "rollover"; amount: number }
+	| { kind: "rollover"; amount: number; unused: number }
 	| {
 			kind: "link";
 			id: "agents" | "models" | "compare" | "overflow" | "support";
@@ -51,8 +51,19 @@ type SaveOffer =
 	  };
 
 // A smaller plan only fits while the cycle still has room: someone who has
-// burned through most of the allowance isn't kept by less of it.
+// burned through most of the allowance isn't kept by less of it. Measured
+// against the plan's own allowance, so carried-over allowance does not make a
+// heavy month look light.
 const DOWNGRADE_MAX_UTILIZATION = 0.4;
+
+// Share of the renewing plan's allowance a carry-over must reach to be worth
+// showing to someone who is about to cancel.
+const CARRY_OVER_OFFER_MIN_SHARE = 0.1;
+
+interface CarryOver {
+	amount: number;
+	unused: number;
+}
 
 const LOWER_TIER: Record<PlanTier, PlanTier | null> = {
 	lite: null,
@@ -83,9 +94,9 @@ function planUsage(plans: PlanOption[], tier: PlanTier): number {
 function resolveOffer(
 	reason: DevPlanCancellationReason,
 	tier: PlanTier,
-	utilization: number,
+	planUtilization: number,
 	pendingTier: PlanTier | null,
-	renewalRollover: number,
+	carryOver: CarryOver | null,
 	paygEnabled: boolean,
 	docsUrl: string,
 	discordUrl: string,
@@ -96,12 +107,14 @@ function resolveOffer(
 		case "just_testing": {
 			const lower = LOWER_TIER[tier];
 			// A scheduled tier change already exists; change-tier would 409.
-			if (lower && !pendingTier && utilization < DOWNGRADE_MAX_UTILIZATION) {
+			if (
+				lower &&
+				!pendingTier &&
+				planUtilization < DOWNGRADE_MAX_UTILIZATION
+			) {
 				return { kind: "downgrade", tier: lower };
 			}
-			return renewalRollover > 0
-				? { kind: "rollover", amount: renewalRollover }
-				: null;
+			return carryOver ? { kind: "rollover", ...carryOver } : null;
 		}
 		case "allowance_too_small": {
 			const higher = HIGHER_TIER[tier];
@@ -274,6 +287,14 @@ function CancelFlow({
 				: `${o.kind}:${o.tier}`;
 	// The tier the next renewal bills, which sets what a carry-over lands on.
 	const renewingTier = pendingTier ?? tier;
+	const carryOver: CarryOver | null =
+		renewalRollover >=
+		planUsage(plans, renewingTier) * CARRY_OVER_OFFER_MIN_SHARE
+			? {
+					amount: renewalRollover,
+					unused: Math.max(0, creditsLimit - creditsUsed),
+				}
+			: null;
 
 	const continueFromSurvey = () => {
 		if (!reason) {
@@ -288,9 +309,9 @@ function CancelFlow({
 		const next = resolveOffer(
 			reason,
 			tier,
-			utilization,
+			getDevPlanCycleUsageFraction(creditsUsed, planUsage(plans, tier)),
 			pendingTier,
-			renewalRollover,
+			carryOver,
 			paygEnabled,
 			docsUrl,
 			discordUrl,
@@ -522,7 +543,7 @@ function CancelFlow({
 											: offer.kind === "upgrade"
 												? "Visa amendment · More room"
 												: offer.kind === "rollover"
-													? "Visa amendment · Nothing wasted"
+													? "Visa amendment · Carry-over"
 													: "Visa amendment · Worth a look"}
 									</div>
 									<div className="font-mono text-[9px] tracking-[0.25em] text-stone-400 dark:text-stone-500">
@@ -579,15 +600,19 @@ function CancelFlow({
 								) : offer.kind === "rollover" ? (
 									<div className="mt-3 space-y-2">
 										<p className="text-base font-semibold tracking-tight">
-											What you haven&apos;t used comes with you
+											{offer.unused - offer.amount >= 0.01
+												? "Part of what you haven't used comes with you"
+												: "What you haven't used comes with you"}
 										</p>
 										<p className="text-2xl font-bold tracking-tight tabular-nums">
 											${offer.amount.toFixed(2)}
 											<span className="text-sm font-normal text-muted-foreground">
 												{" "}
+												{offer.unused - offer.amount >= 0.01 &&
+													`of your $${offer.unused.toFixed(2)} unused `}
 												carries into your next cycle
 											</span>{" "}
-											<span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+											<span className="whitespace-nowrap text-sm font-medium text-emerald-700 dark:text-emerald-400">
 												on top of the full ${planUsage(plans, renewingTier)}
 											</span>
 										</p>

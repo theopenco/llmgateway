@@ -37,8 +37,6 @@ function toDecimalOrZero(value: string | number | null | undefined): Decimal {
  * new tier's full allotment instead of being forfeited. The rollover lives
  * only until the next renewal, which recomputes the limit from the tier's
  * base allotment and what is left then (`getDevPlanRenewalCredits`).
- * Dunning-frozen orgs get no rollover for free: the freeze clamps
- * the stored limit down to the used amount, so the remainder is already 0.
  * Computed with Decimal so fractional usage strings never leave float
  * artifacts in the stored limit.
  */
@@ -63,6 +61,13 @@ export function getDevPlanUpgradeCredits(
  */
 export const DEV_PLAN_RENEWAL_ROLLOVER_PERCENT = 0.5;
 
+/** The most unused allowance a renewal carries into a cycle on `allotment`. */
+export function getDevPlanRenewalRolloverCap(allotment: number): number {
+	return new Decimal(allotment)
+		.times(DEV_PLAN_RENEWAL_ROLLOVER_PERCENT)
+		.toNumber();
+}
+
 /**
  * Credit allowance granted by a cycle renewal: the tier's full allotment plus
  * whatever the ended cycle left unused, capped at
@@ -77,7 +82,7 @@ export function getDevPlanRenewalCredits(
 	currentCreditsUsed: string | number | null | undefined,
 	currentCreditsLimit: string | number | null | undefined,
 ): { rolloverCredits: number; newCreditsLimit: number } {
-	const allotment = new Decimal(getDevPlanCreditsLimit(tier));
+	const allotment = getDevPlanCreditsLimit(tier);
 	const remaining = Decimal.max(
 		0,
 		toDecimalOrZero(currentCreditsLimit).minus(
@@ -86,11 +91,11 @@ export function getDevPlanRenewalCredits(
 	);
 	const rollover = Decimal.min(
 		remaining,
-		allotment.times(DEV_PLAN_RENEWAL_ROLLOVER_PERCENT),
+		getDevPlanRenewalRolloverCap(allotment),
 	);
 	return {
 		rolloverCredits: rollover.toNumber(),
-		newCreditsLimit: allotment.plus(rollover).toNumber(),
+		newCreditsLimit: rollover.plus(allotment).toNumber(),
 	};
 }
 
@@ -109,8 +114,9 @@ export const DEV_PLAN_PREMIUM_WEEKLY_PERCENT: Record<DevPlanTier, number> = {
 
 /**
  * The cycle allowance the weekly and daily shares are taken from: the org's
- * stored limit, which can exceed the tier base (upgrade rollover, or an
- * allotment granted under an earlier multiplier that lasts until renewal).
+ * stored limit, which can exceed the tier base (renewal carry-over, upgrade
+ * rollover, or an allotment granted under an earlier multiplier that lasts
+ * until renewal).
  * Falls back to the tier base when no stored limit is available.
  */
 function getCycleAllowance(

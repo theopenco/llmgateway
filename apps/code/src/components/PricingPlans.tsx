@@ -13,7 +13,7 @@ import {
 	DEV_PLAN_DAILY_PERCENT,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
-	DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
+	getDevPlanRenewalRolloverCap,
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
 	MARKETING_STATS,
@@ -186,7 +186,7 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 									<dd className="font-mono text-xs font-semibold tabular-nums">
 										up to{" "}
 										{formatUsd(
-											credits[plan.tier] * DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
+											getDevPlanRenewalRolloverCap(credits[plan.tier]),
 										)}
 									</dd>
 								</div>

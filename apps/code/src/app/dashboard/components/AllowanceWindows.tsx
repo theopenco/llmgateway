@@ -309,8 +309,8 @@ export function AllowanceWindows({
 					data-testid="allowance-carry-over"
 				>
 					Unused allowance carries into your next cycle at renewal, up to{" "}
-					{Math.round(DEV_PLAN_RENEWAL_ROLLOVER_PERCENT * 100)}% of your
-					plan&apos;s monthly allowance. At today&apos;s usage:{" "}
+					{Math.round(DEV_PLAN_RENEWAL_ROLLOVER_PERCENT * 100)}% of the monthly
+					allowance of the plan you renew on. If you renewed now:{" "}
 					<span className="font-medium tabular-nums text-foreground">
 						{formatUsd(monthly.carryOver)}
 					</span>
