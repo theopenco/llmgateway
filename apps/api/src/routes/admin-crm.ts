@@ -1113,22 +1113,21 @@ const listTasks = createRoute({
 
 adminCrm.openapi(listTasks, async (c) => {
 	const now = new Date();
-	const [{ summaries }, rows] = await Promise.all([
-		loadSummaries(now),
-		db
-			.select()
-			.from(tables.crmActivity)
-			.where(
-				and(
-					eq(tables.crmActivity.kind, "task"),
-					isNull(tables.crmActivity.completedAt),
-				),
-			)
-			.orderBy(
-				sql`${tables.crmActivity.dueAt} asc nulls last`,
-				asc(tables.crmActivity.createdAt),
+	// Summaries first: loading them creates the follow-ups new inquiries need.
+	const { summaries } = await loadSummaries(now);
+	const rows = await db
+		.select()
+		.from(tables.crmActivity)
+		.where(
+			and(
+				eq(tables.crmActivity.kind, "task"),
+				isNull(tables.crmActivity.completedAt),
 			),
-	]);
+		)
+		.orderBy(
+			sql`${tables.crmActivity.dueAt} asc nulls last`,
+			asc(tables.crmActivity.createdAt),
+		);
 	const byId = new Map(summaries.map((s) => [s.id, s]));
 	return c.json({
 		tasks: rows.flatMap((r) => {

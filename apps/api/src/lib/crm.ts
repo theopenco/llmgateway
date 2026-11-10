@@ -7,12 +7,14 @@ import {
 	gt,
 	inArray,
 	isNull,
+	like,
 	ne,
 	or,
 	sql,
 	tables,
 	type CrmStage,
 } from "@llmgateway/db";
+import { addWorkingDays } from "@llmgateway/shared/working-days";
 
 export type CrmSegment = "customer" | "trial" | "lead" | "prospect";
 
@@ -557,6 +559,114 @@ export interface ActivityStats {
 	nextTaskDueAt: Date | null;
 }
 
+const LEAD_REF_PREFIX = "lead:";
+const LEAD_FOLLOW_UP_REFS = `${LEAD_REF_PREFIX}%`;
+const LEAD_FOLLOW_UP_WINDOW_DAYS = 30;
+const LEAD_FOLLOW_UP_DUE_HOUR_UTC = 17;
+
+/** An inquiry is due an answer by the end of the next working day. */
+export function leadFollowUpDueAt(receivedAt: Date): Date {
+	const due = addWorkingDays(receivedAt, 1, "utc");
+	due.setUTCHours(LEAD_FOLLOW_UP_DUE_HOUR_UTC, 0, 0, 0);
+	return due;
+}
+
+/**
+ * Keeps one follow-up task for every recent inquiry nobody has acted on since
+ * it arrived, and gives an unowned lead account `CRM_DEFAULT_OWNER_EMAIL`. It
+ * runs when the desk loads, so the public contact form writes nothing here.
+ * The task is keyed on its submission (`lead:<id>`), which makes two runs at
+ * once harmless, and an open one is removed once its submission is archived,
+ * deleted or marked as spam. An open follow-up is not a sales touch; a
+ * completed one is. Returns whether anything changed.
+ */
+export async function syncLeadFollowUps(
+	book: Map<string, CrmBookEntry>,
+	activity: Map<string, ActivityStats>,
+	now: Date,
+): Promise<boolean> {
+	const a = tables.crmActivity;
+	const existing = await db
+		.select({
+			id: a.id,
+			externalRef: a.externalRef,
+			completedAt: a.completedAt,
+		})
+		.from(a)
+		.where(like(a.externalRef, LEAD_FOLLOW_UP_REFS));
+	const known = new Set(existing.map((row) => row.externalRef));
+	const windowMs = LEAD_FOLLOW_UP_WINDOW_DAYS * DAY_MS;
+	const since = now.getTime() - windowMs;
+
+	const live = new Set<string>();
+	const missing: { entry: CrmBookEntry; lead: CrmLeadRow }[] = [];
+	for (const entry of book.values()) {
+		const lastTouchAt = activity.get(entry.id)?.lastActivityAt ?? null;
+		for (const lead of entry.leads) {
+			const ref = `${LEAD_REF_PREFIX}${lead.id}`;
+			live.add(ref);
+			if (
+				!known.has(ref) &&
+				lead.createdAt.getTime() > since &&
+				(!lastTouchAt || lead.createdAt > lastTouchAt)
+			) {
+				missing.push({ entry, lead });
+			}
+		}
+	}
+	const orphaned = existing.filter(
+		(row) => !row.completedAt && row.externalRef && !live.has(row.externalRef),
+	);
+	if (missing.length === 0 && orphaned.length === 0) {
+		return false;
+	}
+
+	if (missing.length > 0) {
+		const accountIds = [...new Set(missing.map(({ entry }) => entry.id))];
+		await db
+			.insert(tables.crmAccount)
+			.values(accountIds.map((id) => ({ id })))
+			.onConflictDoNothing();
+		const ownerEmail = process.env.CRM_DEFAULT_OWNER_EMAIL || null;
+		const leadAccountIds = missing
+			.filter(({ entry }) => segmentOf(entry, now) === "lead")
+			.map(({ entry }) => entry.id);
+		if (ownerEmail && leadAccountIds.length > 0) {
+			await db
+				.update(tables.crmAccount)
+				.set({ ownerEmail })
+				.where(
+					and(
+						inArray(tables.crmAccount.id, leadAccountIds),
+						isNull(tables.crmAccount.ownerEmail),
+					),
+				);
+		}
+		await db
+			.insert(a)
+			.values(
+				missing.map(({ entry, lead }) => ({
+					accountId: entry.id,
+					kind: "task" as const,
+					subject: `Reply to ${lead.name}'s enterprise inquiry`,
+					contactEmail: lead.email.trim().toLowerCase(),
+					dueAt: leadFollowUpDueAt(lead.createdAt),
+					externalRef: `${LEAD_REF_PREFIX}${lead.id}`,
+				})),
+			)
+			.onConflictDoNothing();
+	}
+	if (orphaned.length > 0) {
+		await db.delete(a).where(
+			inArray(
+				a.id,
+				orphaned.map((row) => row.id),
+			),
+		);
+	}
+	return true;
+}
+
 export async function loadActivityStats(
 	now: Date,
 ): Promise<Map<string, ActivityStats>> {
@@ -566,7 +676,7 @@ export async function loadActivityStats(
 		.select({
 			accountId: a.accountId,
 			lastActivityAt:
-				sql<Date | null>`max(coalesce(${a.completedAt}, ${a.createdAt})) filter (where ${a.createdAt} <= ${nowIso}::timestamp)`.mapWith(
+				sql<Date | null>`max(coalesce(${a.completedAt}, ${a.createdAt})) filter (where ${a.createdAt} <= ${nowIso}::timestamp and not (${a.kind} = 'task' and ${a.completedAt} is null and coalesce(${a.externalRef}, '') like ${LEAD_FOLLOW_UP_REFS}))`.mapWith(
 					a.createdAt,
 				),
 			openTasks: sql<number>`count(*) filter (where ${a.kind} = 'task' and ${a.completedAt} is null)`,
@@ -823,15 +933,21 @@ export async function resolveAccountIdForEmail(
 
 /** The book plus a summary row per account, as the CRM list and details use. */
 export async function loadSummaries(now: Date = new Date()) {
-	const book = await loadCrmBook(now);
-	const entries = [...book.values()];
-	const [usage, activity] = await Promise.all([
-		loadOrgUsage(
-			entries.flatMap((e) => e.orgs.map((o) => o.id)),
-			now,
-		),
+	let [book, activity] = await Promise.all([
+		loadCrmBook(now),
 		loadActivityStats(now),
 	]);
+	if (await syncLeadFollowUps(book, activity, now)) {
+		[book, activity] = await Promise.all([
+			loadCrmBook(now),
+			loadActivityStats(now),
+		]);
+	}
+	const entries = [...book.values()];
+	const usage = await loadOrgUsage(
+		entries.flatMap((e) => e.orgs.map((o) => o.id)),
+		now,
+	);
 	return {
 		book,
 		usage,

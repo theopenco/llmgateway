@@ -1,7 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
-import { computeHealth, computeLeadScore } from "@/lib/crm.js";
+import {
+	computeHealth,
+	computeLeadScore,
+	leadFollowUpDueAt,
+} from "@/lib/crm.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
@@ -20,6 +24,8 @@ function daysFromNow(days: number): Date {
 
 interface Summary {
 	id: string;
+	ownerEmail: string | null;
+	lastTouchAt: string | null;
 	segment: string;
 	stage: string;
 	leadCount: number;
@@ -47,6 +53,21 @@ async function listAccounts(cookie: string) {
 		accounts: Summary[];
 		kpis: Record<string, number>;
 	};
+}
+
+interface TaskRow {
+	id: string;
+	subject: string;
+	accountId: string;
+	accountName: string;
+	contactEmail: string | null;
+	dueAt: string | null;
+}
+
+async function listTasks(cookie: string): Promise<TaskRow[]> {
+	const res = await call(cookie, "/crm/tasks");
+	expect(res.status).toBe(200);
+	return ((await res.json()) as { tasks: TaskRow[] }).tasks;
 }
 
 async function seedBook() {
@@ -268,21 +289,202 @@ describe("admin enterprise CRM", () => {
 			before.accounts.find((a) => a.id === "prospectco.com"),
 		).toMatchObject({ openTasks: 1, overdueTasks: 1 });
 
-		const open = (await (await call(cookie, "/crm/tasks")).json()) as {
-			tasks: { id: string; accountName: string }[];
-		};
-		expect(open.tasks).toHaveLength(1);
-		expect(open.tasks[0]?.accountName).toBe("Prospectco");
+		const open = await listTasks(cookie);
+		const own = open.filter((t) => t.accountId === "prospectco.com");
+		expect(own.map((t) => t.subject)).toEqual(["Send security pack"]);
+		expect(own[0]?.accountName).toBe("Prospectco");
 
 		const done = await call(cookie, `/crm/activities/${task.id}`, {
 			method: "PATCH",
 			body: { completed: true },
 		});
 		expect(done.status).toBe(200);
-		const after = (await (await call(cookie, "/crm/tasks")).json()) as {
-			tasks: unknown[];
-		};
-		expect(after.tasks).toHaveLength(0);
+		const after = await listTasks(cookie);
+		expect(after.filter((t) => t.accountId === "prospectco.com")).toEqual([]);
+	});
+
+	// Ways a new inquiry ends up forgotten or the list ends up wrong: it gets no
+	// follow-up or no owner, the follow-up lands on a weekend, loading the desk
+	// twice doubles it, an older open task or a customer's renewal task hides
+	// it, sales already answered and it nags anyway, it counts as a sales touch
+	// before anyone replied, spam, archived or stale inquiries get one, or it
+	// outlives the inquiry it was for.
+	describe("follow-ups for new inquiries", () => {
+		const reply = (name: string) => `Reply to ${name}'s enterprise inquiry`;
+
+		async function leadTasks() {
+			return (
+				await db
+					.select()
+					.from(tables.crmActivity)
+					.orderBy(tables.crmActivity.externalRef)
+			).filter((row) => row.externalRef?.startsWith("lead:"));
+		}
+
+		afterEach(() => {
+			vi.unstubAllEnvs();
+		});
+
+		it("are created when the desk loads, due the next working day, with the default owner on lead accounts", async () => {
+			vi.stubEnv("CRM_DEFAULT_OWNER_EMAIL", "owner@example.com");
+			const [pia] = await db
+				.select()
+				.from(tables.enterpriseContactSubmission)
+				.where(eq(tables.enterpriseContactSubmission.id, "crm-l1"));
+
+			const tasks = await listTasks(cookie);
+
+			expect(
+				tasks.map((t) => [t.subject, t.accountId, t.contactEmail]).sort(),
+			).toEqual([
+				[reply("Pia Prospect"), "prospectco.com", "pia@prospectco.com"],
+				[reply("Sofia Trial"), "trialco.io", "sofia@trialco.io"],
+				[reply("Tom Freelance"), "lead:tom@gmail.com", "tom@gmail.com"],
+			]);
+			expect(tasks.find((t) => t.accountId === "prospectco.com")?.dueAt).toBe(
+				leadFollowUpDueAt(pia!.createdAt).toISOString(),
+			);
+			const { accounts } = await listAccounts(cookie);
+			const owners = Object.fromEntries(
+				accounts.map((a) => [a.id, a.ownerEmail]),
+			);
+			expect(owners).toMatchObject({
+				"prospectco.com": "owner@example.com",
+				"lead:tom@gmail.com": "owner@example.com",
+				"trialco.io": null,
+			});
+		});
+
+		it("stay one per inquiry however often, or at once, the desk loads", async () => {
+			await Promise.all([
+				call(cookie, "/crm/tasks"),
+				call(cookie, "/crm/accounts"),
+				call(cookie, "/crm/tasks"),
+			]);
+			await listTasks(cookie);
+
+			expect((await leadTasks()).map((row) => row.externalRef)).toEqual([
+				"lead:crm-l1",
+				"lead:crm-l2",
+				"lead:crm-l3",
+			]);
+		});
+
+		it("keep an owner someone already chose", async () => {
+			vi.stubEnv("CRM_DEFAULT_OWNER_EMAIL", "owner@example.com");
+			await db
+				.insert(tables.crmAccount)
+				.values({ id: "prospectco.com", ownerEmail: "ae@example.com" });
+
+			const { accounts } = await listAccounts(cookie);
+
+			expect(accounts.find((a) => a.id === "prospectco.com")).toMatchObject({
+				ownerEmail: "ae@example.com",
+				openTasks: 1,
+			});
+		});
+
+		it("are not hidden by an older open task on the account", async () => {
+			await db.insert(tables.crmAccount).values({ id: "trialco.io" });
+			await db.insert(tables.crmActivity).values({
+				accountId: "trialco.io",
+				kind: "task",
+				subject: "Plan the renewal",
+				createdAt: daysFromNow(-20),
+				dueAt: daysFromNow(60),
+			});
+
+			const tasks = await listTasks(cookie);
+
+			expect(
+				tasks
+					.filter((t) => t.accountId === "trialco.io")
+					.map((t) => t.subject)
+					.sort(),
+			).toEqual(["Plan the renewal", reply("Sofia Trial")]);
+		});
+
+		it("are skipped once sales has acted on the inquiry", async () => {
+			const note = await call(
+				cookie,
+				"/crm/accounts/prospectco.com/activities",
+				{ method: "POST", body: { kind: "note", subject: "Replied by email" } },
+			);
+			expect(note.status).toBe(200);
+
+			await listTasks(cookie);
+
+			expect((await leadTasks()).map((row) => row.externalRef)).toEqual([
+				"lead:crm-l2",
+				"lead:crm-l3",
+			]);
+		});
+
+		it("count as a sales touch only once they are done", async () => {
+			const tasks = await listTasks(cookie);
+			const touched = async () =>
+				(await listAccounts(cookie)).accounts.find(
+					(a) => a.id === "prospectco.com",
+				)?.lastTouchAt;
+			expect(await touched()).toBeNull();
+
+			const task = tasks.find((t) => t.accountId === "prospectco.com");
+			await call(cookie, `/crm/activities/${task?.id}`, {
+				method: "PATCH",
+				body: { completed: true },
+			});
+
+			expect(await touched()).toEqual(expect.any(String));
+			expect(
+				(await listTasks(cookie)).filter(
+					(t) => t.accountId === "prospectco.com",
+				),
+			).toEqual([]);
+		});
+
+		it("are not created for inquiries older than a month", async () => {
+			await db
+				.update(tables.enterpriseContactSubmission)
+				.set({ createdAt: daysFromNow(-40) })
+				.where(eq(tables.enterpriseContactSubmission.id, "crm-l1"));
+
+			await listTasks(cookie);
+
+			expect((await leadTasks()).map((row) => row.externalRef)).toEqual([
+				"lead:crm-l2",
+				"lead:crm-l3",
+			]);
+		});
+
+		it("go away with their inquiry unless they were already done", async () => {
+			const tasks = await listTasks(cookie);
+			const toms = tasks.find((t) => t.accountId === "lead:tom@gmail.com");
+			await call(cookie, `/crm/activities/${toms?.id}`, {
+				method: "PATCH",
+				body: { completed: true },
+			});
+			await db
+				.update(tables.enterpriseContactSubmission)
+				.set({ archivedAt: new Date() });
+
+			await listTasks(cookie);
+
+			expect(
+				(await leadTasks()).map((row) => [row.externalRef, !!row.completedAt]),
+			).toEqual([["lead:crm-l3", true]]);
+		});
+
+		it("are due by the end of the next working day", () => {
+			const due = (iso: string) =>
+				leadFollowUpDueAt(new Date(iso)).toISOString();
+
+			// 2026-11-12 is a Thursday.
+			expect(due("2026-11-12T22:30:00Z")).toBe("2026-11-13T17:00:00.000Z");
+			expect(due("2026-11-12T02:00:00Z")).toBe("2026-11-13T17:00:00.000Z");
+			expect(due("2026-11-13T15:00:00Z")).toBe("2026-11-16T17:00:00.000Z");
+			expect(due("2026-11-14T09:00:00Z")).toBe("2026-11-16T17:00:00.000Z");
+			expect(due("2026-11-15T23:59:00Z")).toBe("2026-11-16T17:00:00.000Z");
+		});
 	});
 
 	it("saves buying-committee contacts on an account", async () => {

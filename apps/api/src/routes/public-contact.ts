@@ -1,7 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import { scheduleLeadFollowUp } from "@/lib/crm-lead-follow-up.js";
 import { createRoute } from "@/utils/create-route.js";
 import { notifyEnterpriseContact } from "@/utils/discord.js";
 import { consumeRateLimit } from "@/utils/public-rate-limit.js";
@@ -266,14 +265,6 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 			400,
 		);
 	}
-
-	// Past the spam checks the inquiry is a lead in the CRM, whatever happens
-	// to the notification email below.
-	await scheduleLeadFollowUp({
-		id: submission.id,
-		name: validatedData.name,
-		email: validatedData.email,
-	});
 
 	const resend = getResendClient();
 	if (!resend) {
