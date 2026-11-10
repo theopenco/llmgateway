@@ -1,0 +1,43 @@
+{
+  "runId": "pretty-json__opencode__gpt-6.1-sol__r7",
+  "task": "pretty-json",
+  "agent": "opencode",
+  "model": "gpt-6.1-sol",
+  "gatewayId": "openai/gpt-6.1-sol",
+  "rep": 7,
+  "startedAt": "2026-11-04T20:54:18.520Z",
+  "code": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 81233,
+  "passed": true,
+  "tests": "12 passed",
+  "patchLines": 82,
+  "agentVersion": "1.18.29",
+  "agentConfig": {
+    "$schema": "https://opencode.ai/config.json",
+    "provider": {
+      "llmgateway": {
+        "options": {
+          "apiKey": "{env:LLMGATEWAY_API_KEY}"
+        },
+        "models": {
+          "openai/gpt-6.1-sol": {
+            "name": "GPT-6.1 Sol",
+            "tool_call": true,
+            "reasoning": true
+          }
+        }
+      }
+    },
+    "model": "llmgateway/openai/gpt-6.1-sol",
+    "small_model": "llmgateway/openai/gpt-6.1-sol",
+    "permission": {
+      "edit": "allow",
+      "bash": "allow",
+      "webfetch": "allow"
+    },
+    "autoupdate": false,
+    "share": "disabled"
+  }
+}

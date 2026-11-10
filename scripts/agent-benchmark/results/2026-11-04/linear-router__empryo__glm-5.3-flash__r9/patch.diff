@@ -1,0 +1,51 @@
+diff --git a/src/router/common.case.test.ts b/src/router/common.case.test.ts
+index df3baa0..070d1de 100644
+--- a/src/router/common.case.test.ts
++++ b/src/router/common.case.test.ts
+@@ -878,6 +878,23 @@ export const runTest = ({
+       })
+     })
+ 
++    describe('Empty path segment', () => {
++      beforeEach(() => {
++        router.add('GET', '/u/:id/posts', 'GET /u/:id/posts')
++      })
++
++      it('GET /u//posts', () => {
++        const res = match('GET', '/u//posts')
++        expect(res.length).toBe(0)
++      })
++      it('GET /u/123/posts', () => {
++        const res = match('GET', '/u/123/posts')
++        expect(res.length).toBe(1)
++        expect(res[0].handler).toEqual('GET /u/:id/posts')
++        expect(res[0].params['id']).toEqual('123')
++      })
++    })
++
+     describe('Same path', () => {
+       beforeEach(() => {
+         router.add('GET', '/hey', 'Middleware A')
+diff --git a/src/router/linear-router/router.ts b/src/router/linear-router/router.ts
+index acee5c1..b75c11b 100644
+--- a/src/router/linear-router/router.ts
++++ b/src/router/linear-router/router.ts
+@@ -111,13 +111,14 @@ export class LinearRouter<T> implements Router<T> {
+               } else {
+                 let endValuePos = path.indexOf('/', pos + 1)
+                 if (endValuePos === -1) {
+-                  if (pos + 1 === path.length) {
+-                    continue ROUTES_LOOP
+-                  }
+                   endValuePos = path.length
++                  }
++                  if (endValuePos === pos + 1) {
++                  // Empty path segment (e.g. `/u//posts`)
++                    continue ROUTES_LOOP
+                 }
+                 value = path.slice(pos + 1, endValuePos)
+-                pos = endValuePos
++                  pos = endValuePos
+               }
+ 
+               params[name] ||= value as string

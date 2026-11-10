@@ -1,0 +1,60 @@
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index ddabb70..dae844e 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -237,6 +237,33 @@ describe('EventProcessor.createRequest', () => {
+     expect(url.searchParams.get('ampersand')).toBe('a&b&c')
+   })
+ 
++  it('Should keep empty-string query values but skip undefined ones (v1 and ALB, no multi-value)', () => {
++    const query = { empty: '', present: '0', omitted: undefined } as Record<string, string>
++
++    const v1Event: LambdaEvent = {
++      ...baseV1Event,
++      queryStringParameters: query,
++    }
++
++    const v1Request = getProcessor(v1Event).createRequest(v1Event)
++    expect(v1Request.url).toEqual(
++      'https://id.execute-api.us-east-1.amazonaws.com/my/path?empty=&present=0'
++    )
++
++    const albEvent = {
++      httpMethod: 'GET',
++      path: '/my/path',
++      headers: { host: 'app.example.com' },
++      queryStringParameters: query,
++      body: null,
++      isBase64Encoded: false,
++      requestContext: { elb: { targetGroupArn: 'arn:aws:elasticloadbalancing:...' } },
++    } as unknown as LambdaEvent
++
++    const albRequest = getProcessor(albEvent).createRequest(albEvent)
++    expect(albRequest.url).toEqual('https://app.example.com/my/path?empty=&present=0')
++  })
++
+   it('Should return valid Request object from version 1.0 API Gateway event', () => {
+     const event: LambdaEvent = {
+       ...baseV1Event,
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 889adaa..d7bb904 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -465,7 +465,7 @@ export class EventV1Processor extends EventProcessor<APIGatewayProxyEvent> {
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
++        .filter(([, value]) => value !== undefined)
+         .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value || '')}`)
+         .join('&')
+     }
+@@ -555,7 +555,7 @@ export class ALBProcessor extends EventProcessor<ALBProxyEvent> {
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
++        .filter(([, value]) => value !== undefined)
+         .map(([key, value]) => `${key}=${value}`)
+         .join('&')
+     }

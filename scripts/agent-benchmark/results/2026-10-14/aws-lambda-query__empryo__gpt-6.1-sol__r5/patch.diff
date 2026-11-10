@@ -1,0 +1,69 @@
+diff --git a/.gitignore b/.gitignore
+index 087d731..b5c2a7b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -138,3 +138,4 @@ out
+ # Claude Code local files
+ CLAUDE.local.md
+ settings.local.json
++.empryo
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index ddabb70..da5e39d 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -580,6 +580,33 @@ describe('handle', () => {
+   })
+ })
+ 
++describe('EventProcessor.createRequest single-value query parameters', () => {
++  it.each(['API Gateway REST v1', 'ALB'])(
++    'Should preserve empty strings and skip undefined values for %s events',
++    (eventType) => {
++      const event: LambdaEvent = {
++        ...(eventType === 'API Gateway REST v1'
++          ? baseV1Event
++          : {
++              httpMethod: 'GET',
++              headers: { host: 'id.execute-api.us-east-1.amazonaws.com' },
++              path: '/my/path',
++              body: null,
++              isBase64Encoded: false,
++              requestContext: { elb: { targetGroupArn: 'arn:aws:elasticloadbalancing:...' } },
++            }),
++        queryStringParameters: { empty: '', present: '0', omitted: undefined },
++      }
++
++      const request = getProcessor(event).createRequest(event)
++
++      expect(request.url).toEqual(
++        'https://id.execute-api.us-east-1.amazonaws.com/my/path?empty=&present=0'
++      )
++    }
++  )
++})
++
+ describe('V2 request context authorizer', () => {
+   const baseV2RequestContext = baseV2Event.requestContext as ApiGatewayRequestContextV2
+ 
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 889adaa..d7bb904 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -465,7 +465,7 @@ export class EventV1Processor extends EventProcessor<APIGatewayProxyEvent> {
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
++        .filter(([, value]) => value !== undefined)
+         .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value || '')}`)
+         .join('&')
+     }
+@@ -555,7 +555,7 @@ export class ALBProcessor extends EventProcessor<ALBProxyEvent> {
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
++        .filter(([, value]) => value !== undefined)
+         .map(([key, value]) => `${key}=${value}`)
+         .join('&')
+     }

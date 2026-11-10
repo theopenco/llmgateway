@@ -1,0 +1,40 @@
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index ddabb70..1de94d5 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -195,6 +195,20 @@ describe('EventProcessor.createResult with contentTypesAsBinary', () => {
+ })
+ 
+ describe('EventProcessor.createRequest', () => {
++  it('Should include empty query parameter values and skip undefined values for version 1.0', () => {
++    const event: LambdaEvent = {
++      ...baseV1Event,
++      queryStringParameters: { empty: '', present: '0', omitted: undefined },
++    }
++
++    const processor = getProcessor(event)
++    const request = processor.createRequest(event)
++
++    expect(request.url).toBe(
++      'https://id.execute-api.us-east-1.amazonaws.com/my/path?empty=&present=0'
++    )
++  })
++
+   it('Should preserve percent-encoded values in query string for version 1.0', () => {
+     const event: LambdaEvent = {
+       ...baseV1Event,
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 889adaa..bbfe8d0 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -465,8 +465,8 @@ export class EventV1Processor extends EventProcessor<APIGatewayProxyEvent> {
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
+-        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value || '')}`)
++        .filter(([, value]) => value !== undefined)
++        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value ?? '')}`)
+         .join('&')
+     }
+   }

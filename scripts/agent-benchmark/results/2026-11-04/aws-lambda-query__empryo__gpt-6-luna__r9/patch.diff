@@ -1,0 +1,63 @@
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index ddabb70..09b2240 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -580,6 +580,32 @@ describe('handle', () => {
+   })
+ })
+ 
++describe('empty query string values', () => {
++  it.each([
++    ['API Gateway REST', baseV1Event],
++    [
++      'ALB',
++      {
++        httpMethod: 'GET',
++        path: '/my/path',
++        headers: { host: 'example.test' },
++        body: null,
++        isBase64Encoded: false,
++        requestContext: { elb: { targetGroupArn: 'arn:aws:elasticloadbalancing:...' } },
++      } as unknown as LambdaEvent,
++    ],
++  ])('preserves empty values for %s events', (_eventType, baseEvent) => {
++    const queryEvent = {
++      ...baseEvent,
++      queryStringParameters: { empty: '', present: '0', omitted: undefined },
++    } as LambdaEvent
++
++    const request = getProcessor(queryEvent).createRequest(queryEvent)
++
++    expect(new URL(request.url).search).toBe('?empty=&present=0')
++  })
++})
++
+ describe('V2 request context authorizer', () => {
+   const baseV2RequestContext = baseV2Event.requestContext as ApiGatewayRequestContextV2
+ 
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 889adaa..c551524 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -465,8 +465,8 @@ export class EventV1Processor extends EventProcessor<APIGatewayProxyEvent> {
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
+-        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value || '')}`)
++        .filter(([, value]) => value !== undefined)
++        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value ?? '')}`)
+         .join('&')
+     }
+   }
+@@ -555,8 +555,8 @@ export class ALBProcessor extends EventProcessor<ALBProxyEvent> {
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
+-        .map(([key, value]) => `${key}=${value}`)
++        .filter(([, value]) => value !== undefined)
++        .map(([key, value]) => `${key}=${value ?? ''}`)
+         .join('&')
+     }
+   }

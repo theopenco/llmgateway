@@ -1,0 +1,111 @@
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..54f0600 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -2,6 +2,85 @@ import { Hono } from '../../hono'
+ import { prettyJSON } from '.'
+ 
+ describe('JSON pretty by Middleware', () => {
++  describe.each([
++    { options: undefined, query: '?pretty' },
++    { options: { force: true }, query: '' },
++  ])('Response preservation with $options and query "$query"', ({ options, query }) => {
++    it.each([
++      { status: 204, body: null },
++      { status: 304, body: null },
++      { status: 200, body: null },
++      { status: 200, body: '' },
++      { status: 200, body: '   ' },
++      { status: 502, body: 'Invalid upstream JSON' },
++    ])('Should preserve an unparseable response: $status, "$body"', async ({ status, body }) => {
++      const app = new Hono()
++      const original = new Response(body, {
++        status,
++        headers: {
++          'Content-Type': 'application/json',
++          'Content-Length': String(body?.length ?? 0),
++          'X-Upstream': 'preserved',
++        },
++      })
++      app.use('*', prettyJSON(options))
++      app.get('/', () => original)
++
++      const res = await app.request(`http://localhost/${query}`)
++      expect(res).toBe(original)
++      expect(res.status).toBe(status)
++      expect([...res.headers]).toEqual([...original.headers])
++      expect(await res.text()).toBe(body ?? '')
++    })
++
++    it('Should preserve a response already read by another middleware', async () => {
++      const app = new Hono()
++      const original = new Response('{"message":"Hono!"}', {
++        headers: {
++          'Content-Type': 'application/json',
++          'Content-Length': '19',
++        },
++      })
++      app.use('*', prettyJSON(options))
++      app.use('*', async (c, next) => {
++        await next()
++        await c.res.text()
++      })
++      app.get('/', () => original)
++
++      const res = await app.request(`http://localhost/${query}`)
++      expect(res).toBe(original)
++      expect(res.status).toBe(200)
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++      expect(res.headers.get('Content-Length')).toBe('19')
++      expect(res.bodyUsed).toBe(true)
++    })
++
++    it('Should remove Content-Length only when prettifying the body', async () => {
++      const app = new Hono()
++      app.use('*', prettyJSON(options))
++      app.get(
++        '/',
++        () =>
++          new Response('{"message":"Hono!"}', {
++            status: 201,
++            headers: {
++              'Content-Type': 'application/json',
++              'Content-Length': '19',
++              'X-Upstream': 'preserved',
++            },
++          })
++      )
++
++      const res = await app.request(`http://localhost/${query}`)
++      expect(res.status).toBe(201)
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++      expect(res.headers.get('X-Upstream')).toBe('preserved')
++      expect(res.headers.has('Content-Length')).toBe(false)
++      expect(await res.text()).toBe('{\n  "message": "Hono!"\n}')
++    })
++  })
++
+   it('Should return pretty JSON output', async () => {
+     const app = new Hono()
+     app.use('*', prettyJSON())
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..3714e8c 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -52,8 +52,15 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+     await next()
+     const contentType = c.res.headers.get('Content-Type')
+     if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
++      let obj: unknown
++      try {
++        // Parse a clone so an unparseable body can pass through unchanged.
++        obj = await c.res.clone().json()
++      } catch {
++        return
++      }
+       c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++      c.res.headers.delete('Content-Length')
+     }
+   }
+ }

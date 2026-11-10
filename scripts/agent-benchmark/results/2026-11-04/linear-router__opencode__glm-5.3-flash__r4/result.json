@@ -1,0 +1,43 @@
+{
+  "runId": "linear-router__opencode__glm-5.3-flash__r4",
+  "task": "linear-router",
+  "agent": "opencode",
+  "model": "glm-5.3-flash",
+  "gatewayId": "fireworks/glm-5.3-flash",
+  "rep": 4,
+  "startedAt": "2026-11-04T19:27:42.361Z",
+  "code": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 42859,
+  "passed": true,
+  "tests": "89 passed | 15 skipped",
+  "patchLines": 12,
+  "agentVersion": "1.18.29",
+  "agentConfig": {
+    "$schema": "https://opencode.ai/config.json",
+    "provider": {
+      "llmgateway": {
+        "options": {
+          "apiKey": "{env:LLMGATEWAY_API_KEY}"
+        },
+        "models": {
+          "fireworks/glm-5.3-flash": {
+            "name": "GLM 5.3 Flash",
+            "tool_call": true,
+            "reasoning": true
+          }
+        }
+      }
+    },
+    "model": "llmgateway/fireworks/glm-5.3-flash",
+    "small_model": "llmgateway/fireworks/glm-5.3-flash",
+    "permission": {
+      "edit": "allow",
+      "bash": "allow",
+      "webfetch": "allow"
+    },
+    "autoupdate": false,
+    "share": "disabled"
+  }
+}

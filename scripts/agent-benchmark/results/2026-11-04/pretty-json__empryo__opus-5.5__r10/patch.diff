@@ -1,0 +1,115 @@
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..3b7a685 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -119,4 +119,77 @@ describe('JSON pretty by Middleware', () => {
+     const jsonSeqRes = await app.request('http://localhost/json-seq')
+     expect(await jsonSeqRes.text()).toBe('{"message":"Hono!"}')
+   })
++
++  describe('Responses with a JSON content-type but a non-JSON body', () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/no-content', () => {
++      return new Response(null, { status: 204, headers: { 'Content-Type': 'application/json' } })
++    })
++    app.get('/not-modified', () => {
++      return new Response(null, {
++        status: 304,
++        headers: { 'Content-Type': 'application/json', ETag: '"abc"' },
++      })
++    })
++    app.get('/empty', () => {
++      return new Response('', {
++        status: 200,
++        headers: { 'Content-Type': 'application/json', 'Content-Length': '0' },
++      })
++    })
++    app.get('/invalid', () => {
++      return new Response('<html>upstream error</html>', {
++        status: 502,
++        headers: { 'Content-Type': 'application/json', 'Content-Length': '27' },
++      })
++    })
++    app.get('/consumed', async (c, next) => {
++      await next()
++      await c.res.text()
++    })
++    app.get('/consumed', (c) => c.json({ message: 'Hono!' }))
++
++    it.each([
++      ['/no-content', 204, ''],
++      ['/not-modified', 304, ''],
++      ['/empty', 200, ''],
++      ['/invalid', 502, '<html>upstream error</html>'],
++    ])('Should pass %s through unchanged', async (path, status, body) => {
++      const res = await app.request(`http://localhost${path}`)
++      expect(res.status).toBe(status)
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++      expect(await res.text()).toBe(body)
++    })
++
++    it('Should keep Content-Length and ETag of passed-through responses', async () => {
++      const notModified = await app.request('http://localhost/not-modified')
++      expect(notModified.headers.get('ETag')).toBe('"abc"')
++      const invalid = await app.request('http://localhost/invalid')
++      expect(invalid.headers.get('Content-Length')).toBe('27')
++      const empty = await app.request('http://localhost/empty')
++      expect(empty.headers.get('Content-Length')).toBe('0')
++    })
++
++    it('Should not fail when the body was already consumed', async () => {
++      const res = await app.request('http://localhost/consumed')
++      expect(res.status).toBe(200)
++    })
++  })
++
++  it('Should remove the original Content-Length when prettifying', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', () => {
++      const body = '{"message":"Hono!"}'
++      return new Response(body, {
++        headers: { 'Content-Type': 'application/json', 'Content-Length': String(body.length) },
++      })
++    })
++    const res = await app.request('http://localhost/')
++    expect(res.headers.get('Content-Length')).toBeNull()
++    expect(await res.text()).toBe(`{
++  "message": "Hono!"
++}`)
++  })
+ })
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..3b7aa46 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -52,8 +52,26 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+     await next()
+     const contentType = c.res.headers.get('Content-Type')
+     if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++      const res = c.res
++      if (!res.body || res.bodyUsed) {
++        return
++      }
++      let obj: unknown
++      try {
++        // Read from a clone so the original body stays intact if parsing fails
++        obj = JSON.parse(await res.clone().text())
++      } catch {
++        return
++      }
++      const headers = new Headers(res.headers)
++      headers.delete('Content-Length')
++      // Reset first so the `c.res` setter does not merge back the stale Content-Length
++      c.res = undefined
++      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), {
++        status: res.status,
++        statusText: res.statusText,
++        headers,
++      })
+     }
+   }
+ }

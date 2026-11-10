@@ -1,0 +1,27 @@
+{
+  "runId": "linear-router__claude-code__glm-5.3-flash__r3",
+  "task": "linear-router",
+  "agent": "claude-code",
+  "model": "glm-5.3-flash",
+  "gatewayId": "fireworks/glm-5.3-flash",
+  "rep": 3,
+  "startedAt": "2026-11-04T19:05:32.638Z",
+  "code": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 47297,
+  "passed": true,
+  "tests": "89 passed | 15 skipped",
+  "patchLines": 13,
+  "agentVersion": "2.1.317 (Claude Code)",
+  "agentConfig": {
+    "ANTHROPIC_BASE_URL": "https://api.llmgateway.io",
+    "ANTHROPIC_MODEL": "fireworks/glm-5.3-flash",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "fireworks/glm-5.3-flash",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "fireworks/glm-5.3-flash",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "fireworks/glm-5.3-flash",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "fireworks/glm-5.3-flash",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_AUTOUPDATER": "1"
+  }
+}

@@ -1,0 +1,112 @@
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..407bca9 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -119,4 +119,76 @@ describe('JSON pretty by Middleware', () => {
+     const jsonSeqRes = await app.request('http://localhost/json-seq')
+     expect(await jsonSeqRes.text()).toBe('{"message":"Hono!"}')
+   })
++
++  it('passes through JSON responses with bodies that cannot be prettified', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/empty', (c) =>
++      c.newResponse('', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '0',
++        'X-Custom': 'preserved',
++      })
++    )
++    app.get('/invalid', (c) =>
++      c.newResponse('not json', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '8',
++      })
++    )
++    app.get('/no-content', (c) =>
++      c.newResponse(null, 204, {
++        'Content-Type': 'application/json',
++        'X-Custom': 'preserved',
++      })
++    )
++    app.get('/not-modified', (c) =>
++      c.newResponse(null, 304, {
++        'Content-Type': 'application/json',
++        'X-Custom': 'preserved',
++      })
++    )
++    app.get('/consumed', async (c) => {
++      const response = c.newResponse('{"message":"Hono!"}', 200, {
++        'Content-Type': 'application/json',
++      })
++      await response.text()
++      return response
++    })
++
++    for (const [path, status, body, contentLength] of [
++      ['/empty', 200, '', '0'],
++      ['/invalid', 200, 'not json', '8'],
++      ['/no-content', 204, '', null],
++      ['/not-modified', 304, '', null],
++      ['/consumed', 200, '{"message":"Hono!"}', null],
++    ] as const) {
++      const response = await app.request(`http://localhost${path}`)
++      expect(response.status).toBe(status)
++      if (path !== '/consumed') {
++        expect(await response.text()).toBe(body)
++      }
++      expect(response.headers.get('X-Custom')).toBe(
++        path === '/empty' || path === '/no-content' || path === '/not-modified' ? 'preserved' : null
++      )
++      expect(response.headers.get('Content-Length')).toBe(contentLength)
++    }
++  })
++
++  it('removes Content-Length when prettifying JSON', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) =>
++      c.newResponse('{"message":"Hono!"}', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '19',
++      })
++    )
++
++    const response = await app.request('http://localhost/')
++    expect(response.headers.has('Content-Length')).toBe(false)
++    expect(await response.text()).toBe(`{
++  "message": "Hono!"
++}`)
++  })
+ })
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..8afd787 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -50,10 +50,22 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+   return async function prettyJSON(c, next) {
+     const pretty = options?.force || c.req.query(targetQuery) || c.req.query(targetQuery) === ''
+     await next()
+-    const contentType = c.res.headers.get('Content-Type')
+-    if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++    const original = c.res
++    const contentType = original.headers.get('Content-Type')
++    if (pretty && contentType && jsonContentTypeRegex.test(contentType) && !original.bodyUsed) {
++      try {
++        const obj = await original.clone().json()
++        const headers = new Headers(original.headers)
++        headers.delete('Content-Length')
++        c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), {
++          status: original.status,
++          statusText: original.statusText,
++          headers,
++        })
++        c.res.headers.delete('Content-Length')
++      } catch {
++        // Leave invalid or empty JSON responses unchanged.
++      }
+     }
+   }
+ }

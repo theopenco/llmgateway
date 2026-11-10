@@ -1,0 +1,36 @@
+diff --git a/src/router/common.case.test.ts b/src/router/common.case.test.ts
+index df3baa0..b6a481b 100644
+--- a/src/router/common.case.test.ts
++++ b/src/router/common.case.test.ts
+@@ -119,6 +119,17 @@ export const runTest = ({
+         expect(res.length).toBe(0)
+       })
+ 
++      it('Empty path segment', async () => {
++        router.add('GET', '/entry/:id/posts', 'get entry posts')
++        let res = match('GET', '/entry/123/posts')
++        expect(res.length).toBe(1)
++        expect(res[0].handler).toEqual('get entry posts')
++        expect(res[0].params['id']).toBe('123')
++
++        res = match('GET', '/entry//posts')
++        expect(res.length).toBe(0)
++      })
++
+       it('Wildcard', async () => {
+         router.add('GET', '/wild/*/card', 'get wildcard')
+         const res = match('GET', '/wild/xxx/card')
+diff --git a/src/router/linear-router/router.ts b/src/router/linear-router/router.ts
+index acee5c1..4a7a1b8 100644
+--- a/src/router/linear-router/router.ts
++++ b/src/router/linear-router/router.ts
+@@ -115,6 +115,9 @@ export class LinearRouter<T> implements Router<T> {
+                     continue ROUTES_LOOP
+                   }
+                   endValuePos = path.length
++                } else if (endValuePos === pos + 1) {
++                  // An empty path segment must not match a named parameter
++                  continue ROUTES_LOOP
+                 }
+                 value = path.slice(pos + 1, endValuePos)
+                 pos = endValuePos

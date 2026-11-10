@@ -1,0 +1,43 @@
+{
+  "runId": "linear-router__opencode__gpt-6-luna__r10",
+  "task": "linear-router",
+  "agent": "opencode",
+  "model": "gpt-6-luna",
+  "gatewayId": "openai/gpt-6-luna",
+  "rep": 10,
+  "startedAt": "2026-11-04T21:56:55.926Z",
+  "code": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 40434,
+  "passed": true,
+  "tests": "89 passed | 15 skipped",
+  "patchLines": 11,
+  "agentVersion": "1.18.29",
+  "agentConfig": {
+    "$schema": "https://opencode.ai/config.json",
+    "provider": {
+      "llmgateway": {
+        "options": {
+          "apiKey": "{env:LLMGATEWAY_API_KEY}"
+        },
+        "models": {
+          "openai/gpt-6-luna": {
+            "name": "GPT-6 Luna",
+            "tool_call": true,
+            "reasoning": true
+          }
+        }
+      }
+    },
+    "model": "llmgateway/openai/gpt-6-luna",
+    "small_model": "llmgateway/openai/gpt-6-luna",
+    "permission": {
+      "edit": "allow",
+      "bash": "allow",
+      "webfetch": "allow"
+    },
+    "autoupdate": false,
+    "share": "disabled"
+  }
+}

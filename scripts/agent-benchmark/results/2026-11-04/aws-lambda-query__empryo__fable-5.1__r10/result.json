@@ -1,0 +1,52 @@
+{
+  "runId": "aws-lambda-query__empryo__fable-5.1__r10",
+  "task": "aws-lambda-query",
+  "agent": "empryo",
+  "model": "fable-5.1",
+  "gatewayId": "anthropic/claude-fable-5-1",
+  "rep": 10,
+  "startedAt": "2026-11-04T22:00:18.563Z",
+  "code": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 76806,
+  "passed": true,
+  "tests": "46 passed",
+  "patchLines": 39,
+  "agentVersion": "empryo 3.12.4-beta",
+  "agentConfig": {
+    "cache": {
+      "ttl": "5m",
+      "coldPrune": false
+    },
+    "compaction": {
+      "onResume": false
+    },
+    "heavyWork": {
+      "slots": 0
+    },
+    "agentFeatures": {
+      "appendOnlyInstructions": true,
+      "turnAudit": false,
+      "finishNudge": "off",
+      "requestMap": false,
+      "fixHistory": false,
+      "editEchoes": false,
+      "codeMode": "off",
+      "learnedResidency": "off"
+    },
+    "skills": {
+      "autoManage": false,
+      "rememberSession": false,
+      "autoLoad": []
+    },
+    "disabledTools": [
+      "skills"
+    ],
+    "liveSkills": false,
+    "soulstack": {
+      "autoUpdate": false
+    },
+    "instructionFiles": []
+  }
+}
