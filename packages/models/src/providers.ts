@@ -2469,6 +2469,22 @@ export function getProviderComplianceFailures(
 	];
 }
 
+/** Data-policy fields a single model mapping can override on its provider. */
+export type MappingDataPolicy = Partial<
+	Pick<ProviderDataPolicy, "apiTraining" | "promptLogging" | "retentionPeriod">
+>;
+
+/** `provider` with a mapping's data-policy overrides layered on top. */
+export function withMappingDataPolicy(
+	provider: ProviderDefinition,
+	override: MappingDataPolicy | undefined,
+): ProviderDefinition {
+	if (!override || !provider.dataPolicy) {
+		return provider;
+	}
+	return { ...provider, dataPolicy: { ...provider.dataPolicy, ...override } };
+}
+
 export interface ModelMappingAvailability {
 	providerId: string;
 	deprecatedAt?: Date | null;

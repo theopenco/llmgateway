@@ -33,7 +33,7 @@ import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
 
-import type { providers } from "./providers.js";
+import type { MappingDataPolicy, providers } from "./providers.js";
 
 export type Provider = (typeof providers)[number]["id"];
 
@@ -316,6 +316,11 @@ export interface ProviderModelMapping {
 	 * human-readable display name.
 	 */
 	externalId: string;
+	/**
+	 * Overrides the provider's data policy for this mapping, when the upstream
+	 * model's retention terms differ from the provider default.
+	 */
+	dataPolicy?: MappingDataPolicy;
 	/**
 	 * Price per input token in USD
 	 */

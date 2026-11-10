@@ -16,12 +16,18 @@ import {
 	isModelAllowedByPolicy,
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
+	models,
+	withMappingDataPolicy,
 	type ComplianceFailureReason,
+	type MappingDataPolicy,
 	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
 
-import type { ProviderDefinition } from "@llmgateway/models";
+import type {
+	ProviderDefinition,
+	ProviderModelMapping,
+} from "@llmgateway/models";
 
 interface CompliancePolicySource {
 	providerCompliancePolicy?: ProviderCompliancePolicy | null;
@@ -87,6 +93,21 @@ export interface ComplianceCheckContext {
 	customAttestation?: ProviderComplianceAttestation | null;
 	/** Routing-prefix name of the custom provider handling this request. */
 	customProviderName?: string;
+	/** Data-policy overrides of the model mapping being checked. */
+	mappingDataPolicy?: MappingDataPolicy;
+}
+
+function resolveProviderDefinition(
+	providerId: string,
+	context?: ComplianceCheckContext,
+): ProviderDefinition | undefined {
+	const definition =
+		context?.effectiveProviders?.find(
+			(provider) => provider.id === providerId,
+		) ?? getProviderDefinition(providerId);
+	return (
+		definition && withMappingDataPolicy(definition, context?.mappingDataPolicy)
+	);
 }
 
 /** Whether a provider id satisfies the policy (unknown providers fail closed). */
@@ -112,10 +133,7 @@ export function isProviderIdCompliant(
 			isAttestationCompliant(context?.customAttestation, policy)
 		);
 	}
-	const definition =
-		context?.effectiveProviders?.find(
-			(provider) => provider.id === providerId,
-		) ?? getProviderDefinition(providerId);
+	const definition = resolveProviderDefinition(providerId, context);
 	return definition ? isProviderCompliant(definition, policy) : false;
 }
 
@@ -192,10 +210,7 @@ export function getComplianceFailureReasons(
 			...getAttestationComplianceFailures(context?.customAttestation, policy),
 		);
 	} else {
-		const definition =
-			context?.effectiveProviders?.find(
-				(provider) => provider.id === providerId,
-			) ?? getProviderDefinition(providerId);
+		const definition = resolveProviderDefinition(providerId, context);
 		failures.push(
 			...(definition
 				? getProviderComplianceFailures(definition, policy)
@@ -251,6 +266,41 @@ export async function logComplianceBlock(
 }
 
 /**
+ * Data-policy override of the catalogue mapping serving `providerId`, matched
+ * by catalogue model id or, failing that, upstream external id.
+ */
+export function getCatalogueMappingDataPolicy(
+	providerId: string,
+	modelId: string,
+	externalId?: string,
+): MappingDataPolicy | undefined {
+	const modelMappings = models.find((model) => model.id === modelId)
+		?.providers as readonly ProviderModelMapping[] | undefined;
+	const byModel = modelMappings?.find(
+		(mapping) =>
+			mapping.providerId === providerId &&
+			(!externalId || mapping.externalId === externalId),
+	);
+	if (byModel) {
+		return byModel.dataPolicy;
+	}
+	if (!externalId) {
+		return undefined;
+	}
+	for (const model of models) {
+		for (const mapping of model.providers as readonly ProviderModelMapping[]) {
+			if (
+				mapping.providerId === providerId &&
+				mapping.externalId === externalId
+			) {
+				return mapping.dataPolicy;
+			}
+		}
+	}
+	return undefined;
+}
+
+/**
  * Enforce the org's compliance policy for a single resolved provider (used by
  * endpoints that pick one provider rather than routing across many). Throws a
  * 403 and records a security event when the provider is non-compliant or the
@@ -264,6 +314,8 @@ export async function assertProviderCompliant(
 		modelId: string;
 		apiKeyId?: string;
 		model?: string;
+		/** Upstream model id, matched when modelId is not a catalogue id. */
+		externalId?: string;
 	},
 	apiKey?: CompliancePolicySource | null,
 ): Promise<void> {
@@ -272,6 +324,11 @@ export async function assertProviderCompliant(
 		!policy ||
 		(isProviderIdCompliant(providerId, policy, {
 			effectiveProviders: await getEffectiveProviders(),
+			mappingDataPolicy: getCatalogueMappingDataPolicy(
+				providerId,
+				context.modelId,
+				context.externalId,
+			),
 		}) &&
 			isModelIdCompliant(context.modelId, policy))
 	) {
