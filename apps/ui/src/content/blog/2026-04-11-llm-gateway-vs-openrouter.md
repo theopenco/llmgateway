@@ -2,8 +2,8 @@
 id: blog-llm-gateway-vs-openrouter
 slug: llm-gateway-vs-openrouter
 date: 2026-04-11
-title: "LLM Gateway vs OpenRouter: An Honest Comparison"
-summary: "A straightforward comparison of LLM Gateway and OpenRouter — features, pricing, and trade-offs — so you can pick the right one for your stack."
+title: "LLM Gateway vs OpenRouter: Fees, Models, Self-Hosting"
+summary: "LLM Gateway vs OpenRouter side by side: platform fees, bring-your-own-keys, model coverage, self-hosting, guardrails and routing, plus where OpenRouter is the better pick."
 categories: ["Guides"]
 image:
   src: "/blog/llm-gateway-vs-openrouter.png"

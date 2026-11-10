@@ -2,12 +2,12 @@
 id: cursor
 slug: cursor
 title: Cursor Integration
-seoTitle: Use Cursor with LLM Gateway
+seoTitle: "Custom Models in Cursor: Override the OpenAI Base URL"
 date: 2026-09-23
-description: Configure Cursor’s custom OpenAI endpoint for LLM Gateway and understand model compatibility, sign-in, and billing scope.
+description: Override Cursor's OpenAI base URL with LLM Gateway, add your API key and a model ID, and chat with custom models. Covers compatibility limits and billing.
 ---
 
-Cursor can use a custom OpenAI base URL for supported chat models. Connect LLM Gateway in the editor's model settings, then verify the selected model with a small request.
+To add a custom model to Cursor, open **Cursor Settings → Models → API Keys**, enable **Override OpenAI Base URL**, set it to `https://api.llmgateway.io/v1`, add a gateway API key, and select the model ID. The steps below cover sign-in, verification, and what the override does not change.
 
 ## Video walkthrough
 

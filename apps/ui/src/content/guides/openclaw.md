@@ -2,6 +2,7 @@
 id: openclaw
 slug: openclaw
 title: OpenClaw Integration
+seoTitle: Use OpenClaw with LLM Gateway
 date: 2026-09-23
 description: Configure OpenClaw with LLM Gateway, verify a local coding task, and understand provider aliases and tool permissions.
 ---
