@@ -2654,7 +2654,6 @@ export const googleModels = [
 			{
 				providerId: "novita",
 				externalId: "google/gemma-4-31b-it",
-				deprecatedAt: new Date("2026-11-10"),
 				deactivatedAt: new Date("2026-11-27T16:00:00Z"),
 				inputPrice: "0.14e-6",
 				outputPrice: "0.4e-6",
@@ -2778,7 +2777,6 @@ export const googleModels = [
 			{
 				providerId: "novita",
 				externalId: "google/gemma-4-26b-a4b-it",
-				deprecatedAt: new Date("2026-11-10"),
 				deactivatedAt: new Date("2026-11-27T16:00:00Z"),
 				// novita streams empty content for JSON output requests
 				// (e2e JSON output streaming failures, verified 2026-07-21)
