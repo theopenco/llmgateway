@@ -97,6 +97,7 @@ services:
       - UI_URL=${UI_URL:-http://localhost:3002}
       - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
       - API_URL=${API_URL:-http://localhost:4002}
+      - AUTH_SECRET=${AUTH_SECRET:?set AUTH_SECRET to a random 32+ character secret}
       - ORIGIN_URLS=${ORIGIN_URLS:-http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:3006,http://localhost:3007,http://localhost:4002}
       - COOKIE_DOMAIN=${COOKIE_DOMAIN:-localhost}
       - PASSKEY_RP_ID=${PASSKEY_RP_ID:-localhost}
