@@ -12,7 +12,7 @@ interface CensusEligibility {
 	topModels: { alreadySubmitted: boolean }[];
 }
 
-async function openCancelSurvey(page: Page) {
+async function login(page: Page) {
 	await page.goto("/login");
 	await page.fill('input[type="email"]', "admin@example.com");
 	await page.fill('input[type="password"]', "admin@example.com");
@@ -33,9 +33,17 @@ async function openCancelSurvey(page: Page) {
 		await page.getByTestId("census-dialog-dismiss").click();
 		await expect(page.getByTestId("census-dialog")).not.toBeVisible();
 	}
+}
+
+async function openCancelDialog(page: Page) {
 	await page.goto("/dashboard/billing");
 	await page.getByTestId("cancel-plan-open").click();
 	await expect(page.getByTestId("cancel-plan-dialog")).toBeVisible();
+}
+
+async function openCancelSurvey(page: Page) {
+	await login(page);
+	await openCancelDialog(page);
 }
 
 async function pickReason(page: Page, reason: string, comments?: string) {
@@ -62,6 +70,29 @@ test("running out of allowance offers the next plan and hands over to the plan p
 	await expect(
 		picker.locator('[data-plan-tier="max"]').getByRole("button"),
 	).toBeFocused();
+});
+
+// The seed leaves the Pro workspace past the downgrade threshold with
+// allowance to spare, so a price reason lands on the carry-over.
+test("a price reason shows the unused allowance the next cycle would start with", async ({
+	page,
+}) => {
+	await login(page);
+	await page.goto("/dashboard/usage");
+	const meterLine = page.getByTestId("allowance-carry-over");
+	await expect(meterLine).toContainText("carries into your next cycle");
+	const carried = (await meterLine.innerText()).match(/\$\d+(?:\.\d{2})?/)?.[0];
+	expect(carried).toBeDefined();
+
+	await openCancelDialog(page);
+	await pickReason(page, "too_expensive");
+
+	const dialog = page.getByTestId("cancel-plan-dialog");
+	await expect(dialog).toContainText(`${carried} carries into your next cycle`);
+	await page.getByTestId("cancel-offer-accept").click();
+
+	await expect(dialog).not.toBeVisible();
+	await expect(page.getByTestId("cancel-plan-open")).toBeVisible();
 });
 
 test("an unsupported tool points at the setup guides", async ({ page }) => {

@@ -25,7 +25,7 @@ export default function TermsPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> October 18, 2026
+				<strong>Last Updated:</strong> November 10, 2026
 			</p>
 			<LegalSummary variant="terms" />
 			<p>
@@ -147,10 +147,10 @@ export default function TermsPage() {
 					model-usage allowance, denominated in dollars of provider cost
 				</li>
 				<li>
-					Allowances reset at the start of each billing cycle and{" "}
-					<strong>do not roll over</strong> at renewal; the only exception is an
-					immediate mid-cycle upgrade, which rolls your unused allowance into
-					the new cycle (see &ldquo;Plan changes&rdquo; below)
+					Usage resets at the start of each billing cycle. Allowance left unused
+					when a cycle renews <strong>carries over</strong> into the next cycle,
+					up to 50% of the standard monthly allowance of the tier the new cycle
+					is billed at (see &ldquo;Allowances and limits&rdquo; below)
 				</li>
 				<li>
 					Allowances are paced. Each tier publishes a{" "}
@@ -189,8 +189,9 @@ export default function TermsPage() {
 				limited goodwill option and does not create a broader right to a refund.
 			</p>
 			<p>
-				The limit is measured against the applicable monthly allowance, not the
-				payment amount. Usage must remain below 10%; usage at or above 10% is
+				The limit is measured against the applicable monthly allowance,
+				including any carried-over or rolled-over allowance, not the payment
+				amount. Usage must remain below 10%; usage at or above 10% is
 				ineligible. Plan payments made before October 15, 2026, at 00:00 UTC,
 				retain a 20% limit for their existing 14-day refund window. Eligible
 				renewals, upgrades, and subscription restarts remain subject to the same
@@ -209,16 +210,18 @@ export default function TermsPage() {
 				upgrade, your billing cycle restarts on that day, and you receive the
 				new tier&rsquo;s full monthly allowance. Any unused allowance from the
 				cycle being replaced <strong>rolls over</strong> into the new
-				cycle&rsquo;s allowance; rolled-over allowance expires at your next
-				renewal and is not refunded, credited, or deducted from the upgrade
-				price. You may instead schedule an upgrade for your next renewal: no
-				charge is due when scheduling, you keep your current tier and allowance
-				until the renewal, and the new tier is billed from the renewal onward
-				(no allowance rolls over at renewal). <strong>Downgrades</strong> are
-				scheduled for your next renewal: you keep your current tier and its
-				allowance until the end of the period you have already paid for, the
-				lower tier is billed from the next renewal onward, and no charge or
-				refund is issued when you schedule the downgrade.
+				cycle&rsquo;s allowance; rolled-over allowance is not refunded,
+				credited, or deducted from the upgrade price, and at your next renewal
+				it is subject to the carry-over limit below. You may instead schedule an
+				upgrade for your next renewal: no charge is due when scheduling, you
+				keep your current tier and allowance until the renewal, and the new tier
+				is billed from the renewal onward (unused allowance carries over within
+				the carry-over limit below). <strong>Downgrades</strong> are scheduled
+				for your next renewal: you keep your current tier and its allowance
+				until the end of the period you have already paid for, the lower tier is
+				billed from the next renewal onward (unused allowance carries over
+				within the carry-over limit below, measured against the lower tier), and
+				no charge or refund is issued when you schedule the downgrade.
 			</p>
 			<p>
 				DevPass is intended for private, personal use by an individual developer
@@ -229,16 +232,29 @@ export default function TermsPage() {
 			</p>
 			<h3 id="october-2026-plan-changes">Allowances and limits</h3>
 			<p>
-				Each billing cycle includes a monthly allowance of 2&times; your plan
-				price, subject to the upgrade rollover rule above. A subscription that
-				started before October 15, 2026, keeps its 3&times; allowance until its
-				first renewal on or after that date.
+				Each billing cycle includes a standard monthly allowance of 2&times;
+				your plan price, plus any allowance rolled over from an upgrade or
+				carried over at renewal. A subscription that started before October 15,
+				2026, keeps its 3&times; allowance until its first renewal on or after
+				that date.
 			</p>
 			<p>
-				The daily and premium weekly percentages below use the standard monthly
-				allowance for your tier, even if your current cycle has a different
-				monthly allowance. Max includes two Reset Passes per billing cycle; Lite
-				and Pro include none.
+				<strong>Carry-over at renewal.</strong> When a paid renewal starts a new
+				billing cycle, allowance left unused in the cycle that ended is added to
+				the new cycle&rsquo;s allowance, up to 50% of the standard monthly
+				allowance of the tier the new cycle is billed at, including after a
+				scheduled upgrade or downgrade. The amount is recalculated at every
+				renewal from the allowance unused at that time, so carried-over
+				allowance never exceeds that limit and anything above it expires.
+				Carried-over allowance has no cash value, is not refundable or
+				transferable, and is forfeited when your subscription ends or is
+				refunded.
+			</p>
+			<p>
+				The daily and premium weekly percentages below apply to your current
+				cycle&rsquo;s monthly allowance, including any carried-over or
+				rolled-over allowance. Max includes two Reset Passes per billing cycle;
+				Lite and Pro include none.
 			</p>
 			<div className="overflow-x-auto">
 				<table className="w-full text-left [&_th]:px-3 [&_th]:py-2 [&_td]:px-3 [&_td]:py-2 [&_tr]:border-b [&_tr]:border-border">
@@ -261,6 +277,12 @@ export default function TermsPage() {
 							<td>$58</td>
 							<td>$158</td>
 							<td>$358</td>
+						</tr>
+						<tr>
+							<th scope="row">Maximum carry-over at renewal (50%)</th>
+							<td>$29</td>
+							<td>$79</td>
+							<td>$179</td>
 						</tr>
 						<tr>
 							<th scope="row">

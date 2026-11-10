@@ -39,11 +39,12 @@ const termsCards: SummaryCard[] = [
 			<>
 				Lite, Pro and Max each include a monthly usage allowance measured in
 				provider cost, paced by a daily allowance and a weekly premium-model
-				allowance published on the pricing page. Allowances reset every cycle
-				and don&rsquo;t roll over, except when you upgrade mid-cycle. Fees are
-				generally non-refundable once usage begins; an eligible payment may be
-				refunded within 14 days as goodwill while usage remains below 10% of the
-				monthly allowance (20% for payments made before October 15, 2026).
+				allowance published on the pricing page. Allowances reset every cycle;
+				unused allowance carries into the next cycle, up to 50% of the
+				plan&rsquo;s monthly allowance at renewal. Fees are generally
+				non-refundable once usage begins; an eligible payment may be refunded
+				within 14 days as goodwill while usage remains below 10% of the monthly
+				allowance (20% for payments made before October 15, 2026).
 			</>
 		),
 	},

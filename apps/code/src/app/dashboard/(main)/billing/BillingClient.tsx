@@ -561,6 +561,9 @@ export default function BillingClient({
 									)}
 									renewWhen={renewWhen}
 									pendingTier={pendingTier}
+									renewalRollover={parseFloat(
+										devPlanStatus.devPlanRenewalRollover ?? "0",
+									)}
 									paygEnabled={devPlanStatus.devPlanPaygEnabled ?? false}
 									organizationId={devPlanStatus.organizationId ?? null}
 									isCancelling={isCancelling}

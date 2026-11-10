@@ -46,6 +46,7 @@ interface UsageOverviewProps {
 	organizationId: string | null;
 	creditsUsed: number;
 	creditsLimit: number;
+	renewalRollover: number;
 	premiumCreditsUsed: number;
 	premiumWeeklyLimit: number;
 	premiumWeekResetsAt: string | null;
@@ -102,6 +103,7 @@ export default function UsageOverview({
 	organizationId,
 	creditsUsed,
 	creditsLimit,
+	renewalRollover,
 	premiumCreditsUsed,
 	premiumWeeklyLimit,
 	premiumWeekResetsAt,
@@ -311,6 +313,7 @@ export default function UsageOverview({
 					used: creditsUsed,
 					limit: creditsLimit,
 					resetsAt: cancelledAtPeriodEnd ? null : renewAt,
+					carryOver: cancelledAtPeriodEnd ? undefined : renewalRollover,
 					exhaustedMessage: paygAvailable
 						? "Allowance reached — pay-as-you-go overflow is active, so requests keep flowing from your credits balance below."
 						: paygEnabled

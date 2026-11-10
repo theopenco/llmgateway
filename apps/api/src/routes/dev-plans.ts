@@ -15,6 +15,7 @@ import {
 	devPlanCancellationReasonSchema,
 	refineCancellationComments,
 } from "@/lib/dev-plan-cancellation.js";
+import { devPlanInvoiceLine } from "@/lib/dev-plan-invoice-line.js";
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
 	renewalPaymentResultSchema,
@@ -94,10 +95,10 @@ import {
 	DEV_PLAN_RESET_PASS_PRICES,
 	DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE,
 	DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
-	getDevPlanCreditsLimit,
 	getDevPlanCycleUsageFraction,
 	getDevPlanDailyLimit,
 	getDevPlanPremiumWeeklyLimit,
+	getDevPlanRenewalCredits,
 	getDevPlanUpgradeCredits,
 	getIncludedResetPassesRemaining,
 	getRemainingPremiumWeeklyAllowance,
@@ -1535,9 +1536,9 @@ devPlans.openapi(changeTier, async (c) => {
 			const upgradeResult = await db.transaction(async (tx) => {
 				// The new allowance is the new tier's full allotment plus the unused
 				// remainder of the cycle being replaced — the user already paid for
-				// it, so it rolls over instead of being forfeited. The rollover lasts
-				// until the next renewal, which resets the limit to the tier's base
-				// allotment. Recompute from a fresh row read inside the transaction:
+				// it, so it rolls over instead of being forfeited. The next renewal
+				// recomputes the limit from the base allotment and the capped
+				// carry-over. Recompute from a fresh row read inside the transaction:
 				// usage may have advanced during the Stripe round-trips above, and the
 				// request-start snapshot would over-grant that spend as rollover.
 				const freshOrg = await tx.query.organization.findFirst({
@@ -1590,11 +1591,11 @@ devPlans.openapi(changeTier, async (c) => {
 						.where(eq(tables.organization.id, personalOrg.id));
 				}
 
-				return created ? { created, rolloverCredits, newCreditsLimit } : null;
+				return created ? { created, rolloverCredits } : null;
 			});
 
 			if (upgradeResult) {
-				const { created, rolloverCredits, newCreditsLimit } = upgradeResult;
+				const { created, rolloverCredits } = upgradeResult;
 				try {
 					const billingDetails =
 						await resolveDevPassBillingDetails(personalOrg);
@@ -1606,10 +1607,11 @@ devPlans.openapi(changeTier, async (c) => {
 						...billingDetails,
 						lineItems: [
 							{
-								description:
-									rolloverCredits > 0
-										? `Dev Plan upgrade to ${newTier.toUpperCase()} ($${getDevPlanCreditsLimit(newTier)} credits included + $${rolloverCredits} unused credits rolled over)`
-										: `Dev Plan upgrade to ${newTier.toUpperCase()} ($${newCreditsLimit} credits included)`,
+								description: devPlanInvoiceLine(
+									"upgrade",
+									newTier,
+									rolloverCredits,
+								),
 								amount: chargedAmount,
 							},
 						],
@@ -1918,6 +1920,9 @@ const getStatus = createRoute({
 						devPlanCreditsUsed: z.string(),
 						devPlanCreditsLimit: z.string(),
 						devPlanCreditsRemaining: z.string(),
+						// Unused allowance a renewal would carry into the next cycle
+						// if it happened now, on the tier that renews.
+						devPlanRenewalRollover: z.string(),
 						devPlanPremiumWeeklyLimit: z.string(),
 						devPlanPremiumCreditsUsed: z.string(),
 						devPlanPremiumWeekResetsAt: z.string().nullable(),
@@ -2007,6 +2012,7 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanCreditsUsed: "0",
 			devPlanCreditsLimit: "0",
 			devPlanCreditsRemaining: "0",
+			devPlanRenewalRollover: "0",
 			devPlanPremiumWeeklyLimit: "0",
 			devPlanPremiumCreditsUsed: "0",
 			devPlanPremiumWeekResetsAt: null,
@@ -2041,6 +2047,14 @@ devPlans.openapi(getStatus, async (c) => {
 	const creditsUsed = parseFloat(personalOrg.devPlanCreditsUsed);
 	const creditsLimit = parseFloat(personalOrg.devPlanCreditsLimit);
 	const creditsRemaining = Math.max(0, creditsLimit - creditsUsed);
+	const renewalRollover =
+		personalOrg.devPlan !== "none"
+			? getDevPlanRenewalCredits(
+					personalOrg.devPlanPendingTier ?? personalOrg.devPlan,
+					personalOrg.devPlanCreditsUsed,
+					personalOrg.devPlanCreditsLimit,
+				).rolloverCredits
+			: 0;
 
 	// Ending a dev plan clears every devPlan* column on the org, so the billing
 	// transactions are the only lasting record that the user was ever a
@@ -2140,6 +2154,7 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanCreditsUsed: personalOrg.devPlanCreditsUsed,
 		devPlanCreditsLimit: personalOrg.devPlanCreditsLimit,
 		devPlanCreditsRemaining: creditsRemaining.toFixed(2),
+		devPlanRenewalRollover: renewalRollover.toFixed(2),
 		devPlanPremiumWeeklyLimit: premiumWeeklyLimit.toFixed(2),
 		devPlanPremiumCreditsUsed: premiumCreditsUsed.toFixed(2),
 		devPlanPremiumWeekResetsAt: premiumWeekResetsAt,

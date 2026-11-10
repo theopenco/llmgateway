@@ -18,9 +18,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useApi } from "@/lib/fetch-client";
-import { cn, formatUsageRatio } from "@/lib/utils";
+import { cn, formatUsageRatio, formatUsd } from "@/lib/utils";
 
-import { formatDateTime, useDisplayTimeZone } from "@llmgateway/shared";
+import {
+	formatDateTime,
+	getDevPlanRenewalRolloverCap,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 import type { PlanOption, PlanTier } from "@/app/dashboard/types";
 import type { paths } from "@/lib/api/v1";
@@ -61,6 +65,11 @@ function formatCurrencyFromCents(cents: number) {
 
 function formatUsageAmount(amount: number) {
 	return `$${usageFormatter.format(amount)}`;
+}
+
+// The most unused allowance a renewal carries into a cycle on this plan.
+function renewalCarryOverCap(plan: PlanOption) {
+	return formatUsd(getDevPlanRenewalRolloverCap(plan.usage));
 }
 
 export default function ActivePlanChangeTier({
@@ -368,8 +377,8 @@ function RolloverAllowanceCopy({
 				<strong>{formatUsageAmount(preview.newCreditsLimit)}</strong>: the{" "}
 				{plan.name} allowance of ${plan.usage} plus{" "}
 				<strong>{formatUsageAmount(preview.rolloverCredits)}</strong> of unspent
-				credits rolled over from your current period. Rolled-over credits last
-				until your next renewal.
+				credits rolled over from your current period. At your next renewal, up
+				to {renewalCarryOverCap(plan)} of what is still unused carries over.
 			</>
 		);
 	}
@@ -452,8 +461,9 @@ function UpgradeTimingChoice({
 					<span className="text-xs text-muted-foreground">
 						No charge today. You keep your {currentName} allowance until{" "}
 						{renewalDate ?? "your next renewal"}, then move to {plan.name} ($
-						{plan.price}/mo, ${plan.usage} in usage). Unspent credits don&apos;t
-						carry over at renewal.
+						{plan.price}/mo, ${plan.usage} in usage). Up to{" "}
+						{renewalCarryOverCap(plan)} of what you haven&apos;t used carries
+						over.
 					</span>
 				</span>
 			</label>
@@ -515,10 +525,11 @@ function TierChangePreviewCopy({
 		<span>
 			You&apos;ll keep your {currentName} allowance until the end of your
 			current billing period, when you&apos;ll move to {plan.name} ($
-			{plan.price}/mo, ${plan.usage} in usage) at your next renewal. The
-			downgrade only takes effect at renewal, and until then you won&apos;t be
-			able to upgrade or change your plan. No refund is issued for the current
-			period and no charge is due today.
+			{plan.price}/mo, ${plan.usage} in usage) at your next renewal, with up to{" "}
+			{renewalCarryOverCap(plan)} of what you haven&apos;t used carried over.
+			The downgrade only takes effect at renewal, and until then you won&apos;t
+			be able to upgrade or change your plan. No refund is issued for the
+			current period and no charge is due today.
 		</span>
 	);
 }

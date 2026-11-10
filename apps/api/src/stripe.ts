@@ -26,6 +26,7 @@ import {
 	DEV_PLAN_RESET_PASS_PRICES,
 	getChatPlanCreditsLimit,
 	getDevPlanCreditsLimit,
+	getDevPlanRenewalCredits,
 	getDevPlanUpgradeCredits,
 	type ChatPlanCycle,
 	type ChatPlanTier,
@@ -33,6 +34,7 @@ import {
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
+import { devPlanInvoiceLine } from "./lib/dev-plan-invoice-line.js";
 import { computeReferralBonus } from "./lib/referral-bonus.js";
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
@@ -4678,14 +4680,31 @@ export async function handleInvoicePaymentSucceeded(event: {
 				`Dev plan renewal invoice ${invoice.id} for organization ${organizationId} billed tier ${effectiveTier}, but a change to ${remainingPendingTier} was scheduled after the invoice was drafted; granting the billed tier and deferring the change to the next renewal`,
 			);
 		}
-		const creditsLimit = getDevPlanCreditsLimit(effectiveTier);
 
 		// Record the renewal and apply it in one transaction. The invoice-id marker
 		// makes `handleInvoicePaymentSucceeded` return early on a Stripe retry, so
 		// committing the marker without the state update would strand the org
 		// `past_due` with a stale expiry, permanently — the
 		// `subscription.updated` recovery that used to unstick it is gone.
-		const renewalTransaction = await db.transaction(async (tx) => {
+		const renewal = await db.transaction(async (tx) => {
+			// The carry-over comes from the row as it is now, locked until the
+			// reset below: usage settled after the event's org snapshot, or between
+			// this read and the reset, would otherwise come back as rollover.
+			const [freshOrg] = await tx
+				.select({
+					devPlanCreditsUsed: tables.organization.devPlanCreditsUsed,
+					devPlanCreditsLimit: tables.organization.devPlanCreditsLimit,
+				})
+				.from(tables.organization)
+				.where(eq(tables.organization.id, organizationId))
+				.for("update");
+			const { rolloverCredits, newCreditsLimit: creditsLimit } =
+				getDevPlanRenewalCredits(
+					effectiveTier,
+					freshOrg?.devPlanCreditsUsed ?? organization.devPlanCreditsUsed,
+					freshOrg?.devPlanCreditsLimit ?? organization.devPlanCreditsLimit,
+				);
+
 			const [created] = await tx
 				.insert(tables.transaction)
 				.values({
@@ -4701,12 +4720,13 @@ export async function handleInvoicePaymentSucceeded(event: {
 				})
 				.returning();
 
-			// Reset credits used and update billing cycle start. Also reset the
-			// limit to the full tier allotment: mid-cycle upgrades leave the limit
-			// above it (unused-credit rollover), and that rollover only lasts until
-			// this renewal. Persist the effective tier; a pending change is cleared
-			// when this renewal applied it, and kept when the invoice billed the old
-			// tier (it applies at the next renewal instead).
+			// Reset credits used and update billing cycle start. The limit becomes
+			// the tier's full allotment plus the capped carry-over, recomputed here
+			// from what the ended cycle left, so an earlier carry-over or upgrade
+			// rollover never outlives this renewal on its own. Persist the
+			// effective tier; a pending change is cleared when this renewal applied
+			// it, and kept when the invoice billed the old tier (it applies at the
+			// next renewal instead).
 			await tx
 				.update(tables.organization)
 				.set({
@@ -4726,24 +4746,29 @@ export async function handleInvoicePaymentSucceeded(event: {
 				})
 				.where(eq(tables.organization.id, organizationId));
 
-			return created;
+			return { transaction: created, creditsLimit, rolloverCredits };
 		});
+		const { creditsLimit, rolloverCredits } = renewal;
 
 		logger.info(
-			`Dev plan ${effectiveTier} renewed for organization ${organizationId}, credits reset to 0/${creditsLimit}`,
+			`Dev plan ${effectiveTier} renewed for organization ${organizationId}, credits reset to 0/${creditsLimit} (${rolloverCredits} carried over)`,
 		);
 
 		try {
 			const billingDetails = await resolveDevPassBillingDetails(organization);
 			await generateAndEmailInvoice({
 				organizationId: organization.id,
-				invoiceNumber: renewalTransaction.id,
+				invoiceNumber: renewal.transaction.id,
 				invoiceDate: new Date(),
 				organizationName: organization.name,
 				...billingDetails,
 				lineItems: [
 					{
-						description: `Dev Plan ${effectiveTier.toUpperCase()} renewal ($${creditsLimit} credits included)`,
+						description: devPlanInvoiceLine(
+							"renewal",
+							effectiveTier,
+							rolloverCredits,
+						),
 						amount: invoice.amount_paid / 100,
 					},
 				],
@@ -4860,11 +4885,11 @@ export async function handleInvoicePaymentSucceeded(event: {
 					.where(eq(tables.organization.id, organizationId));
 			}
 
-			return created ? { created, rolloverCredits, creditsLimit } : null;
+			return created ? { created, rolloverCredits } : null;
 		});
 
 		if (upgradeResult) {
-			const { created, rolloverCredits, creditsLimit } = upgradeResult;
+			const { created, rolloverCredits } = upgradeResult;
 			try {
 				const billingDetails = await resolveDevPassBillingDetails(organization);
 				await generateAndEmailInvoice({
@@ -4875,10 +4900,11 @@ export async function handleInvoicePaymentSucceeded(event: {
 					...billingDetails,
 					lineItems: [
 						{
-							description:
-								rolloverCredits > 0
-									? `Dev Plan upgrade to ${toTier.toUpperCase()} ($${getDevPlanCreditsLimit(toTier)} credits included + $${rolloverCredits} unused credits rolled over)`
-									: `Dev Plan upgrade to ${toTier.toUpperCase()} ($${creditsLimit} credits included)`,
+							description: devPlanInvoiceLine(
+								"upgrade",
+								toTier,
+								rolloverCredits,
+							),
 							amount: invoice.amount_paid / 100,
 						},
 					],
