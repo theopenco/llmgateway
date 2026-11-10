@@ -250,11 +250,29 @@ export async function prepareSpeechStream(options: {
 			);
 		}
 	};
-	function stopDelivery(error: Error) {
+	let stopError: Error | undefined;
+	let streamCanceled = false;
+	function endOutput(controller: ReadableStreamDefaultController<Uint8Array>) {
+		if (stopError) {
+			controller.error(stopError);
+		} else if (!streamCanceled) {
+			controller.close();
+		}
+	}
+	/**
+	 * Without an error, ends delivery cleanly: the client hung up, and erroring
+	 * the body only makes the server log the abort as a response failure.
+	 */
+	function stopDelivery(error?: Error) {
 		buffered.length = 0;
 		bufferedBytes = 0;
-		outputClosed = true;
-		output?.error(error);
+		if (!outputClosed) {
+			outputClosed = true;
+			stopError = error;
+			if (output) {
+				endOutput(output);
+			}
+		}
 		delivered?.();
 		delivered = undefined;
 		finishDelivery();
@@ -293,7 +311,7 @@ export async function prepareSpeechStream(options: {
 			return;
 		}
 		stats.canceled = true;
-		stopDelivery(new DOMException("Speech request canceled", "AbortError"));
+		stopDelivery();
 		// Recover exact usage within the original request deadline. A disconnect
 		// must not grant free generated audio.
 		if (!options.upstreamSse) {
@@ -388,9 +406,7 @@ export async function prepareSpeechStream(options: {
 			start(controller) {
 				output = controller;
 				if (outputClosed) {
-					controller.error(
-						new DOMException("Speech request canceled", "AbortError"),
-					);
+					endOutput(controller);
 				}
 			},
 			pull() {
@@ -404,6 +420,7 @@ export async function prepareSpeechStream(options: {
 				});
 			},
 			cancel() {
+				streamCanceled = true;
 				cancelDownstream();
 			},
 		},
