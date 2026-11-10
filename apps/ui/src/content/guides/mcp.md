@@ -2,6 +2,7 @@
 id: mcp
 slug: mcp
 title: MCP Server Integration
+seoTitle: Use the LLM Gateway MCP Server
 description: Use LLM Gateway's built-in MCP server to give Claude Code, Codex, Cursor, or any MCP client access to the model catalogue — chat, image generation, and model discovery as tools.
 date: 2026-07-03
 ---

@@ -2,6 +2,7 @@
 id: pi
 slug: pi
 title: Pi Coding Agent Integration
+seoTitle: Use Pi Coding Agent with LLM Gateway
 description: Connect Pi to LLM Gateway with a custom provider, keep your key in an environment variable, and verify a coding task.
 date: 2026-09-07
 ---

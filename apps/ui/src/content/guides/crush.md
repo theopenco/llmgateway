@@ -2,6 +2,7 @@
 id: crush
 slug: crush
 title: Crush Integration
+seoTitle: Use Crush with LLM Gateway
 description: Connect Crush to LLM Gateway, discover models, and verify a coding task.
 date: 2026-09-23
 ---
