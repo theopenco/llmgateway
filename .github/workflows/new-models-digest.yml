@@ -8,9 +8,13 @@ on:
   workflow_dispatch:
     inputs:
       days:
-        description: "Days the issue covers, counted back from today (UTC)"
+        description: "Days the issue covers"
         type: number
         default: 7
+      until:
+        description: "First day the issue does not cover, YYYY-MM-DD (default: today, UTC). For a late run, the day it should have run."
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -49,16 +53,21 @@ jobs:
       - name: Draft the new-models issue
         env:
           DAYS: ${{ inputs.days || 7 }}
+          UNTIL: ${{ inputs.until }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           RESEND_NEWSLETTER_SEGMENT_ID: ${{ secrets.RESEND_NEWSLETTER_SEGMENT_ID }}
           RESEND_NEWSLETTER_TOPIC_ID: ${{ secrets.RESEND_NEWSLETTER_TOPIC_ID }}
           DISCORD_NEWSLETTER_NOTIFICATION_URL: ${{ secrets.DISCORD_NEWSLETTER_NOTIFICATION_URL }}
         run: |
+          args=(--days="$DAYS")
+          if [[ -n "$UNTIL" ]]; then
+            args+=(--until="$UNTIL")
+          fi
           if [[ -n "$RESEND_API_KEY" && -n "$RESEND_NEWSLETTER_SEGMENT_ID" && -n "$RESEND_NEWSLETTER_TOPIC_ID" ]]; then
-            pnpm --filter @llmgateway/scripts new-models-digest --days="$DAYS" --create-draft
+            pnpm --filter @llmgateway/scripts new-models-digest "${args[@]}" --create-draft
           else
             echo "Resend secrets are not set; printing the issue only."
-            pnpm --filter @llmgateway/scripts new-models-digest --days="$DAYS"
+            pnpm --filter @llmgateway/scripts new-models-digest "${args[@]}"
             if [[ -f packages/scripts/new-models-digest.txt ]]; then
               cat packages/scripts/new-models-digest.txt
             fi

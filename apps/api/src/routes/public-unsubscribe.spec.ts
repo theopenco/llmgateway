@@ -194,23 +194,48 @@ describe("public unsubscribe", () => {
 			expect(upstream).not.toHaveBeenCalled();
 		});
 
-		test.each([
-			["Resend is down", () => Promise.reject(new Error("connect timeout"))],
-			[
-				"Resend answers with an error",
-				() => Promise.resolve(new Response("{}", { status: 500 })),
-			],
-			[
-				"the address is not a contact",
-				() => Promise.resolve(new Response("{}", { status: 404 })),
-			],
-		])("never blocks the unsubscribe when %s", async (_case, respond) => {
-			vi.spyOn(globalThis, "fetch").mockImplementation(respond);
+		const busy = (status: number) =>
+			new Response("{}", { status, headers: { "retry-after": "0" } });
+
+		test("is retried while Resend is rate limiting or failing", async () => {
+			const upstream = vi
+				.spyOn(globalThis, "fetch")
+				.mockResolvedValueOnce(busy(429))
+				.mockResolvedValueOnce(busy(503))
+				.mockResolvedValue(new Response("{}", { status: 200 }));
 
 			const res = await unsubscribe("marketing");
 
 			expect(res.status).toBe(200);
-			expect(await rows()).toHaveLength(1);
+			expect(upstream).toHaveBeenCalledTimes(3);
 		});
+
+		test.each([
+			["Resend is down", 1, () => Promise.reject(new Error("connect timeout"))],
+			["Resend keeps failing", 3, () => Promise.resolve(busy(500))],
+			[
+				"Resend rejects the request",
+				1,
+				() => Promise.resolve(new Response("{}", { status: 422 })),
+			],
+			[
+				"the address is not a contact",
+				1,
+				() => Promise.resolve(new Response("{}", { status: 404 })),
+			],
+		])(
+			"never blocks the unsubscribe when %s",
+			async (_case, attempts, respond) => {
+				const upstream = vi
+					.spyOn(globalThis, "fetch")
+					.mockImplementation(respond);
+
+				const res = await unsubscribe("marketing");
+
+				expect(res.status).toBe(200);
+				expect(await rows()).toHaveLength(1);
+				expect(upstream).toHaveBeenCalledTimes(attempts);
+			},
+		);
 	});
 });

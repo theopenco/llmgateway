@@ -8,12 +8,17 @@ import {
 	verifyNewsletterToken,
 } from "@/lib/newsletter.js";
 import * as email from "@/utils/email.js";
+import * as rateLimit from "@/utils/public-rate-limit.js";
 
+import { redisClient } from "@llmgateway/cache";
 import { signUnsubscribeToken } from "@llmgateway/shared/email-unsubscribe";
 
 // Ways the newsletter signup can go wrong: an address joins the list without
-// its owner confirming, the form mails one inbox over and over or reveals who
-// is already a contact, a forged or stale link subscribes someone, a confirmed
+// its owner confirming, the form mails one inbox over and over (also through
+// plus-addresses, across hours, or while the limiter is down) or reveals who
+// is already a contact, a failed send eats the address's allowance so the
+// reader is told to check an inbox nothing was sent to, a forged or stale link
+// subscribes someone, a rotated secret breaks links already sent, a confirmed
 // reader is left outside the segment a broadcast is addressed to or not opted
 // in to the topic, a global unsubscribe is left in place, a contact already in
 // the segment makes the confirmation fail, or the contact appears between the
@@ -230,17 +235,60 @@ describe("signing up", () => {
 		expect(upstream).not.toHaveBeenCalled();
 	});
 
-	test("mails one address at most twice an hour", async () => {
+	test("mails one mailbox at most twice an hour, plus-addresses included", async () => {
 		const send = vi.spyOn(email, "sendTransactionalEmail").mockResolvedValue();
-		const address = newEmail();
+		const id = randomUUID();
 
 		const statuses = [];
-		for (let attempt = 0; attempt < 3; attempt++) {
+		for (const address of [
+			`${id}@example.com`,
+			`${id}+news@example.com`,
+			`${id}+again@example.com`,
+		]) {
 			statuses.push((await post("subscribe", { email: address })).status);
 		}
 
 		expect(statuses).toEqual([200, 200, 200]);
 		expect(send).toHaveBeenCalledTimes(2);
+	});
+
+	test("mails one mailbox at most three times a day", async () => {
+		const send = vi.spyOn(email, "sendTransactionalEmail").mockResolvedValue();
+		const address = newEmail();
+
+		for (let hour = 0; hour < 4; hour++) {
+			await redisClient.del(`newsletter_confirmation:hour:${address}`);
+			expect((await post("subscribe", { email: address })).status).toBe(200);
+		}
+
+		expect(send).toHaveBeenCalledTimes(3);
+	});
+
+	test("a send that failed does not use up the address's allowance", async () => {
+		const send = vi
+			.spyOn(email, "sendTransactionalEmail")
+			.mockRejectedValueOnce(new Error("Resend API error: down"))
+			.mockRejectedValueOnce(new Error("Resend API error: down"))
+			.mockResolvedValue();
+		const address = newEmail();
+
+		const statuses = [];
+		for (let attempt = 0; attempt < 4; attempt++) {
+			statuses.push((await post("subscribe", { email: address })).status);
+		}
+
+		expect(statuses).toEqual([500, 500, 200, 200]);
+		expect(send).toHaveBeenCalledTimes(4);
+	});
+
+	test("mails nobody while the caps cannot be checked", async () => {
+		const send = vi.spyOn(email, "sendTransactionalEmail").mockResolvedValue();
+		vi.spyOn(rateLimit, "tryConsumeRateLimit").mockResolvedValue("unavailable");
+
+		const response = await post("subscribe", { email: newEmail() });
+
+		expect(response.status).toBe(500);
+		expect(send).not.toHaveBeenCalled();
 	});
 
 	test("reports a confirmation email that could not be sent", async () => {
@@ -388,8 +436,25 @@ describe("confirming", () => {
 			expect(await response.json()).toEqual({
 				success: false,
 				message: "This confirmation link is invalid or has expired.",
+				invalidLink: true,
 			});
 		}
 		expect(upstream).not.toHaveBeenCalled();
+	});
+
+	test("a link signed before the secret was rotated still confirms", async () => {
+		const contacts = new Map<string, FakeContact>();
+		fakeResend(contacts);
+		const address = newEmail();
+		vi.stubEnv("GATEWAY_API_KEY_HASH_SECRET", "old-secret");
+		const token = signNewsletterToken(address);
+
+		vi.stubEnv("GATEWAY_API_KEY_HASH_SECRET", "new-secret");
+		expect((await post("confirm", { token })).status).toBe(400);
+		expect(contacts.size).toBe(0);
+
+		vi.stubEnv("GATEWAY_API_KEY_HASH_SECRET", "new-secret,old-secret");
+		expect((await post("confirm", { token })).status).toBe(200);
+		expect(contacts.get(address)).toEqual(subscribed());
 	});
 });

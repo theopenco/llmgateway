@@ -107,6 +107,34 @@ describe("which models make the issue", () => {
 		expect(ids(models, new Date("2026-11-16T22:00:00Z"))).toEqual(second);
 	});
 
+	test("a late run can cover the week it missed", () => {
+		const models = [
+			landed("last-week", "2026-11-12T10:00:00Z"),
+			landed("this-monday", "2026-11-16T09:00:00Z"),
+		];
+		const tuesday = new Date("2026-11-17T08:00:00Z");
+		const until = new Date("2026-11-16T00:00:00Z");
+
+		expect(ids(models, tuesday)).toEqual(["this-monday", "last-week"]);
+		expect(
+			selectNewModels(models, providerNames, tuesday, 7, until).map((m) => m.id),
+		).toEqual(["last-week"]);
+		expect(
+			buildDigest({
+				models,
+				providerNames,
+				changelog: [
+					{ slug: "a", title: "Late", summary: "s", date: "2026-11-16" },
+					{ slug: "b", title: "On time", summary: "s", date: "2026-11-15" },
+				],
+				now: tuesday,
+				days: 7,
+				until,
+				postalAddress: "1 Example Street",
+			})?.changelog.map((entry) => entry.title),
+		).toEqual(["On time"]);
+	});
+
 	test("a longer window reaches further back", () => {
 		const models = [landed("two-weeks-ago", "2026-10-28T10:00:00Z")];
 

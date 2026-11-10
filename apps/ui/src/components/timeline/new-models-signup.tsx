@@ -1,7 +1,7 @@
 "use client";
 
 import { Check } from "lucide-react";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { getApiErrorMessage } from "@/lib/api-error";
 import { Button } from "@/lib/components/button";
@@ -21,10 +21,17 @@ export function NewModelsSignup() {
 			posthog.capture("newsletter_signup_requested", {
 				placement: "timeline_hero",
 			});
-			statusRef.current?.focus();
 		},
+		// The status line shows the error; this replaces the default toast.
+		onError: () => undefined,
 	});
 	const sent = subscribe.isSuccess;
+	// After the render, so a screen reader lands on the new message.
+	useEffect(() => {
+		if (sent) {
+			statusRef.current?.focus();
+		}
+	}, [sent]);
 
 	// The status line is always mounted so screen readers announce its changes,
 	// and the block keeps the form's height so the page below does not jump.

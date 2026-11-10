@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import { logger, toError } from "@llmgateway/logger";
 import {
@@ -18,6 +19,8 @@ const TOKEN_TTL_DAYS = 7;
 const TOKEN_TTL_MS = TOKEN_TTL_DAYS * 86_400_000;
 const SEGMENT_PAGE_SIZE = 100;
 const OPT_OUT_TIMEOUT_MS = 5_000;
+const OPT_OUT_ATTEMPTS = 3;
+const OPT_OUT_MAX_WAIT_MS = 2_000;
 
 export const NEWSLETTER_CONFIRM_SUBJECT =
 	"Confirm your LLM Gateway newsletter subscription";
@@ -221,7 +224,8 @@ export async function subscribeToNewsletter(
 
 /**
  * A marketing unsubscribe also ends the newsletter. The unsubscribe is already
- * recorded when this runs, so a Resend failure is logged and not thrown.
+ * recorded when this runs, so a Resend failure is logged and not thrown; the
+ * segment backfill script opts out any address this missed.
  */
 export async function optOutOfNewsletter(email: string): Promise<void> {
 	const apiKey = process.env.RESEND_API_KEY;
@@ -230,18 +234,29 @@ export async function optOutOfNewsletter(email: string): Promise<void> {
 		return;
 	}
 	try {
-		const response = await resendFetch({
-			apiKey,
-			method: "PATCH",
-			path: `/contacts/${encodeURIComponent(normalizeEmail(email))}/topics`,
-			body: [{ id: topicId, subscription: "opt_out" }],
-			timeoutMs: OPT_OUT_TIMEOUT_MS,
-		});
-		// 404: the address never subscribed to anything.
-		if (!response.ok && response.status !== 404) {
-			logger.error("Newsletter opt-out failed after a marketing unsubscribe", {
-				status: response.status,
+		for (let attempt = 1; ; attempt++) {
+			const response = await resendFetch({
+				apiKey,
+				method: "PATCH",
+				path: `/contacts/${encodeURIComponent(normalizeEmail(email))}/topics`,
+				body: [{ id: topicId, subscription: "opt_out" }],
+				timeoutMs: OPT_OUT_TIMEOUT_MS,
 			});
+			// 404: the address never subscribed to anything.
+			if (response.ok || response.status === 404) {
+				return;
+			}
+			const busy = response.status === 429 || response.status >= 500;
+			if (!busy || attempt === OPT_OUT_ATTEMPTS) {
+				logger.error(
+					"Newsletter opt-out failed after a marketing unsubscribe",
+					{ status: response.status, attempt },
+				);
+				return;
+			}
+			const retryAfter = Number(response.headers.get("retry-after") ?? "1");
+			const waitMs = Number.isFinite(retryAfter) ? retryAfter * 1000 : 1000;
+			await sleep(Math.min(waitMs, OPT_OUT_MAX_WAIT_MS));
 		}
 	} catch (error) {
 		logger.error(

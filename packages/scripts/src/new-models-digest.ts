@@ -5,8 +5,9 @@
  * changelog, and optionally save it in Resend as a broadcast draft. The script
  * never sends: a person reviews the draft and sends it from Resend.
  *
- * The issue covers the whole UTC days before the day it runs, so a run on
- * Monday covers the previous Monday to Sunday at any hour.
+ * The issue covers the whole UTC days before the day it runs (or before
+ * `--until`), so a run on Monday covers the previous Monday to Sunday at any
+ * hour.
  *
  * Usage:
  *   # write the issue to new-models-digest.html / .txt and print a summary
@@ -18,6 +19,8 @@
  *
  * Flags:
  *   --days=7          Days the issue covers (default 7).
+ *   --until=YYYY-MM-DD  First day the issue does not cover (default today, UTC).
+ *                     For a run that is late: pass the day it should have run.
  *   --out=path        File prefix for the rendered issue (default new-models-digest).
  *   --api-url=url     API to read the catalogue from (default https://internal.llmgateway.io).
  *   --create-draft    Create a Resend broadcast draft from the issue.
@@ -139,6 +142,15 @@ async function main() {
 	if (!Number.isInteger(days) || days < 1) {
 		throw new Error("--days must be a positive whole number");
 	}
+	const now = new Date();
+	const untilArg = getArg("until");
+	if (untilArg !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(untilArg)) {
+		throw new Error("--until must be a date like 2026-11-16");
+	}
+	const until = untilArg ? new Date(`${untilArg}T00:00:00Z`) : now;
+	if (Number.isNaN(until.getTime()) || until > now) {
+		throw new Error("--until must be a real date that is not in the future");
+	}
 	const apiUrl = getArg("api-url") ?? DEFAULT_API_URL;
 	const [models, providers] = await Promise.all([
 		fetchCatalogue<CatalogueModel>(apiUrl, "models"),
@@ -150,12 +162,15 @@ async function main() {
 			providers.map((provider) => [provider.id, provider.name ?? provider.id]),
 		),
 		changelog: readChangelog(),
-		now: new Date(),
+		now,
 		days,
+		until,
 		postalAddress: POSTAL_ADDRESS,
 	});
 	if (!digest) {
-		console.log(`No models landed in the last ${days} days. Nothing to send.`);
+		console.log(
+			`No models landed in the ${days} days before ${until.toISOString().slice(0, 10)}. Nothing to send.`,
+		);
 		return;
 	}
 

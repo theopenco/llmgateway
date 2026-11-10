@@ -84,6 +84,8 @@ export interface DigestInput {
 	changelog: ReadonlyArray<DigestChangelogInput>;
 	now: Date;
 	days: number;
+	/** First day the issue does not cover. Defaults to the day of `now`. */
+	until?: Date;
 	postalAddress: string;
 }
 
@@ -93,15 +95,15 @@ export interface DigestWindow {
 }
 
 /**
- * The `days` whole UTC days before the day of `now`. A late or repeated run
- * covers the same period, and back-to-back weekly runs neither skip nor repeat
- * a release.
+ * The `days` whole UTC days before the day of `until`. A repeated run covers
+ * the same period, and back-to-back weekly runs neither skip nor repeat a
+ * release.
  */
-export function digestWindow(now: Date, days: number): DigestWindow {
+export function digestWindow(until: Date, days: number): DigestWindow {
 	const end = Date.UTC(
-		now.getUTCFullYear(),
-		now.getUTCMonth(),
-		now.getUTCDate(),
+		until.getUTCFullYear(),
+		until.getUTCMonth(),
+		until.getUTCDate(),
 	);
 	return { start: new Date(end - days * DAY_MS), end: new Date(end) };
 }
@@ -198,8 +200,9 @@ export function selectNewModels(
 	providerNames: ReadonlyMap<string, string>,
 	now: Date,
 	days: number,
+	until: Date = now,
 ): DigestModel[] {
-	const window = digestWindow(now, days);
+	const window = digestWindow(until, days);
 	const selected: DigestModel[] = [];
 	for (const model of models) {
 		const landed = landedAt(model);
@@ -289,10 +292,10 @@ export function parseChangelogEntry(
 
 export function selectChangelog(
 	entries: ReadonlyArray<DigestChangelogInput>,
-	now: Date,
+	until: Date,
 	days: number,
 ): DigestChangelogEntry[] {
-	const window = digestWindow(now, days);
+	const window = digestWindow(until, days);
 	return entries
 		.filter(
 			(entry) =>
@@ -417,16 +420,18 @@ LLM Gateway. ${escapeHtml(postalAddress)}
 
 /** Null when nothing landed in the window: there is no issue to send. */
 export function buildDigest(input: DigestInput): Digest | null {
+	const until = input.until ?? input.now;
 	const models = selectNewModels(
 		input.models,
 		input.providerNames,
 		input.now,
 		input.days,
+		until,
 	);
 	if (models.length === 0) {
 		return null;
 	}
-	const changelog = selectChangelog(input.changelog, input.now, input.days);
+	const changelog = selectChangelog(input.changelog, until, input.days);
 	const intro = buildIntro(models.length, input.days);
 	return {
 		subject: buildSubject(models),

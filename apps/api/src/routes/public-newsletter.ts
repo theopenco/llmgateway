@@ -11,9 +11,14 @@ import {
 } from "@/lib/newsletter.js";
 import { createRoute } from "@/utils/create-route.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
-import { consumeRateLimit } from "@/utils/public-rate-limit.js";
+import {
+	consumeRateLimit,
+	releaseRateLimit,
+	tryConsumeRateLimit,
+	type RateLimitState,
+} from "@/utils/public-rate-limit.js";
 
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 import { normalizeEmail } from "@llmgateway/shared/email-unsubscribe";
 
@@ -21,9 +26,15 @@ import type { ServerTypes } from "@/vars.js";
 
 export const publicNewsletter = new OpenAPIHono<ServerTypes>();
 
-const RATE_LIMIT_MAX = 5;
-const CONFIRMATION_EMAIL_MAX = 2;
-const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
+const HOUR_SECONDS = 60 * 60;
+const SIGNUPS_PER_IP_PER_HOUR = 5;
+const CONFIRMS_PER_IP_PER_HOUR = 20;
+const SEND_TIMEOUT_MS = 10_000;
+// How many confirmation emails one mailbox can be sent.
+const CONFIRMATION_CAPS = [
+	{ window: "hour", max: 2, seconds: HOUR_SECONDS },
+	{ window: "day", max: 3, seconds: 24 * HOUR_SECONDS },
+] as const;
 
 const resultSchema = z.object({
 	success: z.boolean(),
@@ -35,12 +46,31 @@ const jsonResult = (description: string) => ({
 	description,
 });
 
-async function checkRateLimit(identifier: string): Promise<boolean> {
-	return await consumeRateLimit(
-		`newsletter_rate_limit:${identifier}`,
-		RATE_LIMIT_MAX,
-		RATE_LIMIT_WINDOW_SECONDS,
-	);
+/** Plus-addressed variants of a mailbox share its caps. */
+function confirmationCapKey(window: string, email: string): string {
+	const at = email.lastIndexOf("@");
+	const mailbox = `${email.slice(0, at).split("+")[0]}${email.slice(at)}`;
+	return `newsletter_confirmation:${window}:${mailbox}`;
+}
+
+async function reserveConfirmation(email: string): Promise<RateLimitState> {
+	for (const cap of CONFIRMATION_CAPS) {
+		const state = await tryConsumeRateLimit(
+			confirmationCapKey(cap.window, email),
+			cap.max,
+			cap.seconds,
+		);
+		if (state !== "allowed") {
+			return state;
+		}
+	}
+	return "allowed";
+}
+
+async function releaseConfirmation(email: string): Promise<void> {
+	for (const cap of CONFIRMATION_CAPS) {
+		await releaseRateLimit(confirmationCapKey(cap.window, email));
+	}
 }
 
 const subscribeRoute = createRoute({
@@ -73,7 +103,12 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 	const email = normalizeEmail(c.req.valid("json").email);
 	const ipAddress = getClientIpFromContext(c);
 
-	if (!(await checkRateLimit(ipAddress ?? `email:${email}`))) {
+	const withinIpLimit = await consumeRateLimit(
+		`newsletter_rate_limit:${ipAddress ?? `email:${email}`}`,
+		SIGNUPS_PER_IP_PER_HOUR,
+		HOUR_SECONDS,
+	);
+	if (!withinIpLimit) {
 		return c.json(
 			{
 				success: false,
@@ -105,13 +140,22 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 		);
 	}
 
-	// Capped per address so the form cannot be used to fill someone's inbox.
-	const maySend = await consumeRateLimit(
-		`newsletter_confirmation:${email}`,
-		CONFIRMATION_EMAIL_MAX,
-		RATE_LIMIT_WINDOW_SECONDS,
-	);
-	if (maySend) {
+	const failed = () =>
+		c.json(
+			{
+				success: false,
+				message: "Failed to subscribe. Please try again later.",
+			},
+			500,
+		);
+
+	// The form must not become a way to fill someone's inbox, so nothing is
+	// mailed when the caps cannot be checked either.
+	const reservation = await reserveConfirmation(email);
+	if (reservation === "unavailable") {
+		return failed();
+	}
+	if (reservation === "allowed") {
 		try {
 			await sendTransactionalEmail({
 				to: email,
@@ -120,16 +164,13 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 					buildNewsletterConfirmUrl(signNewsletterToken(email)),
 				),
 				strict: true,
+				timeoutMs: SEND_TIMEOUT_MS,
 			});
 		} catch (error) {
-			logger.error("Failed to send newsletter confirmation", { error });
-			return c.json(
-				{
-					success: false,
-					message: "Failed to subscribe. Please try again later.",
-				},
-				500,
-			);
+			// An email that never left must not count against the address.
+			await releaseConfirmation(email);
+			logger.error("Failed to send newsletter confirmation", toError(error));
+			return failed();
 		}
 	}
 
@@ -156,7 +197,14 @@ const confirmRoute = createRoute({
 	},
 	responses: {
 		200: jsonResult("Subscribed"),
-		400: jsonResult("Invalid or expired link"),
+		400: {
+			content: {
+				"application/json": {
+					schema: resultSchema.extend({ invalidLink: z.literal(true) }),
+				},
+			},
+			description: "Invalid or expired link",
+		},
 		429: jsonResult("Rate limit exceeded"),
 		500: jsonResult("Internal server error"),
 	},
@@ -169,13 +217,19 @@ publicNewsletter.openapi(confirmRoute, async (c) => {
 			{
 				success: false,
 				message: "This confirmation link is invalid or has expired.",
+				invalidLink: true as const,
 			},
 			400,
 		);
 	}
 
 	const ipAddress = getClientIpFromContext(c);
-	if (!(await checkRateLimit(ipAddress ?? `email:${email}`))) {
+	const withinIpLimit = await consumeRateLimit(
+		`newsletter_confirm_rate_limit:${ipAddress ?? `email:${email}`}`,
+		CONFIRMS_PER_IP_PER_HOUR,
+		HOUR_SECONDS,
+	);
+	if (!withinIpLimit) {
 		return c.json(
 			{
 				success: false,
@@ -211,7 +265,7 @@ publicNewsletter.openapi(confirmRoute, async (c) => {
 	try {
 		await subscribeToNewsletter({ apiKey, topicId, segmentId }, email);
 	} catch (error) {
-		logger.error("Failed to subscribe to newsletter", { error });
+		logger.error("Failed to subscribe to newsletter", toError(error));
 		return c.json(
 			{
 				success: false,
