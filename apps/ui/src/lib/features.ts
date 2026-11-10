@@ -69,6 +69,8 @@ export interface FeatureDefinition {
 	category: FeatureCategory;
 	visual: FeatureVisual;
 	docsPath?: string;
+	// A page on this site that is the feature itself, linked instead of docs.
+	cta?: { label: string; href: string };
 	enterprise?: boolean;
 	developerSnippet?: boolean;
 	benefits: Array<{
@@ -572,11 +574,12 @@ export const features: FeatureDefinition[] = [
 		title: "Project-Level Usage Explorer",
 		subtitle: "Deep-dive into your usage",
 		description:
-			"Drill into each project's requests, models, errors, cache, and costs with dedicated charts and tables.",
+			"See every project's traffic, spend and errors on one page, then drill into each one's requests, models, cache and costs.",
 		longDescription:
-			"Explore your LLM usage at the project level with detailed charts, tables, and analytics. See every request, track model usage, monitor errors, and analyze costs for each of your projects.",
+			"The Projects page shows each project as a card with its traffic, spend, error rate and last activity, finds idle and never-used projects, and edits or archives several in one step. Open a project for every request, model usage, errors and costs, with usage charts grouped by day, week or month.",
 		icon: FolderKanban,
 		category: "observability",
+		docsPath: "/learn/projects",
 		visual: {
 			kind: "ranking",
 			title: "Projects · requests this week",
@@ -589,20 +592,23 @@ export const features: FeatureDefinition[] = [
 		demoComponent: "activity-logs",
 		benefits: [
 			{
+				title: "All Projects at a Glance",
+				description:
+					"Traffic, spend, error rate and last activity for every project on one page",
+			},
+			{
 				title: "Request-Level Details",
 				description: "View every request with full context and metadata",
 			},
 			{
-				title: "Model Usage Tracking",
-				description: "See which models are used most in each project",
+				title: "Day, Week or Month",
+				description:
+					"Group usage charts by the grain that fits your date range",
 			},
 			{
-				title: "Error Analysis",
-				description: "Identify and debug errors at the project level",
-			},
-			{
-				title: "Cost Breakdown",
-				description: "Track costs per project for accurate billing",
+				title: "Bulk Edits",
+				description:
+					"Change settings on several projects, or archive them, in one step",
 			},
 		],
 		useCases: [
