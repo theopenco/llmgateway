@@ -18,8 +18,12 @@ We publish an official **Helm chart** that deploys the gateway, API, UI, and wor
 
 The chart is published as an OCI artifact on GitHub Container Registry:
 
+The chart requires an auth secret, so set the secrets on install:
+
 ```bash
-helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway
+helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway \
+  --set auth.authSecret="$(openssl rand -base64 32)" \
+  --set auth.gatewayApiKeyHashSecret="$(openssl rand -base64 32)"
 ```
 
 This installs the latest published version. To pin to a specific release, append `--version <version>`, matching a published release tag without the `v` prefix (e.g. `1.2.3`).
