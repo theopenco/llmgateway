@@ -95,10 +95,11 @@ export default function Newsletter() {
 								</div>
 								<div className="space-y-2">
 									<h3 className="font-display text-2xl font-bold tracking-tight text-foreground">
-										You&apos;re in!
+										One more step
 									</h3>
 									<p className="text-muted-foreground text-sm max-w-sm mx-auto leading-relaxed">
-										{subscribe.data?.message ?? "You're subscribed."}
+										{subscribe.data?.message ??
+											"Check your inbox to confirm your subscription."}
 									</p>
 								</div>
 							</m.div>
