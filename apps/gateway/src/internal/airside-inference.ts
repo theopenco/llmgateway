@@ -383,6 +383,7 @@ async function handleAirsideInference(c: Context<ServerTypes>) {
 			organizationId: project.organizationId,
 			modelId: target.modelName,
 			apiKeyId: apiKey.id,
+			externalId: target.externalId,
 		},
 		apiKey,
 	);

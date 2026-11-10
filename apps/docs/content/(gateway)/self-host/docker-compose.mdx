@@ -65,6 +65,7 @@ At minimum, set these environment variables:
 POSTGRES_PASSWORD=your_secure_password_here
 
 # Authentication
+# Generate with `openssl rand -base64 32`; the API refuses to start with a placeholder
 AUTH_SECRET=your-secret-key-here
 GATEWAY_API_KEY_HASH_SECRET=your-api-key-hash-secret-here
 

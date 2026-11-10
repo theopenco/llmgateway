@@ -138,6 +138,8 @@ Probe the deployment. The same model differs between providers, and an
 - `supportsDeveloperRole` / `supportsAssistantPrefill` — default true, flip only
   on a 400.
 - `serviceTiers` — declaring one narrows routing pre-flight.
+- `dataPolicy` — overrides the provider's data policy for compliance checks
+  when the model's retention differs (Fable on Bedrock needs `aws_review`).
 - `stability: "unstable"` / `test: "skip"` for flaky, paid-per-call or
   region-locked mappings.
 - `releasedAt`, plus an `output` entry per capability flag — both enforced by
