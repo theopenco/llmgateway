@@ -243,6 +243,34 @@ describe("filterCompliantProviders passes context through", () => {
 	});
 });
 
+describe("mapping data policy overrides", () => {
+	const zdr: ProviderCompliancePolicy = {
+		enabled: true,
+		zeroDataRetention: true,
+	};
+	const retains = { promptLogging: true, retentionPeriod: "30 days" };
+
+	it("fails a ZDR provider whose mapping retains data", () => {
+		expect(isProviderIdCompliant("aws-bedrock", zdr)).toBe(true);
+		expect(
+			isProviderIdCompliant("aws-bedrock", zdr, { mappingDataPolicy: retains }),
+		).toBe(false);
+		expect(
+			getComplianceFailureReasons("aws-bedrock", "claude-fable-5-2", zdr, {
+				mappingDataPolicy: retains,
+			}),
+		).toContain("zeroDataRetention");
+	});
+
+	it("keeps the provider compliant when the policy allows retention", () => {
+		expect(
+			isProviderIdCompliant("aws-bedrock", POLICY, {
+				mappingDataPolicy: retains,
+			}),
+		).toBe(true);
+	});
+});
+
 describe("provider restriction lists", () => {
 	it("blocks a catalogue provider on the deny list even when certified", () => {
 		const policy: ProviderCompliancePolicy = {

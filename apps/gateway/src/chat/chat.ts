@@ -3983,7 +3983,7 @@ chat.openapi(completions, async (c) => {
 							?.complianceAttestation ?? null,
 					customProviderName: provider.customProviderName,
 				}
-			: complianceContext;
+			: { ...complianceContext, mappingDataPolicy: provider.dataPolicy };
 
 	// Which policy rules a dropped mapping failed, recorded next to the coarse
 	// "compliance" code so the routing analytics can break the total down by rule
@@ -4039,7 +4039,12 @@ chat.openapi(completions, async (c) => {
 			usedProvider !== undefined &&
 			usedProvider !== "llmgateway" &&
 			usedProvider !== "custom" &&
-			!isProviderIdCompliant(usedProvider, compliancePolicy, complianceContext);
+			!isProviderIdCompliant(usedProvider, compliancePolicy, {
+				...complianceContext,
+				mappingDataPolicy: modelInfo.providers.find(
+					(provider) => provider.providerId === usedProvider,
+				)?.dataPolicy,
+			});
 		if (iamFilteredModelProviders.length === 0 || pinnedBlocked) {
 			await logComplianceBlock(project.organizationId, {
 				apiKeyId: apiKey.id,
@@ -4842,7 +4847,10 @@ chat.openapi(completions, async (c) => {
 													)?.complianceAttestation ?? null,
 												customProviderName: provider.customProviderName,
 											}
-										: complianceContext,
+										: {
+												...complianceContext,
+												mappingDataPolicy: provider.dataPolicy,
+											},
 								).map((failure) =>
 									exclusionReason(complianceExclusionReason(failure)),
 								)

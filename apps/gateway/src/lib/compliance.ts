@@ -16,7 +16,9 @@ import {
 	isModelAllowedByPolicy,
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
+	withMappingDataPolicy,
 	type ComplianceFailureReason,
+	type MappingDataPolicy,
 	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
@@ -87,6 +89,21 @@ export interface ComplianceCheckContext {
 	customAttestation?: ProviderComplianceAttestation | null;
 	/** Routing-prefix name of the custom provider handling this request. */
 	customProviderName?: string;
+	/** Data-policy overrides of the model mapping being checked. */
+	mappingDataPolicy?: MappingDataPolicy;
+}
+
+function resolveProviderDefinition(
+	providerId: string,
+	context?: ComplianceCheckContext,
+): ProviderDefinition | undefined {
+	const definition =
+		context?.effectiveProviders?.find(
+			(provider) => provider.id === providerId,
+		) ?? getProviderDefinition(providerId);
+	return (
+		definition && withMappingDataPolicy(definition, context?.mappingDataPolicy)
+	);
 }
 
 /** Whether a provider id satisfies the policy (unknown providers fail closed). */
@@ -112,10 +129,7 @@ export function isProviderIdCompliant(
 			isAttestationCompliant(context?.customAttestation, policy)
 		);
 	}
-	const definition =
-		context?.effectiveProviders?.find(
-			(provider) => provider.id === providerId,
-		) ?? getProviderDefinition(providerId);
+	const definition = resolveProviderDefinition(providerId, context);
 	return definition ? isProviderCompliant(definition, policy) : false;
 }
 
@@ -192,10 +206,7 @@ export function getComplianceFailureReasons(
 			...getAttestationComplianceFailures(context?.customAttestation, policy),
 		);
 	} else {
-		const definition =
-			context?.effectiveProviders?.find(
-				(provider) => provider.id === providerId,
-			) ?? getProviderDefinition(providerId);
+		const definition = resolveProviderDefinition(providerId, context);
 		failures.push(
 			...(definition
 				? getProviderComplianceFailures(definition, policy)

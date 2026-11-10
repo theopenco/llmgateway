@@ -34,9 +34,10 @@ export const anthropicModels = [
 				supportedParameters: ["max_tokens", "effort"],
 			},
 			{
-				test: "skip",
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-fable-5-2",
+				// Fable requires Bedrock's aws_review retention mode.
+				dataPolicy: { promptLogging: true, retentionPeriod: "30 days" },
 				inputPrice: "8.0e-6",
 				outputPrice: "40.0e-6",
 				cachedInputPrice: "0.2e-6",
@@ -114,9 +115,10 @@ export const anthropicModels = [
 				supportedParameters: ["max_tokens", "effort"],
 			},
 			{
-				test: "skip",
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-fable-5-1",
+				// Fable requires Bedrock's aws_review retention mode.
+				dataPolicy: { promptLogging: true, retentionPeriod: "30 days" },
 				inputPrice: "10.0e-6",
 				outputPrice: "50.0e-6",
 				cachedInputPrice: "0.25e-6",
@@ -193,9 +195,10 @@ export const anthropicModels = [
 				supportedParameters: ["max_tokens", "effort"],
 			},
 			{
-				test: "skip",
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-fable-5",
+				// Fable requires Bedrock's aws_review retention mode.
+				dataPolicy: { promptLogging: true, retentionPeriod: "30 days" },
 				inputPrice: "10.0e-6",
 				outputPrice: "50.0e-6",
 				cachedInputPrice: "1.0e-6",
