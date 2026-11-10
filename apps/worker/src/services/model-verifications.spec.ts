@@ -39,7 +39,7 @@ const catalogueProviderIds: string[] = [];
 const catalogueModelIds: string[] = [];
 
 beforeEach(async () => {
-	resetModelVerificationGatewayPause();
+	await resetModelVerificationGatewayPause();
 	await db
 		.delete(tables.providerModelVerification)
 		.where(
@@ -1005,7 +1005,7 @@ it.each([401, 402, 404])(
 				.update(tables.providerModelVerification)
 				.set({ attempts: 2 })
 				.where(eq(tables.providerModelVerification.id, verificationId));
-			resetModelVerificationGatewayPause();
+			await resetModelVerificationGatewayPause();
 			await processNextModelVerification(runner);
 			const job = (await db.query.providerModelVerification.findFirst({
 				where: { id: { eq: verificationId } },

@@ -14,6 +14,7 @@ import {
 } from "@llmgateway/shared/email";
 
 import {
+	dailyVerificationTarget,
 	liveVerificationMapping,
 	sameVerificationDeclaration,
 	currentCredentialSource,
@@ -108,7 +109,11 @@ function observation(
 	target: ProviderModelVerificationTarget,
 	job?: Verification,
 ): AirsideVerificationObservation {
-	const expected = createQueuedModelVerificationChecks(target);
+	// Daily runs omit the probes dailyVerificationTarget strips; carrier runs
+	// are judged on the full declaration.
+	const expected = createQueuedModelVerificationChecks(
+		job?.modelProviderMappingId ? dailyVerificationTarget(target) : target,
+	);
 	const compatible =
 		job &&
 		sameVerificationDeclaration(target, job.target) &&

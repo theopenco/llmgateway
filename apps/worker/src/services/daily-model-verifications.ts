@@ -60,9 +60,7 @@ export async function liveVerificationMapping(
 	const mapping = await client.query.modelProviderMapping.findFirst({
 		where: { id: { eq: mappingId }, status: { eq: "active" } },
 	});
-	const target = mapping
-		? dailyVerificationTarget(mappingTarget(mapping))
-		: null;
+	const target = mapping ? mappingTarget(mapping) : null;
 	if (!mapping || (mapping.deactivatedAt && mapping.deactivatedAt <= now)) {
 		return null;
 	}
@@ -196,11 +194,13 @@ export async function scheduleDailyModelVerifications(
 						draftModelId: live.draftModelId,
 						providerCompanyId: live.claim?.providerCompanyId ?? null,
 						initiatedBy: "admin",
-						target: {
+						target: dailyVerificationTarget({
 							...(await currentVerificationTarget(live, tx)),
 							gatewayExecutionVersion: undefined,
-						},
-						checks: createQueuedModelVerificationChecks(live.target),
+						}),
+						checks: createQueuedModelVerificationChecks(
+							dailyVerificationTarget(live.target),
+						),
 						credentialSource,
 					})
 					.onConflictDoNothing()
