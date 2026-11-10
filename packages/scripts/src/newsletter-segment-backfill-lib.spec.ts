@@ -3,15 +3,15 @@ import { expect, test, vi } from "vitest";
 import {
 	assertSafeToApply,
 	backfillSegment,
-	withRateLimitRetry,
+	withRetry,
 	type ResendRequest,
 } from "./newsletter-segment-backfill-lib.js";
 
 // Ways the backfill can go wrong: it stops after the first page of contacts or
 // of segment members, it adds people who unsubscribed (in Resend or in the
 // app) or never opted in, it re-adds current members, a dry run writes, a
-// write run reads unsubscribes from the wrong database, or a rate limit ends
-// the run halfway.
+// write run reads unsubscribes from the wrong database, or a rate limit, a 5xx
+// or a dropped connection ends the run halfway.
 
 const TOPIC = "topic-newsletter";
 const SEGMENT = "segment-newsletter";
@@ -188,7 +188,7 @@ test("a rate-limited call waits as long as Resend asks and then goes through", a
 		json({ ok: true }),
 	];
 	const sleep = vi.fn(async () => {});
-	const request = withRateLimitRetry(async () => responses.shift()!, sleep);
+	const request = withRetry(async () => responses.shift()!, sleep);
 
 	const response = await request("GET", "/contacts");
 
@@ -196,8 +196,35 @@ test("a rate-limited call waits as long as Resend asks and then goes through", a
 	expect(sleep.mock.calls).toEqual([[3000], [1000]]);
 });
 
+test("a 5xx or a call that never answered is tried again", async () => {
+	const outcomes: (() => Promise<Response>)[] = [
+		async () => new Response("bad gateway", { status: 502 }),
+		async () => {
+			throw new Error("The operation was aborted due to timeout");
+		},
+		async () => json({ ok: true }),
+	];
+	const sleep = vi.fn(async () => {});
+	const request = withRetry(async () => await outcomes.shift()!(), sleep);
+
+	const response = await request("GET", "/contacts");
+
+	expect(await response.json()).toEqual({ ok: true });
+	expect(sleep).toHaveBeenCalledTimes(2);
+});
+
+test("a call that keeps failing gives up with its last error", async () => {
+	const send = vi.fn(async (): Promise<Response> => {
+		throw new Error("connect timeout");
+	});
+	const request = withRetry(send, async () => {});
+
+	await expect(request("GET", "/contacts")).rejects.toThrow("connect timeout");
+	expect(send).toHaveBeenCalledTimes(6);
+});
+
 test("any other failure stops the run with the status and body", async () => {
-	const request = withRateLimitRetry(
+	const request = withRetry(
 		async () => new Response("segment not found", { status: 404 }),
 		async () => {},
 	);

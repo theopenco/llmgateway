@@ -31,7 +31,7 @@ import { resendFetch } from "@llmgateway/shared/resend-api";
 import {
 	assertSafeToApply,
 	backfillSegment,
-	withRateLimitRetry,
+	withRetry,
 } from "./newsletter-segment-backfill-lib.js";
 
 function requireEnv(name: string): string {
@@ -65,7 +65,7 @@ async function main() {
 	}
 
 	const result = await backfillSegment({
-		request: withRateLimitRetry(
+		request: withRetry(
 			async (method, path) => await resendFetch({ apiKey, method, path }),
 			async (ms) => {
 				await sleep(ms);

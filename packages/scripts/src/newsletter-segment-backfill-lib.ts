@@ -1,5 +1,5 @@
 const PAGE_SIZE = 100;
-const MAX_RATE_LIMIT_RETRIES = 5;
+const MAX_RETRIES = 5;
 const MS_PER_SECOND = 1000;
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
@@ -64,20 +64,31 @@ export function assertSafeToApply(input: {
 }
 
 /**
- * Retries a rate-limited call after the wait Resend asks for, and turns any
- * other failure into an error.
+ * Retries what can pass: a rate limit (after the wait Resend asks for), a 5xx
+ * and a call that never got an answer. Any other response is an error.
  */
-export function withRateLimitRetry(
+export function withRetry(
 	send: ResendRequest,
 	sleep: (ms: number) => Promise<void>,
 ): ResendRequest {
 	return async (method, path) => {
 		for (let attempt = 0; ; attempt++) {
-			const response = await send(method, path);
+			const lastAttempt = attempt === MAX_RETRIES;
+			let response: Response;
+			try {
+				response = await send(method, path);
+			} catch (error) {
+				if (lastAttempt) {
+					throw error;
+				}
+				await sleep(MS_PER_SECOND);
+				continue;
+			}
 			if (response.ok) {
 				return response;
 			}
-			if (response.status !== 429 || attempt === MAX_RATE_LIMIT_RETRIES) {
+			const passing = response.status === 429 || response.status >= 500;
+			if (!passing || lastAttempt) {
 				throw new Error(
 					`Resend error on ${method} ${path}: ${response.status} - ${await response.text()}`,
 				);
