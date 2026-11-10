@@ -551,7 +551,11 @@ describe("computeSelfRefundEligibility", () => {
 		"repeat top-up boundary with $credits remaining",
 		async ({ credits, eligible }) => {
 			await seedOrg({ credits });
-			await seedTransaction({ createdAt: daysAgo(5) });
+			// A repeat top-up is a separate payment, so it has its own intent.
+			await seedTransaction({
+				createdAt: daysAgo(5),
+				stripePaymentIntentId: "pi_test_previous",
+			});
 			const latest = await seedTransaction();
 			expect(await getEligibility(latest.id)).toEqual(
 				eligible
