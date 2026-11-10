@@ -2,7 +2,7 @@ import { Decimal } from "decimal.js";
 import Stripe from "stripe";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, pool, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getDevPlanCreditsLimit } from "@llmgateway/shared";
 
@@ -538,28 +538,36 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 	});
 
 	test("holds the organization row from its read to the reset", async () => {
-		// A second connection asks for the row without waiting. While the
-		// renewal holds it, usage cannot settle between the read and the reset.
+		// A second connection, opened up front, asks for a key-share lock without
+		// waiting. Only the renewal's own row lock refuses that; the foreign-key
+		// lock of its insert and the reset update would let it through.
+		const lockNotAvailable = "55P03";
+		const client = await pool.connect();
 		let probe: Promise<string> | undefined;
 		const transaction = interceptRenewalTransaction({
 			afterRead: () => {
-				probe ??= db
-					.select({ id: tables.organization.id })
-					.from(tables.organization)
-					.where(eq(tables.organization.id, ORG_ID))
-					.for("update", { noWait: true })
+				probe ??= client
+					.query(
+						"select 1 from organization where id = $1 for key share nowait",
+						[ORG_ID],
+					)
 					.then(
 						() => "row was free",
 						(error: unknown) =>
-							String(error instanceof Error ? (error.cause ?? error) : error),
+							error instanceof Error && "code" in error
+								? String(error.code)
+								: "unknown error",
 					);
 			},
 		});
 
-		await renewProOrg({ limit: PRO_ALLOTMENT, used: "0" });
-		transaction.mockRestore();
-
-		expect(await probe).toContain("could not obtain lock");
+		try {
+			await renewProOrg({ limit: PRO_ALLOTMENT, used: "0" });
+			expect(await probe).toBe(lockNotAvailable);
+		} finally {
+			transaction.mockRestore();
+			client.release();
+		}
 	});
 
 	test("applies a scheduled downgrade at renewal: switches tier and grants the lower allotment", async () => {

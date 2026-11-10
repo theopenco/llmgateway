@@ -4,7 +4,7 @@ import { formatDistanceToNowStrict } from "date-fns";
 import { CalendarDays, Gem, Timer } from "lucide-react";
 import Link from "next/link";
 
-import { formatUsd as formatAmount } from "@/lib/utils";
+import { formatUsd } from "@/lib/utils";
 
 import {
 	DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
@@ -66,10 +66,6 @@ function toneFor(percentage: number, overflowCovering: boolean): Tone {
 		return overflowCovering ? "over" : "exhausted";
 	}
 	return percentage > 80 ? "low" : "normal";
-}
-
-function formatUsd(value: number) {
-	return `$${value.toFixed(value % 1 === 0 && value >= 100 ? 0 : 2)}`;
 }
 
 function Ring({ percentage, tone }: { percentage: number; tone: Tone }) {
@@ -315,7 +311,7 @@ export function AllowanceWindows({
 					{Math.round(DEV_PLAN_RENEWAL_ROLLOVER_PERCENT * 100)}% of the monthly
 					allowance of the plan you renew on. If you renewed now:{" "}
 					<span className="font-medium tabular-nums text-foreground">
-						{formatAmount(monthly.carryOver)}
+						{formatUsd(monthly.carryOver)}
 					</span>
 					.
 				</p>
