@@ -780,10 +780,11 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "deepinfra",
-				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
-				deactivatedAt: new Date("2026-11-06"),
-				inputPrice: "0.08e-6",
-				cachedInputPrice: "0.016e-6",
+				// The original April weights; DeepInfra lists the 0731 GA build
+				// separately as `DeepSeek-V4-Flash-0731`.
+				externalId: "deepseek-ai/DeepSeek-V4-Flash",
+				inputPrice: "0.09e-6",
+				cachedInputPrice: "0.018e-6",
 				outputPrice: "0.18e-6",
 				requestPrice: "0",
 				contextSize: 1000000,
@@ -793,10 +794,32 @@ export const deepseekModels = [
 				reasoning: true,
 				// DeepInfra keeps thinking off unless an effort is requested, and
 				// takes `none` to keep it off, exactly like its V4 Pro deployment.
-				reasoningEfforts: ["none", "low", "high", "max"],
+				reasoningEfforts: ["none", "low", "medium", "high", "max"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+			{
+				providerId: "inference.net",
+				// The original April weights; inference.net lists the 0731 GA build
+				// separately as `deepseek-v4-flash-0731`.
+				externalId: "deepseek-v4-flash",
+				inputPrice: "0.23e-6",
+				cachedInputPrice: "0.0028e-6",
+				outputPrice: "0.62e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 384000,
+				streaming: true,
+				// Never returns reasoning: `reasoning_effort`, `reasoning` and
+				// `thinking` are all accepted and ignored.
+				reasoning: false,
+				vision: false,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 			{
 				providerId: "bytedance",
