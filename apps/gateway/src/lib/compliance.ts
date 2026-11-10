@@ -277,7 +277,9 @@ export function getCatalogueMappingDataPolicy(
 	const modelMappings = models.find((model) => model.id === modelId)
 		?.providers as readonly ProviderModelMapping[] | undefined;
 	const byModel = modelMappings?.find(
-		(mapping) => mapping.providerId === providerId,
+		(mapping) =>
+			mapping.providerId === providerId &&
+			(!externalId || mapping.externalId === externalId),
 	);
 	if (byModel) {
 		return byModel.dataPolicy;

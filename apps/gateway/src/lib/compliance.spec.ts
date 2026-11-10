@@ -277,6 +277,13 @@ describe("mapping data policy overrides", () => {
 		expect(
 			getCatalogueMappingDataPolicy("anthropic", "claude-fable-5-2"),
 		).toBeUndefined();
+		expect(
+			getCatalogueMappingDataPolicy(
+				"aws-bedrock",
+				"claude-fable-5-2",
+				"some-other-model",
+			),
+		).toBeUndefined();
 	});
 
 	it("keeps the provider compliant when the policy allows retention", () => {
