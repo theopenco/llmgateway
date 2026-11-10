@@ -9,6 +9,7 @@ const REPLY_TO = "contact@llmgateway.io";
 const DAY_MS = 86_400_000;
 const PER_MILLION = 1_000_000;
 const MIN_PRICE_DECIMALS = 2;
+const MAX_PRICE_DECIMALS = 6;
 // What the database stores for a name or description nobody filled in.
 const EMPTY_TEXT = "(empty)";
 
@@ -148,7 +149,11 @@ function inWindow(time: number, window: DigestWindow): boolean {
 
 /** A per-token price as dollars per million tokens: `4e-6` reads `$4`. */
 export function formatPerMillion(price: string): string {
-	const value = new Decimal(price).times(PER_MILLION);
+	// Six places keep every real price exact and drop the float noise a few
+	// stored prices carry.
+	const value = new Decimal(price)
+		.times(PER_MILLION)
+		.toDecimalPlaces(MAX_PRICE_DECIMALS);
 	const decimals = value.isInteger()
 		? 0
 		: Math.max(value.decimalPlaces(), MIN_PRICE_DECIMALS);

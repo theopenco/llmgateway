@@ -341,6 +341,8 @@ test("prices and context sizes read the way the site prints them", () => {
 	expect(formatPerMillion("0.075e-6")).toBe("$0.075");
 	expect(formatPerMillion("0.0375e-6")).toBe("$0.0375");
 	expect(formatPerMillion("1e-10")).toBe("$0.0001");
+	expect(formatPerMillion("0.0000021899999999999998")).toBe("$2.19");
+	expect(formatPerMillion("0.00000055")).toBe("$0.55");
 	expect(formatContext(1_048_576)).toBe("1M context");
 	expect(formatContext(2_000_000)).toBe("2M context");
 	expect(formatContext(200_000)).toBe("200K context");
