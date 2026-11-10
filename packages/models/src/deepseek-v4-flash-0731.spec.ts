@@ -55,7 +55,7 @@ describe("DeepSeek V4 Flash July snapshot migration", () => {
 			const { deactivatedAt, ...metadata } = root.providers.find(
 				(mapping) => mapping.providerId === providerId,
 			)!;
-			expect(deactivatedAt).toEqual(new Date("2026-11-06"));
+			expect(deactivatedAt).toEqual(new Date("2026-11-17"));
 			expect(
 				snapshot()?.providers.find(
 					(mapping) => mapping.providerId === providerId,
@@ -65,7 +65,7 @@ describe("DeepSeek V4 Flash July snapshot migration", () => {
 	);
 
 	test("keeps the root only on deployments serving the original weights", () => {
-		expect(live(root.providers)).toEqual(original);
+		expect(live(root.providers, new Date("2026-11-17"))).toEqual(original);
 		const mapping = (providerId: string) =>
 			root.providers.find((m) => m.providerId === providerId);
 		expect(mapping("deepinfra")?.externalId).toBe(
@@ -76,7 +76,7 @@ describe("DeepSeek V4 Flash July snapshot migration", () => {
 			snapshot()?.providers.find((m) => m.providerId === "deepinfra")
 				?.externalId,
 		).toBe("deepseek-ai/DeepSeek-V4-Flash-0731");
-		expect(mapping("tencent")?.deactivatedAt).toEqual(new Date("2026-11-06"));
+		expect(mapping("tencent")?.deactivatedAt).toEqual(new Date("2026-11-17"));
 		expect(
 			snapshot()?.providers.find((m) => m.providerId === "tencent")?.externalId,
 		).toBe(mapping("tencent")?.externalId);
@@ -103,8 +103,8 @@ describe("DeepSeek V4 Flash July snapshot migration", () => {
 			["deepseek", "2026-09-10"],
 			["fireworks", "2026-10-19"],
 			["together-ai", "2026-10-22"],
-			["ranoai", "2026-11-06"],
-			["canopywave", "2026-11-06"],
+			["ranoai", "2026-11-17"],
+			["canopywave", "2026-11-17"],
 		] as const) {
 			expect(
 				root.providers.find((mapping) => mapping.providerId === providerId)
@@ -121,7 +121,7 @@ describe("DeepSeek V4 Flash July snapshot migration", () => {
 
 describe("snapshot availability", () => {
 	test("keeps all snapshot deployments and the full reference window", () => {
-		const now = new Date("2026-11-15");
+		const now = new Date("2026-11-17");
 		const model = snapshot()!;
 		expect(live(model.providers, now)).toEqual(migrated);
 		expect(live(root.providers, now)).toEqual(original);

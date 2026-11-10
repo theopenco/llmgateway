@@ -718,7 +718,7 @@ export const deepseekModels = [
 			{
 				providerId: "novita",
 				externalId: "deepseek/deepseek-v4-flash-0731",
-				deactivatedAt: new Date("2026-11-06"),
+				deactivatedAt: new Date("2026-11-17"),
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.028e-6",
 				outputPrice: "0.28e-6",
@@ -741,7 +741,7 @@ export const deepseekModels = [
 			{
 				providerId: "alibaba",
 				externalId: "deepseek-v4-flash-0731",
-				deactivatedAt: new Date("2026-11-06"),
+				deactivatedAt: new Date("2026-11-17"),
 				inputPrice: "0.2e-6",
 				cachedInputPrice: "0.04e-6",
 				outputPrice: "0.4e-6",
@@ -826,7 +826,7 @@ export const deepseekModels = [
 				// The GA deployment; `deepseek-v4-flash-260425` is the superseded
 				// preview.
 				externalId: "deepseek-v4-flash-ga-260731",
-				deactivatedAt: new Date("2026-11-06"),
+				deactivatedAt: new Date("2026-11-17"),
 				inputPrice: "0.44e-6",
 				cachedInputPrice: "0.014e-6",
 				outputPrice: "1.32e-6",
@@ -913,7 +913,7 @@ export const deepseekModels = [
 				// `input_cache_read` rate /v1/models advertises.
 				providerId: "ranoai",
 				externalId: "deepseek-v4-flash",
-				deactivatedAt: new Date("2026-11-06"),
+				deactivatedAt: new Date("2026-11-17"),
 				inputPrice: "0.14e-6",
 				outputPrice: "0.28e-6",
 				cachedInputPrice: "0.028e-6",
@@ -944,7 +944,7 @@ export const deepseekModels = [
 			{
 				providerId: "canopywave",
 				externalId: "deepseek/deepseek-v4-flash",
-				deactivatedAt: new Date("2026-11-06"),
+				deactivatedAt: new Date("2026-11-17"),
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "0.28e-6",
@@ -978,7 +978,7 @@ export const deepseekModels = [
 			{
 				providerId: "baidu",
 				externalId: "deepseek-v4-flash-0731",
-				deactivatedAt: new Date("2026-11-06"),
+				deactivatedAt: new Date("2026-11-17"),
 				inputPrice: "0.44e-6",
 				cachedInputPrice: "0.014e-6",
 				outputPrice: "1.32e-6",
@@ -1005,7 +1005,7 @@ export const deepseekModels = [
 			{
 				providerId: "tencent",
 				externalId: "deepseek-v4-flash-202605",
-				deactivatedAt: new Date("2026-11-06"),
+				deactivatedAt: new Date("2026-11-17"),
 				inputPrice: "0.15e-6",
 				cachedInputPrice: "0.003e-6",
 				outputPrice: "0.6e-6",
@@ -1054,7 +1054,7 @@ export const deepseekModels = [
 			{
 				providerId: "cloudflare",
 				externalId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
-				deactivatedAt: new Date("2026-11-06"),
+				deactivatedAt: new Date("2026-11-17"),
 				inputPrice: "0.44e-6",
 				cachedInputPrice: "0.014e-6",
 				outputPrice: "1.32e-6",
