@@ -57,7 +57,6 @@ export const curatedCategoryModelIds: Record<
 		"minimax-text-01",
 		"mistral-large-2512",
 		"mistral-small-2506",
-		"llama-3.3-70b-instruct",
 		"llama-4-maverick-17b-instruct",
 		"claude-sonnet-5-5",
 		"claude-sonnet-5",
