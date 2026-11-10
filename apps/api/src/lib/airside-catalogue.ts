@@ -1,5 +1,3 @@
-import { HTTPException } from "hono/http-exception";
-
 import {
 	and,
 	catalogueMetadataColumns,
@@ -15,7 +13,6 @@ import {
 	expandAllProviderRegions,
 	models as catalogueModels,
 	staticCatalogueMapsModel,
-	getRetiredModelReplacement,
 } from "@llmgateway/models";
 
 import type { AirsideRegionPrice } from "@llmgateway/db";
@@ -56,11 +53,6 @@ export async function materializeAirsideModel(
 	filing: FilingPrices,
 	transaction?: CatalogueTransaction,
 ): Promise<void> {
-	if (getRetiredModelReplacement(model.modelName)) {
-		throw new HTTPException(400, {
-			message: "This model ID is retired; file the canonical snapshot instead.",
-		});
-	}
 	const upsert = async (tx: CatalogueTransaction) => {
 		// The worker sync normally creates provider rows at boot; make the
 		// materialization self-sufficient for fresh installs and tests.
@@ -419,11 +411,6 @@ export async function setAirsideModelServing(
 	serving: boolean,
 	transaction: CatalogueTransaction,
 ): Promise<void> {
-	if (serving && getRetiredModelReplacement(model.modelName)) {
-		throw new HTTPException(400, {
-			message: "This model ID is retired; file the canonical snapshot instead.",
-		});
-	}
 	await transaction
 		.update(tables.modelProviderMapping)
 		.set({ status: serving ? "active" : "inactive" })

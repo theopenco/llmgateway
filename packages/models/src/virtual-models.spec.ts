@@ -48,17 +48,7 @@ describe("virtual models", () => {
 			}
 			for (const alias of model.aliases ?? []) {
 				expect(getVirtualModelTarget(alias)).toBe(model);
-				const historical = (models as ModelDefinition[]).find(
-					(m) => m.id === alias,
-				);
-				if (historical) {
-					expect(
-						historical.providers.every(
-							(mapping) =>
-								mapping.deactivatedAt && mapping.deactivatedAt <= new Date(),
-						),
-					).toBe(true);
-				}
+				expect(models.some((m) => m.id === alias)).toBe(false);
 			}
 		}
 	});
@@ -123,36 +113,4 @@ it("keeps virtual policy checks tied to the current canonical cut", () => {
 			}),
 		).toBe(true);
 	}
-});
-
-it("replaces only retired catalogue rows without changing historical or custom identities", () => {
-	const old = {
-		id: "deepseek-v4-flash",
-		mappings: [{ providerId: "old-carrier" }],
-	};
-	const snapshot = {
-		id: "deepseek-v4-flash-0731",
-		mappings: [{ providerId: "snapshot-carrier", inputPrice: "3e-6" }],
-	};
-	const expanded = expandVirtualModels([old, snapshot]);
-	expect(expanded.filter((row) => row.id === old.id)).toEqual([
-		{
-			...snapshot,
-			id: old.id,
-			name: old.id,
-			aliases: [],
-			virtualModelTarget: snapshot.id,
-		},
-	]);
-	expect(expandVirtualModels(expanded)).toEqual(expanded);
-	const custom = { ...old, source: "custom" as const };
-	expect(expandVirtualModels([custom])).toEqual([custom]);
-	expect(models.find((model) => model.id === old.id)?.id).toBe(old.id);
-	expect(getVirtualModelTarget(old.id, new Date("2026-11-05"))).toBeUndefined();
-	for (const id of [old.id, snapshot.id]) {
-		expect(getModelDenyRefs(id).sort()).toEqual([old.id, snapshot.id].sort());
-	}
-	expect(
-		getRequestedModelAlias(`alibaba/${old.id}:singapore`, snapshot.id),
-	).toBe(old.id);
 });

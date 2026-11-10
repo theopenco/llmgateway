@@ -20,11 +20,10 @@ function liveMappings(model: ModelDefinition, now: number) {
 	);
 }
 
-test("July snapshot replaces the retired root in its curated use cases", () => {
-	for (const [category, ids] of Object.entries(curatedCategoryModelIds)) {
-		expect(ids.has("deepseek-v4-flash")).toBe(false);
+test("July snapshot retains the root's curated use cases", () => {
+	for (const ids of Object.values(curatedCategoryModelIds)) {
 		expect(ids.has("deepseek-v4-flash-0731")).toBe(
-			category === "roleplay" || category === "translation",
+			ids.has("deepseek-v4-flash"),
 		);
 	}
 });

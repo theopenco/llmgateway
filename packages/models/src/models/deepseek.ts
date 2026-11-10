@@ -1087,8 +1087,6 @@ export const deepseekModels = [
 	},
 	{
 		id: "deepseek-v4-flash-0731",
-		aliases: ["deepseek-v4-flash"],
-		aliasesAreVirtual: true,
 		name: "DeepSeek V4 Flash 0731",
 		description:
 			"The July 31 snapshot of DeepSeek V4 Flash with extended context and reasoning.",

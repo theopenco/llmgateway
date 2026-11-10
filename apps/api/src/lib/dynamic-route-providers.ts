@@ -3,7 +3,6 @@ import {
 	models,
 	providers,
 	type ProviderModelMapping,
-	getRetiredModelReplacement,
 } from "@llmgateway/models";
 
 /** Static model choices with their currently active catalogue and Airside providers. */
@@ -38,50 +37,48 @@ export async function getDynamicRouteProviderOptions() {
 			.filter((id) => !models.some((model) => model.id === id))
 			.map((id) => ({ id, providers: [] })),
 	];
-	return definitions
-		.filter((model) => !getRetiredModelReplacement(model.id))
-		.map((model) => {
-			const owned = listingsByModel.get(model.id) ?? [];
-			const ownedByProvider = new Map<string, (typeof listings)[number]>();
-			for (const listing of owned) {
-				if (!ownedByProvider.has(listing.providerId)) {
-					ownedByProvider.set(listing.providerId, listing);
-				}
+	return definitions.map((model) => {
+		const owned = listingsByModel.get(model.id) ?? [];
+		const ownedByProvider = new Map<string, (typeof listings)[number]>();
+		for (const listing of owned) {
+			if (!ownedByProvider.has(listing.providerId)) {
+				ownedByProvider.set(listing.providerId, listing);
 			}
-			const ids = new Set(
-				(model.providers as ProviderModelMapping[])
-					.filter(
-						(mapping) =>
-							providersById.has(mapping.providerId) &&
-							!ownedByProvider.has(mapping.providerId) &&
-							(!mapping.deactivatedAt || mapping.deactivatedAt > now),
-					)
-					.map((mapping) => mapping.providerId as string),
-			);
-			for (const listing of owned) {
-				if (
-					listing.status === "active" &&
-					(!listing.deactivatedAt || listing.deactivatedAt > now) &&
-					(providersById.has(listing.providerId) ||
-						carriers.has(listing.providerId))
-				) {
-					ids.add(listing.providerId);
-				}
+		}
+		const ids = new Set(
+			(model.providers as ProviderModelMapping[])
+				.filter(
+					(mapping) =>
+						providersById.has(mapping.providerId) &&
+						!ownedByProvider.has(mapping.providerId) &&
+						(!mapping.deactivatedAt || mapping.deactivatedAt > now),
+				)
+				.map((mapping) => mapping.providerId as string),
+		);
+		for (const listing of owned) {
+			if (
+				listing.status === "active" &&
+				(!listing.deactivatedAt || listing.deactivatedAt > now) &&
+				(providersById.has(listing.providerId) ||
+					carriers.has(listing.providerId))
+			) {
+				ids.add(listing.providerId);
 			}
-			return {
-				modelId: model.id as string,
-				providers: [...ids].map((id) => {
-					const definition = providersById.get(id);
-					return {
+		}
+		return {
+			modelId: model.id as string,
+			providers: [...ids].map((id) => {
+				const definition = providersById.get(id);
+				return {
+					id,
+					name:
+						carriers.get(id)?.customName ??
+						ownedByProvider.get(id)?.provider?.name ??
+						definition?.name ??
 						id,
-						name:
-							carriers.get(id)?.customName ??
-							ownedByProvider.get(id)?.provider?.name ??
-							definition?.name ??
-							id,
-						color: definition?.color,
-					};
-				}),
-			};
-		});
+					color: definition?.color,
+				};
+			}),
+		};
+	});
 }

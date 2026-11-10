@@ -220,55 +220,8 @@ describe("sync-models", () => {
 			mappingCountBeforeResync = (await db.select().from(modelProviderMapping))
 				.length;
 
-			await db
-				.update(model)
-				.set({ status: "inactive" })
-				.where(eq(model.id, "gpt-4o-mini"));
-			await db
-				.update(model)
-				.set({ status: "active" })
-				.where(eq(model.id, "deepseek-v4-flash"));
-			await db.insert(modelProviderMapping).values({
-				id: "retired-root-airside-only",
-				modelId: "deepseek-v4-flash",
-				providerId: "retired-sync-provider",
-				source: "airside",
-				externalId: "historical-deployment",
-				inputPrice: "7e-6",
-				status: "active",
-			});
 			await syncProvidersAndModels();
 		}, SYNC_TIMEOUT_MS);
-
-		it("retires replaced canonical rows without reviving unrelated inactive models", async () => {
-			expect(
-				await db.query.model.findFirst({ where: { id: "gpt-4o-mini" } }),
-			).toMatchObject({ status: "inactive" });
-			expect(
-				await db.query.model.findFirst({ where: { id: "deepseek-v4-flash" } }),
-			).toMatchObject({ status: "inactive" });
-			expect(
-				await db.query.model.findFirst({
-					where: { id: "deepseek-v4-flash-0731" },
-				}),
-			).toMatchObject({ status: "active" });
-			const historical = await db.query.modelProviderMapping.findMany({
-				where: { modelId: "deepseek-v4-flash" },
-			});
-			expect(historical.length).toBeGreaterThan(12);
-			expect(historical.every((mapping) => mapping.status === "inactive")).toBe(
-				true,
-			);
-			expect(
-				historical.find(
-					(mapping) => mapping.id === "retired-root-airside-only",
-				),
-			).toMatchObject({
-				source: "airside",
-				inputPrice: "0.000007",
-				externalId: "historical-deployment",
-			});
-		});
 
 		it("retires removed catalogue mappings while retaining Airside and history", async () => {
 			const catalogue = await db.query.modelProviderMapping.findFirst({

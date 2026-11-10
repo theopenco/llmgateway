@@ -2506,7 +2506,7 @@ describe("api", () => {
 					Authorization: "Bearer real-token-devpass-no-training-route",
 				},
 				body: JSON.stringify({
-					model: "deepseek-v4-flash",
+					model: "deepseek-v4-flash-0731",
 					messages: [{ role: "user", content: "Use no-training routing" }],
 				}),
 			});

@@ -189,30 +189,3 @@ describe("parseModelInput dynamic routes", () => {
 		expect(() => parseModelInput("/gpt-4o-mini")).toThrow(/configured name/);
 	});
 });
-
-describe("retired canonical aliases", () => {
-	it.each([
-		"deepseek-v4-flash",
-		"alibaba/deepseek-v4-flash",
-		"alibaba/deepseek-v4-flash:singapore",
-	])("routes %s to the replacement snapshot", (input) => {
-		const result = parseModelInput(input);
-		expect(result.requestedModel).toBe("deepseek-v4-flash-0731");
-		expect(result.requestedProvider).toBe(
-			input.includes("/") ? "alibaba" : undefined,
-		);
-		expect(result.requestedRegion).toBe(
-			input.includes(":") ? "singapore" : undefined,
-		);
-	});
-	it("keeps a Tencent pin on the replacement snapshot", () => {
-		const result = parseModelInput("tencent/deepseek-v4-flash");
-		expect(result.requestedModel).toBe("deepseek-v4-flash-0731");
-		expect(result.requestedProvider).toBe("tencent");
-	});
-	it("rejects a legacy pin whose provider does not serve the replacement", () => {
-		expect(() => parseModelInput("ranoai/deepseek-v4-flash")).toThrow(
-			/does not support/,
-		);
-	});
-});

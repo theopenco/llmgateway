@@ -10,8 +10,6 @@ import {
 	expandProviderRegions,
 	models,
 	providers,
-	getRetiredModelReplacement,
-	resolveModelDefinition,
 } from "@llmgateway/models";
 
 import {
@@ -49,16 +47,14 @@ export async function resolveAirsideModel(
 		if (modelInput.includes(":")) {
 			return null;
 		}
-		const staticModel =
-			resolveModelDefinition(modelInput) ??
-			(models as readonly ModelDefinition[]).find((model) =>
-				model.aliases?.includes(modelInput),
-			);
+		const staticModel = models.find(
+			(m) =>
+				m.id === modelInput ||
+				("aliases" in m &&
+					(m.aliases as readonly string[] | undefined)?.includes(modelInput)),
+		);
 		if (staticModel) {
-			if (
-				staticModel.id !== modelInput &&
-				!getRetiredModelReplacement(modelInput)
-			) {
+			if (staticModel.id !== modelInput) {
 				const exactListings = (await findAirsidePairsByBareName(modelInput))
 					.listings;
 				if (exactListings.length > 0) {
@@ -139,10 +135,6 @@ export async function resolveAirsideModel(
 	// through admin-approved filings, so the handover cannot reprice traffic
 	// on its own.
 
-	const replacement = getRetiredModelReplacement(modelName);
-	if (replacement) {
-		modelName = replacement.id;
-	}
 	let owned = await findAirsidePairsByBareName(modelName);
 	if (!owned.listings.length && !owned.unlisted.length) {
 		const canonical = (models as readonly ModelDefinition[]).find((model) =>
@@ -157,11 +149,6 @@ export async function resolveAirsideModel(
 		(candidate) => candidate.mapping.providerId === providerCandidate,
 	);
 	if (!listed) {
-		if (replacement && !isCatalogueProvider) {
-			throw new HTTPException(400, {
-				message: `Provider ${providerCandidate} does not support model ${modelName}`,
-			});
-		}
 		if (owned.unlisted.length === 0 && owned.listings.length === 0) {
 			return null;
 		}
