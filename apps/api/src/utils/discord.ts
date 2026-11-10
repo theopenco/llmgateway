@@ -524,22 +524,26 @@ export async function notifyEnterpriseContact(args: {
 }
 
 /**
- * A carrier asking to be added to its shared channel with our crew. Lands in
- * the provider-request channel so whoever handles listings can send the
- * invite to the address the carrier verified.
+ * A carrier clicked "Request an invite" for its shared channel with our crew.
+ * Nothing is sent to the carrier; whoever handles listings adds the verified
+ * address by hand. The fields carry dates so an established carrier does not
+ * read as a new signup.
  */
 export async function notifyAirsideCrewInvite(args: {
 	companyName: string;
 	email: string;
 	website?: string | null;
+	registered: string;
 	carriers: string[];
 	listingFee: string;
 }): Promise<void> {
-	const { companyName, email, website, carriers, listingFee } = args;
+	const { companyName, email, website, registered, carriers, listingFee } =
+		args;
 
 	await sendDiscordNotification(
 		{
-			content: "\u{1F6E9}\uFE0F Airside carrier wants a crew channel invite.",
+			content:
+				"\u{1F6E9}\uFE0F An Airside carrier asked to join its crew channel. Add the address below by hand.",
 			embeds: [
 				{
 					title: "Airside Crew Invite Request",
@@ -550,6 +554,7 @@ export async function notifyAirsideCrewInvite(args: {
 						...(website
 							? [{ name: "Website", value: website, inline: false }]
 							: []),
+						{ name: "Registered", value: registered, inline: true },
 						{ name: "Listing fee", value: listingFee, inline: true },
 						{
 							name: "Carriers",

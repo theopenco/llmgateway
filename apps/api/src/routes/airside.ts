@@ -1437,20 +1437,46 @@ const requestCrewInvite = createRoute({
 	},
 });
 
-function describeListingFee(company: {
-	paymentStatus: "unpaid" | "paid";
-	paidAt: Date | null;
-	listingInviteCode: string | null;
-}): string {
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// "2026-10-20 (21 days ago)", so an old event never reads as a fresh one.
+function describeDay(date: Date, now: Date): string {
+	const days = Math.floor((now.getTime() - date.getTime()) / DAY_MS);
+	const ago =
+		days <= 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`;
+	return `${date.toISOString().slice(0, 10)} (${ago})`;
+}
+
+function describeListingFee(
+	company: {
+		paymentStatus: "unpaid" | "paid";
+		paidAt: Date | null;
+		listingInviteCode: string | null;
+	},
+	now: Date,
+): string {
 	if (company.paymentStatus === "unpaid") {
 		return airsideListingFeeRequired() ? "❌ Not paid" : "Not required";
 	}
-	if (company.listingInviteCode) {
-		return "✅ Waived (invite code)";
-	}
-	return company.paidAt
-		? `✅ Paid on ${company.paidAt.toISOString().slice(0, 10)}`
-		: "✅ Paid";
+	const when = company.paidAt ? ` on ${describeDay(company.paidAt, now)}` : "";
+	return company.listingInviteCode
+		? `✅ Waived with invite code${when}`
+		: `✅ Paid via Stripe${when}`;
+}
+
+function describeCarrier(
+	claim: {
+		providerId: string;
+		kind: string;
+		status: string;
+		createdAt: Date;
+		reviewedAt: Date | null;
+	},
+	now: Date,
+): string {
+	const since = claim.status === "pending" ? claim.createdAt : claim.reviewedAt;
+	const label = `${claim.providerId} (${claim.kind}): ${claim.status}`;
+	return since ? `${label} since ${describeDay(since, now)}` : label;
 }
 
 /**
@@ -1469,14 +1495,16 @@ airside.openapi(requestCrewInvite, async (c) => {
 	if (!company) {
 		throw new HTTPException(404, { message: "Provider company not found" });
 	}
+	const now = new Date();
 	await notifyAirsideCrewInvite({
 		companyName: company.name,
 		email: user.email,
 		website: company.website,
+		registered: describeDay(company.createdAt, now),
 		carriers: company.claims
 			.filter((claim) => claim.status !== "revoked")
-			.map((claim) => `${claim.providerId} (${claim.kind}, ${claim.status})`),
-		listingFee: describeListingFee(company),
+			.map((claim) => describeCarrier(claim, now)),
+		listingFee: describeListingFee(company, now),
 	});
 	return c.json({ email: user.email });
 });
