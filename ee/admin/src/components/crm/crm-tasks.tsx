@@ -38,11 +38,40 @@ function bucketOf(task: Task, now: number): string {
 
 const ORDER = ["Overdue", "Today", "This week", "Later", "No due date"];
 
+const SNOOZES = [
+	{ label: "Tomorrow", workdays: 1, target: "the next working day" },
+	{ label: "Next week", workdays: 5, target: "next week" },
+];
+
+const SATURDAY = 6;
+const SUNDAY = 0;
+
+/** 09:00 local time, `workdays` working days from today. */
+function workdaysFromNow(workdays: number): Date {
+	const due = new Date();
+	due.setHours(9, 0, 0, 0);
+	let remaining = workdays;
+	while (remaining > 0) {
+		due.setDate(due.getDate() + 1);
+		const weekday = due.getDay();
+		if (weekday !== SATURDAY && weekday !== SUNDAY) {
+			remaining--;
+		}
+	}
+	return due;
+}
+
+const dueDay = new Intl.DateTimeFormat(undefined, {
+	weekday: "short",
+	month: "short",
+	day: "numeric",
+});
+
 export function CrmTasks() {
 	const $api = useApi();
 	const queryClient = useQueryClient();
 	const { data, isLoading } = $api.useQuery("get", "/admin/crm/tasks");
-	const complete = $api.useMutation(
+	const update = $api.useMutation(
 		"patch",
 		"/admin/crm/activities/{activityId}",
 		{
@@ -106,7 +135,7 @@ export function CrmTasks() {
 									type="button"
 									aria-label="Mark done"
 									onClick={() => {
-										complete.mutate(
+										update.mutate(
 											{
 												params: { path: { activityId: t.id } },
 												body: { completed: true },
@@ -145,6 +174,36 @@ export function CrmTasks() {
 								>
 									{relativeDays(t.dueAt)}
 								</span>
+								<div className="flex shrink-0 items-center gap-1">
+									{SNOOZES.map((snooze) => (
+										<button
+											key={snooze.label}
+											type="button"
+											aria-label={`Move "${t.subject}" to ${snooze.target}`}
+											disabled={update.isPending}
+											onClick={() => {
+												const due = workdaysFromNow(snooze.workdays);
+												update.mutate(
+													{
+														params: { path: { activityId: t.id } },
+														body: { dueAt: due.toISOString() },
+													},
+													{
+														onSuccess: () =>
+															toast.success(
+																`Follow-up moved to ${dueDay.format(due)}`,
+															),
+														onError: () =>
+															toast.error("Could not move the follow-up"),
+													},
+												);
+											}}
+											className="rounded-md border border-border/70 px-2 py-0.5 text-[11px] text-muted-foreground transition hover:border-foreground/40 hover:text-foreground disabled:opacity-50"
+										>
+											{snooze.label}
+										</button>
+									))}
+								</div>
 							</li>
 						))}
 					</ul>
