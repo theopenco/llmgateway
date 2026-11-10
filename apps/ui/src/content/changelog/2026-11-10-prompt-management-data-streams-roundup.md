@@ -3,7 +3,7 @@ id: "124"
 slug: "prompt-management-data-streams-roundup"
 date: "2026-11-10"
 title: "Prompt Management, Data Streams & More"
-summary: "A catch-up on the last five weeks: prompts with versions and labels you call by name, Enterprise data streams to your SIEM, the cost of a request in the reply on every HTTP endpoint, a public status page for each provider, model price change alerts, rate limits on your own provider keys, GIF output and complexity control on GPT Image 2.6, and image input and MCP tools on the Realtime API."
+summary: "A catch-up on the last six weeks: prompts with versions and labels you call by name, Enterprise data streams to your SIEM, the cost of a request in the reply on every HTTP endpoint, a public status page for each provider, model price change alerts, and rate limits on your own provider keys."
 tags: ["llmgateway", "devpass"]
 image:
   src: "/changelog/prompt-management-data-streams-roundup.png"
@@ -12,7 +12,7 @@ image:
   height: 1024
 ---
 
-A catch-up on the notable changes since early October that never got an entry of their own. Two are new products; the rest make existing endpoints and the dashboard more exact.
+A catch-up on the notable changes since late September that never got an entry of their own. Two are new products; the rest make existing endpoints and the dashboard more exact.
 
 ## Prompt Management
 
@@ -75,6 +75,8 @@ Upstream accounts are usually limited per key and in tokens. Each provider key y
 | **Soft**   | Sessions already pinned to the key's provider                  |
 | **Lax**    | Pinned sessions and requests that name the provider explicitly |
 
+In every mode, a conversation that replays encrypted reasoning issued by a key keeps that key.
+
 ## Images: GIF Output, Complexity and Edit Markup
 
 Image requests gain three options. GIF output and complexity work on GPT Image 2.6 Sunburst and Flare, for generations and edits; markup works on OpenAI and Azure image edits where the model supports it.
@@ -101,7 +103,7 @@ Realtime sessions on models with vision accept `input_image` content, as a data 
 ## Caching
 
 - **Automatic cache duration.** In Automatic cache mode, a project can keep provider prompt caches for **1 hour** instead of 5 minutes where the model and provider support it, for requests without their own cache markers. One-hour cache writes cost more than 5-minute ones. Set it under Project Settings → Caching, or in DevPass settings.
-- **Custom providers.** Each custom provider key has a **Forward prompt-cache markers** switch, on by default for new keys, so models behind your own OpenAI-compatible endpoint receive cache breakpoints.
+- **Custom providers.** Each custom provider key has a **Forward prompt-cache markers** switch, on by default for new keys, so cache markers your client sends reach models behind your own OpenAI-compatible endpoint. Custom providers are an Enterprise feature.
 
 ## Dashboard and API
 
@@ -114,7 +116,7 @@ Realtime sessions on models with vision accept `input_image` content, as a data 
 
 ## DevPass
 
-The Usage page shows the daily usage cap, the weekly premium allowance and the monthly allowance as one tile each, with the exact reset time. The daily cap spreads the allowance across the cycle: each rolling 24 hours can use 8% of the monthly allowance on Lite, 9% on Pro and 10% on Max, across all models, and pay-as-you-go overflow lifts it. Cancelling now starts with one question and answers with an option that fits the reason.
+The Usage page shows the daily usage cap, the weekly premium allowance and the monthly allowance as one tile each, with the exact reset time. The daily cap spreads the allowance across the cycle: each rolling 24 hours can use 8% of the monthly allowance on Lite, 9% on Pro and 10% on Max, across all models, and pay-as-you-go overflow lifts it. Cancelling now starts with one question and, where there is one, offers an option that fits the reason.
 
 ---
 

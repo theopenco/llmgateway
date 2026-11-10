@@ -685,7 +685,7 @@ claude`,
 			{ title: "OpenAI format", description: "Use the images API you know." },
 			{
 				title: "Edits",
-				description: "Change images with a prompt or a markup.",
+				description: "Change images with a prompt, guided by a markup.",
 			},
 			{ title: "In chat", description: "Generate images mid-conversation." },
 			{
@@ -869,9 +869,9 @@ claude`,
 		title: "Realtime API",
 		subtitle: "Speech-to-speech over WebSockets",
 		description:
-			"Low-latency voice conversations over the OpenAI-compatible /v1/realtime WebSocket endpoint, with image input and MCP tools.",
+			"Low-latency voice conversations over the OpenAI-compatible /v1/realtime WebSocket endpoint, with image input and MCP tools on models that support them.",
 		longDescription:
-			"Stream audio in and out with server-side voice activity detection, input transcription, function calling, image input and native MCP tools, using the same event protocol as the OpenAI Realtime API.",
+			"Stream audio in and out with server-side voice activity detection, input transcription and function calling, using the same event protocol as the OpenAI Realtime API. Models with vision take image input, and compatible providers take native MCP tools.",
 		icon: Mic,
 		category: "models",
 		docsPath: "/features/realtime",
@@ -888,7 +888,10 @@ claude`,
 		benefits: [
 			{ title: "Low latency", description: "Audio streams both ways." },
 			{ title: "Voice detection", description: "Server-side turn taking." },
-			{ title: "Tools and MCP", description: "Functions and MCP servers." },
+			{
+				title: "Tools and MCP",
+				description: "Functions, and MCP where supported.",
+			},
 			{ title: "Browser safe", description: "Short-lived client secrets." },
 		],
 		useCases: [
@@ -1343,7 +1346,7 @@ ws.on("message", (message) => console.log(JSON.parse(message.toString())));`,
 		description:
 			"Get typed, probabilistic decisions instead of generated text with the OpenAI-compatible /v1/decisions endpoint.",
 		longDescription:
-			"Define choice, yes/no and score questions. Decision models answer each with a typed value and a calibrated probability your code can branch on directly. Build and compare questions in Lounge's Decision Studio before you write code.",
+			"Define choice, yes/no and score questions. Decision models answer each with a typed value and a calibrated probability your code can branch on directly. Build questions and compare models in Lounge's Decision Studio before you write code.",
 		icon: Signpost,
 		category: "models",
 		docsPath: "/features/decisions",
