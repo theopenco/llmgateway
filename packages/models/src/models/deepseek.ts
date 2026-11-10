@@ -1206,6 +1206,55 @@ export const deepseekModels = [
 				jsonOutput: true,
 			},
 			{
+				providerId: "tencent",
+				// TokenHub's /v1/models names this dated Vendor Direct id
+				// "DeepSeek-V4-Flash 0731" (created 2026-07-31).
+				externalId: "deepseek-v4-flash-202605",
+				inputPrice: "0.15e-6",
+				cachedInputPrice: "0.003e-6",
+				outputPrice: "0.6e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.3e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.006e-6",
+					},
+					offPeak: {
+						inputPrice: "0.15e-6",
+						outputPrice: "0.6e-6",
+						cachedInputPrice: "0.003e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDaysUtc: [0, 6],
+				},
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				// Forced tool_choice 400s with "Thinking mode does not support this
+				// tool_choice" unless thinking is disabled.
+				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
+				supportsDeveloperRole: false,
+				jsonOutput: true,
+				jsonOutputSchema: false,
+			},
+			{
 				providerId: "cloudflare",
 				externalId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
 				inputPrice: "0.44e-6",

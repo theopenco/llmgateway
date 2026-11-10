@@ -19,6 +19,7 @@ const migrated = [
 	"deepinfra",
 	"bytedance",
 	"baidu",
+	"tencent",
 	"cloudflare",
 ];
 
@@ -76,7 +77,6 @@ describe("DeepSeek V4 Flash July snapshot migration", () => {
 			"together-ai",
 			"ranoai",
 			"canopywave",
-			"tencent",
 		]) {
 			expect(
 				root.providers.some((mapping) => mapping.providerId === providerId),

@@ -205,8 +205,13 @@ describe("retired canonical aliases", () => {
 			input.includes(":") ? "singapore" : undefined,
 		);
 	});
+	it("keeps a Tencent pin on the replacement snapshot", () => {
+		const result = parseModelInput("tencent/deepseek-v4-flash");
+		expect(result.requestedModel).toBe("deepseek-v4-flash-0731");
+		expect(result.requestedProvider).toBe("tencent");
+	});
 	it("rejects a legacy pin whose provider does not serve the replacement", () => {
-		expect(() => parseModelInput("tencent/deepseek-v4-flash")).toThrow(
+		expect(() => parseModelInput("ranoai/deepseek-v4-flash")).toThrow(
 			/does not support/,
 		);
 	});
