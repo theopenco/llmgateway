@@ -371,14 +371,14 @@ claude`,
 		docsPath: "/features/batch",
 		visual: {
 			kind: "feed",
-			title: "batch_abc123 · in_progress",
+			title: "batch_abc123 · completed",
 			items: [
 				{
 					title: "requests.jsonl uploaded",
 					meta: "50,000 lines",
 					tone: "info",
 				},
-				{ title: "Rate limited, waiting", meta: "429", tone: "warn" },
+				{ title: "Rate limited, waited", meta: "429", tone: "warn" },
 				{ title: "Provider outage, retried", meta: "attempt 2", tone: "error" },
 				{ title: "Output file ready", meta: "49,987 done", tone: "ok" },
 			],
@@ -665,7 +665,7 @@ claude`,
 		description:
 			"Generate and edit images through the OpenAI-compatible images API or in chat, with SVG and animated GIF output on models that support them.",
 		longDescription:
-			"Call /v1/images/generations and /v1/images/edits with any supported image model, or generate images inside a chat. Supported models return editable SVG or a looping GIF, and take a markup image to guide an edit. Same key, same billing, same logs.",
+			"Call /v1/images/generations and /v1/images/edits with any supported image model, or generate images inside a chat. Supported models return editable SVG or an animated GIF, and take a markup image to guide an edit. Same key, same billing, same logs.",
 		icon: ImageIcon,
 		category: "models",
 		docsPath: "/features/image-generation",
@@ -695,7 +695,10 @@ claude`,
 		],
 		useCases: [
 			{ title: "Marketing assets", description: "Heroes, thumbnails and ads" },
-			{ title: "Icons and stickers", description: "Editable SVG, looping GIF" },
+			{
+				title: "Icons and stickers",
+				description: "Editable SVG, animated GIF",
+			},
 			{ title: "In-app creation", description: "Let users generate images" },
 		],
 		codeExample: {
@@ -761,7 +764,7 @@ claude`,
 		description:
 			"Turn text into speech with voices from several providers through the OpenAI-compatible audio API.",
 		longDescription:
-			"Send text to /v1/audio/speech, pick a model and voice, and get audio back as it is generated or as a file. Ask for an SSE stream and the final event carries the usage and cost of the request.",
+			"Send text to /v1/audio/speech, pick a model and voice, and get audio back, streamed or as a file. Ask for an SSE stream and the final event carries the usage and cost of the request.",
 		icon: AudioLines,
 		category: "models",
 		docsPath: "/features/speech-generation",
@@ -1469,9 +1472,9 @@ ws.on("message", (message) => console.log(JSON.parse(message.toString())));`,
 		title: "Cost Breakdown",
 		subtitle: "The price of every request, in the response",
 		description:
-			"Every billed reply reports its cost in the usage object, on every endpoint: chat, embeddings, images, audio, search and video.",
+			"Billed replies report their cost in the usage object, well beyond chat: embeddings, images, audio, search and video.",
 		longDescription:
-			"Chat, messages, responses, embeddings, images, transcription, speech, rerank, OCR, search and video jobs all return usage.cost with an itemized breakdown, streaming included. Track spend per user or feature in code without querying the dashboard.",
+			"Chat, messages, responses, embeddings, images, transcription, speech (as an SSE stream), rerank, OCR, search and video jobs all return usage.cost with an itemized breakdown, streaming included. Track spend per user or feature in code without querying the dashboard.",
 		icon: Receipt,
 		category: "observability",
 		docsPath: "/features/cost-breakdown",
@@ -1494,7 +1497,7 @@ ws.on("message", (message) => console.log(JSON.parse(message.toString())));`,
 		},
 		benefits: [
 			{
-				title: "On every endpoint",
+				title: "Beyond chat",
 				description: "Chat, images, audio, search and more.",
 			},
 			{ title: "Itemized", description: "Input, output and cache costs." },
@@ -1736,9 +1739,9 @@ console.log(completion.usage?.cost);`,
 		title: "Provider Status Pages",
 		subtitle: "Is it them, or is it you?",
 		description:
-			"See each provider's official status next to the uptime LLM Gateway measures on real traffic, on a public page per provider.",
+			"See the uptime LLM Gateway measures for each provider on real traffic, next to the provider's own status feed where it publishes one.",
 		longDescription:
-			"Every provider has a status page: its current official status and components, incidents from the last 90 days, a 90-day daily uptime bar measured on gateway traffic, and the models that can fail over to another provider.",
+			"Every provider has a public status page: a 90-day daily uptime bar measured on gateway traffic and the models that can fail over to another provider, plus official status, components and incidents from the last 90 days where the provider publishes a feed.",
 		icon: HeartPulse,
 		category: "observability",
 		cta: { label: "See live status", href: "/status" },
@@ -1755,7 +1758,7 @@ console.log(completion.usage?.cost);`,
 		benefits: [
 			{
 				title: "Official status",
-				description: "Read from each provider's status page.",
+				description: "From the provider's own feed, where published.",
 			},
 			{
 				title: "Measured uptime",
