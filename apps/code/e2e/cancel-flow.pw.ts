@@ -6,28 +6,33 @@ import type { Page } from "@playwright/test";
 // seeded test admin owns a DevPass Pro workspace. Nothing here confirms a
 // cancellation or a tier change, so the suite can be re-run without reseeding.
 
-// The seeded admin is census-eligible, and the reminder opens over whatever
-// dashboard page is showing. Snooze it first so it cannot take focus mid-test;
-// a run after `census.pw.ts` filed the entry has no reminder to snooze.
-async function snoozeCensusReminder(page: Page) {
-	const reminder = page.getByTestId("census-dialog");
-	const appeared = await reminder
-		.waitFor({ state: "visible", timeout: 20_000 })
-		.then(() => true)
-		.catch(() => false);
-	if (appeared) {
-		await page.getByTestId("census-dialog-dismiss").click();
-		await expect(reminder).not.toBeVisible();
-	}
+interface CensusEligibility {
+	eligible: boolean;
+	rewardAvailable: boolean;
+	topModels: { alreadySubmitted: boolean }[];
 }
 
 async function openCancelSurvey(page: Page) {
 	await page.goto("/login");
 	await page.fill('input[type="email"]', "admin@example.com");
 	await page.fill('input[type="password"]', "admin@example.com");
+	// The seeded admin is census-eligible, and the reminder opens over whatever
+	// dashboard page is showing. Snooze it first so it cannot take focus
+	// mid-test; once `census.pw.ts` has filed the entry there is none to snooze.
+	const eligibility = page.waitForResponse((response) =>
+		response.url().includes("/model-survey/eligibility"),
+	);
 	await page.click('button[type="submit"]');
 	await page.waitForURL("**/dashboard**", { timeout: 45_000 });
-	await snoozeCensusReminder(page);
+	const census = (await (await eligibility).json()) as CensusEligibility;
+	if (
+		census.eligible &&
+		census.rewardAvailable &&
+		census.topModels.some((model) => !model.alreadySubmitted)
+	) {
+		await page.getByTestId("census-dialog-dismiss").click();
+		await expect(page.getByTestId("census-dialog")).not.toBeVisible();
+	}
 	await page.goto("/dashboard/billing");
 	await page.getByTestId("cancel-plan-open").click();
 	await expect(page.getByTestId("cancel-plan-dialog")).toBeVisible();
@@ -52,8 +57,11 @@ test("running out of allowance offers the next plan and hands over to the plan p
 	await page.getByTestId("cancel-offer-accept").click();
 
 	await expect(dialog).not.toBeVisible();
-	await expect(page.locator("#change-plan")).toBeInViewport();
-	await expect(page.locator("#change-plan")).toBeFocused();
+	const picker = page.getByRole("region", { name: "Change plan" });
+	await expect(picker).toBeInViewport({ ratio: 0.5 });
+	await expect(
+		picker.locator('[data-plan-tier="max"]').getByRole("button"),
+	).toBeFocused();
 });
 
 test("an unsupported tool points at the setup guides", async ({ page }) => {

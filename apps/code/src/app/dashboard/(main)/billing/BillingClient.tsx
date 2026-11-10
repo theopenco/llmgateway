@@ -291,11 +291,18 @@ export default function BillingClient({
 	};
 
 	// The cancel dialog's upgrade offer: the plan picker below already previews
-	// and confirms the charge, so the offer hands over to it.
-	const handleReviewUpgrade = (): void => {
+	// and confirms the charge, so the offer hands over to it and lands on the
+	// offered plan's own button.
+	const handleReviewUpgrade = (tier: PlanTier): void => {
 		const picker = document.getElementById(CHANGE_PLAN_SECTION_ID);
-		picker?.scrollIntoView({ behavior: "smooth", block: "start" });
-		picker?.focus({ preventScroll: true });
+		if (!picker) {
+			return;
+		}
+		picker.scrollIntoView({ behavior: "smooth", block: "start" });
+		const action = picker.querySelector<HTMLButtonElement>(
+			`[data-plan-tier="${tier}"] button:not(:disabled)`,
+		);
+		(action ?? picker).focus({ preventScroll: true });
 	};
 
 	const handleCancel = async (
@@ -554,6 +561,7 @@ export default function BillingClient({
 									)}
 									renewWhen={renewWhen}
 									pendingTier={pendingTier}
+									paygEnabled={devPlanStatus.devPlanPaygEnabled ?? false}
 									organizationId={devPlanStatus.organizationId ?? null}
 									isCancelling={isCancelling}
 									isDowngrading={subscribingTier !== null}

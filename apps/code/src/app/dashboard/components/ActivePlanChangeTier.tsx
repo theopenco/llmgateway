@@ -85,10 +85,17 @@ export default function ActivePlanChangeTier({
 	return (
 		<div
 			id={CHANGE_PLAN_SECTION_ID}
+			role="region"
+			aria-labelledby={`${CHANGE_PLAN_SECTION_ID}-heading`}
 			tabIndex={-1}
 			className="scroll-mt-6 outline-none"
 		>
-			<h2 className="mb-1 font-semibold">Change plan</h2>
+			<h2
+				id={`${CHANGE_PLAN_SECTION_ID}-heading`}
+				className="mb-1 font-semibold"
+			>
+				Change plan
+			</h2>
 			<p className="mb-4 text-sm text-muted-foreground">
 				{cancelled
 					? "Your subscription is scheduled to cancel. Resume it first to change your plan."
@@ -107,6 +114,7 @@ export default function ActivePlanChangeTier({
 					return (
 						<div
 							key={plan.tier}
+							data-plan-tier={plan.tier}
 							className={cn(
 								"flex flex-col rounded-xl border p-5 transition-shadow",
 								isCurrent

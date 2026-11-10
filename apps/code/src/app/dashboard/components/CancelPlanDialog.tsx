@@ -83,6 +83,7 @@ function resolveOffer(
 	tier: PlanTier,
 	utilization: number,
 	pendingTier: PlanTier | null,
+	paygEnabled: boolean,
 	docsUrl: string,
 	discordUrl: string,
 ): SaveOffer | null {
@@ -108,8 +109,10 @@ function resolveOffer(
 				href: "/dashboard/usage#payg-card",
 				external: false,
 				title: "Keep going past the allowance",
-				body: "Pay-as-you-go overflow keeps requests flowing once the plan allowance or the weekly premium cap is reached, billed to a credits balance at provider rates. It stays off until you opt in.",
-				cta: "Open overflow settings",
+				body: paygEnabled
+					? "Pay-as-you-go overflow is on for this plan: once the allowance or the weekly premium cap is reached, requests keep flowing from your credits balance at provider rates. Top the balance up to stay unblocked."
+					: "Pay-as-you-go overflow keeps requests flowing once the plan allowance or the weekly premium cap is reached, billed to a credits balance at provider rates. It stays off until you opt in.",
+				cta: paygEnabled ? "Top up credits" : "Open overflow settings",
 			};
 		}
 		case "tool_not_supported":
@@ -165,6 +168,7 @@ interface CancelPlanDialogProps {
 	creditsLimit: number;
 	renewWhen: string | null;
 	pendingTier: PlanTier | null;
+	paygEnabled: boolean;
 	organizationId?: string | null;
 	isCancelling: boolean;
 	isDowngrading: boolean;
@@ -217,6 +221,7 @@ function CancelFlow({
 	creditsLimit,
 	renewWhen,
 	pendingTier,
+	paygEnabled,
 	organizationId,
 	isCancelling,
 	isDowngrading,
@@ -233,6 +238,7 @@ function CancelFlow({
 	const [reason, setReason] = useState<DevPlanCancellationReason | null>(null);
 	const [comments, setComments] = useState("");
 	const [offer, setOffer] = useState<SaveOffer | null>(null);
+	const handedOver = useRef(false);
 
 	const utilization = getDevPlanCycleUsageFraction(creditsUsed, creditsLimit);
 	const option = DEV_PLAN_CANCELLATION_REASON_OPTIONS.find(
@@ -270,6 +276,7 @@ function CancelFlow({
 			tier,
 			utilization,
 			pendingTier,
+			paygEnabled,
 			docsUrl,
 			discordUrl,
 		);
@@ -283,8 +290,13 @@ function CancelFlow({
 	};
 
 	const acceptOffer = async () => {
-		if (!offer || !reason) {
+		if (!offer || !reason || handedOver.current) {
 			return;
+		}
+		// The handover closes the dialog on an animation, so a second click can
+		// still land on the button.
+		if (offer.kind === "upgrade") {
+			handedOver.current = true;
 		}
 		track("dev_plan_cancel_offer_accepted", {
 			reason,
