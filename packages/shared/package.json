@@ -259,6 +259,11 @@
 			"import": "./dist/seo-title.js",
 			"default": "./dist/seo-title.js"
 		},
+		"./working-days": {
+			"types": "./dist/working-days.d.ts",
+			"import": "./dist/working-days.js",
+			"default": "./dist/working-days.js"
+		},
 		"./number-format": {
 			"types": "./dist/number-format.d.ts",
 			"import": "./dist/number-format.js",

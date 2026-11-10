@@ -1246,9 +1246,10 @@ export const crmActivity = snakeCase.table(
 		// Tasks only: when it is due and when it was ticked off.
 		dueAt: timestamp(),
 		completedAt: timestamp(),
-		// Idempotency key for activities mirrored from an integration:
+		// Idempotency key for activities created from another record:
 		// `gmail:<messageId>` for mail sent from the CRM, `calendly:<eventUri>`
-		// for scheduled meetings, so repeated syncs and webhooks never duplicate.
+		// for scheduled meetings, `lead:<submissionId>` for an inquiry's
+		// follow-up, so repeated syncs and webhooks never duplicate.
 		externalRef: text(),
 	},
 	(table) => [
