@@ -19,7 +19,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppConfig } from "@/lib/config";
-import { cn } from "@/lib/utils";
+import { cn, formatUsd } from "@/lib/utils";
 
 import {
 	cancellationCommentsRequired,
@@ -32,151 +32,22 @@ import {
 	type DevPlanCancellationReason,
 } from "@llmgateway/shared";
 
-import type { PlanOption, PlanTier } from "@/app/dashboard/types";
+import {
+	planName,
+	planUsage,
+	resolveOffer,
+	type SaveOffer,
+} from "./cancel-offers";
+
+import type { PlanTier } from "@/app/dashboard/types";
 
 type Step = "survey" | "offer" | "confirm";
-
-type SaveOffer =
-	| { kind: "downgrade"; tier: PlanTier }
-	| { kind: "upgrade"; tier: PlanTier }
-	| { kind: "rollover"; amount: number; unused: number }
-	| {
-			kind: "link";
-			id: "agents" | "models" | "compare" | "overflow" | "support";
-			href: string;
-			external: boolean;
-			title: string;
-			body: string;
-			cta: string;
-	  };
-
-// A smaller plan only fits while the cycle still has room: someone who has
-// burned through most of the allowance isn't kept by less of it. Measured
-// against the plan's own allowance, so carried-over allowance does not make a
-// heavy month look light.
-const DOWNGRADE_MAX_UTILIZATION = 0.4;
-
-// Share of the renewing plan's allowance a carry-over must reach to be worth
-// showing to someone who is about to cancel.
-const CARRY_OVER_OFFER_MIN_SHARE = 0.1;
-
-interface CarryOver {
-	amount: number;
-	unused: number;
-}
-
-const LOWER_TIER: Record<PlanTier, PlanTier | null> = {
-	lite: null,
-	pro: "lite",
-	max: "pro",
-};
-
-const HIGHER_TIER: Record<PlanTier, PlanTier | null> = {
-	lite: "pro",
-	pro: "max",
-	max: null,
-};
 
 const STEPS: { id: Step; label: string }[] = [
 	{ id: "survey", label: "Reason" },
 	{ id: "offer", label: "Options" },
 	{ id: "confirm", label: "Confirm" },
 ];
-
-function planName(plans: PlanOption[], tier: PlanTier): string {
-	return plans.find((p) => p.tier === tier)?.name ?? tier.toUpperCase();
-}
-
-function planUsage(plans: PlanOption[], tier: PlanTier): number {
-	return plans.find((p) => p.tier === tier)?.usage ?? 0;
-}
-
-function resolveOffer(
-	reason: DevPlanCancellationReason,
-	tier: PlanTier,
-	planUtilization: number,
-	pendingTier: PlanTier | null,
-	carryOver: CarryOver | null,
-	paygEnabled: boolean,
-	docsUrl: string,
-	discordUrl: string,
-): SaveOffer | null {
-	switch (reason) {
-		case "too_expensive":
-		case "not_using_enough":
-		case "just_testing": {
-			const lower = LOWER_TIER[tier];
-			// A scheduled tier change already exists; change-tier would 409.
-			if (
-				lower &&
-				!pendingTier &&
-				planUtilization < DOWNGRADE_MAX_UTILIZATION
-			) {
-				return { kind: "downgrade", tier: lower };
-			}
-			return carryOver ? { kind: "rollover", ...carryOver } : null;
-		}
-		case "allowance_too_small": {
-			const higher = HIGHER_TIER[tier];
-			if (higher && !pendingTier) {
-				return { kind: "upgrade", tier: higher };
-			}
-			return {
-				kind: "link",
-				id: "overflow",
-				href: "/dashboard/usage#payg-card",
-				external: false,
-				title: "Keep going past the allowance",
-				body: paygEnabled
-					? "Pay-as-you-go overflow is on for this plan: once the allowance or the weekly premium cap is reached, requests keep flowing from your credits balance at provider rates. Top the balance up to stay unblocked."
-					: "Pay-as-you-go overflow keeps requests flowing once the plan allowance or the weekly premium cap is reached, billed to a credits balance at provider rates. It stays off until you opt in.",
-				cta: paygEnabled ? "Top up credits" : "Open overflow settings",
-			};
-		}
-		case "tool_not_supported":
-			return {
-				kind: "link",
-				id: "agents",
-				href: `${docsUrl}/learn/coding-agents`,
-				external: true,
-				title: "Most tools already work",
-				body: "Anything that speaks the OpenAI or Anthropic API can run on your DevPass key. The setup guides cover the usual editors, agents and CLIs.",
-				cta: "See supported tools",
-			};
-		case "missing_features":
-			return {
-				kind: "link",
-				id: "models",
-				href: "/models",
-				external: false,
-				title: "New models land every week",
-				body: "Every model in the catalogue is on your plan the day it ships. Check whether what you need is already there.",
-				cta: "Browse the catalogue",
-			};
-		case "switched_alternative":
-			return {
-				kind: "link",
-				id: "compare",
-				href: "/compare",
-				external: false,
-				title: "See how it stacks up",
-				body: "Side by side with the plan you're moving to: models, limits, tooling and price.",
-				cta: "Compare plans",
-			};
-		case "other":
-			return {
-				kind: "link",
-				id: "support",
-				href: discordUrl,
-				external: true,
-				title: "Talk it through with us",
-				body: "If something broke or didn't work the way you expected, tell us in Discord before you go. We would rather fix it than lose you.",
-				cta: "Open Discord",
-			};
-		default:
-			return null;
-	}
-}
 
 interface CancelPlanDialogProps {
 	open: boolean;
@@ -287,14 +158,6 @@ function CancelFlow({
 				: `${o.kind}:${o.tier}`;
 	// The tier the next renewal bills, which sets what a carry-over lands on.
 	const renewingTier = pendingTier ?? tier;
-	const carryOver: CarryOver | null =
-		renewalRollover >=
-		planUsage(plans, renewingTier) * CARRY_OVER_OFFER_MIN_SHARE
-			? {
-					amount: renewalRollover,
-					unused: Math.max(0, creditsLimit - creditsUsed),
-				}
-			: null;
 
 	const continueFromSurvey = () => {
 		if (!reason) {
@@ -306,16 +169,17 @@ function CancelFlow({
 			utilization,
 			has_comments: trimmedComments.length > 0,
 		});
-		const next = resolveOffer(
-			reason,
+		const next = resolveOffer(reason, {
 			tier,
-			getDevPlanCycleUsageFraction(creditsUsed, planUsage(plans, tier)),
 			pendingTier,
-			carryOver,
+			creditsUsed,
+			creditsLimit,
+			renewalRollover,
 			paygEnabled,
+			plans,
 			docsUrl,
 			discordUrl,
-		);
+		});
 		if (next) {
 			setOffer(next);
 			track("dev_plan_cancel_offer_shown", { reason, offer: offerLabel(next) });
@@ -600,28 +464,26 @@ function CancelFlow({
 								) : offer.kind === "rollover" ? (
 									<div className="mt-3 space-y-2">
 										<p className="text-base font-semibold tracking-tight">
-											{offer.unused - offer.amount >= 0.01
+											{offer.capped
 												? "Part of what you haven't used comes with you"
 												: "What you haven't used comes with you"}
 										</p>
 										<p className="text-2xl font-bold tracking-tight tabular-nums">
-											${offer.amount.toFixed(2)}
+											{formatUsd(offer.amount)}
 											<span className="text-sm font-normal text-muted-foreground">
 												{" "}
-												{offer.unused - offer.amount >= 0.01 &&
-													`of your $${offer.unused.toFixed(2)} unused `}
+												{offer.capped &&
+													`of your ${formatUsd(offer.unused)} unused `}
 												carries into your next cycle
 											</span>{" "}
 											<span className="whitespace-nowrap text-sm font-medium text-emerald-700 dark:text-emerald-400">
-												on top of the full ${planUsage(plans, renewingTier)}
+												on top of the full{" "}
+												{formatUsd(planUsage(plans, renewingTier))}
 											</span>
 										</p>
 										<p className="text-sm text-muted-foreground">
-											Renewing{renewWhen ? ` on ${renewWhen}` : ""} at
-											today&apos;s usage starts your next cycle with $
-											{(planUsage(plans, renewingTier) + offer.amount).toFixed(
-												2,
-											)}{" "}
+											Renewing at today&apos;s usage starts your next cycle with{" "}
+											{formatUsd(planUsage(plans, renewingTier) + offer.amount)}{" "}
 											of usage for {pendingTier ? "" : "the same "}$
 											{DEV_PLAN_PRICES[renewingTier]}/mo. Unused allowance
 											carries over at every renewal, up to{" "}

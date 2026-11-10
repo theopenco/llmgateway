@@ -81,7 +81,7 @@ test("a price reason shows the unused allowance the next cycle would start with"
 	await page.goto("/dashboard/usage");
 	const meterLine = page.getByTestId("allowance-carry-over");
 	await expect(meterLine).toContainText("carries into your next cycle");
-	const carried = (await meterLine.innerText()).match(/\$\d+\.\d{2}/)?.[0];
+	const carried = (await meterLine.innerText()).match(/\$\d+(?:\.\d{2})?/)?.[0];
 	expect(carried).toBeDefined();
 
 	await openCancelDialog(page);

@@ -9,6 +9,7 @@ Last updated: 2026-10-18
 - Price: $29/month
 - Included usage: $58 of model usage per month (2× what you pay), metered at provider rates
 - Daily pacing: up to 8% of the monthly allowance per rolling 24 hours, any model
+- Unused allowance: up to $29 carries into the next cycle at renewal
 - Premium-model fair use: 10% of credits per week on models priced $5+/M input or $15+/M output
 - Reset Passes: buy anytime for $5 each (instant premium-allowance reset)
 - Support: email
@@ -18,6 +19,7 @@ Last updated: 2026-10-18
 - Price: $79/month
 - Included usage: $158 of model usage per month (2× what you pay)
 - Daily pacing: up to 9% of the monthly allowance per rolling 24 hours
+- Unused allowance: up to $79 carries into the next cycle at renewal
 - Premium-model fair use: 12% of credits per week
 - Reset Passes: buy anytime for $15 each
 - Support: priority
@@ -27,6 +29,7 @@ Last updated: 2026-10-18
 - Price: $179/month
 - Included usage: $358 of model usage per month (2× what you pay)
 - Daily pacing: up to 10% of the monthly allowance per rolling 24 hours
+- Unused allowance: up to $179 carries into the next cycle at renewal
 - Premium-model fair use: 15% of credits per week
 - Reset Passes: 2 included per month, extras $45 each
 - Headroom for all-day agent runs

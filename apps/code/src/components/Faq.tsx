@@ -153,7 +153,7 @@ function buildFaqData(credits: FaqCredits): FaqItem[] {
 		},
 		{
 			question: "Does unused allowance roll over?",
-			answer: `Yes. Whatever is left of your allowance when your plan renews carries into the next cycle, on top of that cycle's full allowance. Up to ${pct(DEV_PLAN_RENEWAL_ROLLOVER_PERCENT)}% of your plan's monthly allowance can carry over: ${carryOverCap("lite")} on Lite, ${carryOverCap("pro")} on Pro and ${carryOverCap("max")} on Max. The amount is worked out again at every renewal from what is left then, so it never builds up past that cap, and it ends when the plan does.`,
+			answer: `Yes, up to a cap. What is left when your plan renews carries into the next cycle, up to ${pct(DEV_PLAN_RENEWAL_ROLLOVER_PERCENT)}% of your plan's monthly allowance (${carryOverCap("lite")} on Lite, ${carryOverCap("pro")} on Pro, ${carryOverCap("max")} on Max), on top of that cycle's full allowance. The amount is worked out again at every renewal from what is left then, so it never builds up past that cap, and it ends when the plan does.`,
 		},
 		{
 			question: "Can I change plans anytime?",
@@ -277,14 +277,14 @@ function buildFaqData(credits: FaqCredits): FaqItem[] {
 		{
 			question: "Does the weekly premium allowance reset when my plan renews?",
 			answer:
-				"Yes. Every monthly renewal starts all three fresh at once: your monthly usage, your weekly premium allowance (a fresh 7-day window starts at renewal), and your included Reset Passes. Unused monthly allowance is the one exception: part of it carries over. Between renewals the window is rolling — when 7 days end, the next window starts with your next premium request, and redeeming a Reset Pass clears the window so the next request starts a fresh one. There's no reset schedule to manage — neither the weekly window nor unused included passes carry into the next cycle. Purchased Reset Passes are separate: they persist until redeemed.",
+				"Yes. Every monthly renewal starts all three fresh at once: your monthly usage, your weekly premium allowance (a fresh 7-day window starts at renewal), and your included Reset Passes. Unused monthly allowance is the one exception: it carries over, up to a cap. Between renewals the window is rolling — when 7 days end, the next window starts with your next premium request, and redeeming a Reset Pass clears the window so the next request starts a fresh one. There's no reset schedule to manage — neither the weekly window nor unused included passes carry into the next cycle. Purchased Reset Passes are separate: they persist until redeemed.",
 			content: (
 				<>
 					<p>
 						Yes. Every monthly renewal starts all three fresh at once: your
 						monthly usage, your weekly premium allowance (a fresh 7-day window
 						starts at renewal), and your included Reset Passes. Unused monthly
-						allowance is the one exception: part of it carries over.
+						allowance is the one exception: it carries over, up to a cap.
 					</p>
 					<p className="mt-3">
 						Between renewals the window is rolling — when 7 days end, the next

@@ -4,6 +4,8 @@ import { formatDistanceToNowStrict } from "date-fns";
 import { CalendarDays, Gem, Timer } from "lucide-react";
 import Link from "next/link";
 
+import { formatUsd as formatAmount } from "@/lib/utils";
+
 import {
 	DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
 	formatDateTime,
@@ -303,7 +305,8 @@ export function AllowanceWindows({
 					Above 80% of your monthly allowance. Consider upgrading or wait for
 					the next reset.
 				</p>
-			) : monthly.carryOver ? (
+			) : null}
+			{monthly.carryOver ? (
 				<p
 					className="text-xs text-muted-foreground"
 					data-testid="allowance-carry-over"
@@ -312,7 +315,7 @@ export function AllowanceWindows({
 					{Math.round(DEV_PLAN_RENEWAL_ROLLOVER_PERCENT * 100)}% of the monthly
 					allowance of the plan you renew on. If you renewed now:{" "}
 					<span className="font-medium tabular-nums text-foreground">
-						{formatUsd(monthly.carryOver)}
+						{formatAmount(monthly.carryOver)}
 					</span>
 					.
 				</p>

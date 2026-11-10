@@ -17,10 +17,10 @@ export function devPlanInvoiceLine(
 			? `Dev Plan ${plan} renewal`
 			: `Dev Plan upgrade to ${plan}`;
 	const included = `$${getDevPlanCreditsLimit(tier)} credits included`;
-	if (rolloverCredits <= 0) {
+	const carried = new Decimal(rolloverCredits).toFixed(2);
+	if (new Decimal(carried).lessThanOrEqualTo(0)) {
 		return `${label} (${included})`;
 	}
-	const carried = new Decimal(rolloverCredits).toFixed(2);
 	const verb = kind === "renewal" ? "carried" : "rolled";
 	return `${label} (${included} + $${carried} unused credits ${verb} over)`;
 }

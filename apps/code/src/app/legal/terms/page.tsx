@@ -189,8 +189,9 @@ export default function TermsPage() {
 				limited goodwill option and does not create a broader right to a refund.
 			</p>
 			<p>
-				The limit is measured against the applicable monthly allowance, not the
-				payment amount. Usage must remain below 10%; usage at or above 10% is
+				The limit is measured against the applicable monthly allowance,
+				including any carried-over or rolled-over allowance, not the payment
+				amount. Usage must remain below 10%; usage at or above 10% is
 				ineligible. Plan payments made before October 15, 2026, at 00:00 UTC,
 				retain a 20% limit for their existing 14-day refund window. Eligible
 				renewals, upgrades, and subscription restarts remain subject to the same

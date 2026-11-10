@@ -493,34 +493,73 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		);
 	});
 
+	// Lets a test act inside the handler's renewal transaction: before its
+	// first statement, and at its first insert, which follows the read of the
+	// organization row and precedes the reset.
+	function interceptRenewalTransaction(hooks: {
+		beforeRead?: () => Promise<void>;
+		afterRead?: () => void;
+	}) {
+		const runTransaction = db.transaction.bind(db);
+		return vi.spyOn(db, "transaction").mockImplementationOnce(((work, config) =>
+			runTransaction(async (tx) => {
+				await hooks.beforeRead?.();
+				const insert = tx.insert.bind(tx);
+				tx.insert = ((table: Parameters<typeof insert>[0]) => {
+					hooks.afterRead?.();
+					return insert(table);
+				}) as typeof tx.insert;
+				return await work(tx);
+			}, config)) as typeof db.transaction);
+	}
+
 	test("carries what is left when the reset runs, not what the event first saw", async () => {
-		// Usage settles after the handler looked the organization up: its
-		// duplicate-invoice check is the next read, so the spend lands there.
-		const findInvoiceTransaction = db.query.transaction.findFirst.bind(
-			db.query.transaction,
-		);
-		const lookup = vi
-			.spyOn(db.query.transaction, "findFirst")
-			.mockImplementationOnce((config) => {
-				const settled = (async () => {
-					await db
-						.update(tables.organization)
-						.set({
-							devPlanCreditsUsed: String(getDevPlanCreditsLimit("pro") - 5),
-						})
-						.where(eq(tables.organization.id, ORG_ID));
-					return await findInvoiceTransaction(config);
-				})();
-				return settled as unknown as ReturnType<typeof findInvoiceTransaction>;
-			});
+		// Usage settles after the handler looked the organization up and before
+		// its transaction reads the row.
+		const transaction = interceptRenewalTransaction({
+			beforeRead: async () => {
+				await db
+					.update(tables.organization)
+					.set({
+						devPlanCreditsUsed: String(getDevPlanCreditsLimit("pro") - 5),
+					})
+					.where(eq(tables.organization.id, ORG_ID));
+			},
+		});
 
 		const org = await renewProOrg({
 			limit: PRO_ALLOTMENT,
 			used: String(getDevPlanCreditsLimit("pro") - 20.25),
 		});
-		lookup.mockRestore();
+		expect(transaction).toHaveBeenCalled();
+		transaction.mockRestore();
 
 		expect(org?.devPlanCreditsLimit).toBe(withCarryOver("pro", 5));
+	});
+
+	test("holds the organization row from its read to the reset", async () => {
+		// A second connection asks for the row without waiting. While the
+		// renewal holds it, usage cannot settle between the read and the reset.
+		let probe: Promise<string> | undefined;
+		const transaction = interceptRenewalTransaction({
+			afterRead: () => {
+				probe ??= db
+					.select({ id: tables.organization.id })
+					.from(tables.organization)
+					.where(eq(tables.organization.id, ORG_ID))
+					.for("update", { noWait: true })
+					.then(
+						() => "row was free",
+						(error: unknown) =>
+							String(error instanceof Error ? (error.cause ?? error) : error),
+					);
+			},
+		});
+
+		await renewProOrg({ limit: PRO_ALLOTMENT, used: "0" });
+		transaction.mockRestore();
+
+		expect(await probe).toContain("could not obtain lock");
 	});
 
 	test("applies a scheduled downgrade at renewal: switches tier and grants the lower allotment", async () => {
