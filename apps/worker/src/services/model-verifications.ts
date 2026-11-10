@@ -1,4 +1,5 @@
 import {
+	AirsideGatewayInfrastructureError,
 	disprovedCapabilities,
 	isDailyModelVerification,
 	managedCredentialOptions,
@@ -11,6 +12,7 @@ import {
 	airsideInferencePricing,
 	environmentVerificationCredentialFingerprint,
 } from "@llmgateway/actions";
+import { redisClient } from "@llmgateway/cache";
 import { and, asc, cdb, db, eq, lt, tables, sql } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { REASONING_EFFORTS, TOOL_CHOICE_MODES } from "@llmgateway/models";
@@ -36,6 +38,16 @@ type VerificationRunner = (
 const STALE_RUNNING_MS = 20 * 60 * 1000;
 const MAX_VERIFICATION_ATTEMPTS = 3;
 const STALE_ATTEMPT_FEEDBACK = "Verification timed out.";
+// A gateway refusal (an empty operator wallet, a rate limit) hits every run
+// alike, so the queue pauses instead of failing each run it would claim.
+// The pause lives in Redis so every worker replica honours it.
+const GATEWAY_RETRY_DELAY_MS = 2 * 60 * 1000;
+const GATEWAY_PAUSE_KEY = "model-verification:gateway-paused";
+
+/** Test hook: lifts a gateway pause left by an earlier case. */
+export async function resetModelVerificationGatewayPause() {
+	await redisClient.del(GATEWAY_PAUSE_KEY);
+}
 
 interface ResolvedCredential {
 	providerKey: string;
@@ -456,6 +468,9 @@ async function narrowReasoningEfforts(
 export async function processNextModelVerification(
 	runner: VerificationRunner = runProviderModelVerification,
 ): Promise<boolean> {
+	if (await redisClient.exists(GATEWAY_PAUSE_KEY)) {
+		return false;
+	}
 	const job = await claimNextModelVerification();
 	if (!job) {
 		return false;
@@ -598,6 +613,33 @@ export async function processNextModelVerification(
 		}
 	} catch (error) {
 		if (error instanceof StaleModelVerificationAttemptError) {
+			return true;
+		}
+		if (
+			infrastructureError instanceof AirsideGatewayInfrastructureError &&
+			job.attempts < MAX_VERIFICATION_ATTEMPTS
+		) {
+			await redisClient.set(
+				GATEWAY_PAUSE_KEY,
+				"1",
+				"PX",
+				GATEWAY_RETRY_DELAY_MS,
+			);
+			await db
+				.update(tables.providerModelVerification)
+				.set({ status: "queued", startedAt: null, checks: job.checks })
+				.where(
+					and(
+						eq(tables.providerModelVerification.id, job.id),
+						eq(tables.providerModelVerification.status, "running"),
+						eq(tables.providerModelVerification.attempts, job.attempts),
+					),
+				);
+			logger.warn("Airside gateway refused a verification; queue paused", {
+				verificationId: job.id,
+				providerId: job.target.providerId,
+				attempts: job.attempts,
+			});
 			return true;
 		}
 		const feedback = redactToken(

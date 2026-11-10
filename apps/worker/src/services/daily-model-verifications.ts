@@ -35,6 +35,28 @@ export function dailyModelVerificationId(mappingId: string, now: Date): string {
 	);
 }
 
+/**
+ * The daily re-check leaves out the context-window, output-budget and
+ * prompt-cache probes: the first bills most of the declared window on every
+ * run. Carrier preflight still runs them.
+ */
+export const DAILY_SKIPPED_CHECK_IDS: ReadonlySet<string> = new Set([
+	"context_size",
+	"max_output",
+	"prompt_caching",
+]);
+
+export function dailyVerificationTarget(
+	target: ProviderModelVerificationTarget,
+): ProviderModelVerificationTarget {
+	return {
+		...target,
+		contextSize: null,
+		maxOutput: null,
+		promptCaching: false,
+	};
+}
+
 /** Read uncached service state again at each side-effect boundary. */
 export async function liveVerificationMapping(
 	mappingId: string,
@@ -178,11 +200,13 @@ export async function scheduleDailyModelVerifications(
 						draftModelId: live.draftModelId,
 						providerCompanyId: live.claim?.providerCompanyId ?? null,
 						initiatedBy: "admin",
-						target: {
+						target: dailyVerificationTarget({
 							...(await currentVerificationTarget(live, tx)),
 							gatewayExecutionVersion: undefined,
-						},
-						checks: createQueuedModelVerificationChecks(live.target),
+						}),
+						checks: createQueuedModelVerificationChecks(
+							dailyVerificationTarget(live.target),
+						),
 						credentialSource,
 					})
 					.onConflictDoNothing()
@@ -202,7 +226,7 @@ export async function resolveDailyVerificationCredential(
 		throw new Error("Scheduled mapping is unavailable.");
 	}
 	const live = await liveVerificationMapping(job.modelProviderMappingId);
-	if (!live || !sameVerificationDeclaration(live.target, job.target)) {
+	if (!live || !sameVerificationDeclaration(live.target, job.target, true)) {
 		throw new Error(
 			"Scheduled listing is no longer eligible or its declaration changed.",
 		);
@@ -224,13 +248,18 @@ export async function resolveDailyVerificationCredential(
 	}
 	return { credentialSource, key: undefined, baseUrl: undefined };
 }
+/** `daily` compares only what a daily run checks. */
 export function sameVerificationDeclaration(
 	left: ProviderModelVerificationTarget,
 	right: ProviderModelVerificationTarget,
+	daily = false,
 ): boolean {
+	const reduce = daily
+		? dailyVerificationTarget
+		: (target: ProviderModelVerificationTarget) => target;
 	return isDeepStrictEqual(
-		buildVerificationTarget(left),
-		buildVerificationTarget(right),
+		buildVerificationTarget(reduce(left)),
+		buildVerificationTarget(reduce(right)),
 	);
 }
 export function modelVerificationConcurrency(): number {
