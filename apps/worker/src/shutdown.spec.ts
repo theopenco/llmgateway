@@ -1,3 +1,5 @@
+import { getEventListeners } from "node:events";
+
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import {
@@ -90,5 +92,34 @@ describe("shutdown", () => {
 		// If the timer was not cleared, vitest would hang waiting for it after the test.
 		// Reaching this point confirms the timer was cleared.
 		expect(isStopRequested()).toBe(true);
+	});
+
+	test("a finished sleep removes its abort listener", async () => {
+		const signal = getStopSignal();
+		await interruptibleSleep(1);
+		expect(getEventListeners(signal, "abort")).toHaveLength(0);
+	});
+
+	test("repeated sleeps do not accumulate abort listeners", async () => {
+		const signal = getStopSignal();
+		for (let i = 0; i < 50; i++) {
+			await interruptibleSleep(1);
+		}
+		expect(getEventListeners(signal, "abort")).toHaveLength(0);
+	});
+
+	test("interruptibleSleep does not race a never-settled promise", async () => {
+		const originalRace = Promise.race;
+		let calls = 0;
+		Promise.race = ((...args: Parameters<typeof Promise.race>) => {
+			calls++;
+			return originalRace.apply(Promise, args);
+		}) as typeof Promise.race;
+		try {
+			await interruptibleSleep(10);
+		} finally {
+			Promise.race = originalRace;
+		}
+		expect(calls).toBe(0);
 	});
 });
