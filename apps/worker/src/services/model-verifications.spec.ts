@@ -14,6 +14,7 @@ import { db, eq, inArray, tables } from "@llmgateway/db";
 import {
 	claimNextModelVerification,
 	processNextModelVerification,
+	resetModelVerificationGatewayPause,
 } from "./model-verifications.js";
 
 import type {
@@ -38,6 +39,7 @@ const catalogueProviderIds: string[] = [];
 const catalogueModelIds: string[] = [];
 
 beforeEach(async () => {
+	resetModelVerificationGatewayPause();
 	await db
 		.delete(tables.providerModelVerification)
 		.where(
@@ -962,7 +964,7 @@ it("rejects an arbitrary legacy credential for a non-carrier admin job", async (
 });
 
 it.each([401, 402, 404])(
-	"treats operator gateway %s as unavailable without narrowing capabilities",
+	"requeues on operator gateway %s, pauses the queue, and fails once attempts run out",
 	async (status) => {
 		const { verificationId, draftModelId } = await seedActiveListing();
 		vi.stubEnv("AIRSIDE_GATEWAY_API_KEY", "test-token");
@@ -973,24 +975,38 @@ it.each([401, 402, 404])(
 				Response.json({ error: "operator rejection" }, { status }),
 			),
 		);
+		const runner = async (options: RunModelVerificationOptions) => {
+			await expect(
+				options.fetchImplementation!(
+					"https://provider.example.com/v1/chat/completions",
+					{ method: "POST", body: JSON.stringify({ messages: [] }) },
+				),
+			).rejects.toThrow("Airside gateway inference is unavailable");
+			return {
+				passed: false,
+				summary: "Failed",
+				checks: [
+					{ id: "basic", label: "Basic completion", status: "failed" as const },
+				],
+				unsupportedToolChoices: ["required" as const],
+				unsupportedReasoningEfforts: ["high" as const],
+			};
+		};
 		try {
-			await processNextModelVerification(async (options) => {
-				await expect(
-					options.fetchImplementation!(
-						"https://provider.example.com/v1/chat/completions",
-						{ method: "POST", body: JSON.stringify({ messages: [] }) },
-					),
-				).rejects.toThrow("Airside gateway inference is unavailable");
-				return {
-					passed: false,
-					summary: "Failed",
-					checks: [
-						{ id: "basic", label: "Basic completion", status: "failed" },
-					],
-					unsupportedToolChoices: ["required"],
-					unsupportedReasoningEfforts: ["high"],
-				};
-			});
+			expect(await processNextModelVerification(runner)).toBe(true);
+			const requeued = (await db.query.providerModelVerification.findFirst({
+				where: { id: { eq: verificationId } },
+			}))!;
+			expect(requeued.status).toBe("queued");
+			expect(requeued.attempts).toBe(1);
+			expect(requeued.completedAt).toBeNull();
+			expect(await processNextModelVerification(runner)).toBe(false);
+			await db
+				.update(tables.providerModelVerification)
+				.set({ attempts: 2 })
+				.where(eq(tables.providerModelVerification.id, verificationId));
+			resetModelVerificationGatewayPause();
+			await processNextModelVerification(runner);
 			const job = (await db.query.providerModelVerification.findFirst({
 				where: { id: { eq: verificationId } },
 			}))!;

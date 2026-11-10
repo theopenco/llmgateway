@@ -35,6 +35,22 @@ export function dailyModelVerificationId(mappingId: string, now: Date): string {
 	);
 }
 
+/**
+ * The daily re-check leaves out the context-window, output-budget and
+ * prompt-cache probes: the first bills most of the declared window on every
+ * run. Carrier preflight still runs them.
+ */
+export function dailyVerificationTarget(
+	target: ProviderModelVerificationTarget,
+): ProviderModelVerificationTarget {
+	return {
+		...target,
+		contextSize: null,
+		maxOutput: null,
+		promptCaching: false,
+	};
+}
+
 /** Read uncached service state again at each side-effect boundary. */
 export async function liveVerificationMapping(
 	mappingId: string,
@@ -44,7 +60,9 @@ export async function liveVerificationMapping(
 	const mapping = await client.query.modelProviderMapping.findFirst({
 		where: { id: { eq: mappingId }, status: { eq: "active" } },
 	});
-	const target = mapping ? mappingTarget(mapping) : null;
+	const target = mapping
+		? dailyVerificationTarget(mappingTarget(mapping))
+		: null;
 	if (!mapping || (mapping.deactivatedAt && mapping.deactivatedAt <= now)) {
 		return null;
 	}
@@ -229,8 +247,8 @@ export function sameVerificationDeclaration(
 	right: ProviderModelVerificationTarget,
 ): boolean {
 	return isDeepStrictEqual(
-		buildVerificationTarget(left),
-		buildVerificationTarget(right),
+		buildVerificationTarget(dailyVerificationTarget(left)),
+		buildVerificationTarget(dailyVerificationTarget(right)),
 	);
 }
 export function modelVerificationConcurrency(): number {

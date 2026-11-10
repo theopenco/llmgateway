@@ -323,6 +323,28 @@ describe("daily model verification scheduling", () => {
 		).toBe(true);
 	});
 
+	it("leaves the context, output-budget and prompt-cache probes out of daily runs", async () => {
+		const { mapping, id } = await seed();
+		await db
+			.update(tables.modelProviderMapping)
+			.set({
+				contextSize: 1_000_000,
+				maxOutput: 128_000,
+				cachedInputPrice: "0",
+			})
+			.where(eq(tables.modelProviderMapping.id, mapping.id));
+		expect(await scheduleDailyModelVerifications(now)).toBe(1);
+		const queued = await job(id);
+		expect(queued.target.contextSize).toBeNull();
+		expect(queued.target.maxOutput).toBeNull();
+		expect(queued.target.promptCaching).toBe(false);
+		expect(
+			queued.checks.some((c) =>
+				["context_size", "max_output", "prompt_caching"].includes(c.id),
+			),
+		).toBe(false);
+	});
+
 	it("invalidates queued carrier proof after rotation and snapshots the next daily run", async () => {
 		const { id, claimId } = await seed("airside");
 		expect(await scheduleDailyModelVerifications(now)).toBe(1);
