@@ -32,7 +32,7 @@ services:
       # Authentication
       - PASSKEY_RP_ID=${PASSKEY_RP_ID:-localhost}
       - PASSKEY_RP_NAME=${PASSKEY_RP_NAME:-LLMGateway}
-      - AUTH_SECRET=${AUTH_SECRET:-your-secret-key}
+      - AUTH_SECRET=${AUTH_SECRET:?set AUTH_SECRET to a random 32+ character secret}
       - GATEWAY_API_KEY_HASH_SECRET=${GATEWAY_API_KEY_HASH_SECRET:-}
       - AIRSIDE_GATEWAY_API_KEY=${AIRSIDE_GATEWAY_API_KEY:-}
       - GATEWAY_URL

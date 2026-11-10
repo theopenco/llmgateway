@@ -30,6 +30,7 @@ Provide a `values.yaml` to point the chart at your managed database and cache an
 
 ```yaml
 auth:
+  # Generate with `openssl rand -base64 32`; the API refuses to start with a placeholder
   authSecret: "your-secret-key-here"
   gatewayApiKeyHashSecret: "your-api-key-hash-secret-here"
 postgresql:

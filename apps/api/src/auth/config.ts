@@ -12,6 +12,7 @@ import {
 	MIN_PASSWORD_LENGTH,
 } from "@/auth/password-policy.js";
 import { serializedPasswordReset } from "@/auth/password-reset.js";
+import { getAuthSecret } from "@/auth/secret.js";
 import { verificationCallback } from "@/auth/verification-callback.js";
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
@@ -957,7 +958,7 @@ If you didn't request this, you can safely ignore this email. Your password won'
 				},
 			},
 			baseURL: apiUrl || "http://localhost:4002",
-			secret: process.env.AUTH_SECRET ?? "dev-secret-key-must-be-32-chars!",
+			secret: getAuthSecret(),
 			database: createAuthDatabase(db),
 			socialProviders: {
 				// Social sign-in must never silently create an account: the login
