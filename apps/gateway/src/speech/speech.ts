@@ -1249,8 +1249,9 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 
 	let streamingResponse = false;
 	const controller = new AbortController();
+	// Once streaming, prepareSpeechStream handles a disconnect itself.
 	const onAbort = () => {
-		if (!streamingResponse || !useSse) {
+		if (!streamingResponse) {
 			controller.abort();
 		}
 	};

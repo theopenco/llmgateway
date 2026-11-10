@@ -298,6 +298,11 @@ export async function prepareSpeechStream(options: {
 		}
 	}
 	const onAbort = () => {
+		// The handler may abort the upstream before our client listener runs; a
+		// disconnect still closes the body instead of erroring it.
+		if (options.clientSignal.aborted) {
+			cancelDownstream();
+		}
 		stats.error =
 			options.signal.reason instanceof Error
 				? options.signal.reason
