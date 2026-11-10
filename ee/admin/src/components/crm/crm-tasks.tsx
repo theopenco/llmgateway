@@ -74,7 +74,11 @@ function TaskRow({
 }) {
 	const $api = useApi();
 	const queryClient = useQueryClient();
-	const lastMove = useRef<{ label: string; due: Date } | null>(null);
+	const lastMove = useRef<{
+		label: string;
+		due: Date;
+		byKeyboard: boolean;
+	} | null>(null);
 	// One mutation per row, so a slow request on one task leaves the others
 	// usable. The callbacks sit on the hook because a moved row re-mounts under
 	// another heading before the request settles, and callbacks passed to
@@ -98,7 +102,9 @@ function TaskRow({
 					return;
 				}
 				toast.success(`Follow-up moved to ${dueDay.format(move.due)}`);
-				onMoved(move.label);
+				if (move.byKeyboard) {
+					onMoved(move.label);
+				}
 			},
 			onError: (_error, variables) => {
 				toast.error(
@@ -159,12 +165,17 @@ function TaskRow({
 						ref={(node) => registerMoveButton(move.label, node)}
 						type="button"
 						aria-disabled={busy}
-						onClick={() => {
+						onClick={(event) => {
 							if (busy) {
 								return;
 							}
 							const due = startOfWorkday(move.workdays);
-							lastMove.current = { label: move.label, due };
+							// A click fired by Enter or Space reports no mouse detail.
+							lastMove.current = {
+								label: move.label,
+								due,
+								byKeyboard: event.detail === 0,
+							};
 							update.mutate({
 								params: { path: { activityId: task.id } },
 								body: { dueAt: due.toISOString() },
@@ -186,11 +197,14 @@ export function CrmTasks() {
 	const { data, isLoading } = $api.useQuery("get", "/admin/crm/tasks");
 	const moveButtons = useRef(new Map<string, HTMLButtonElement>());
 	const [focusAfterMove, setFocusAfterMove] = useState<string | null>(null);
-	// A moved task re-mounts under another heading. Putting focus back on the
-	// button that moved it keeps a keyboard user on the same task.
+	// A moved task re-mounts under another heading, which drops a keyboard
+	// user's focus to the page. Put it back on the button that moved the task,
+	// unless they have already gone somewhere else.
 	useEffect(() => {
 		if (focusAfterMove) {
-			moveButtons.current.get(focusAfterMove)?.focus();
+			if (document.activeElement === document.body) {
+				moveButtons.current.get(focusAfterMove)?.focus();
+			}
 			setFocusAfterMove(null);
 		}
 	}, [focusAfterMove]);

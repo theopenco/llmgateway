@@ -283,15 +283,19 @@ describe("admin enterprise CRM", () => {
 		const task = (await create.json()) as { id: string; authorEmail: string };
 		expect(task.authorEmail).toBe("admin@example.com");
 
+		// The inquiry's own follow-up is the account's second open task.
 		const before = await listAccounts(cookie);
 		expect(before.kpis.overdueTasks).toBe(1);
 		expect(
 			before.accounts.find((a) => a.id === "prospectco.com"),
-		).toMatchObject({ openTasks: 1, overdueTasks: 1 });
+		).toMatchObject({ openTasks: 2, overdueTasks: 1 });
 
 		const open = await listTasks(cookie);
 		const own = open.filter((t) => t.accountId === "prospectco.com");
-		expect(own.map((t) => t.subject)).toEqual(["Send security pack"]);
+		expect(own.map((t) => t.subject)).toEqual([
+			"Send security pack",
+			"Reply to Pia Prospect's enterprise inquiry",
+		]);
 		expect(own[0]?.accountName).toBe("Prospectco");
 
 		const done = await call(cookie, `/crm/activities/${task.id}`, {
@@ -300,15 +304,19 @@ describe("admin enterprise CRM", () => {
 		});
 		expect(done.status).toBe(200);
 		const after = await listTasks(cookie);
-		expect(after.filter((t) => t.accountId === "prospectco.com")).toEqual([]);
+		expect(
+			after
+				.filter((t) => t.accountId === "prospectco.com")
+				.map((t) => t.subject),
+		).toEqual(["Reply to Pia Prospect's enterprise inquiry"]);
 	});
 
 	// Ways a new inquiry ends up forgotten or the list ends up wrong: it gets no
 	// follow-up or no owner, the follow-up lands on a weekend, loading the desk
-	// twice doubles it, an older open task or a customer's renewal task hides
-	// it, sales already answered and it nags anyway, it counts as a sales touch
-	// before anyone replied, spam, archived or stale inquiries get one, or it
-	// outlives the inquiry it was for.
+	// twice doubles it or fails, other tasks or activity on the account hide
+	// it, it counts as a sales touch before anyone replied, spam, archived or
+	// stale inquiries get one, it stays behind on an account its sender left,
+	// it outlives the inquiry it was for, or deleting it brings it back.
 	describe("follow-ups for new inquiries", () => {
 		const reply = (name: string) => `Reply to ${name}'s enterprise inquiry`;
 
@@ -356,11 +364,12 @@ describe("admin enterprise CRM", () => {
 		});
 
 		it("stay one per inquiry however often, or at once, the desk loads", async () => {
-			await Promise.all([
+			const loads = await Promise.all([
 				call(cookie, "/crm/tasks"),
 				call(cookie, "/crm/accounts"),
 				call(cookie, "/crm/tasks"),
 			]);
+			expect(loads.map((res) => res.status)).toEqual([200, 200, 200]);
 			await listTasks(cookie);
 
 			expect((await leadTasks()).map((row) => row.externalRef)).toEqual([
@@ -404,20 +413,57 @@ describe("admin enterprise CRM", () => {
 			).toEqual(["Plan the renewal", reply("Sofia Trial")]);
 		});
 
-		it("are skipped once sales has acted on the inquiry", async () => {
+		it("are not replaced by other activity on the account", async () => {
 			const note = await call(
 				cookie,
 				"/crm/accounts/prospectco.com/activities",
-				{ method: "POST", body: { kind: "note", subject: "Replied by email" } },
+				{ method: "POST", body: { kind: "note", subject: "Called the CTO" } },
 			);
 			expect(note.status).toBe(200);
 
 			await listTasks(cookie);
 
 			expect((await leadTasks()).map((row) => row.externalRef)).toEqual([
+				"lead:crm-l1",
 				"lead:crm-l2",
 				"lead:crm-l3",
 			]);
+		});
+
+		it("follow the inquiry when its sender moves to another account", async () => {
+			await listTasks(cookie);
+			await db.insert(tables.user).values({
+				id: "crm-tom",
+				name: "Tom Freelance",
+				email: "tom@gmail.com",
+				emailVerified: true,
+			});
+			await db.insert(tables.userOrganization).values({
+				userId: "crm-tom",
+				organizationId: "crm-trial",
+				role: "developer",
+			});
+
+			const tasks = await listTasks(cookie);
+
+			expect(
+				tasks
+					.filter((t) => t.subject === reply("Tom Freelance"))
+					.map((t) => t.accountId),
+			).toEqual(["trialco.io"]);
+			expect(await leadTasks()).toHaveLength(3);
+		});
+
+		it("cannot be deleted, which would only bring them back", async () => {
+			const tasks = await listTasks(cookie);
+			const task = tasks.find((t) => t.accountId === "prospectco.com");
+
+			const res = await call(cookie, `/crm/activities/${task?.id}`, {
+				method: "DELETE",
+			});
+
+			expect(res.status).toBe(400);
+			expect(await leadTasks()).toHaveLength(3);
 		});
 
 		it("count as a sales touch only once they are done", async () => {
@@ -442,10 +488,10 @@ describe("admin enterprise CRM", () => {
 			).toEqual([]);
 		});
 
-		it("are not created for inquiries older than a month", async () => {
+		it("are not created for inquiries older than two weeks", async () => {
 			await db
 				.update(tables.enterpriseContactSubmission)
-				.set({ createdAt: daysFromNow(-40) })
+				.set({ createdAt: daysFromNow(-15) })
 				.where(eq(tables.enterpriseContactSubmission.id, "crm-l1"));
 
 			await listTasks(cookie);
@@ -555,7 +601,8 @@ describe("admin enterprise CRM input and time zones", () => {
 
 	it("reports task due dates in UTC whatever the server time zone", async () => {
 		process.env.TZ = "America/Los_Angeles";
-		const dueAt = shift(new Date(), 3);
+		// Earlier than the inquiry's own follow-up, so it is the next one due.
+		const dueAt = shift(new Date(), -1);
 		dueAt.setUTCMilliseconds(0);
 		const res = await call(cookie, "/crm/accounts/prospectco.com/activities", {
 			method: "POST",

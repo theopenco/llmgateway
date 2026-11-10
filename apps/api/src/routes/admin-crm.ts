@@ -6,6 +6,7 @@ import {
 	type CrmAccountSummary,
 	type CrmBookEntry,
 	corporateDomain,
+	isLeadFollowUpRef,
 	loadCrmBook,
 	loadSummaries,
 	parseUserAgent,
@@ -1032,6 +1033,17 @@ const deleteActivity = createRoute({
 
 adminCrm.openapi(deleteActivity, async (c) => {
 	const { activityId } = c.req.valid("param");
+	const activity = await db.query.crmActivity.findFirst({
+		where: { id: activityId },
+		columns: { externalRef: true },
+	});
+	// Deleting it would only make the next load create it again, as open.
+	if (activity && isLeadFollowUpRef(activity.externalRef)) {
+		throw new HTTPException(400, {
+			message:
+				"This follow-up belongs to an inquiry. Mark it done, or archive the inquiry to remove it.",
+		});
+	}
 	await db
 		.delete(tables.crmActivity)
 		.where(eq(tables.crmActivity.id, activityId));

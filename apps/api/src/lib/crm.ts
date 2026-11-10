@@ -561,7 +561,7 @@ export interface ActivityStats {
 
 const LEAD_REF_PREFIX = "lead:";
 const LEAD_FOLLOW_UP_REFS = `${LEAD_REF_PREFIX}%`;
-const LEAD_FOLLOW_UP_WINDOW_DAYS = 30;
+const LEAD_FOLLOW_UP_WINDOW_DAYS = 14;
 const LEAD_FOLLOW_UP_DUE_HOUR_UTC = 17;
 
 /** An inquiry is due an answer by the end of the next working day. */
@@ -571,77 +571,99 @@ export function leadFollowUpDueAt(receivedAt: Date): Date {
 	return due;
 }
 
+/** True for the follow-up task an inquiry gets, see {@link syncLeadFollowUps}. */
+export function isLeadFollowUpRef(externalRef: string | null): boolean {
+	return externalRef?.startsWith(LEAD_REF_PREFIX) ?? false;
+}
+
 /**
- * Keeps one follow-up task for every recent inquiry nobody has acted on since
- * it arrived, and gives an unowned lead account `CRM_DEFAULT_OWNER_EMAIL`. It
- * runs when the desk loads, so the public contact form writes nothing here.
- * The task is keyed on its submission (`lead:<id>`), which makes two runs at
- * once harmless, and an open one is removed once its submission is archived,
- * deleted or marked as spam. An open follow-up is not a sales touch; a
- * completed one is. Returns whether anything changed.
+ * Keeps exactly one follow-up task per inquiry of the last two weeks, on the
+ * account the inquiry is listed under, and gives an unowned lead account
+ * `CRM_DEFAULT_OWNER_EMAIL`. It runs when the desk loads, so the public
+ * contact form writes nothing here. The task is keyed on its submission
+ * (`lead:<id>`): two runs at once cannot double it, it follows the inquiry
+ * when its sender moves to another account, and an open one is removed once
+ * the inquiry is archived, deleted or rejected. Answering an inquiry means
+ * completing its task; other activity on the account does not stand in for
+ * that. Returns whether anything changed.
  */
 export async function syncLeadFollowUps(
 	book: Map<string, CrmBookEntry>,
-	activity: Map<string, ActivityStats>,
 	now: Date,
 ): Promise<boolean> {
 	const a = tables.crmActivity;
+	const submission = tables.enterpriseContactSubmission;
+	// Judged against the table, not the book: a book read a moment ago may
+	// not know an inquiry that another load has just given its follow-up.
+	const removed = await db
+		.delete(a)
+		.where(
+			and(
+				isNull(a.completedAt),
+				like(a.externalRef, LEAD_FOLLOW_UP_REFS),
+				sql`not exists (select 1 from ${submission} where ${LEAD_REF_PREFIX} || ${submission.id} = ${a.externalRef} and ${submission.archivedAt} is null and ${submission.spamFilterStatus} <> 'rejected')`,
+			),
+		)
+		.returning({ id: a.id });
 	const existing = await db
 		.select({
 			id: a.id,
+			accountId: a.accountId,
 			externalRef: a.externalRef,
 			completedAt: a.completedAt,
 		})
 		.from(a)
 		.where(like(a.externalRef, LEAD_FOLLOW_UP_REFS));
-	const known = new Set(existing.map((row) => row.externalRef));
+	const byRef = new Map(existing.map((row) => [row.externalRef, row]));
 	const windowMs = LEAD_FOLLOW_UP_WINDOW_DAYS * DAY_MS;
 	const since = now.getTime() - windowMs;
 
-	const live = new Set<string>();
 	const missing: { entry: CrmBookEntry; lead: CrmLeadRow }[] = [];
+	const moved: { id: string; accountId: string }[] = [];
 	for (const entry of book.values()) {
-		const lastTouchAt = activity.get(entry.id)?.lastActivityAt ?? null;
 		for (const lead of entry.leads) {
-			const ref = `${LEAD_REF_PREFIX}${lead.id}`;
-			live.add(ref);
-			if (
-				!known.has(ref) &&
-				lead.createdAt.getTime() > since &&
-				(!lastTouchAt || lead.createdAt > lastTouchAt)
-			) {
-				missing.push({ entry, lead });
+			const row = byRef.get(`${LEAD_REF_PREFIX}${lead.id}`);
+			if (!row) {
+				if (lead.createdAt.getTime() > since) {
+					missing.push({ entry, lead });
+				}
+			} else if (!row.completedAt && row.accountId !== entry.id) {
+				moved.push({ id: row.id, accountId: entry.id });
 			}
 		}
 	}
-	const orphaned = existing.filter(
-		(row) => !row.completedAt && row.externalRef && !live.has(row.externalRef),
-	);
-	if (missing.length === 0 && orphaned.length === 0) {
+	if (removed.length === 0 && missing.length === 0 && moved.length === 0) {
 		return false;
 	}
 
-	if (missing.length > 0) {
-		const accountIds = [...new Set(missing.map(({ entry }) => entry.id))];
+	const accountIds = [
+		...new Set([
+			...missing.map(({ entry }) => entry.id),
+			...moved.map(({ accountId }) => accountId),
+		]),
+	];
+	if (accountIds.length > 0) {
 		await db
 			.insert(tables.crmAccount)
 			.values(accountIds.map((id) => ({ id })))
 			.onConflictDoNothing();
-		const ownerEmail = process.env.CRM_DEFAULT_OWNER_EMAIL || null;
-		const leadAccountIds = missing
-			.filter(({ entry }) => segmentOf(entry, now) === "lead")
-			.map(({ entry }) => entry.id);
-		if (ownerEmail && leadAccountIds.length > 0) {
-			await db
-				.update(tables.crmAccount)
-				.set({ ownerEmail })
-				.where(
-					and(
-						inArray(tables.crmAccount.id, leadAccountIds),
-						isNull(tables.crmAccount.ownerEmail),
-					),
-				);
-		}
+	}
+	const ownerEmail = process.env.CRM_DEFAULT_OWNER_EMAIL || null;
+	const leadAccountIds = missing
+		.filter(({ entry }) => segmentOf(entry, now) === "lead")
+		.map(({ entry }) => entry.id);
+	if (ownerEmail && leadAccountIds.length > 0) {
+		await db
+			.update(tables.crmAccount)
+			.set({ ownerEmail })
+			.where(
+				and(
+					inArray(tables.crmAccount.id, leadAccountIds),
+					isNull(tables.crmAccount.ownerEmail),
+				),
+			);
+	}
+	if (missing.length > 0) {
 		await db
 			.insert(a)
 			.values(
@@ -656,13 +678,8 @@ export async function syncLeadFollowUps(
 			)
 			.onConflictDoNothing();
 	}
-	if (orphaned.length > 0) {
-		await db.delete(a).where(
-			inArray(
-				a.id,
-				orphaned.map((row) => row.id),
-			),
-		);
+	for (const { id, accountId } of moved) {
+		await db.update(a).set({ accountId }).where(eq(a.id, id));
 	}
 	return true;
 }
@@ -931,23 +948,25 @@ export async function resolveAccountIdForEmail(
 	return null;
 }
 
-/** The book plus a summary row per account, as the CRM list and details use. */
+/**
+ * The book plus a summary row per account, as the CRM list and details use.
+ * Not a pure read: loading the desk is what creates the follow-up tasks new
+ * inquiries need (see {@link syncLeadFollowUps}), whatever the admin's role.
+ * Call it from the admin CRM only.
+ */
 export async function loadSummaries(now: Date = new Date()) {
-	let [book, activity] = await Promise.all([
-		loadCrmBook(now),
-		loadActivityStats(now),
-	]);
-	if (await syncLeadFollowUps(book, activity, now)) {
-		[book, activity] = await Promise.all([
-			loadCrmBook(now),
-			loadActivityStats(now),
-		]);
+	let book = await loadCrmBook(now);
+	if (await syncLeadFollowUps(book, now)) {
+		book = await loadCrmBook(now);
 	}
 	const entries = [...book.values()];
-	const usage = await loadOrgUsage(
-		entries.flatMap((e) => e.orgs.map((o) => o.id)),
-		now,
-	);
+	const [usage, activity] = await Promise.all([
+		loadOrgUsage(
+			entries.flatMap((e) => e.orgs.map((o) => o.id)),
+			now,
+		),
+		loadActivityStats(now),
+	]);
 	return {
 		book,
 		usage,
