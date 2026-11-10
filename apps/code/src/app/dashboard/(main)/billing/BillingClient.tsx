@@ -10,6 +10,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { usePlans } from "@/app/dashboard/plans";
+import { CHANGE_PLAN_SECTION_ID } from "@/app/dashboard/types";
 import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -289,6 +290,14 @@ export default function BillingClient({
 		}
 	};
 
+	// The cancel dialog's upgrade offer: the plan picker below already previews
+	// and confirms the charge, so the offer hands over to it.
+	const handleReviewUpgrade = (): void => {
+		const picker = document.getElementById(CHANGE_PLAN_SECTION_ID);
+		picker?.scrollIntoView({ behavior: "smooth", block: "start" });
+		picker?.focus({ preventScroll: true });
+	};
+
 	const handleCancel = async (
 		reason: DevPlanCancellationReason,
 		comments: string | undefined,
@@ -550,6 +559,7 @@ export default function BillingClient({
 									isDowngrading={subscribingTier !== null}
 									onCancel={handleCancel}
 									onDowngrade={handleDowngrade}
+									onUpgrade={handleReviewUpgrade}
 								/>
 							)}
 						</>

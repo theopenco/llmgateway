@@ -3,6 +3,7 @@
 import { ArrowDown, ArrowRight, ArrowUp, Loader2 } from "lucide-react";
 import { useState } from "react";
 
+import { CHANGE_PLAN_SECTION_ID } from "@/app/dashboard/types";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -82,7 +83,11 @@ export default function ActivePlanChangeTier({
 	const hasPendingChange = pendingTier !== null;
 
 	return (
-		<div>
+		<div
+			id={CHANGE_PLAN_SECTION_ID}
+			tabIndex={-1}
+			className="scroll-mt-6 outline-none"
+		>
 			<h2 className="mb-1 font-semibold">Change plan</h2>
 			<p className="mb-4 text-sm text-muted-foreground">
 				{cancelled

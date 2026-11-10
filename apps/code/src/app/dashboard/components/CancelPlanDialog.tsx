@@ -4,7 +4,7 @@ import { ArrowRight, Check, DoorOpen, Loader2 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { usePlans } from "@/app/dashboard/plans";
 import { Button } from "@/components/ui/button";
@@ -37,9 +37,10 @@ type Step = "survey" | "offer" | "confirm";
 
 type SaveOffer =
 	| { kind: "downgrade"; tier: PlanTier }
+	| { kind: "upgrade"; tier: PlanTier }
 	| {
 			kind: "link";
-			id: "agents" | "models" | "compare";
+			id: "agents" | "models" | "compare" | "overflow" | "support";
 			href: string;
 			external: boolean;
 			title: string;
@@ -47,14 +48,20 @@ type SaveOffer =
 			cta: string;
 	  };
 
-// A save offer only makes sense while the cycle still has room: someone who
-// has burned through most of the allowance isn't kept by a smaller plan.
-const SAVE_OFFER_MAX_UTILIZATION = 0.4;
+// A smaller plan only fits while the cycle still has room: someone who has
+// burned through most of the allowance isn't kept by less of it.
+const DOWNGRADE_MAX_UTILIZATION = 0.4;
 
 const LOWER_TIER: Record<PlanTier, PlanTier | null> = {
 	lite: null,
 	pro: "lite",
 	max: "pro",
+};
+
+const HIGHER_TIER: Record<PlanTier, PlanTier | null> = {
+	lite: "pro",
+	pro: "max",
+	max: null,
 };
 
 const STEPS: { id: Step; label: string }[] = [
@@ -67,26 +74,43 @@ function planName(plans: PlanOption[], tier: PlanTier): string {
 	return plans.find((p) => p.tier === tier)?.name ?? tier.toUpperCase();
 }
 
+function planUsage(plans: PlanOption[], tier: PlanTier): number {
+	return plans.find((p) => p.tier === tier)?.usage ?? 0;
+}
+
 function resolveOffer(
 	reason: DevPlanCancellationReason,
 	tier: PlanTier,
 	utilization: number,
 	pendingTier: PlanTier | null,
 	docsUrl: string,
+	discordUrl: string,
 ): SaveOffer | null {
-	if (utilization >= SAVE_OFFER_MAX_UTILIZATION) {
-		return null;
-	}
 	switch (reason) {
 		case "too_expensive":
 		case "not_using_enough":
 		case "just_testing": {
 			const lower = LOWER_TIER[tier];
 			// A scheduled tier change already exists; change-tier would 409.
-			if (!lower || pendingTier) {
+			if (!lower || pendingTier || utilization >= DOWNGRADE_MAX_UTILIZATION) {
 				return null;
 			}
 			return { kind: "downgrade", tier: lower };
+		}
+		case "allowance_too_small": {
+			const higher = HIGHER_TIER[tier];
+			if (higher && !pendingTier) {
+				return { kind: "upgrade", tier: higher };
+			}
+			return {
+				kind: "link",
+				id: "overflow",
+				href: "/dashboard/usage#payg-card",
+				external: false,
+				title: "Keep going past the allowance",
+				body: "Pay-as-you-go overflow keeps requests flowing once the plan allowance or the weekly premium cap is reached, billed to a credits balance at provider rates. It stays off until you opt in.",
+				cta: "Open overflow settings",
+			};
 		}
 		case "tool_not_supported":
 			return {
@@ -118,6 +142,16 @@ function resolveOffer(
 				body: "Side by side with the plan you're moving to: models, limits, tooling and price.",
 				cta: "Compare plans",
 			};
+		case "other":
+			return {
+				kind: "link",
+				id: "support",
+				href: discordUrl,
+				external: true,
+				title: "Talk it through with us",
+				body: "If something broke or didn't work the way you expected, tell us in Discord before you go. We would rather fix it than lose you.",
+				cta: "Open Discord",
+			};
 		default:
 			return null;
 	}
@@ -139,17 +173,38 @@ interface CancelPlanDialogProps {
 		comments: string | undefined,
 	) => Promise<void>;
 	onDowngrade: (tier: PlanTier) => Promise<void>;
+	onUpgrade: (tier: PlanTier) => void;
 }
 
 export default function CancelPlanDialog(props: CancelPlanDialogProps) {
+	// The upgrade offer hands over to the plan picker behind the dialog. The
+	// handover waits for the close to finish: until then the page is scroll
+	// locked and focus is still on its way back to the trigger.
+	const upgradeTier = useRef<PlanTier | null>(null);
+
 	return (
 		<Dialog open={props.open} onOpenChange={props.onOpenChange}>
 			<DialogContent
 				data-testid="cancel-plan-dialog"
 				className="max-h-[calc(100dvh-2rem)] overflow-y-auto overflow-x-hidden border-dashed border-stone-400/70 dark:border-stone-600/70"
+				onCloseAutoFocus={(event) => {
+					const tier = upgradeTier.current;
+					if (!tier) {
+						return;
+					}
+					upgradeTier.current = null;
+					event.preventDefault();
+					props.onUpgrade(tier);
+				}}
 			>
 				{/* Content unmounts with the dialog, so every open starts at the survey. */}
-				<CancelFlow {...props} />
+				<CancelFlow
+					{...props}
+					onUpgrade={(tier) => {
+						upgradeTier.current = tier;
+						props.onOpenChange(false);
+					}}
+				/>
 			</DialogContent>
 		</Dialog>
 	);
@@ -167,6 +222,7 @@ function CancelFlow({
 	isDowngrading,
 	onCancel,
 	onDowngrade,
+	onUpgrade,
 }: CancelPlanDialogProps) {
 	const posthog = usePostHog();
 	const { posthogKey, docsUrl, discordUrl } = useAppConfig();
@@ -197,7 +253,7 @@ function CancelFlow({
 	};
 
 	const offerLabel = (o: SaveOffer) =>
-		o.kind === "downgrade" ? `downgrade:${o.tier}` : `link:${o.id}`;
+		o.kind === "link" ? `link:${o.id}` : `${o.kind}:${o.tier}`;
 
 	const continueFromSurvey = () => {
 		if (!reason) {
@@ -209,7 +265,14 @@ function CancelFlow({
 			utilization,
 			has_comments: trimmedComments.length > 0,
 		});
-		const next = resolveOffer(reason, tier, utilization, pendingTier, docsUrl);
+		const next = resolveOffer(
+			reason,
+			tier,
+			utilization,
+			pendingTier,
+			docsUrl,
+			discordUrl,
+		);
 		if (next) {
 			setOffer(next);
 			track("dev_plan_cancel_offer_shown", { reason, offer: offerLabel(next) });
@@ -229,6 +292,8 @@ function CancelFlow({
 		});
 		if (offer.kind === "downgrade") {
 			await onDowngrade(offer.tier);
+		} else if (offer.kind === "upgrade") {
+			onUpgrade(offer.tier);
 		}
 	};
 
@@ -425,7 +490,9 @@ function CancelFlow({
 									<div className="font-mono text-[10px] uppercase tracking-[0.35em] text-stone-500 dark:text-stone-400">
 										{offer.kind === "downgrade"
 											? "Visa amendment · Right-size"
-											: "Visa amendment · Worth a look"}
+											: offer.kind === "upgrade"
+												? "Visa amendment · More room"
+												: "Visa amendment · Worth a look"}
 									</div>
 									<div className="font-mono text-[9px] tracking-[0.25em] text-stone-400 dark:text-stone-500">
 										No. CX-{serial}
@@ -455,6 +522,29 @@ function CancelFlow({
 											can move back up any time.
 										</p>
 									</div>
+								) : offer.kind === "upgrade" ? (
+									<div className="mt-3 space-y-2">
+										<p className="text-base font-semibold tracking-tight">
+											Move up to {planName(plans, offer.tier)}
+										</p>
+										<p className="text-2xl font-bold tracking-tight tabular-nums">
+											${planUsage(plans, offer.tier)}
+											<span className="text-sm font-normal text-muted-foreground">
+												{" "}
+												of usage a month
+											</span>{" "}
+											<span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+												up from ${planUsage(plans, tier)}
+											</span>
+										</p>
+										<p className="text-sm text-muted-foreground">
+											Same key, same models, a bigger allowance. Upgrading
+											starts a new cycle today at ${DEV_PLAN_PRICES[offer.tier]}
+											/mo, and what is left of this cycle&apos;s allowance
+											carries over. You review the charge before anything
+											changes.
+										</p>
+									</div>
 								) : (
 									<div className="mt-3 space-y-2">
 										<p className="text-base font-semibold tracking-tight">
@@ -478,6 +568,14 @@ function CancelFlow({
 											)}
 											Switch to {planName(plans, offer.tier)} at renewal
 										</Button>
+									) : offer.kind === "upgrade" ? (
+										<Button
+											onClick={acceptOffer}
+											disabled={busy}
+											data-testid="cancel-offer-accept"
+										>
+											Review the {planName(plans, offer.tier)} upgrade
+										</Button>
 									) : offer.external ? (
 										<Button asChild data-testid="cancel-offer-accept">
 											<a
@@ -500,7 +598,7 @@ function CancelFlow({
 											</Link>
 										</Button>
 									)}
-									{offer.kind === "downgrade" ? (
+									{offer.kind !== "link" ? (
 										<Link
 											href="/pricing"
 											target="_blank"
@@ -508,7 +606,7 @@ function CancelFlow({
 										>
 											Compare what each plan includes
 										</Link>
-									) : (
+									) : offer.id === "support" ? null : (
 										<a
 											href={discordUrl}
 											target="_blank"
