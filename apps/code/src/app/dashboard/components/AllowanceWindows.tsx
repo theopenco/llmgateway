@@ -4,7 +4,11 @@ import { formatDistanceToNowStrict } from "date-fns";
 import { CalendarDays, Gem, Timer } from "lucide-react";
 import Link from "next/link";
 
-import { formatDateTime, useDisplayTimeZone } from "@llmgateway/shared";
+import {
+	DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
+	formatDateTime,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 import type { LucideIcon } from "lucide-react";
 
@@ -16,6 +20,8 @@ export interface AllowanceWindowsProps {
 		limit: number;
 		resetsAt: Date | null;
 		exhaustedMessage: string;
+		// What a renewal would carry into the next cycle at current usage.
+		carryOver?: number;
 	};
 	paygEnabled: boolean;
 	overflowCovering: boolean;
@@ -296,6 +302,19 @@ export function AllowanceWindows({
 				<p className="text-xs text-yellow-700 dark:text-yellow-400">
 					Above 80% of your monthly allowance. Consider upgrading or wait for
 					the next reset.
+				</p>
+			) : monthly.carryOver ? (
+				<p
+					className="text-xs text-muted-foreground"
+					data-testid="allowance-carry-over"
+				>
+					Unused allowance carries into your next cycle at renewal, up to{" "}
+					{Math.round(DEV_PLAN_RENEWAL_ROLLOVER_PERCENT * 100)}% of your
+					plan&apos;s monthly allowance. At today&apos;s usage:{" "}
+					<span className="font-medium tabular-nums text-foreground">
+						{formatUsd(monthly.carryOver)}
+					</span>
+					.
 				</p>
 			) : null}
 			{weeklyPercentage >= 100 ? (

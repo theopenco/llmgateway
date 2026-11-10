@@ -14,6 +14,7 @@ import {
 	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
+	DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
 	DEV_PLAN_RESET_PASS_PRICES,
 	getDevPlanCreditsLimit,
 	HIGH_COST_INPUT_PRICE,
@@ -50,6 +51,10 @@ const defaultCredits: FaqCredits = {
 
 function buildFaqData(credits: FaqCredits): FaqItem[] {
 	const usagePerDollar = credits.lite / DEV_PLAN_PRICES.lite;
+	const carryOverCap = (tier: DevPlanTier) => {
+		const cap = credits[tier] * DEV_PLAN_RENEWAL_ROLLOVER_PERCENT;
+		return Number.isInteger(cap) ? cap : cap.toFixed(2);
+	};
 	return [
 		{
 			question: "How much usage do I get on each plan?",
@@ -123,7 +128,7 @@ function buildFaqData(credits: FaqCredits): FaqItem[] {
 		{
 			question: "What happens if I hit my monthly limit?",
 			answer:
-				"By default requests pause until your allowance resets at the start of the next billing cycle. You have two ways to keep coding: enable pay-as-you-go overflow in your dashboard — an opt-in that bills extra usage from a credits balance at the same provider rates once your allowance is gone — or upgrade to a higher tier at any time: an immediate upgrade charges the new tier's full price, restarts your billing cycle, and grants the new tier's full monthly allowance right away, plus anything left of your current allowance rolls over. Credits only roll over on an immediate upgrade, never at a regular renewal.",
+				"By default requests pause until your allowance resets at the start of the next billing cycle. You have two ways to keep coding: enable pay-as-you-go overflow in your dashboard — an opt-in that bills extra usage from a credits balance at the same provider rates once your allowance is gone — or upgrade to a higher tier at any time: an immediate upgrade charges the new tier's full price, restarts your billing cycle, and grants the new tier's full monthly allowance right away, plus anything left of your current allowance rolls over.",
 			content: (
 				<>
 					<p>
@@ -141,16 +146,19 @@ function buildFaqData(credits: FaqCredits): FaqItem[] {
 						immediate upgrade charges the new tier&apos;s full price, restarts
 						your billing cycle, and grants the new tier&apos;s full monthly
 						allowance right away — plus anything left of your current allowance
-						rolls over. Credits only roll over on an immediate upgrade, never at
-						a regular renewal.
+						rolls over.
 					</p>
 				</>
 			),
 		},
 		{
+			question: "Does unused allowance roll over?",
+			answer: `Yes. Whatever is left of your allowance when your plan renews carries into the next cycle, on top of that cycle's full allowance. Up to ${pct(DEV_PLAN_RENEWAL_ROLLOVER_PERCENT)}% of your plan's monthly allowance can carry over: $${carryOverCap("lite")} on Lite, $${carryOverCap("pro")} on Pro and $${carryOverCap("max")} on Max. The amount is worked out again at every renewal from what is left then, so it never builds up past that cap, and it ends when the plan does.`,
+		},
+		{
 			question: "Can I change plans anytime?",
 			answer:
-				"Yes. Upgrades can take effect immediately — you're charged the new tier's full price, your billing cycle restarts, and you get the new tier's full allowance right away, plus any unspent credits from the cycle being replaced roll over until your next renewal — or you can schedule the upgrade for your next renewal instead. Downgrades take effect at your next renewal. There's no lock-in and no cancellation fee.",
+				"Yes. Upgrades can take effect immediately — you're charged the new tier's full price, your billing cycle restarts, and you get the new tier's full allowance right away, plus any unspent credits from the cycle being replaced roll over — or you can schedule the upgrade for your next renewal instead. Downgrades take effect at your next renewal. There's no lock-in and no cancellation fee.",
 		},
 		{
 			question: "Do I need a subscription, or is there pay-as-you-go?",

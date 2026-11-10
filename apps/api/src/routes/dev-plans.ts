@@ -98,6 +98,7 @@ import {
 	getDevPlanCycleUsageFraction,
 	getDevPlanDailyLimit,
 	getDevPlanPremiumWeeklyLimit,
+	getDevPlanRenewalCredits,
 	getDevPlanUpgradeCredits,
 	getIncludedResetPassesRemaining,
 	getRemainingPremiumWeeklyAllowance,
@@ -1918,6 +1919,9 @@ const getStatus = createRoute({
 						devPlanCreditsUsed: z.string(),
 						devPlanCreditsLimit: z.string(),
 						devPlanCreditsRemaining: z.string(),
+						// Unused allowance a renewal would carry into the next cycle
+						// if it happened now, on the tier that renews.
+						devPlanRenewalRollover: z.string(),
 						devPlanPremiumWeeklyLimit: z.string(),
 						devPlanPremiumCreditsUsed: z.string(),
 						devPlanPremiumWeekResetsAt: z.string().nullable(),
@@ -2007,6 +2011,7 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanCreditsUsed: "0",
 			devPlanCreditsLimit: "0",
 			devPlanCreditsRemaining: "0",
+			devPlanRenewalRollover: "0",
 			devPlanPremiumWeeklyLimit: "0",
 			devPlanPremiumCreditsUsed: "0",
 			devPlanPremiumWeekResetsAt: null,
@@ -2041,6 +2046,14 @@ devPlans.openapi(getStatus, async (c) => {
 	const creditsUsed = parseFloat(personalOrg.devPlanCreditsUsed);
 	const creditsLimit = parseFloat(personalOrg.devPlanCreditsLimit);
 	const creditsRemaining = Math.max(0, creditsLimit - creditsUsed);
+	const renewalRollover =
+		personalOrg.devPlan !== "none"
+			? getDevPlanRenewalCredits(
+					personalOrg.devPlanPendingTier ?? personalOrg.devPlan,
+					personalOrg.devPlanCreditsUsed,
+					personalOrg.devPlanCreditsLimit,
+				).rolloverCredits
+			: 0;
 
 	// Ending a dev plan clears every devPlan* column on the org, so the billing
 	// transactions are the only lasting record that the user was ever a
@@ -2140,6 +2153,7 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanCreditsUsed: personalOrg.devPlanCreditsUsed,
 		devPlanCreditsLimit: personalOrg.devPlanCreditsLimit,
 		devPlanCreditsRemaining: creditsRemaining.toFixed(2),
+		devPlanRenewalRollover: renewalRollover.toFixed(2),
 		devPlanPremiumWeeklyLimit: premiumWeeklyLimit.toFixed(2),
 		devPlanPremiumCreditsUsed: premiumCreditsUsed.toFixed(2),
 		devPlanPremiumWeekResetsAt: premiumWeekResetsAt,

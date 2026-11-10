@@ -342,9 +342,15 @@ function makeInvoiceEvent(overrides: {
 
 // The allotment a renewal or activation grants comes from the shared plan
 // constants, so assert against them rather than a literal that drifts.
-const LITE_ALLOTMENT = String(getDevPlanCreditsLimit("lite"));
 const PRO_ALLOTMENT = String(getDevPlanCreditsLimit("pro"));
-const MAX_ALLOTMENT = String(getDevPlanCreditsLimit("max"));
+
+// A renewal carries the ended cycle's unused allowance forward, capped at half
+// the allotment of the tier being renewed into.
+type Tier = "lite" | "pro" | "max";
+const withCarryOver = (tier: Tier, carried: number) =>
+	String(getDevPlanCreditsLimit(tier) + carried);
+const withCappedCarryOver = (tier: Tier) =>
+	String(getDevPlanCreditsLimit(tier) * 1.5);
 
 describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 	beforeEach(async () => {
@@ -370,10 +376,10 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		});
 	}
 
-	test("resets credits and grants a full fresh allotment on a true cycle renewal", async () => {
-		// Seed a raised limit left over from a mid-cycle upgrade's unused-credit
-		// rollover to verify the renewal restores the tier's base allotment (the
-		// rollover only lasts until renewal).
+	test("resets usage and caps the carry-over on a true cycle renewal", async () => {
+		// The raised limit is left over from a mid-cycle upgrade's rollover. 162
+		// of it is unused, more than half of Pro's allotment, so the renewal
+		// carries only the cap and the old rollover does not survive on its own.
 		await seedUsedDevPlanOrg({ devPlanCreditsLimit: "312" });
 
 		await handleInvoicePaymentSucceeded(
@@ -388,20 +394,89 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe(PRO_ALLOTMENT);
+		expect(org?.devPlanCreditsLimit).toBe(withCappedCarryOver("pro"));
 
 		const txns = await db.query.transaction.findMany({
 			where: { organizationId: { eq: ORG_ID } },
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_renewal");
-		expect(txns[0].creditAmount).toBe(PRO_ALLOTMENT);
+		expect(txns[0].creditAmount).toBe(withCappedCarryOver("pro"));
+	});
+
+	async function renewProOrg(seed: { limit: string; used: string }) {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanCreditsLimit: seed.limit,
+			devPlanCreditsUsed: seed.used,
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+		});
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 7900,
+				invoiceId: "in_cycle_carry_001",
+			}),
+		);
+		return await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+	}
+
+	test("carries the whole remainder when it is under the cap", async () => {
+		const org = await renewProOrg({
+			limit: PRO_ALLOTMENT,
+			used: String(getDevPlanCreditsLimit("pro") - 20.25),
+		});
+
+		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe(withCarryOver("pro", 20.25));
+	});
+
+	test("does not compound an untouched carry-over into the next renewal", async () => {
+		// The ended cycle already held a full carry-over and none of it was
+		// spent. The next cycle carries the cap again, not the cap on top of it.
+		const org = await renewProOrg({
+			limit: withCappedCarryOver("pro"),
+			used: "0",
+		});
+
+		expect(org?.devPlanCreditsLimit).toBe(withCappedCarryOver("pro"));
+	});
+
+	test("carries nothing out of a cycle that was spent past its allowance", async () => {
+		const org = await renewProOrg({
+			limit: PRO_ALLOTMENT,
+			used: String(getDevPlanCreditsLimit("pro") + 4.5),
+		});
+
+		expect(org?.devPlanCreditsUsed).toBe("0");
+		expect(org?.devPlanCreditsLimit).toBe(PRO_ALLOTMENT);
+	});
+
+	test("itemizes the carried amount on the renewal invoice", async () => {
+		await renewProOrg({
+			limit: PRO_ALLOTMENT,
+			used: String(getDevPlanCreditsLimit("pro") - 20),
+		});
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(1);
+		expect(txns[0].creditAmount).toBe(withCarryOver("pro", 20));
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
 	});
 
 	test("applies a scheduled downgrade at renewal: switches tier and grants the lower allotment", async () => {
 		// Org is on pro with a pending downgrade to lite. At the cycle renewal the
 		// tier must flip to lite, the pending marker clears, and credits reset to
-		// lite's full allotment (not pro's).
+		// lite's allotment (not pro's). The 87 left of the pro cycle exceeds half
+		// of lite's allotment, so the carry-over is capped by the lower tier.
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
 			name: "Acme Co",
@@ -428,21 +503,20 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(org?.devPlan).toBe("lite");
 		expect(org?.devPlanPendingTier).toBeNull();
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe(LITE_ALLOTMENT);
+		expect(org?.devPlanCreditsLimit).toBe(withCappedCarryOver("lite"));
 
 		const txns = await db.query.transaction.findMany({
 			where: { organizationId: { eq: ORG_ID } },
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_renewal");
-		expect(txns[0].creditAmount).toBe(LITE_ALLOTMENT);
+		expect(txns[0].creditAmount).toBe(withCappedCarryOver("lite"));
 	});
 
 	test("applies a scheduled upgrade at renewal: switches tier and grants the higher allotment", async () => {
 		// Org is on pro with an upgrade to max deferred to renewal. At the cycle
-		// renewal the tier flips to max and credits reset to max's full allotment;
-		// the old cycle's unused credits do NOT roll over (rollover is exclusive
-		// to immediate upgrades).
+		// renewal the tier flips to max and credits reset to max's allotment plus
+		// the 87 left of the pro cycle, which is under max's carry-over cap.
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
 			name: "Acme Co",
@@ -469,14 +543,14 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(org?.devPlan).toBe("max");
 		expect(org?.devPlanPendingTier).toBeNull();
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe(MAX_ALLOTMENT);
+		expect(org?.devPlanCreditsLimit).toBe(withCarryOver("max", 87));
 
 		const txns = await db.query.transaction.findMany({
 			where: { organizationId: { eq: ORG_ID } },
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_renewal");
-		expect(txns[0].creditAmount).toBe(MAX_ALLOTMENT);
+		expect(txns[0].creditAmount).toBe(withCarryOver("max", 87));
 	});
 
 	test("grants the billed tier and defers the pending change when the invoice billed the old tier", async () => {
@@ -514,17 +588,18 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 			const org = await db.query.organization.findFirst({
 				where: { id: { eq: ORG_ID } },
 			});
+			// 137 of the max cycle is unused, under max's carry-over cap.
 			expect(org?.devPlan).toBe("max");
 			expect(org?.devPlanPendingTier).toBe("pro");
 			expect(org?.devPlanCreditsUsed).toBe("0");
-			expect(org?.devPlanCreditsLimit).toBe(MAX_ALLOTMENT);
+			expect(org?.devPlanCreditsLimit).toBe(withCarryOver("max", 137));
 
 			const txns = await db.query.transaction.findMany({
 				where: { organizationId: { eq: ORG_ID } },
 			});
 			expect(txns).toHaveLength(1);
 			expect(txns[0].type).toBe("dev_plan_renewal");
-			expect(txns[0].creditAmount).toBe(MAX_ALLOTMENT);
+			expect(txns[0].creditAmount).toBe(withCarryOver("max", 137));
 			expect(txns[0].description).toBe("Dev Plan MAX renewed");
 		} finally {
 			vi.unstubAllEnvs();
@@ -561,15 +636,16 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 			const org = await db.query.organization.findFirst({
 				where: { id: { eq: ORG_ID } },
 			});
+			// 137 of the max cycle is unused, more than half of pro's allotment.
 			expect(org?.devPlan).toBe("pro");
 			expect(org?.devPlanPendingTier).toBeNull();
-			expect(org?.devPlanCreditsLimit).toBe(PRO_ALLOTMENT);
+			expect(org?.devPlanCreditsLimit).toBe(withCappedCarryOver("pro"));
 
 			const txns = await db.query.transaction.findMany({
 				where: { organizationId: { eq: ORG_ID } },
 			});
 			expect(txns).toHaveLength(1);
-			expect(txns[0].creditAmount).toBe(PRO_ALLOTMENT);
+			expect(txns[0].creditAmount).toBe(withCappedCarryOver("pro"));
 			expect(txns[0].description).toBe("Dev Plan PRO renewed");
 		} finally {
 			vi.unstubAllEnvs();
@@ -797,7 +873,7 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe(PRO_ALLOTMENT);
+		expect(org?.devPlanCreditsLimit).toBe(withCappedCarryOver("pro"));
 	});
 
 	test("skips processing an invoice that was already recorded", async () => {

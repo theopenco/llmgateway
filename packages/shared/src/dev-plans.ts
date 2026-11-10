@@ -35,8 +35,9 @@ function toDecimalOrZero(value: string | number | null | undefined): Decimal {
  * full new-tier price and restart the billing cycle today, so the unused
  * remainder of the current cycle — already paid for — rolls over on top of the
  * new tier's full allotment instead of being forfeited. The rollover lives
- * only until the next renewal, which resets the limit to the tier's base
- * allotment. Dunning-frozen orgs get no rollover for free: the freeze clamps
+ * only until the next renewal, which recomputes the limit from the tier's
+ * base allotment and what is left then (`getDevPlanRenewalCredits`).
+ * Dunning-frozen orgs get no rollover for free: the freeze clamps
  * the stored limit down to the used amount, so the remainder is already 0.
  * Computed with Decimal so fractional usage strings never leave float
  * artifacts in the stored limit.
@@ -53,6 +54,43 @@ export function getDevPlanUpgradeCredits(
 	return {
 		rolloverCredits: rollover.toNumber(),
 		newCreditsLimit: rollover.plus(getDevPlanCreditsLimit(newTier)).toNumber(),
+	};
+}
+
+/**
+ * Share of a tier's monthly allowance that unused credits can carry into the
+ * next cycle at renewal.
+ */
+export const DEV_PLAN_RENEWAL_ROLLOVER_PERCENT = 0.5;
+
+/**
+ * Credit allowance granted by a cycle renewal: the tier's full allotment plus
+ * whatever the ended cycle left unused, capped at
+ * `DEV_PLAN_RENEWAL_ROLLOVER_PERCENT` of that allotment. The carried amount is
+ * recomputed at every renewal from what is left then, so it never compounds
+ * past the cap and an untouched carry-over lasts one cycle. The cap is taken
+ * from the tier being renewed into, so a downgrade at renewal carries at most
+ * the lower tier's share.
+ */
+export function getDevPlanRenewalCredits(
+	tier: DevPlanTier,
+	currentCreditsUsed: string | number | null | undefined,
+	currentCreditsLimit: string | number | null | undefined,
+): { rolloverCredits: number; newCreditsLimit: number } {
+	const allotment = new Decimal(getDevPlanCreditsLimit(tier));
+	const remaining = Decimal.max(
+		0,
+		toDecimalOrZero(currentCreditsLimit).minus(
+			toDecimalOrZero(currentCreditsUsed),
+		),
+	);
+	const rollover = Decimal.min(
+		remaining,
+		allotment.times(DEV_PLAN_RENEWAL_ROLLOVER_PERCENT),
+	);
+	return {
+		rolloverCredits: rollover.toNumber(),
+		newCreditsLimit: allotment.plus(rollover).toNumber(),
 	};
 }
 

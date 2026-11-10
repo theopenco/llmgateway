@@ -27,6 +27,7 @@ import {
 	DEV_PLAN_CANCELLATION_HEADING,
 	DEV_PLAN_CANCELLATION_REASON_OPTIONS,
 	DEV_PLAN_PRICES,
+	DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
 	getDevPlanCycleUsageFraction,
 	type DevPlanCancellationReason,
 } from "@llmgateway/shared";
@@ -38,6 +39,7 @@ type Step = "survey" | "offer" | "confirm";
 type SaveOffer =
 	| { kind: "downgrade"; tier: PlanTier }
 	| { kind: "upgrade"; tier: PlanTier }
+	| { kind: "rollover"; amount: number }
 	| {
 			kind: "link";
 			id: "agents" | "models" | "compare" | "overflow" | "support";
@@ -83,6 +85,7 @@ function resolveOffer(
 	tier: PlanTier,
 	utilization: number,
 	pendingTier: PlanTier | null,
+	renewalRollover: number,
 	paygEnabled: boolean,
 	docsUrl: string,
 	discordUrl: string,
@@ -93,10 +96,12 @@ function resolveOffer(
 		case "just_testing": {
 			const lower = LOWER_TIER[tier];
 			// A scheduled tier change already exists; change-tier would 409.
-			if (!lower || pendingTier || utilization >= DOWNGRADE_MAX_UTILIZATION) {
-				return null;
+			if (lower && !pendingTier && utilization < DOWNGRADE_MAX_UTILIZATION) {
+				return { kind: "downgrade", tier: lower };
 			}
-			return { kind: "downgrade", tier: lower };
+			return renewalRollover > 0
+				? { kind: "rollover", amount: renewalRollover }
+				: null;
 		}
 		case "allowance_too_small": {
 			const higher = HIGHER_TIER[tier];
@@ -168,6 +173,8 @@ interface CancelPlanDialogProps {
 	creditsLimit: number;
 	renewWhen: string | null;
 	pendingTier: PlanTier | null;
+	// Unused allowance the next renewal would carry over at current usage.
+	renewalRollover: number;
 	paygEnabled: boolean;
 	organizationId?: string | null;
 	isCancelling: boolean;
@@ -221,6 +228,7 @@ function CancelFlow({
 	creditsLimit,
 	renewWhen,
 	pendingTier,
+	renewalRollover,
 	paygEnabled,
 	organizationId,
 	isCancelling,
@@ -259,7 +267,13 @@ function CancelFlow({
 	};
 
 	const offerLabel = (o: SaveOffer) =>
-		o.kind === "link" ? `link:${o.id}` : `${o.kind}:${o.tier}`;
+		o.kind === "link"
+			? `link:${o.id}`
+			: o.kind === "rollover"
+				? "rollover"
+				: `${o.kind}:${o.tier}`;
+	// The tier the next renewal bills, which sets what a carry-over lands on.
+	const renewingTier = pendingTier ?? tier;
 
 	const continueFromSurvey = () => {
 		if (!reason) {
@@ -276,6 +290,7 @@ function CancelFlow({
 			tier,
 			utilization,
 			pendingTier,
+			renewalRollover,
 			paygEnabled,
 			docsUrl,
 			discordUrl,
@@ -306,6 +321,8 @@ function CancelFlow({
 			await onDowngrade(offer.tier);
 		} else if (offer.kind === "upgrade") {
 			onUpgrade(offer.tier);
+		} else if (offer.kind === "rollover") {
+			onOpenChange(false);
 		}
 	};
 
@@ -504,7 +521,9 @@ function CancelFlow({
 											? "Visa amendment · Right-size"
 											: offer.kind === "upgrade"
 												? "Visa amendment · More room"
-												: "Visa amendment · Worth a look"}
+												: offer.kind === "rollover"
+													? "Visa amendment · Nothing wasted"
+													: "Visa amendment · Worth a look"}
 									</div>
 									<div className="font-mono text-[9px] tracking-[0.25em] text-stone-400 dark:text-stone-500">
 										No. CX-{serial}
@@ -557,6 +576,34 @@ function CancelFlow({
 											changes.
 										</p>
 									</div>
+								) : offer.kind === "rollover" ? (
+									<div className="mt-3 space-y-2">
+										<p className="text-base font-semibold tracking-tight">
+											What you haven&apos;t used comes with you
+										</p>
+										<p className="text-2xl font-bold tracking-tight tabular-nums">
+											${offer.amount.toFixed(2)}
+											<span className="text-sm font-normal text-muted-foreground">
+												{" "}
+												carries into your next cycle
+											</span>{" "}
+											<span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+												on top of the full ${planUsage(plans, renewingTier)}
+											</span>
+										</p>
+										<p className="text-sm text-muted-foreground">
+											Renewing{renewWhen ? ` on ${renewWhen}` : ""} at
+											today&apos;s usage starts your next cycle with $
+											{(planUsage(plans, renewingTier) + offer.amount).toFixed(
+												2,
+											)}{" "}
+											of usage for {pendingTier ? "" : "the same "}$
+											{DEV_PLAN_PRICES[renewingTier]}/mo. Unused allowance
+											carries over at every renewal, up to{" "}
+											{Math.round(DEV_PLAN_RENEWAL_ROLLOVER_PERCENT * 100)}% of
+											the plan&apos;s monthly allowance.
+										</p>
+									</div>
 								) : (
 									<div className="mt-3 space-y-2">
 										<p className="text-base font-semibold tracking-tight">
@@ -587,6 +634,14 @@ function CancelFlow({
 											data-testid="cancel-offer-accept"
 										>
 											Review the {planName(plans, offer.tier)} upgrade
+										</Button>
+									) : offer.kind === "rollover" ? (
+										<Button
+											onClick={acceptOffer}
+											disabled={busy}
+											data-testid="cancel-offer-accept"
+										>
+											Keep my plan
 										</Button>
 									) : offer.external ? (
 										<Button asChild data-testid="cancel-offer-accept">

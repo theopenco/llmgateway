@@ -7,12 +7,13 @@ import Link from "next/link";
 import { CodeCTATracker, CodePlanTracker } from "@/components/LandingTracker";
 import { BorderBeam } from "@/components/ui/border-beam";
 import { Button } from "@/components/ui/button";
-import { formatUsageRatio } from "@/lib/utils";
+import { formatUsageRatio, formatUsd } from "@/lib/utils";
 
 import {
 	DEV_PLAN_DAILY_PERCENT,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
+	DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
 	MARKETING_STATS,
@@ -179,6 +180,17 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 									</dd>
 								</div>
 								<div className="flex items-center justify-between gap-3 px-3.5 py-2">
+									<dt className="text-xs text-muted-foreground">
+										Unused carries over
+									</dt>
+									<dd className="font-mono text-xs font-semibold tabular-nums">
+										up to{" "}
+										{formatUsd(
+											credits[plan.tier] * DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
+										)}
+									</dd>
+								</div>
+								<div className="flex items-center justify-between gap-3 px-3.5 py-2">
 									<dt className="text-xs text-muted-foreground">Support</dt>
 									<dd className="font-mono text-xs font-semibold">
 										{plan.support}
@@ -229,9 +241,11 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 				input tokens or ${Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000)}+ per
 				million output tokens after any active public discount — as a weekly
 				allowance on top. Every other model draws on your full monthly
-				allowance. No hidden throttling. And none of it is a wall: opt into
-				pay-as-you-go overflow in your dashboard to keep coding past any of
-				them, billed from a credits balance at provider rates.
+				allowance, and what you leave unused at renewal carries into the next
+				cycle up to the amount on the card. No hidden throttling. And none of it
+				is a wall: opt into pay-as-you-go overflow in your dashboard to keep
+				coding past any of them, billed from a credits balance at provider
+				rates.
 			</p>
 
 			<div className="mx-auto mt-8 flex max-w-2xl flex-col items-center gap-4 rounded-2xl border border-dashed border-emerald-500/30 bg-emerald-500/[0.04] p-6 text-center sm:flex-row sm:text-left">

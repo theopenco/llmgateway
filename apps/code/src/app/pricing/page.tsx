@@ -16,13 +16,14 @@ import { PricingPlans } from "@/components/PricingPlans";
 import { Button } from "@/components/ui/button";
 import { getConfig } from "@/lib/config-server";
 import { buildDevPassProductSchema } from "@/lib/product-schema";
-import { formatUsageRatio } from "@/lib/utils";
+import { formatUsageRatio, formatUsd } from "@/lib/utils";
 
 import {
 	DEV_PLAN_DAILY_PERCENT,
 	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
+	DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
 	DEV_PLAN_RESET_PASS_PRICES,
 	getDevPlanCreditsLimit,
 	HIGH_COST_INPUT_PRICE,
@@ -96,6 +97,12 @@ const usageRows: UsageRow[] = [
 		lite: `${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.lite)} of credits`,
 		pro: `${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.pro)} of credits`,
 		max: `${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.max)} of credits`,
+	},
+	{
+		label: "Unused allowance carried into the next cycle",
+		lite: `up to ${formatUsd(liteCredits * DEV_PLAN_RENEWAL_ROLLOVER_PERCENT)}`,
+		pro: `up to ${formatUsd(proCredits * DEV_PLAN_RENEWAL_ROLLOVER_PERCENT)}`,
+		max: `up to ${formatUsd(maxCredits * DEV_PLAN_RENEWAL_ROLLOVER_PERCENT)}`,
 	},
 	{
 		label: "Reset Passes (instant premium-allowance reset)",
@@ -392,9 +399,11 @@ export default function PricingPage() {
 							Still deciding?
 						</h2>
 						<p className="mb-8 text-muted-foreground">
-							Start on Pro — most developers ship from there. An instant upgrade
-							brings the new allowance right away and rolls your unused credits
-							on top.
+							Start on Pro — most developers ship from there. A quiet month
+							isn&apos;t wasted: unused allowance carries into the next cycle,
+							up to {pct(DEV_PLAN_RENEWAL_ROLLOVER_PERCENT)} of a month&apos;s
+							allowance. And an instant upgrade brings the new allowance right
+							away with your unused credits on top.
 						</p>
 						<div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
 							<GetDevPassButton
