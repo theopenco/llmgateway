@@ -64,7 +64,7 @@ const DESCRIPTIONS: Record<
 	marketing: {
 		title: "Product tips and offers",
 		description:
-			"Onboarding nudges, feature announcements and occasional campaigns. Turning this off also unsubscribes you from the newsletter.",
+			"Onboarding nudges, feature announcements and occasional campaigns.",
 	},
 	credit_alerts: {
 		title: "Credit balance reminders",

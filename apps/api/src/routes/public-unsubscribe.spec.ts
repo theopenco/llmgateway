@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 
 import { app } from "@/index.js";
 import { deleteAll } from "@/testing.js";
@@ -144,98 +144,5 @@ describe("public unsubscribe", () => {
 		);
 
 		expect(await rows()).toHaveLength(2);
-	});
-
-	// A marketing unsubscribe has to end the newsletter too; the suppression
-	// row alone would leave the address on the list Resend mails every week.
-	describe("the newsletter topic", () => {
-		const topicPath = `/contacts/${encodeURIComponent(EMAIL)}/topics`;
-
-		beforeEach(() => {
-			vi.stubEnv("RESEND_API_KEY", "test-resend-key");
-			vi.stubEnv("RESEND_NEWSLETTER_TOPIC_ID", "topic-newsletter");
-		});
-
-		afterEach(() => {
-			vi.restoreAllMocks();
-			vi.unstubAllEnvs();
-		});
-
-		async function unsubscribe(category: "marketing" | "credit_alerts") {
-			return await app.request(
-				`/public/unsubscribe?token=${encodeURIComponent(token(category))}`,
-				{ method: "POST" },
-			);
-		}
-
-		test("is opted out by a marketing unsubscribe", async () => {
-			const upstream = vi
-				.spyOn(globalThis, "fetch")
-				.mockResolvedValue(new Response("{}", { status: 200 }));
-
-			const res = await unsubscribe("marketing");
-
-			expect(res.status).toBe(200);
-			expect(upstream).toHaveBeenCalledTimes(1);
-			const [url, init] = upstream.mock.calls[0];
-			expect(String(url)).toBe(`https://api.resend.com${topicPath}`);
-			expect(init?.method).toBe("PATCH");
-			expect(JSON.parse(String(init?.body))).toEqual([
-				{ id: "topic-newsletter", subscription: "opt_out" },
-			]);
-		});
-
-		test("is left alone by any other category", async () => {
-			const upstream = vi.spyOn(globalThis, "fetch");
-
-			const res = await unsubscribe("credit_alerts");
-
-			expect(res.status).toBe(200);
-			expect(upstream).not.toHaveBeenCalled();
-		});
-
-		const busy = (status: number) =>
-			new Response("{}", { status, headers: { "retry-after": "0" } });
-
-		test("is retried while Resend is rate limiting or failing", async () => {
-			const upstream = vi
-				.spyOn(globalThis, "fetch")
-				.mockResolvedValueOnce(busy(429))
-				.mockResolvedValueOnce(busy(503))
-				.mockResolvedValue(new Response("{}", { status: 200 }));
-
-			const res = await unsubscribe("marketing");
-
-			expect(res.status).toBe(200);
-			expect(upstream).toHaveBeenCalledTimes(3);
-		});
-
-		test.each([
-			["Resend is down", 1, () => Promise.reject(new Error("connect timeout"))],
-			["Resend keeps failing", 3, () => Promise.resolve(busy(500))],
-			[
-				"Resend rejects the request",
-				1,
-				() => Promise.resolve(new Response("{}", { status: 422 })),
-			],
-			[
-				"the address is not a contact",
-				1,
-				() => Promise.resolve(new Response("{}", { status: 404 })),
-			],
-		])(
-			"never blocks the unsubscribe when %s",
-			async (_case, attempts, respond) => {
-				const upstream = vi
-					.spyOn(globalThis, "fetch")
-					.mockImplementation(respond);
-
-				const res = await unsubscribe("marketing");
-
-				expect(res.status).toBe(200);
-				expect(await rows()).toHaveLength(1);
-				expect(upstream).toHaveBeenCalledTimes(attempts);
-			},
-		);
 	});
 });

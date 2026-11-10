@@ -1,25 +1,26 @@
 /* eslint-disable no-console */
 /**
- * Brings the newsletter list in Resend in line with what readers chose:
- *
- * - A contact opted in to the newsletter topic is added to the segment
- *   newsletter broadcasts are addressed to. Signups made before the newsletter
- *   had a segment are in none, and a broadcast only reaches its segment.
- * - An address that turned marketing email off in the app is opted out of the
- *   topic. The API does this at unsubscribe time; this catches what it missed.
+ * One-off: add every contact opted in to the newsletter topic to the segment
+ * newsletter broadcasts are addressed to. Signups made before the newsletter
+ * had a segment are in none, and a broadcast only reaches contacts in its
+ * segment. Addresses that turned marketing email off in the app are left out.
  *
  * Usage:
- *   # count what would change
+ *   # count who would be added
  *   RESEND_API_KEY=re_xxx RESEND_NEWSLETTER_TOPIC_ID=... RESEND_NEWSLETTER_SEGMENT_ID=... \
  *     DATABASE_URL=... pnpm --filter @llmgateway/scripts newsletter-segment-backfill
  *
- *   # apply it
+ *   # add them
  *   ... pnpm --filter @llmgateway/scripts newsletter-segment-backfill --apply
+ *
+ * Flags:
+ *   --apply                   Write. Refuses a local database or one with no
+ *                             marketing unsubscribes on file.
+ *   --allow-local-database    Production reached through a local tunnel.
  *
  * Environment (all required):
  *   RESEND_API_KEY, RESEND_NEWSLETTER_TOPIC_ID, RESEND_NEWSLETTER_SEGMENT_ID
  *   DATABASE_URL   The production database, read for marketing unsubscribes.
- *                  --apply refuses a local database or one with none on file.
  */
 
 import { setTimeout as sleep } from "timers/promises";
@@ -56,13 +57,16 @@ async function main() {
 		`Database ${databaseHost}: ${suppressionsOnFile} marketing unsubscribes on file`,
 	);
 	if (apply) {
-		assertSafeToApply({ databaseHost, suppressionsOnFile });
+		assertSafeToApply({
+			databaseHost,
+			suppressionsOnFile,
+			allowLocalDatabase: process.argv.includes("--allow-local-database"),
+		});
 	}
 
 	const result = await backfillSegment({
 		request: withRateLimitRetry(
-			async (method, path, body) =>
-				await resendFetch({ apiKey, method, path, body }),
+			async (method, path) => await resendFetch({ apiKey, method, path }),
 			async (ms) => {
 				await sleep(ms);
 			},
@@ -73,16 +77,16 @@ async function main() {
 		apply,
 	});
 
-	console.log(`Contacts scanned:                 ${result.scanned}`);
-	console.log(`Unsubscribed from everything:     ${result.unsubscribed}`);
-	console.log(`Not opted in to the topic:        ${result.notOptedIn}`);
-	console.log(`Opted in and in the segment:      ${result.alreadyInSegment}`);
-	console.log(`Opted in, not in the segment:     ${result.toAdd}`);
-	console.log(`Opted in, marketing email is off: ${result.toOptOut}`);
+	console.log(`Contacts scanned:             ${result.scanned}`);
+	console.log(`Already in the segment:       ${result.alreadyInSegment}`);
+	console.log(`Unsubscribed from everything: ${result.unsubscribed}`);
+	console.log(`Not opted in to the topic:    ${result.notOptedIn}`);
+	console.log(`Marketing email turned off:   ${result.suppressed}`);
+	console.log(`Opted in, not in the segment: ${result.toAdd}`);
 	console.log(
 		apply
-			? `Added to the segment: ${result.added}. Opted out of the topic: ${result.optedOut}.`
-			: "Dry run: pass --apply to add and opt out.",
+			? `Added to the segment:         ${result.added}`
+			: "Dry run: pass --apply to add them.",
 	);
 }
 

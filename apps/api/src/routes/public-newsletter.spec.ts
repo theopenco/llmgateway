@@ -15,9 +15,11 @@ import { signUnsubscribeToken } from "@llmgateway/shared/email-unsubscribe";
 
 // Ways the newsletter signup can go wrong: an address joins the list without
 // its owner confirming, the form mails one inbox over and over (also through
-// plus-addresses, across hours, or while the limiter is down) or reveals who
+// plus-addresses or Gmail dots, across hours, or while the limiter is down) or
+// reveals who
 // is already a contact, a failed send eats the address's allowance so the
-// reader is told to check an inbox nothing was sent to, a forged or stale link
+// reader is told to check an inbox nothing was sent to, a slow provider lets
+// the caps be bypassed, a forged or stale link
 // subscribes someone, a rotated secret breaks links already sent, a confirmed
 // reader is left outside the segment a broadcast is addressed to or not opted
 // in to the topic, a global unsubscribe is left in place, a contact already in
@@ -252,6 +254,28 @@ describe("signing up", () => {
 		expect(send).toHaveBeenCalledTimes(2);
 	});
 
+	test("counts Gmail's dotted and googlemail spellings as one mailbox", async () => {
+		const send = vi.spyOn(email, "sendTransactionalEmail").mockResolvedValue();
+		const name = `u${randomUUID().replaceAll("-", "")}`;
+		const dotted = `${name.slice(0, 4)}.${name.slice(4)}`;
+
+		for (const address of [
+			`${name}@gmail.com`,
+			`${dotted}@gmail.com`,
+			`${name}@googlemail.com`,
+		]) {
+			expect((await post("subscribe", { email: address })).status).toBe(200);
+		}
+		expect(send).toHaveBeenCalledTimes(2);
+
+		// Elsewhere a dot makes a different mailbox.
+		for (const address of [`${name}@example.com`, `${dotted}@example.com`]) {
+			await post("subscribe", { email: address });
+			await post("subscribe", { email: address });
+		}
+		expect(send).toHaveBeenCalledTimes(6);
+	});
+
 	test("mails one mailbox at most three times a day", async () => {
 		const send = vi.spyOn(email, "sendTransactionalEmail").mockResolvedValue();
 		const address = newEmail();
@@ -279,6 +303,23 @@ describe("signing up", () => {
 
 		expect(statuses).toEqual([500, 500, 200, 200]);
 		expect(send).toHaveBeenCalledTimes(4);
+	});
+
+	test("a send that timed out keeps its slot, since it may still arrive", async () => {
+		const send = vi
+			.spyOn(email, "sendTransactionalEmail")
+			.mockRejectedValue(
+				new email.EmailTimeoutError("Resend did not respond within 10000ms"),
+			);
+		const address = newEmail();
+
+		const statuses = [];
+		for (let attempt = 0; attempt < 3; attempt++) {
+			statuses.push((await post("subscribe", { email: address })).status);
+		}
+
+		expect(statuses).toEqual([500, 500, 200]);
+		expect(send).toHaveBeenCalledTimes(2);
 	});
 
 	test("mails nobody while the caps cannot be checked", async () => {

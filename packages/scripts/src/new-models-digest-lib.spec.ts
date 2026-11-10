@@ -4,10 +4,12 @@ import {
 	buildBroadcastDraft,
 	buildDigest,
 	buildSubject,
+	describeWindow,
 	formatContext,
 	formatPerMillion,
 	fromCatalogue,
 	parseChangelogEntry,
+	parseUntil,
 	readCatalogueList,
 	selectChangelog,
 	selectNewModels,
@@ -133,6 +135,25 @@ describe("which models make the issue", () => {
 				postalAddress: "1 Example Street",
 			})?.changelog.map((entry) => entry.title),
 		).toEqual(["On time"]);
+	});
+
+	test("the end day must exist and not lie ahead", () => {
+		expect(parseUntil(undefined, now)).toBe(now);
+		expect(parseUntil("2026-11-09", now)).toEqual(
+			new Date("2026-11-09T00:00:00Z"),
+		);
+		for (const value of ["2026-02-30", "16/11/2026", "2026-11-9", "soon"]) {
+			expect(() => parseUntil(value, now)).toThrow(
+				"--until must be a real date like 2026-11-16",
+			);
+		}
+		expect(() => parseUntil("2026-11-11", now)).toThrow(
+			"--until cannot be in the future",
+		);
+		expect(describeWindow(now, 7)).toBe("2026-11-03 to 2026-11-09 (UTC)");
+		expect(describeWindow(new Date("2026-03-02T00:00:00Z"), 2)).toBe(
+			"2026-02-28 to 2026-03-01 (UTC)",
+		);
 	});
 
 	test("a longer window reaches further back", () => {

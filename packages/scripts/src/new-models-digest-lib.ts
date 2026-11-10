@@ -108,6 +108,38 @@ export function digestWindow(until: Date, days: number): DigestWindow {
 	return { start: new Date(end - days * DAY_MS), end: new Date(end) };
 }
 
+function isoDay(date: Date): string {
+	return date.toISOString().slice(0, 10);
+}
+
+/** The first and last day an issue covers, for the run summary. */
+export function describeWindow(until: Date, days: number): string {
+	const { start, end } = digestWindow(until, days);
+	return `${isoDay(start)} to ${isoDay(new Date(end.getTime() - DAY_MS))} (UTC)`;
+}
+
+/**
+ * Reads `--until`: today when absent, otherwise a calendar day that exists and
+ * is not in the future.
+ */
+export function parseUntil(value: string | undefined, now: Date): Date {
+	if (value === undefined) {
+		return now;
+	}
+	const until = new Date(`${value}T00:00:00Z`);
+	if (
+		!/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+		Number.isNaN(until.getTime()) ||
+		isoDay(until) !== value
+	) {
+		throw new Error("--until must be a real date like 2026-11-16");
+	}
+	if (until > now) {
+		throw new Error("--until cannot be in the future");
+	}
+	return until;
+}
+
 function inWindow(time: number, window: DigestWindow): boolean {
 	return time >= window.start.getTime() && time < window.end.getTime();
 }

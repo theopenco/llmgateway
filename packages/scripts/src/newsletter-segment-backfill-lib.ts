@@ -5,9 +5,8 @@ const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 /** One Resend call that resolves with the response of a successful request. */
 export type ResendRequest = (
-	method: "GET" | "POST" | "PATCH",
+	method: "GET" | "POST",
 	path: string,
-	body?: unknown,
 ) => Promise<Response>;
 
 export interface BackfillInput {
@@ -21,13 +20,12 @@ export interface BackfillInput {
 
 export interface BackfillResult {
 	scanned: number;
+	alreadyInSegment: number;
 	unsubscribed: number;
 	notOptedIn: number;
-	alreadyInSegment: number;
+	suppressed: number;
 	toAdd: number;
 	added: number;
-	toOptOut: number;
-	optedOut: number;
 }
 
 interface Listed {
@@ -45,15 +43,17 @@ interface ListedTopic extends Listed {
 
 /**
  * A write run reads marketing unsubscribes from the app database. Pointed at a
- * local or empty one it would find none and add suppressed addresses.
+ * local or empty one it would find none and add addresses it should leave out.
+ * `allowLocalDatabase` is for production reached through a local tunnel.
  */
 export function assertSafeToApply(input: {
 	databaseHost: string;
 	suppressionsOnFile: number;
+	allowLocalDatabase: boolean;
 }): void {
-	if (LOCAL_HOSTS.has(input.databaseHost)) {
+	if (LOCAL_HOSTS.has(input.databaseHost) && !input.allowLocalDatabase) {
 		throw new Error(
-			`DATABASE_URL points at ${input.databaseHost}; --apply needs the production database`,
+			`DATABASE_URL points at ${input.databaseHost}; --apply needs the production database (pass --allow-local-database if this is a tunnel to it)`,
 		);
 	}
 	if (input.suppressionsOnFile === 0) {
@@ -71,9 +71,9 @@ export function withRateLimitRetry(
 	send: ResendRequest,
 	sleep: (ms: number) => Promise<void>,
 ): ResendRequest {
-	return async (method, path, body) => {
+	return async (method, path) => {
 		for (let attempt = 0; ; attempt++) {
-			const response = await send(method, path, body);
+			const response = await send(method, path);
 			if (response.ok) {
 				return response;
 			}
@@ -111,10 +111,12 @@ async function* list<T extends Listed>(
 }
 
 /**
- * Brings the newsletter list in line with what readers chose. A contact opted
- * in to the topic is added to the segment its broadcasts are addressed to,
- * unless the address turned marketing email off in the app, in which case it
- * is opted out of the topic. Without `apply` it only counts.
+ * Adds every contact opted in to the newsletter topic to the segment its
+ * broadcasts are addressed to. Without `apply` it only counts.
+ *
+ * The newsletter is its own consent, separate from marketing email in the app.
+ * These signups predate the confirmation step, though, so an address that
+ * turned marketing email off is left out rather than assumed to want this.
  */
 export async function backfillSegment(
 	input: BackfillInput,
@@ -130,16 +132,19 @@ export async function backfillSegment(
 
 	const result: BackfillResult = {
 		scanned: 0,
+		alreadyInSegment: 0,
 		unsubscribed: 0,
 		notOptedIn: 0,
-		alreadyInSegment: 0,
+		suppressed: 0,
 		toAdd: 0,
 		added: 0,
-		toOptOut: 0,
-		optedOut: 0,
 	};
 	for await (const contact of list<ListedContact>(request, "/contacts")) {
 		result.scanned++;
+		if (members.has(contact.id)) {
+			result.alreadyInSegment++;
+			continue;
+		}
 		if (contact.unsubscribed) {
 			result.unsubscribed++;
 			continue;
@@ -159,17 +164,7 @@ export async function backfillSegment(
 			continue;
 		}
 		if (await isSuppressed(contact.email)) {
-			result.toOptOut++;
-			if (apply) {
-				await request("PATCH", `/contacts/${contact.id}/topics`, [
-					{ id: topicId, subscription: "opt_out" },
-				]);
-				result.optedOut++;
-			}
-			continue;
-		}
-		if (members.has(contact.id)) {
-			result.alreadyInSegment++;
+			result.suppressed++;
 			continue;
 		}
 		result.toAdd++;

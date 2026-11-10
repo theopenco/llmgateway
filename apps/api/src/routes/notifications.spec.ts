@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
@@ -99,42 +99,6 @@ describe("notifications API", () => {
 			body: JSON.stringify({ ...value, budgetThreshold: 101 }),
 		});
 		expect(invalid.status).toBe(400);
-	});
-	it("opts the address out of the newsletter when marketing email is turned off", async () => {
-		vi.stubEnv("RESEND_API_KEY", "test-resend-key");
-		vi.stubEnv("RESEND_NEWSLETTER_TOPIC_ID", "topic-newsletter");
-		const upstream = vi
-			.spyOn(globalThis, "fetch")
-			.mockResolvedValue(new Response("{}", { status: 200 }));
-		const put = async (category: string) =>
-			await app.request("/notifications/preferences", {
-				method: "PUT",
-				headers: headers(),
-				body: JSON.stringify({
-					category,
-					inApp: null,
-					email: false,
-					budgetThreshold: null,
-				}),
-			});
-
-		try {
-			expect((await put("credit_alerts")).status).toBe(200);
-			expect(upstream).not.toHaveBeenCalled();
-
-			expect((await put("marketing")).status).toBe(200);
-			expect(upstream).toHaveBeenCalledTimes(1);
-			const [url, init] = upstream.mock.calls[0];
-			expect(String(url)).toBe(
-				"https://api.resend.com/contacts/admin%40example.com/topics",
-			);
-			expect(JSON.parse(String(init?.body))).toEqual([
-				{ id: "topic-newsletter", subscription: "opt_out" },
-			]);
-		} finally {
-			vi.restoreAllMocks();
-			vi.unstubAllEnvs();
-		}
 	});
 	it("records an email-only opt-out on the suppression list and clears it", async () => {
 		const off = await app.request("/notifications/preferences", {

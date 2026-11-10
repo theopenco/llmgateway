@@ -34,7 +34,10 @@ function ConfirmCard() {
 	const failed = confirm.isError;
 	// Only a rejected link needs a new one; after any other error it still works.
 	const invalidLink =
-		!token || (confirm.error !== null && "invalidLink" in confirm.error);
+		!token ||
+		(typeof confirm.error === "object" &&
+			confirm.error !== null &&
+			"invalidLink" in confirm.error);
 
 	// After the render, so a screen reader lands on the outcome.
 	useEffect(() => {

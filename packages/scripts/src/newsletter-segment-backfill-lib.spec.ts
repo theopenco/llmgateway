@@ -9,9 +9,9 @@ import {
 
 // Ways the backfill can go wrong: it stops after the first page of contacts or
 // of segment members, it adds people who unsubscribed (in Resend or in the
-// app) or never opted in, it leaves an address that turned marketing email off
-// opted in, it re-adds current members, a dry run writes, a write run reads
-// unsubscribes from the wrong database, or a rate limit ends the run halfway.
+// app) or never opted in, it re-adds current members, a dry run writes, a
+// write run reads unsubscribes from the wrong database, or a rate limit ends
+// the run halfway.
 
 const TOPIC = "topic-newsletter";
 const SEGMENT = "segment-newsletter";
@@ -23,7 +23,7 @@ interface FakeContact {
 	id: string;
 	email: string;
 	unsubscribed: boolean;
-	subscription?: string;
+	subscription?: "opt_in" | "opt_out";
 	inSegment: boolean;
 }
 
@@ -33,9 +33,9 @@ function json(data: unknown): Response {
 	});
 }
 
-/** Resend's list, topic and segment endpoints over an in-memory contact list. */
+/** Resend's list and segment endpoints over an in-memory contact list. */
 function fakeResend(contacts: FakeContact[]): ResendRequest {
-	return async (method, path, body) => {
+	return async (method, path) => {
 		const url = new URL(path, "https://api.resend.com");
 		const [, , contactId, child] = url.pathname.split("/");
 		const contact = contacts.find((entry) => entry.id === contactId);
@@ -68,14 +68,6 @@ function fakeResend(contacts: FakeContact[]): ResendRequest {
 				has_more: false,
 			});
 		}
-		if (method === "PATCH" && contact && child === "topics") {
-			for (const topic of body as { id: string; subscription: string }[]) {
-				if (topic.id === TOPIC) {
-					contact.subscription = topic.subscription;
-				}
-			}
-			return json({ object: "contact_topics", id: contact.id });
-		}
 		if (method === "POST" && contact && child === "segments") {
 			if (contact.inSegment) {
 				throw new Error(`${contact.id} is already in the segment`);
@@ -107,7 +99,6 @@ function contacts(): FakeContact[] {
 		entry("opted-out", { subscription: "opt_out" }),
 		entry("no-preference", { subscription: undefined }),
 		entry("marketing-off"),
-		entry("member-marketing-off", { inSegment: true }),
 		...Array.from({ length: SUBSCRIBERS }, (_, index) =>
 			entry(`subscriber-${index}`),
 		),
@@ -115,14 +106,9 @@ function contacts(): FakeContact[] {
 }
 
 const isSuppressed = async (email: string) =>
-	email.endsWith("marketing-off@example.com");
+	email === "marketing-off@example.com";
 
-const subscribers = Array.from(
-	{ length: SUBSCRIBERS },
-	(_, index) => `subscriber-${index}`,
-);
-
-test("adds every opted-in contact across pages and opts out those who turned marketing off", async () => {
+test("adds every opted-in contact across pages and nobody else", async () => {
 	const all = contacts();
 
 	const result = await backfillSegment({
@@ -135,24 +121,21 @@ test("adds every opted-in contact across pages and opts out those who turned mar
 
 	expect(result).toEqual({
 		scanned: all.length,
+		alreadyInSegment: MEMBERS,
 		unsubscribed: 1,
 		notOptedIn: 2,
-		alreadyInSegment: MEMBERS,
+		suppressed: 1,
 		toAdd: SUBSCRIBERS,
 		added: SUBSCRIBERS,
-		toOptOut: 2,
-		optedOut: 2,
 	});
 	expect(
 		all
-			.filter((contact) => contact.inSegment && !contact.id.startsWith("member"))
-			.map((contact) => contact.id),
-	).toEqual(subscribers);
-	expect(
-		all
-			.filter((contact) => contact.subscription === "opt_out")
-			.map((contact) => contact.id),
-	).toEqual(["opted-out", "marketing-off", "member-marketing-off"]);
+			.filter((contact) => contact.inSegment)
+			.map((contact) => contact.id)
+			.filter((id) => !id.startsWith("member-")),
+	).toEqual(
+		Array.from({ length: SUBSCRIBERS }, (_, index) => `subscriber-${index}`),
+	);
 });
 
 test("a dry run counts and writes nothing", async () => {
@@ -167,28 +150,35 @@ test("a dry run counts and writes nothing", async () => {
 		apply: false,
 	});
 
-	expect(result).toMatchObject({
-		toAdd: SUBSCRIBERS,
-		added: 0,
-		toOptOut: 2,
-		optedOut: 0,
-	});
+	expect(result).toMatchObject({ toAdd: SUBSCRIBERS, added: 0 });
 	expect(all).toEqual(before);
 });
 
 test("a write run refuses a local or empty database", () => {
-	expect(() =>
-		assertSafeToApply({ databaseHost: "localhost", suppressionsOnFile: 12 }),
-	).toThrow("DATABASE_URL points at localhost");
-	expect(() =>
-		assertSafeToApply({ databaseHost: "127.0.0.1", suppressionsOnFile: 12 }),
-	).toThrow("DATABASE_URL points at 127.0.0.1");
-	expect(() =>
-		assertSafeToApply({ databaseHost: "db.internal", suppressionsOnFile: 0 }),
-	).toThrow("no marketing unsubscribes on file");
-	expect(() =>
-		assertSafeToApply({ databaseHost: "db.internal", suppressionsOnFile: 12 }),
-	).not.toThrow();
+	const remote = {
+		databaseHost: "db.internal",
+		suppressionsOnFile: 12,
+		allowLocalDatabase: false,
+	};
+
+	expect(() => assertSafeToApply(remote)).not.toThrow();
+	for (const databaseHost of ["localhost", "127.0.0.1", "::1"]) {
+		expect(() => assertSafeToApply({ ...remote, databaseHost })).toThrow(
+			`DATABASE_URL points at ${databaseHost}`,
+		);
+		expect(() =>
+			assertSafeToApply({ ...remote, databaseHost, allowLocalDatabase: true }),
+		).not.toThrow();
+	}
+	for (const allowLocalDatabase of [false, true]) {
+		expect(() =>
+			assertSafeToApply({
+				...remote,
+				suppressionsOnFile: 0,
+				allowLocalDatabase,
+			}),
+		).toThrow("no marketing unsubscribes on file");
+	}
 });
 
 test("a rate-limited call waits as long as Resend asks and then goes through", async () => {
@@ -198,20 +188,12 @@ test("a rate-limited call waits as long as Resend asks and then goes through", a
 		json({ ok: true }),
 	];
 	const sleep = vi.fn(async () => {});
-	const send = vi.fn(async () => responses.shift()!);
-	const request = withRateLimitRetry(send, sleep);
+	const request = withRateLimitRetry(async () => responses.shift()!, sleep);
 
-	const response = await request("PATCH", "/contacts/a/topics", [{ id: "t" }]);
+	const response = await request("GET", "/contacts");
 
 	expect(await response.json()).toEqual({ ok: true });
 	expect(sleep.mock.calls).toEqual([[3000], [1000]]);
-	expect(send.mock.calls).toEqual(
-		Array.from({ length: 3 }, () => [
-			"PATCH",
-			"/contacts/a/topics",
-			[{ id: "t" }],
-		]),
-	);
 });
 
 test("any other failure stops the run with the status and body", async () => {

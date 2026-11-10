@@ -42,8 +42,10 @@ import { resendFetch } from "@llmgateway/shared/resend-api";
 import {
 	buildBroadcastDraft,
 	buildDigest,
+	describeWindow,
 	fromCatalogue,
 	parseChangelogEntry,
+	parseUntil,
 	readCatalogueList,
 	type CatalogueModel,
 	type Digest,
@@ -143,14 +145,8 @@ async function main() {
 		throw new Error("--days must be a positive whole number");
 	}
 	const now = new Date();
-	const untilArg = getArg("until");
-	if (untilArg !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(untilArg)) {
-		throw new Error("--until must be a date like 2026-11-16");
-	}
-	const until = untilArg ? new Date(`${untilArg}T00:00:00Z`) : now;
-	if (Number.isNaN(until.getTime()) || until > now) {
-		throw new Error("--until must be a real date that is not in the future");
-	}
+	const until = parseUntil(getArg("until"), now);
+	console.log(`Covers ${describeWindow(until, days)}`);
 	const apiUrl = getArg("api-url") ?? DEFAULT_API_URL;
 	const [models, providers] = await Promise.all([
 		fetchCatalogue<CatalogueModel>(apiUrl, "models"),
@@ -168,9 +164,7 @@ async function main() {
 		postalAddress: POSTAL_ADDRESS,
 	});
 	if (!digest) {
-		console.log(
-			`No models landed in the ${days} days before ${until.toISOString().slice(0, 10)}. Nothing to send.`,
-		);
+		console.log("No models landed in that period. Nothing to send.");
 		return;
 	}
 

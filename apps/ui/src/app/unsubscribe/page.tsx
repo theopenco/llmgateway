@@ -64,7 +64,7 @@ function UnsubscribeCard() {
 		return <Skeleton className="h-64 w-full max-w-md" />;
 	}
 
-	const { email, category, categoryLabel, unsubscribed } = statusQuery.data;
+	const { email, categoryLabel, unsubscribed } = statusQuery.data;
 	const pending = unsubscribe.isPending || resubscribe.isPending;
 
 	return (
@@ -77,11 +77,6 @@ function UnsubscribeCard() {
 					{unsubscribed
 						? `${email} will no longer receive ${categoryLabel}.`
 						: `Stop sending ${categoryLabel} to ${email}.`}
-					{category === "marketing"
-						? unsubscribed
-							? " The newsletter stopped too. Resubscribing here does not bring it back; sign up for it again on the website."
-							: " This also stops the newsletter."
-						: null}
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-4">

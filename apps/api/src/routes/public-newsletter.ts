@@ -10,7 +10,7 @@ import {
 	verifyNewsletterToken,
 } from "@/lib/newsletter.js";
 import { createRoute } from "@/utils/create-route.js";
-import { sendTransactionalEmail } from "@/utils/email.js";
+import { EmailTimeoutError, sendTransactionalEmail } from "@/utils/email.js";
 import {
 	consumeRateLimit,
 	releaseRateLimit,
@@ -46,11 +46,16 @@ const jsonResult = (description: string) => ({
 	description,
 });
 
-/** Plus-addressed variants of a mailbox share its caps. */
+/**
+ * Spellings that reach one mailbox share its caps: plus-addresses anywhere,
+ * and on Gmail the dots and the googlemail.com domain.
+ */
 function confirmationCapKey(window: string, email: string): string {
 	const at = email.lastIndexOf("@");
-	const mailbox = `${email.slice(0, at).split("+")[0]}${email.slice(at)}`;
-	return `newsletter_confirmation:${window}:${mailbox}`;
+	const [base] = email.slice(0, at).split("+");
+	const domain = email.slice(at + 1).replace(/^googlemail\.com$/, "gmail.com");
+	const local = domain === "gmail.com" ? base.replaceAll(".", "") : base;
+	return `newsletter_confirmation:${window}:${local}@${domain}`;
 }
 
 async function reserveConfirmation(email: string): Promise<RateLimitState> {
@@ -167,8 +172,11 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 				timeoutMs: SEND_TIMEOUT_MS,
 			});
 		} catch (error) {
-			// An email that never left must not count against the address.
-			await releaseConfirmation(email);
+			// An email that never left must not count against the mailbox. After
+			// a timeout it may still arrive, so that one keeps its slot.
+			if (!(error instanceof EmailTimeoutError)) {
+				await releaseConfirmation(email);
+			}
 			logger.error("Failed to send newsletter confirmation", toError(error));
 			return failed();
 		}
