@@ -699,7 +699,7 @@ describe("reset pass lifecycle and status", () => {
 		await db.insert(tables.transaction).values({
 			organizationId: ORG_ID,
 			type: "dev_plan_reset_pass",
-			amount: "29",
+			amount: DEV_PLAN_RESET_PASS_PRICES.pro.toString(),
 			currency: "USD",
 			status: "completed",
 			stripePaymentIntentId: paymentIntentId,
@@ -752,6 +752,46 @@ describe("reset pass lifecycle and status", () => {
 		});
 		expect(refundRows).toHaveLength(1);
 		expect(refundRows[0].stripeRefundId).toBe("re_full");
+		// Named after the refunded purchase, not a generic "Credit refund".
+		expect(refundRows[0].description).toBe("Refund: DevPass Reset Pass (PRO)");
+	});
+
+	it("names the refunded purchase in the invoices list", async () => {
+		await insertOrg({ devPlanResetPassesPro: 2 });
+		await insertPassPurchaseTransaction("pi_refund_listed");
+		stripeMock.refunds.list.mockResolvedValue({
+			data: [{ id: "re_listed", amount: PRO_PASS_CENTS, reason: null }],
+		});
+		stripeMock.paymentIntents.retrieve.mockResolvedValue({
+			id: "pi_refund_listed",
+			metadata: {
+				organizationId: ORG_ID,
+				kind: "dev_plan_reset_pass",
+				devPlan: "pro",
+			},
+		});
+
+		await handleChargeRefunded(chargeRefundedEvent("pi_refund_listed"));
+		// Rows stored before buildRefundDescription carry the generic wording;
+		// the list must rebuild the name from the original, not echo the column.
+		await db
+			.update(tables.transaction)
+			.set({
+				description: `Credit refund: $${DEV_PLAN_RESET_PASS_PRICES.pro.toFixed(2)} (100.0% of original purchase)`,
+			})
+			.where(eq(tables.transaction.stripeRefundId, "re_listed"));
+
+		const res = await app.request("/dev-plans/invoices", {
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(200);
+		const body = await res.json();
+
+		const refundRow = body.invoices.find(
+			(i: { type: string }) => i.type === "credit_refund",
+		);
+		expect(refundRow).toBeDefined();
+		expect(refundRow.description).toBe("Refund: DevPass Reset Pass (PRO)");
 	});
 
 	it("clamps the claw-back at zero when the pass was already redeemed", async () => {
