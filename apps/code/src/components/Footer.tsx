@@ -39,10 +39,10 @@ function Newsletter() {
 							</svg>
 						</div>
 						<div className="space-y-1">
-							<h3 className="text-xl font-bold">You&apos;re in!</h3>
+							<h3 className="text-xl font-bold">One more step</h3>
 							<p className="text-sm text-muted-foreground max-w-sm mx-auto">
 								{subscribe.data?.message ??
-									"Check your inbox — we'll send you the good stuff, no filler."}
+									"Check your inbox to confirm your subscription."}
 							</p>
 						</div>
 					</div>

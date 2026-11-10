@@ -1,15 +1,21 @@
 import { Decimal } from "decimal.js";
 
+import { escapeHtml } from "@llmgateway/shared/email-unsubscribe";
+
 const SITE = "https://llmgateway.io";
 const TRACKING = "utm_source=newsletter&utm_medium=email&utm_campaign=new-models";
+const FROM = "LLM Gateway <contact@mail.llmgateway.io>";
+const REPLY_TO = "contact@llmgateway.io";
 const DAY_MS = 86_400_000;
 const PER_MILLION = 1_000_000;
+const MIN_PRICE_DECIMALS = 2;
 
 export interface DigestModelInput {
 	id: string;
 	name?: string;
 	description?: string;
 	releasedAt?: Date;
+	addedAt?: Date;
 	providers: ReadonlyArray<{
 		providerId: string;
 		inputPrice?: string;
@@ -24,6 +30,7 @@ export interface CatalogueModel {
 	id: string;
 	name: string | null;
 	description: string | null;
+	createdAt: string;
 	releasedAt: string | null;
 	status: "active" | "inactive";
 	unlistedProviderIds?: string[];
@@ -49,7 +56,7 @@ export interface DigestModel {
 	id: string;
 	name: string;
 	description: string;
-	releasedAt: Date;
+	landedAt: Date;
 	providers: string[];
 	context: string | null;
 	price: string | null;
@@ -80,21 +87,36 @@ export interface DigestInput {
 	postalAddress: string;
 }
 
-function escapeHtml(value: string): string {
-	return value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;");
+export interface DigestWindow {
+	start: Date;
+	end: Date;
+}
+
+/**
+ * The `days` whole UTC days before the day of `now`. A late or repeated run
+ * covers the same period, and back-to-back weekly runs neither skip nor repeat
+ * a release.
+ */
+export function digestWindow(now: Date, days: number): DigestWindow {
+	const end = Date.UTC(
+		now.getUTCFullYear(),
+		now.getUTCMonth(),
+		now.getUTCDate(),
+	);
+	return { start: new Date(end - days * DAY_MS), end: new Date(end) };
+}
+
+function inWindow(time: number, window: DigestWindow): boolean {
+	return time >= window.start.getTime() && time < window.end.getTime();
 }
 
 /** A per-token price as dollars per million tokens: `4e-6` reads `$4`. */
 export function formatPerMillion(price: string): string {
 	const value = new Decimal(price).times(PER_MILLION);
-	if (value.isInteger()) {
-		return `$${value.toFixed(0)}`;
-	}
-	return `$${value.toFixed(3).replace(/0$/, "")}`;
+	const decimals = value.isInteger()
+		? 0
+		: Math.max(value.decimalPlaces(), MIN_PRICE_DECIMALS);
+	return `$${value.toFixed(decimals)}`;
 }
 
 export function formatContext(tokens: number): string {
@@ -107,6 +129,21 @@ export function formatContext(tokens: number): string {
 
 function link(path: string): string {
 	return `${SITE}${path}?${TRACKING}`;
+}
+
+/** A failed or empty read must stop the run, never read as a quiet week. */
+export function readCatalogueList<T>(
+	body: unknown,
+	resource: "models" | "providers",
+): T[] {
+	const items =
+		typeof body === "object" && body !== null
+			? (body as Record<string, unknown>)[resource]
+			: undefined;
+	if (!Array.isArray(items) || items.length === 0) {
+		throw new Error(`The API returned no ${resource}`);
+	}
+	return items as T[];
 }
 
 /**
@@ -125,6 +162,7 @@ export function fromCatalogue(
 				name: model.name ?? undefined,
 				description: model.description ?? undefined,
 				releasedAt: model.releasedAt ? new Date(model.releasedAt) : undefined,
+				addedAt: new Date(model.createdAt),
 				providers: model.mappings
 					.filter(
 						(mapping) =>
@@ -143,21 +181,29 @@ export function fromCatalogue(
 		});
 }
 
+/**
+ * When the model became usable here: the day it was added, or its release date
+ * when it was added ahead of release. An older model the gateway picks up
+ * later is new to readers too.
+ */
+function landedAt(model: DigestModelInput): Date | undefined {
+	if (!model.addedAt || !model.releasedAt) {
+		return model.addedAt ?? model.releasedAt;
+	}
+	return model.addedAt > model.releasedAt ? model.addedAt : model.releasedAt;
+}
+
 export function selectNewModels(
 	models: ReadonlyArray<DigestModelInput>,
 	providerNames: ReadonlyMap<string, string>,
 	now: Date,
 	days: number,
 ): DigestModel[] {
-	const since = now.getTime() - days * DAY_MS;
+	const window = digestWindow(now, days);
 	const selected: DigestModel[] = [];
 	for (const model of models) {
-		const releasedAt = model.releasedAt;
-		if (
-			!releasedAt ||
-			releasedAt.getTime() <= since ||
-			releasedAt.getTime() > now.getTime()
-		) {
+		const landed = landedAt(model);
+		if (!landed || !inWindow(landed.getTime(), window)) {
 			continue;
 		}
 		const active = model.providers.filter(
@@ -186,7 +232,7 @@ export function selectNewModels(
 			id: model.id,
 			name: model.name ?? model.id,
 			description: model.description ?? "",
-			releasedAt,
+			landedAt: landed,
 			providers: [
 				...new Set(
 					active.map(
@@ -205,9 +251,40 @@ export function selectNewModels(
 	}
 	return selected.sort(
 		(a, b) =>
-			b.releasedAt.getTime() - a.releasedAt.getTime() ||
+			b.landedAt.getTime() - a.landedAt.getTime() ||
 			a.name.localeCompare(b.name),
 	);
+}
+
+function frontmatterValue(source: string, key: string): string | undefined {
+	const match = new RegExp(`^${key}:\\s*(.+)$`, "m").exec(source);
+	if (!match) {
+		return undefined;
+	}
+	const raw = match[1].trim();
+	return raw.startsWith('"') ? (JSON.parse(raw) as string) : raw;
+}
+
+/** Reads the frontmatter fields the issue needs from one changelog file. */
+export function parseChangelogEntry(
+	source: string,
+	file: string,
+): DigestChangelogInput {
+	const frontmatter = source.split("\n---")[0];
+	const slug = frontmatterValue(frontmatter, "slug");
+	const title = frontmatterValue(frontmatter, "title");
+	const summary = frontmatterValue(frontmatter, "summary");
+	const date = frontmatterValue(frontmatter, "date");
+	if (!slug || !title || !summary || !date) {
+		throw new Error(`Changelog entry ${file} is missing frontmatter`);
+	}
+	return {
+		slug,
+		title,
+		summary,
+		date,
+		draft: frontmatterValue(frontmatter, "draft") === "true",
+	};
 }
 
 export function selectChangelog(
@@ -215,12 +292,13 @@ export function selectChangelog(
 	now: Date,
 	days: number,
 ): DigestChangelogEntry[] {
-	const since = now.getTime() - days * DAY_MS;
+	const window = digestWindow(now, days);
 	return entries
-		.filter((entry) => {
-			const date = new Date(`${entry.date}T00:00:00Z`).getTime();
-			return !entry.draft && date > since && date <= now.getTime();
-		})
+		.filter(
+			(entry) =>
+				!entry.draft &&
+				inWindow(new Date(`${entry.date}T00:00:00Z`).getTime(), window),
+		)
 		.sort((a, b) => b.date.localeCompare(a.date))
 		.map((entry) => ({
 			title: entry.title,
@@ -240,6 +318,13 @@ export function buildSubject(models: ReadonlyArray<DigestModel>): string {
 	return `New on LLM Gateway: ${names[0]}, ${names[1]} and ${names.length - 2} more`;
 }
 
+function buildIntro(count: number, days: number): string {
+	const period = days === 7 ? "in the past week" : `in the past ${days} days`;
+	return count === 1
+		? `One new model landed on LLM Gateway ${period}.`
+		: `${count} new models landed on LLM Gateway ${period}.`;
+}
+
 function modelMeta(model: DigestModel): string {
 	return [model.providers.join(", "), model.context, model.price]
 		.filter(Boolean)
@@ -247,18 +332,12 @@ function modelMeta(model: DigestModel): string {
 }
 
 function renderText(
+	intro: string,
 	models: DigestModel[],
 	changelog: DigestChangelogEntry[],
 	postalAddress: string,
 ): string {
-	const lines = [
-		"Hi {{{contact.first_name|there}}},",
-		"",
-		models.length === 1
-			? "One new model landed on LLM Gateway this week."
-			: `${models.length} new models landed on LLM Gateway this week.`,
-		"",
-	];
+	const lines = ["Hi {{{contact.first_name|there}}},", "", intro, ""];
 	for (const model of models) {
 		lines.push(model.name, modelMeta(model));
 		if (model.description) {
@@ -284,6 +363,7 @@ function renderText(
 }
 
 function renderHtml(
+	intro: string,
 	models: DigestModel[],
 	changelog: DigestChangelogEntry[],
 	postalAddress: string,
@@ -309,10 +389,6 @@ ${changelog
 	)
 	.join("\n")}`
 		: "";
-	const intro =
-		models.length === 1
-			? "One new model landed on LLM Gateway this week."
-			: `${models.length} new models landed on LLM Gateway this week.`;
 	return `<!doctype html>
 <html lang="en">
 <body style="margin:0;padding:0;background-color:#f6f6f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
@@ -339,7 +415,7 @@ LLM Gateway. ${escapeHtml(postalAddress)}
 </html>`;
 }
 
-/** Null when nothing was released in the window: there is no issue to send. */
+/** Null when nothing landed in the window: there is no issue to send. */
 export function buildDigest(input: DigestInput): Digest | null {
 	const models = selectNewModels(
 		input.models,
@@ -351,12 +427,35 @@ export function buildDigest(input: DigestInput): Digest | null {
 		return null;
 	}
 	const changelog = selectChangelog(input.changelog, input.now, input.days);
+	const intro = buildIntro(models.length, input.days);
 	return {
 		subject: buildSubject(models),
 		previewText: models.map((model) => model.name).join(", "),
-		html: renderHtml(models, changelog, input.postalAddress),
-		text: renderText(models, changelog, input.postalAddress),
+		html: renderHtml(intro, models, changelog, input.postalAddress),
+		text: renderText(intro, models, changelog, input.postalAddress),
 		models,
 		changelog,
+	};
+}
+
+/**
+ * The body of `POST /broadcasts`. It carries no `send` and no `scheduled_at`,
+ * so Resend saves a draft. The topic is required: without it Resend ignores
+ * topic preferences and reaches contacts who opted out of the newsletter.
+ */
+export function buildBroadcastDraft(
+	digest: Digest,
+	target: { segmentId: string; topicId: string },
+) {
+	return {
+		segment_id: target.segmentId,
+		topic_id: target.topicId,
+		from: FROM,
+		reply_to: REPLY_TO,
+		name: digest.subject,
+		subject: digest.subject,
+		preview_text: digest.previewText,
+		html: digest.html,
+		text: digest.text,
 	};
 }

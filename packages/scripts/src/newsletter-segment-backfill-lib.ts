@@ -10,6 +10,8 @@ export type ResendRequest = (
 
 export interface BackfillInput {
 	request: ResendRequest;
+	/** True when the address unsubscribed from marketing email in the app. */
+	isSuppressed: (email: string) => Promise<boolean>;
 	topicId: string;
 	segmentId: string;
 	apply: boolean;
@@ -20,6 +22,7 @@ export interface BackfillResult {
 	alreadyInSegment: number;
 	unsubscribed: number;
 	notOptedIn: number;
+	suppressed: number;
 	toAdd: number;
 	added: number;
 }
@@ -29,6 +32,7 @@ interface Listed {
 }
 
 interface ListedContact extends Listed {
+	email: string;
 	unsubscribed: boolean;
 }
 
@@ -85,12 +89,13 @@ async function* list<T extends Listed>(
 
 /**
  * Adds every contact opted in to the newsletter topic to the segment its
- * broadcasts are addressed to. Without `apply` it only counts.
+ * broadcasts are addressed to, except addresses that unsubscribed from
+ * marketing email in the app. Without `apply` it only counts.
  */
 export async function backfillSegment(
 	input: BackfillInput,
 ): Promise<BackfillResult> {
-	const { request, topicId, segmentId, apply } = input;
+	const { request, isSuppressed, topicId, segmentId, apply } = input;
 	const members = new Set<string>();
 	for await (const member of list<Listed>(
 		request,
@@ -104,6 +109,7 @@ export async function backfillSegment(
 		alreadyInSegment: 0,
 		unsubscribed: 0,
 		notOptedIn: 0,
+		suppressed: 0,
 		toAdd: 0,
 		added: 0,
 	};
@@ -129,6 +135,10 @@ export async function backfillSegment(
 		}
 		if (!optedIn) {
 			result.notOptedIn++;
+			continue;
+		}
+		if (await isSuppressed(contact.email)) {
+			result.suppressed++;
 			continue;
 		}
 		result.toAdd++;

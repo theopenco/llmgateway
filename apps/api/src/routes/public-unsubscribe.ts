@@ -1,6 +1,7 @@
 import { OpenAPIHono, z } from "@hono/zod-openapi";
 
 import { redisClient } from "@/auth/config.js";
+import { optOutOfNewsletter } from "@/lib/newsletter.js";
 import { createRoute } from "@/utils/create-route.js";
 
 import {
@@ -102,6 +103,9 @@ publicUnsubscribe.openapi(oneClickRoute, async (c) => {
 			source: "one_click",
 		})
 		.onConflictDoNothing();
+	if (parsed.category === "marketing") {
+		await optOutOfNewsletter(parsed.email);
+	}
 
 	logger.info("Email unsubscribe recorded", { category: parsed.category });
 

@@ -2,9 +2,15 @@ name: new-models-digest
 
 on:
   schedule:
-    # Weekly — Mondays 14:00 UTC, covers releases from the last 7 days.
-    - cron: "0 14 * * 1"
+    # Mondays. The issue covers the seven UTC days before the run day, so the
+    # hour only decides when the draft is ready.
+    - cron: "0 7 * * 1"
   workflow_dispatch:
+    inputs:
+      days:
+        description: "Days the issue covers, counted back from today (UTC)"
+        type: number
+        default: 7
 
 permissions:
   contents: read
@@ -39,18 +45,21 @@ jobs:
         run: pnpm exec turbo run build --filter=@llmgateway/shared
 
       # The script only creates a draft; a person reviews and sends it in
-      # Resend. Without the secrets it prints the issue instead.
+      # Resend. Without all three secrets it prints the issue instead.
       - name: Draft the new-models issue
         env:
+          DAYS: ${{ inputs.days || 7 }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           RESEND_NEWSLETTER_SEGMENT_ID: ${{ secrets.RESEND_NEWSLETTER_SEGMENT_ID }}
           RESEND_NEWSLETTER_TOPIC_ID: ${{ secrets.RESEND_NEWSLETTER_TOPIC_ID }}
           DISCORD_NEWSLETTER_NOTIFICATION_URL: ${{ secrets.DISCORD_NEWSLETTER_NOTIFICATION_URL }}
         run: |
-          if [[ -n "$RESEND_API_KEY" && -n "$RESEND_NEWSLETTER_SEGMENT_ID" ]]; then
-            pnpm --filter @llmgateway/scripts new-models-digest --create-draft
+          if [[ -n "$RESEND_API_KEY" && -n "$RESEND_NEWSLETTER_SEGMENT_ID" && -n "$RESEND_NEWSLETTER_TOPIC_ID" ]]; then
+            pnpm --filter @llmgateway/scripts new-models-digest --days="$DAYS" --create-draft
           else
             echo "Resend secrets are not set; printing the issue only."
-            pnpm --filter @llmgateway/scripts new-models-digest
-            cat packages/scripts/new-models-digest.txt
+            pnpm --filter @llmgateway/scripts new-models-digest --days="$DAYS"
+            if [[ -f packages/scripts/new-models-digest.txt ]]; then
+              cat packages/scripts/new-models-digest.txt
+            fi
           fi

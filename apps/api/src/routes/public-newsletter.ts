@@ -1,92 +1,39 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
+import {
+	NEWSLETTER_CONFIRM_SUBJECT,
+	buildNewsletterConfirmUrl,
+	generateNewsletterConfirmEmailHtml,
+	signNewsletterToken,
+	subscribeToNewsletter,
+	verifyNewsletterToken,
+} from "@/lib/newsletter.js";
 import { createRoute } from "@/utils/create-route.js";
+import { sendTransactionalEmail } from "@/utils/email.js";
 import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 
 import { logger } from "@llmgateway/logger";
 import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
-import { resendFetch } from "@llmgateway/shared/resend-api";
+import { normalizeEmail } from "@llmgateway/shared/email-unsubscribe";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const publicNewsletter = new OpenAPIHono<ServerTypes>();
 
 const RATE_LIMIT_MAX = 5;
+const CONFIRMATION_EMAIL_MAX = 2;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
-const SEGMENT_PAGE_SIZE = 100;
 
-interface NewsletterTarget {
-	apiKey: string;
-	topicId: string;
-	segmentId: string | undefined;
-}
+const resultSchema = z.object({
+	success: z.boolean(),
+	message: z.string(),
+});
 
-async function expectOk(response: Response): Promise<Response> {
-	if (!response.ok) {
-		const body = (await response.json()) as { message?: string };
-		throw new Error(body.message ?? `Resend API error: ${response.status}`);
-	}
-	return response;
-}
-
-async function isInSegment(
-	target: NewsletterTarget,
-	contactPath: string,
-	segmentId: string,
-): Promise<boolean> {
-	const response = await expectOk(
-		await resendFetch({
-			apiKey: target.apiKey,
-			method: "GET",
-			path: `${contactPath}/segments?limit=${SEGMENT_PAGE_SIZE}`,
-		}),
-	);
-	const body = (await response.json()) as { data: { id: string }[] };
-	return body.data.some((segment) => segment.id === segmentId);
-}
-
-/**
- * Opts a contact that already exists back in. Topics have their own endpoint,
- * and a broadcast only reaches contacts in its segment.
- */
-async function resubscribe(
-	target: NewsletterTarget,
-	email: string,
-	unsubscribed: boolean,
-): Promise<void> {
-	const contactPath = `/contacts/${encodeURIComponent(email)}`;
-	if (unsubscribed) {
-		await expectOk(
-			await resendFetch({
-				apiKey: target.apiKey,
-				method: "PATCH",
-				path: contactPath,
-				body: { unsubscribed: false },
-			}),
-		);
-	}
-	await expectOk(
-		await resendFetch({
-			apiKey: target.apiKey,
-			method: "PATCH",
-			path: `${contactPath}/topics`,
-			body: [{ id: target.topicId, subscription: "opt_in" }],
-		}),
-	);
-	if (
-		target.segmentId &&
-		!(await isInSegment(target, contactPath, target.segmentId))
-	) {
-		await expectOk(
-			await resendFetch({
-				apiKey: target.apiKey,
-				method: "POST",
-				path: `${contactPath}/segments/${encodeURIComponent(target.segmentId)}`,
-			}),
-		);
-	}
-}
+const jsonResult = (description: string) => ({
+	content: { "application/json": { schema: resultSchema } },
+	description,
+});
 
 async function checkRateLimit(identifier: string): Promise<boolean> {
 	return await consumeRateLimit(
@@ -111,49 +58,22 @@ const subscribeRoute = createRoute({
 		},
 	},
 	responses: {
-		200: {
-			content: {
-				"application/json": {
-					schema: z.object({
-						success: z.boolean(),
-						message: z.string(),
-					}),
-				},
-			},
-			description: "Successfully subscribed to newsletter",
-		},
-		429: {
-			content: {
-				"application/json": {
-					schema: z.object({
-						success: z.boolean(),
-						message: z.string(),
-					}),
-				},
-			},
-			description: "Rate limit exceeded",
-		},
-		500: {
-			content: {
-				"application/json": {
-					schema: z.object({
-						success: z.boolean(),
-						message: z.string(),
-					}),
-				},
-			},
-			description: "Internal server error",
-		},
+		200: jsonResult("Confirmation email on its way"),
+		429: jsonResult("Rate limit exceeded"),
+		500: jsonResult("Internal server error"),
 	},
 });
 
+/**
+ * Sends a confirmation link and nothing else. The address joins the list only
+ * once its owner follows the link, and the answer is the same for a known and
+ * an unknown address.
+ */
 publicNewsletter.openapi(subscribeRoute, async (c) => {
-	const { email } = c.req.valid("json");
+	const email = normalizeEmail(c.req.valid("json").email);
 	const ipAddress = getClientIpFromContext(c);
 
-	const rateLimitKey = ipAddress ?? `email:${email}`;
-	const canSubmit = await checkRateLimit(rateLimitKey);
-	if (!canSubmit) {
+	if (!(await checkRateLimit(ipAddress ?? `email:${email}`))) {
 		return c.json(
 			{
 				success: false,
@@ -163,8 +83,7 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 		);
 	}
 
-	const apiKey = process.env.RESEND_API_KEY;
-	if (!apiKey) {
+	if (!process.env.RESEND_API_KEY) {
 		logger.error("RESEND_API_KEY not configured for newsletter");
 		return c.json(
 			{
@@ -175,8 +94,7 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 		);
 	}
 
-	const topicId = process.env.RESEND_NEWSLETTER_TOPIC_ID;
-	if (!topicId) {
+	if (!process.env.RESEND_NEWSLETTER_TOPIC_ID) {
 		logger.error("RESEND_NEWSLETTER_TOPIC_ID not configured");
 		return c.json(
 			{
@@ -187,61 +105,111 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 		);
 	}
 
-	const target: NewsletterTarget = {
-		apiKey,
-		topicId,
-		segmentId: process.env.RESEND_NEWSLETTER_SEGMENT_ID || undefined,
-	};
-
-	try {
-		const getResponse = await resendFetch({
-			apiKey,
-			method: "GET",
-			path: `/contacts/${encodeURIComponent(email)}`,
-		});
-
-		if (getResponse.ok) {
-			const contact = (await getResponse.json()) as { unsubscribed?: boolean };
-			await resubscribe(target, email, contact.unsubscribed === true);
+	// Capped per address so the form cannot be used to fill someone's inbox.
+	const maySend = await consumeRateLimit(
+		`newsletter_confirmation:${email}`,
+		CONFIRMATION_EMAIL_MAX,
+		RATE_LIMIT_WINDOW_SECONDS,
+	);
+	if (maySend) {
+		try {
+			await sendTransactionalEmail({
+				to: email,
+				subject: NEWSLETTER_CONFIRM_SUBJECT,
+				html: generateNewsletterConfirmEmailHtml(
+					buildNewsletterConfirmUrl(signNewsletterToken(email)),
+				),
+				strict: true,
+			});
+		} catch (error) {
+			logger.error("Failed to send newsletter confirmation", { error });
 			return c.json(
 				{
-					success: true,
-					message: "You're already subscribed!",
+					success: false,
+					message: "Failed to subscribe. Please try again later.",
 				},
-				200,
+				500,
 			);
 		}
+	}
 
-		if (getResponse.status !== 404) {
-			await expectOk(getResponse);
-		}
+	return c.json(
+		{
+			success: true,
+			message: "Check your inbox to confirm your subscription.",
+		},
+		200,
+	);
+});
 
-		const postResponse = await resendFetch({
-			apiKey,
-			method: "POST",
-			path: "/contacts",
-			body: {
-				email,
-				unsubscribed: false,
-				topics: [{ id: topicId, subscription: "opt_in" }],
-				...(target.segmentId && { segments: [{ id: target.segmentId }] }),
+const confirmRoute = createRoute({
+	method: "post",
+	path: "/confirm",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ token: z.string().min(1) }),
+				},
 			},
-		});
+		},
+	},
+	responses: {
+		200: jsonResult("Subscribed"),
+		400: jsonResult("Invalid or expired link"),
+		429: jsonResult("Rate limit exceeded"),
+		500: jsonResult("Internal server error"),
+	},
+});
 
-		if (postResponse.status === 409 || postResponse.status === 422) {
-			// The contact was created between the lookup and the create.
-			await resubscribe(target, email, true);
-		} else {
-			await expectOk(postResponse);
-		}
-
+publicNewsletter.openapi(confirmRoute, async (c) => {
+	const email = verifyNewsletterToken(c.req.valid("json").token);
+	if (!email) {
 		return c.json(
 			{
-				success: true,
-				message: "Successfully subscribed to the newsletter!",
+				success: false,
+				message: "This confirmation link is invalid or has expired.",
 			},
-			200,
+			400,
 		);
+	}
+
+	const ipAddress = getClientIpFromContext(c);
+	if (!(await checkRateLimit(ipAddress ?? `email:${email}`))) {
+		return c.json(
+			{
+				success: false,
+				message: "Too many requests. Please try again later.",
+			},
+			429,
+		);
+	}
+
+	const apiKey = process.env.RESEND_API_KEY;
+	const topicId = process.env.RESEND_NEWSLETTER_TOPIC_ID;
+	if (!apiKey || !topicId) {
+		logger.error("Newsletter is not configured", {
+			hasApiKey: Boolean(apiKey),
+			hasTopicId: Boolean(topicId),
+		});
+		return c.json(
+			{
+				success: false,
+				message: "Newsletter is not configured. Please try again later.",
+			},
+			500,
+		);
+	}
+
+	const segmentId = process.env.RESEND_NEWSLETTER_SEGMENT_ID || undefined;
+	if (!segmentId) {
+		logger.warn(
+			"RESEND_NEWSLETTER_SEGMENT_ID not configured: the subscriber is in no segment and no broadcast can reach them",
+		);
+	}
+
+	try {
+		await subscribeToNewsletter({ apiKey, topicId, segmentId }, email);
 	} catch (error) {
 		logger.error("Failed to subscribe to newsletter", { error });
 		return c.json(
@@ -252,4 +220,6 @@ publicNewsletter.openapi(subscribeRoute, async (c) => {
 			500,
 		);
 	}
+
+	return c.json({ success: true, message: "You're subscribed." }, 200);
 });

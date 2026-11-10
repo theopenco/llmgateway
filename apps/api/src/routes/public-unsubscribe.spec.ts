@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { deleteAll } from "@/testing.js";
@@ -144,5 +144,73 @@ describe("public unsubscribe", () => {
 		);
 
 		expect(await rows()).toHaveLength(2);
+	});
+
+	// A marketing unsubscribe has to end the newsletter too; the suppression
+	// row alone would leave the address on the list Resend mails every week.
+	describe("the newsletter topic", () => {
+		const topicPath = `/contacts/${encodeURIComponent(EMAIL)}/topics`;
+
+		beforeEach(() => {
+			vi.stubEnv("RESEND_API_KEY", "test-resend-key");
+			vi.stubEnv("RESEND_NEWSLETTER_TOPIC_ID", "topic-newsletter");
+		});
+
+		afterEach(() => {
+			vi.restoreAllMocks();
+			vi.unstubAllEnvs();
+		});
+
+		async function unsubscribe(category: "marketing" | "credit_alerts") {
+			return await app.request(
+				`/public/unsubscribe?token=${encodeURIComponent(token(category))}`,
+				{ method: "POST" },
+			);
+		}
+
+		test("is opted out by a marketing unsubscribe", async () => {
+			const upstream = vi
+				.spyOn(globalThis, "fetch")
+				.mockResolvedValue(new Response("{}", { status: 200 }));
+
+			const res = await unsubscribe("marketing");
+
+			expect(res.status).toBe(200);
+			expect(upstream).toHaveBeenCalledTimes(1);
+			const [url, init] = upstream.mock.calls[0];
+			expect(String(url)).toBe(`https://api.resend.com${topicPath}`);
+			expect(init?.method).toBe("PATCH");
+			expect(JSON.parse(String(init?.body))).toEqual([
+				{ id: "topic-newsletter", subscription: "opt_out" },
+			]);
+		});
+
+		test("is left alone by any other category", async () => {
+			const upstream = vi.spyOn(globalThis, "fetch");
+
+			const res = await unsubscribe("credit_alerts");
+
+			expect(res.status).toBe(200);
+			expect(upstream).not.toHaveBeenCalled();
+		});
+
+		test.each([
+			["Resend is down", () => Promise.reject(new Error("connect timeout"))],
+			[
+				"Resend answers with an error",
+				() => Promise.resolve(new Response("{}", { status: 500 })),
+			],
+			[
+				"the address is not a contact",
+				() => Promise.resolve(new Response("{}", { status: 404 })),
+			],
+		])("never blocks the unsubscribe when %s", async (_case, respond) => {
+			vi.spyOn(globalThis, "fetch").mockImplementation(respond);
+
+			const res = await unsubscribe("marketing");
+
+			expect(res.status).toBe(200);
+			expect(await rows()).toHaveLength(1);
+		});
 	});
 });

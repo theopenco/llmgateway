@@ -1,20 +1,23 @@
 /* eslint-disable no-console */
 /**
  * Build the weekly "new models" newsletter issue from the live catalogue (the
- * endpoint the site reads, so provider-listed models are included) and the
+ * endpoints the site reads, so provider-listed models are included) and the
  * changelog, and optionally save it in Resend as a broadcast draft. The script
  * never sends: a person reviews the draft and sends it from Resend.
+ *
+ * The issue covers the whole UTC days before the day it runs, so a run on
+ * Monday covers the previous Monday to Sunday at any hour.
  *
  * Usage:
  *   # write the issue to new-models-digest.html / .txt and print a summary
  *   pnpm --filter @llmgateway/scripts new-models-digest
  *
  *   # also create the draft in Resend
- *   RESEND_API_KEY=re_xxx RESEND_NEWSLETTER_SEGMENT_ID=... \
+ *   RESEND_API_KEY=re_xxx RESEND_NEWSLETTER_SEGMENT_ID=... RESEND_NEWSLETTER_TOPIC_ID=... \
  *     pnpm --filter @llmgateway/scripts new-models-digest --create-draft
  *
  * Flags:
- *   --days=7          Window of releases to include (default 7).
+ *   --days=7          Days the issue covers (default 7).
  *   --out=path        File prefix for the rendered issue (default new-models-digest).
  *   --api-url=url     API to read the catalogue from (default https://internal.llmgateway.io).
  *   --create-draft    Create a Resend broadcast draft from the issue.
@@ -22,7 +25,7 @@
  * Environment (only for --create-draft):
  *   RESEND_API_KEY                 Required.
  *   RESEND_NEWSLETTER_SEGMENT_ID   Required. The segment newsletter signups are added to.
- *   RESEND_NEWSLETTER_TOPIC_ID     Optional. Applies that topic's subscription preferences.
+ *   RESEND_NEWSLETTER_TOPIC_ID     Required. Keeps the issue from contacts who opted out.
  *   DISCORD_NEWSLETTER_NOTIFICATION_URL   Optional. Gets a note that a draft is waiting.
  */
 
@@ -34,14 +37,16 @@ import { POSTAL_ADDRESS } from "@llmgateway/shared/email-unsubscribe";
 import { resendFetch } from "@llmgateway/shared/resend-api";
 
 import {
+	buildBroadcastDraft,
 	buildDigest,
 	fromCatalogue,
+	parseChangelogEntry,
+	readCatalogueList,
 	type CatalogueModel,
+	type Digest,
 	type DigestChangelogInput,
 } from "./new-models-digest-lib.js";
 
-const FROM = "LLM Gateway <contact@mail.llmgateway.io>";
-const REPLY_TO = "contact@llmgateway.io";
 const REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_API_URL = "https://internal.llmgateway.io";
 const CHANGELOG_DIR = join(
@@ -59,42 +64,14 @@ function hasFlag(name: string): boolean {
 	return process.argv.includes(`--${name}`);
 }
 
-function frontmatterValue(source: string, key: string): string | undefined {
-	const match = new RegExp(`^${key}:\\s*(.+)$`, "m").exec(source);
-	if (!match) {
-		return undefined;
-	}
-	const raw = match[1].trim();
-	return raw.startsWith('"') ? (JSON.parse(raw) as string) : raw;
-}
-
 function readChangelog(): DigestChangelogInput[] {
-	const entries: DigestChangelogInput[] = [];
-	for (const file of readdirSync(CHANGELOG_DIR)) {
-		if (!file.endsWith(".md")) {
-			continue;
-		}
-		const source = readFileSync(join(CHANGELOG_DIR, file), "utf8");
-		const frontmatter = source.split("\n---")[0];
-		const slug = frontmatterValue(frontmatter, "slug");
-		const title = frontmatterValue(frontmatter, "title");
-		const summary = frontmatterValue(frontmatter, "summary");
-		const date = frontmatterValue(frontmatter, "date");
-		if (!slug || !title || !summary || !date) {
-			throw new Error(`Changelog entry ${file} is missing frontmatter`);
-		}
-		entries.push({
-			slug,
-			title,
-			summary,
-			date,
-			draft: frontmatterValue(frontmatter, "draft") === "true",
-		});
-	}
-	return entries;
+	return readdirSync(CHANGELOG_DIR)
+		.filter((file) => file.endsWith(".md"))
+		.map((file) =>
+			parseChangelogEntry(readFileSync(join(CHANGELOG_DIR, file), "utf8"), file),
+		);
 }
 
-/** An empty list is a failed read, never a quiet week. */
 async function fetchCatalogue<T>(
 	apiUrl: string,
 	resource: "models" | "providers",
@@ -105,12 +82,7 @@ async function fetchCatalogue<T>(
 	if (!response.ok) {
 		throw new Error(`Failed to load ${resource}: ${response.status}`);
 	}
-	const body = (await response.json()) as Record<string, T[] | undefined>;
-	const items = body[resource];
-	if (!Array.isArray(items) || items.length === 0) {
-		throw new Error(`The API returned no ${resource}`);
-	}
-	return items;
+	return readCatalogueList<T>(await response.json(), resource);
 }
 
 function requireEnv(name: string): string {
@@ -121,27 +93,15 @@ function requireEnv(name: string): string {
 	return value;
 }
 
-async function createDraft(digest: {
-	subject: string;
-	previewText: string;
-	html: string;
-	text: string;
-}): Promise<string> {
+async function createDraft(digest: Digest): Promise<string> {
 	const response = await resendFetch({
 		apiKey: requireEnv("RESEND_API_KEY"),
 		method: "POST",
 		path: "/broadcasts",
-		body: {
-			segment_id: requireEnv("RESEND_NEWSLETTER_SEGMENT_ID"),
-			topic_id: process.env.RESEND_NEWSLETTER_TOPIC_ID || undefined,
-			from: FROM,
-			reply_to: REPLY_TO,
-			name: digest.subject,
-			subject: digest.subject,
-			preview_text: digest.previewText,
-			html: digest.html,
-			text: digest.text,
-		},
+		body: buildBroadcastDraft(digest, {
+			segmentId: requireEnv("RESEND_NEWSLETTER_SEGMENT_ID"),
+			topicId: requireEnv("RESEND_NEWSLETTER_TOPIC_ID"),
+		}),
 		timeoutMs: REQUEST_TIMEOUT_MS,
 	});
 	if (!response.ok) {
@@ -163,6 +123,7 @@ async function notify(subject: string, modelCount: number): Promise<void> {
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
 			content: `Newsletter draft waiting in Resend: "${subject}" (${modelCount} new ${modelCount === 1 ? "model" : "models"}). Review it and send.`,
+			allowed_mentions: { parse: [] },
 		}),
 		signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 	});
@@ -194,7 +155,7 @@ async function main() {
 		postalAddress: POSTAL_ADDRESS,
 	});
 	if (!digest) {
-		console.log(`No models released in the last ${days} days. Nothing to send.`);
+		console.log(`No models landed in the last ${days} days. Nothing to send.`);
 		return;
 	}
 

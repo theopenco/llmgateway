@@ -10,8 +10,8 @@ export interface ResendCall {
 }
 
 /**
- * One call to Resend's REST API, for the endpoints the pinned SDK predates:
- * topics, segments and broadcasts.
+ * One call to Resend's REST API, for what the pinned SDK predates: contact
+ * topics, segments, and broadcasts addressed to a segment and topic.
  */
 export async function resendFetch(call: ResendCall): Promise<Response> {
 	const hasBody = call.body !== undefined;

@@ -6,16 +6,20 @@ import {
 	type ResendRequest,
 } from "./newsletter-segment-backfill-lib.js";
 
-// Ways the backfill can go wrong: it stops after the first page, it adds people
-// who unsubscribed or never opted in, it re-adds current members, a dry run
-// writes, or a rate limit ends the run halfway.
+// Ways the backfill can go wrong: it stops after the first page of contacts or
+// of segment members, it adds people who unsubscribed (in Resend or in the
+// app) or never opted in, it re-adds current members, a dry run writes, or a
+// rate limit ends the run halfway.
 
 const TOPIC = "topic-newsletter";
 const SEGMENT = "segment-newsletter";
 const PAGE = 100;
+const MEMBERS = PAGE + 3;
+const SUBSCRIBERS = PAGE + 5;
 
 interface FakeContact {
 	id: string;
+	email: string;
 	unsubscribed: boolean;
 	subscription?: "opt_in" | "opt_out";
 	inSegment: boolean;
@@ -73,54 +77,63 @@ function fakeResend(contacts: FakeContact[]): ResendRequest {
 	};
 }
 
+function entry(id: string, overrides: Partial<FakeContact> = {}): FakeContact {
+	return {
+		id,
+		email: `${id}@example.com`,
+		unsubscribed: false,
+		subscription: "opt_in",
+		inSegment: false,
+		...overrides,
+	};
+}
+
 function contacts(): FakeContact[] {
-	const subscribers: FakeContact[] = Array.from(
-		{ length: PAGE + 5 },
-		(_, index) => ({
-			id: `subscriber-${index}`,
-			unsubscribed: false,
-			subscription: "opt_in",
-			inSegment: false,
-		}),
-	);
 	return [
-		{ id: "member", unsubscribed: false, subscription: "opt_in", inSegment: true },
-		{ id: "left", unsubscribed: true, subscription: "opt_in", inSegment: false },
-		{
-			id: "opted-out",
-			unsubscribed: false,
-			subscription: "opt_out",
-			inSegment: false,
-		},
-		{ id: "no-preference", unsubscribed: false, inSegment: false },
-		...subscribers,
+		...Array.from({ length: MEMBERS }, (_, index) =>
+			entry(`member-${index}`, { inSegment: true }),
+		),
+		entry("left", { unsubscribed: true }),
+		entry("opted-out", { subscription: "opt_out" }),
+		entry("no-preference", { subscription: undefined }),
+		entry("marketing-off"),
+		...Array.from({ length: SUBSCRIBERS }, (_, index) =>
+			entry(`subscriber-${index}`),
+		),
 	];
 }
+
+const isSuppressed = async (email: string) =>
+	email === "marketing-off@example.com";
 
 test("adds every opted-in contact across pages and nobody else", async () => {
 	const all = contacts();
 
 	const result = await backfillSegment({
 		request: fakeResend(all),
+		isSuppressed,
 		topicId: TOPIC,
 		segmentId: SEGMENT,
 		apply: true,
 	});
 
 	expect(result).toEqual({
-		scanned: PAGE + 9,
-		alreadyInSegment: 1,
+		scanned: all.length,
+		alreadyInSegment: MEMBERS,
 		unsubscribed: 1,
 		notOptedIn: 2,
-		toAdd: PAGE + 5,
-		added: PAGE + 5,
+		suppressed: 1,
+		toAdd: SUBSCRIBERS,
+		added: SUBSCRIBERS,
 	});
 	expect(
-		all.filter((entry) => entry.inSegment).map((entry) => entry.id),
-	).toEqual([
-		"member",
-		...Array.from({ length: PAGE + 5 }, (_, index) => `subscriber-${index}`),
-	]);
+		all
+			.filter((contact) => contact.inSegment)
+			.map((contact) => contact.id)
+			.filter((id) => !id.startsWith("member-")),
+	).toEqual(
+		Array.from({ length: SUBSCRIBERS }, (_, index) => `subscriber-${index}`),
+	);
 });
 
 test("a dry run counts and writes nothing", async () => {
@@ -128,14 +141,15 @@ test("a dry run counts and writes nothing", async () => {
 
 	const result = await backfillSegment({
 		request: fakeResend(all),
+		isSuppressed,
 		topicId: TOPIC,
 		segmentId: SEGMENT,
 		apply: false,
 	});
 
-	expect(result.toAdd).toBe(PAGE + 5);
+	expect(result.toAdd).toBe(SUBSCRIBERS);
 	expect(result.added).toBe(0);
-	expect(all.filter((entry) => entry.inSegment)).toHaveLength(1);
+	expect(all.filter((contact) => contact.inSegment)).toHaveLength(MEMBERS);
 });
 
 test("a rate-limited call waits as long as Resend asks and then goes through", async () => {

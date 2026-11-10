@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { optOutOfNewsletter } from "@/lib/newsletter.js";
 import { getApiKeyScope, getUserProjectIds } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
 
@@ -259,6 +260,9 @@ notifications.openapi(
 			// Email-only categories have no preference row, so the suppression
 			// list is where "off" is recorded.
 			await suppressEmailCategory(recipient.email, value.category, "dashboard");
+			if (value.category === "marketing") {
+				await optOutOfNewsletter(recipient.email);
+			}
 		}
 
 		if (isNotificationCategory(value.category)) {
