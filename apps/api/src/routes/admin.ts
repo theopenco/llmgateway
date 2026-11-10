@@ -863,6 +863,41 @@ const providerKeysListSchema = z.object({
 	counts: keyStatusCountsSchema,
 });
 
+// High-risk review state of a user (see `user.riskStatus`), returned wherever
+// an admin may need to approve the account.
+const accountRiskSchema = z.object({
+	status: z.enum(["none", "flagged", "approved"]),
+	flaggedAt: z.string().nullable(),
+	source: z.enum(["signup", "email_verification"]).nullable(),
+	ipAddress: z.string().nullable(),
+	abuseConfidenceScore: z.number().nullable(),
+	countryCode: z.string().nullable(),
+	reviewedAt: z.string().nullable(),
+});
+
+const accountRiskColumns = {
+	riskStatus: true,
+	riskFlaggedAt: true,
+	riskFlagSource: true,
+	riskFlagIp: true,
+	riskFlagDetails: true,
+	riskReviewedAt: true,
+} as const;
+
+function toAccountRisk(
+	user: Pick<typeof tables.user.$inferSelect, keyof typeof accountRiskColumns>,
+): z.infer<typeof accountRiskSchema> {
+	return {
+		status: user.riskStatus,
+		flaggedAt: user.riskFlaggedAt?.toISOString() ?? null,
+		source: user.riskFlagSource,
+		ipAddress: user.riskFlagIp,
+		abuseConfidenceScore: user.riskFlagDetails?.abuseConfidenceScore ?? null,
+		countryCode: user.riskFlagDetails?.countryCode ?? null,
+		reviewedAt: user.riskReviewedAt?.toISOString() ?? null,
+	};
+}
+
 const memberSchema = z.object({
 	id: z.string(),
 	userId: z.string(),
@@ -883,6 +918,8 @@ const memberSchema = z.object({
 		email: z.string(),
 		name: z.string().nullable(),
 		emailVerified: z.boolean(),
+		status: z.enum(["active", "deactivated"]),
+		risk: accountRiskSchema,
 	}),
 });
 
@@ -3895,7 +3932,14 @@ admin.openapi(getOrganizationMembers, async (c) => {
 			where: { organizationId: { eq: orgId } },
 			with: {
 				user: {
-					columns: { id: true, email: true, name: true, emailVerified: true },
+					columns: {
+						id: true,
+						email: true,
+						name: true,
+						emailVerified: true,
+						status: true,
+						...accountRiskColumns,
+					},
 				},
 				team: { columns: { id: true, name: true, isDefault: true } },
 				iamRules: true,
@@ -3946,6 +3990,8 @@ admin.openapi(getOrganizationMembers, async (c) => {
 				email: m.user!.email,
 				name: m.user!.name,
 				emailVerified: m.user!.emailVerified,
+				status: m.user!.status,
+				risk: toAccountRisk(m.user!),
 			},
 		})),
 		total: members.length,
@@ -14682,8 +14728,30 @@ const chatSupportConversationDetailSchema = z.object({
 	archivedAt: z.string().nullable(),
 	resolvedAt: z.string().nullable(),
 	rating: z.number().int().min(0).max(5).nullable(),
-	organizationId: z.string().nullable(),
-	organizationName: z.string().nullable(),
+	// The visitor's account, matched by email, so admins can see restrictions
+	// and jump to (or unblock) every organization the visitor belongs to.
+	account: z
+		.object({
+			userId: z.string(),
+			email: z.string(),
+			status: z.enum(["active", "deactivated"]),
+			blockReason: z.string().nullable(),
+			risk: accountRiskSchema,
+			organizations: z.array(
+				z.object({
+					id: z.string(),
+					name: z.string(),
+					kind: z.enum(["default", "chat", "devpass"]),
+					plan: z.string(),
+					devPlan: z.string(),
+					status: z.string().nullable(),
+					blockReason: z.string().nullable(),
+					riskFlagged: z.boolean(),
+					role: z.string(),
+				}),
+			),
+		})
+		.nullable(),
 	messages: z.array(chatSupportMessageSchema),
 });
 
@@ -14937,6 +15005,63 @@ const getChatSupportConversation = createRoute({
 	},
 });
 
+async function findChatSupportAccount(
+	email: string,
+): Promise<z.infer<typeof chatSupportConversationDetailSchema>["account"]> {
+	const [user] = await db
+		.select({
+			id: tables.user.id,
+			email: tables.user.email,
+			status: tables.user.status,
+			blockReason: tables.user.blockReason,
+			riskStatus: tables.user.riskStatus,
+			riskFlaggedAt: tables.user.riskFlaggedAt,
+			riskFlagSource: tables.user.riskFlagSource,
+			riskFlagIp: tables.user.riskFlagIp,
+			riskFlagDetails: tables.user.riskFlagDetails,
+			riskReviewedAt: tables.user.riskReviewedAt,
+		})
+		.from(tables.user)
+		.where(sql`LOWER(${tables.user.email}) = LOWER(${email})`)
+		.limit(1);
+	if (!user) {
+		return null;
+	}
+
+	// Owners first, so the visitor's own organization leads the list.
+	const organizations = await db
+		.select({
+			id: tables.organization.id,
+			name: tables.organization.name,
+			kind: tables.organization.kind,
+			plan: tables.organization.plan,
+			devPlan: tables.organization.devPlan,
+			status: tables.organization.status,
+			blockReason: tables.organization.blockReason,
+			riskFlagged: tables.organization.riskFlagged,
+			role: tables.userOrganization.role,
+		})
+		.from(tables.userOrganization)
+		.innerJoin(
+			tables.organization,
+			eq(tables.organization.id, tables.userOrganization.organizationId),
+		)
+		.where(eq(tables.userOrganization.userId, user.id))
+		.orderBy(
+			sql`CASE ${tables.userOrganization.role} WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END`,
+			asc(tables.userOrganization.createdAt),
+		);
+
+	return {
+		userId: user.id,
+		email: user.email,
+		status: user.status,
+		blockReason: user.blockReason,
+		risk: toAccountRisk(user),
+		organizations,
+	};
+}
+
 admin.openapi(getChatSupportConversation, async (c) => {
 	const { id } = c.req.valid("param");
 
@@ -14980,37 +15105,9 @@ admin.openapi(getChatSupportConversation, async (c) => {
 		.where(eq(mt.conversationId, id))
 		.orderBy(asc(mt.sequence));
 
-	// Best-effort link to the visitor's organization so admins can jump straight
-	// to their account. Matched by email; owners are preferred when a visitor
-	// belongs to more than one org.
-	let organizationId: string | null = null;
-	let organizationName: string | null = null;
-	if (conversation.email) {
-		const orgRows = await db
-			.select({
-				id: tables.organization.id,
-				name: tables.organization.name,
-			})
-			.from(tables.user)
-			.innerJoin(
-				tables.userOrganization,
-				eq(tables.userOrganization.userId, tables.user.id),
-			)
-			.innerJoin(
-				tables.organization,
-				eq(tables.organization.id, tables.userOrganization.organizationId),
-			)
-			.where(sql`LOWER(${tables.user.email}) = LOWER(${conversation.email})`)
-			.orderBy(
-				sql`CASE ${tables.userOrganization.role} WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END`,
-				asc(tables.userOrganization.createdAt),
-			)
-			.limit(1);
-		if (orgRows[0]) {
-			organizationId = orgRows[0].id;
-			organizationName = orgRows[0].name;
-		}
-	}
+	const account = conversation.email
+		? await findChatSupportAccount(conversation.email)
+		: null;
 
 	return c.json({
 		...conversation,
@@ -15020,8 +15117,7 @@ admin.openapi(getChatSupportConversation, async (c) => {
 		archivedAt: conversation.archivedAt?.toISOString() ?? null,
 		resolvedAt: conversation.resolvedAt?.toISOString() ?? null,
 		rating: conversation.rating ?? null,
-		organizationId,
-		organizationName,
+		account,
 		messages: messages.map((m) => ({
 			...m,
 			createdAt: m.createdAt.toISOString(),
