@@ -1974,6 +1974,9 @@ async function seed() {
 			requestId: `devpass-req-${i}`,
 			createdAt,
 			updatedAt: createdAt,
+			// Already counted in the workspace's used credits below; left
+			// unprocessed, the worker would bill this spend a second time.
+			processedAt: createdAt,
 			organizationId: "test-personal-org-id",
 			projectId: "test-personal-project-id",
 			apiKeyId: "test-devpass-api-key-id",
