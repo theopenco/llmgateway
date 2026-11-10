@@ -125,6 +125,34 @@ function speechStreamTests() {
 		},
 	);
 
+	test("closes a binary stream when the handler aborts upstream on disconnect", async () => {
+		const source = upstream();
+		source.controller.enqueue(encode("AUDIO"));
+		const abort = new AbortController();
+		const client = new AbortController();
+		// Registered first, like the speech handler's own disconnect listener.
+		client.signal.addEventListener("abort", () => abort.abort());
+		const onSettled = vi.fn(async () => {});
+		const reader = (
+			await prepareSpeechStream({
+				response: source.response,
+				upstreamSse: false,
+				clientSse: false,
+				signal: abort.signal,
+				clientSignal: client.signal,
+				abort: () => abort.abort(),
+				onSettled,
+			})
+		).getReader();
+		await reader.read();
+		client.abort();
+		await expect(reader.closed).resolves.toBeUndefined();
+		await drainPendingWork(1000);
+		expect(onSettled).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({ canceled: true }),
+		);
+	});
+
 	test("disconnect does not abort authorized generation after five seconds", async () => {
 		const source = upstream();
 		source.controller.enqueue(encode(delta()));
