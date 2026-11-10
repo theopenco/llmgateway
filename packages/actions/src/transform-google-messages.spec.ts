@@ -498,3 +498,49 @@ describe("parseGoogleUpstreamDocumentError", () => {
 		expect(parseGoogleUpstreamDocumentError("", "google-ai-studio")).toBeNull();
 	});
 });
+
+describe("transformGoogleMessages — tool results", () => {
+	const assistant: BaseMessage = {
+		role: "assistant",
+		content: "",
+		tool_calls: [
+			{
+				id: "call_a",
+				type: "function",
+				function: { name: "get_weather", arguments: '{"city":"Paris"}' },
+			},
+			{
+				id: "call_b",
+				type: "function",
+				function: { name: "get_time", arguments: "{}" },
+			},
+		],
+	};
+
+	it("names each functionResponse after the call its tool_call_id answers", async () => {
+		const out = await transformGoogleMessages([
+			{ role: "user", content: "weather and time?" },
+			assistant,
+			{ role: "tool", tool_call_id: "call_b", content: "12:00" },
+			{ role: "tool", tool_call_id: "call_a", content: "sunny" },
+		]);
+
+		const responses = out
+			.flatMap((message) => message.parts)
+			.filter((part) => part.functionResponse)
+			.map((part) => part.functionResponse);
+		expect(responses).toEqual([
+			{ name: "get_time", response: { result: "12:00" } },
+			{ name: "get_weather", response: { result: "sunny" } },
+		]);
+	});
+
+	it("falls back to the message name when the id matches no call", async () => {
+		const out = await transformGoogleMessages([
+			assistant,
+			{ role: "tool", tool_call_id: "call_z", name: "lookup", content: "x" },
+		]);
+
+		expect(out[1].parts[0].functionResponse?.name).toBe("lookup");
+	});
+});
