@@ -1441,7 +1441,60 @@ function getVideoImageInputCost(job: VideoJobRecord): number {
 	return Number((getVideoInputImageCount(job) * pricePerImage).toFixed(6));
 }
 
+function getVideoInputReferenceVideoCount(job: VideoJobRecord): number {
+	for (const candidate of getVideoMetadataCandidates(job)) {
+		const value = readNestedValue(
+			candidate,
+			"llmgateway_input_reference_video_count",
+		);
+		if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+			return value;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Cost of a request with reference videos on a provider that bills it by
+ * tokens covering the reference videos as well as the output (ByteDance
+ * ModelArk), from the reported `usage.completion_tokens`. Null when the
+ * mapping has no such price, the request had no reference videos, or the
+ * provider reported no tokens; the caller then bills output seconds.
+ */
+function getReferenceVideoTokenCost(job: VideoJobRecord): number | null {
+	const prices = getVideoMapping(job)?.referenceVideoTokenPrice;
+	if (!prices || getVideoInputReferenceVideoCount(job) === 0) {
+		return null;
+	}
+
+	const usage = getUpstreamVideoUsage(job);
+	const tokens = usage ? readTokenCount(usage.completion_tokens) : 0;
+	if (tokens === 0) {
+		logger.warn("Reference-video job reported no completion tokens", {
+			videoId: job.id,
+			model: job.model,
+			upstreamId: job.upstreamId,
+		});
+		return null;
+	}
+
+	const resolution = getRequestedVideoMetadata(job)?.resolution ?? null;
+	const price =
+		(resolution !== null ? prices[resolution] : undefined) ?? prices.default;
+	if (price === undefined) {
+		return null;
+	}
+
+	return new Decimal(tokens).mul(price).toDecimalPlaces(6).toNumber();
+}
+
 function getVideoOutputCost(job: VideoJobRecord): number {
+	const referenceVideoTokenCost = getReferenceVideoTokenCost(job);
+	if (referenceVideoTokenCost !== null) {
+		return referenceVideoTokenCost;
+	}
+
 	// Token-billed video output (e.g. an edit, whose length follows the source
 	// rather than the requested duration) is billed exactly as reported.
 	const videoOutputPrice = getVideoMapping(job)?.videoOutputPrice;

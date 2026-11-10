@@ -1159,6 +1159,97 @@ describe("videos", () => {
 		]);
 	});
 
+	describe("Seedance reference-video billing", () => {
+		async function createSeedanceJob(body: Record<string, unknown>) {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				...hashApiKeyForStorage("real-token"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				...encryptProviderKeyForStorage(
+					"sk-bytedance-key",
+					"provider-key-id",
+					"org-id",
+				),
+				provider: "bytedance",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const createRes = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "bytedance/seedance-2-5",
+					prompt: "A dancer copies the reference motion",
+					size: "1280x720",
+					seconds: 5,
+					...body,
+				}),
+			});
+			expect(createRes.status).toBe(200);
+			const created = await createRes.json();
+			const videoJob = await db.query.videoJob.findFirst({
+				where: { id: { eq: created.id } },
+			});
+			return videoJob!;
+		}
+
+		function succeededTask(upstreamId: string, completionTokens: number) {
+			return {
+				id: upstreamId,
+				model: "dreamina-seedance-2-5-260628",
+				status: "succeeded",
+				content: { video_url: `${mockServerUrl}/mock-assets/${upstreamId}` },
+				usage: {
+					completion_tokens: completionTokens,
+					total_tokens: completionTokens,
+				},
+			};
+		}
+
+		test("bills the reported tokens, reference video included, at the with-video rate", async () => {
+			const videoJob = await createSeedanceJob({
+				reference_videos: ["https://example.com/reference-motion.mp4"],
+			});
+			// 30s of reference plus 5s of output at 720p, 21,600 tokens a second.
+			setMockVideoStatusResponse(
+				videoJob.upstreamId,
+				200,
+				succeededTask(videoJob.upstreamId, 756000),
+			);
+			await processPendingVideoJobs();
+
+			const log = await db.query.log.findFirst({
+				where: { usedModel: { eq: "bytedance/seedance-2-5" } },
+			});
+			expect(log?.videoOutputCost).toBeCloseTo(756000 * 0.0000064, 6);
+			expect(log?.cost).toBeCloseTo(756000 * 0.0000064, 6);
+		});
+
+		test("bills output seconds when the request has no reference video", async () => {
+			const videoJob = await createSeedanceJob({});
+			setMockVideoStatusResponse(
+				videoJob.upstreamId,
+				200,
+				succeededTask(videoJob.upstreamId, 108000),
+			);
+			await processPendingVideoJobs();
+
+			const log = await db.query.log.findFirst({
+				where: { usedModel: { eq: "bytedance/seedance-2-5" } },
+			});
+			expect(log?.videoOutputCost).toBeCloseTo(5 * 0.2311, 6);
+		});
+	});
+
 	test("/v1/videos rejects 4K and over-30s durations on Seedance 2.5", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

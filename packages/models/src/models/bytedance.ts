@@ -175,6 +175,11 @@ export const bytedanceModels = [
 					"1080p_audio": "0.56862",
 					"1080p_video": "0.56862",
 				},
+				referenceVideoTokenPrice: {
+					// BytePlus's "input contains video" rate: $6.40/M tokens, $7.00/M at 1080p.
+					default: "0.0000064",
+					"1080p": "0.000007",
+				},
 				contextSize: 2000,
 				maxOutput: 1,
 				streaming: false,
@@ -230,6 +235,11 @@ export const bytedanceModels = [
 					"1080p_audio": "0.37422",
 					"1080p_video": "0.37422",
 				},
+				referenceVideoTokenPrice: {
+					// BytePlus's "input contains video" rate: $4.30/M tokens, $4.70/M at 1080p.
+					default: "0.0000043",
+					"1080p": "0.0000047",
+				},
 				contextSize: 2000,
 				maxOutput: 1,
 				streaming: false,
@@ -269,6 +279,10 @@ export const bytedanceModels = [
 				perSecondPrice: {
 					default_audio: "0.12096",
 					default_video: "0.12096",
+				},
+				referenceVideoTokenPrice: {
+					// BytePlus's "input contains video" rate: $3.30/M tokens.
+					default: "0.0000033",
 				},
 				contextSize: 2000,
 				maxOutput: 1,
@@ -311,6 +325,10 @@ export const bytedanceModels = [
 					default_video: "0.0756",
 					"480p_audio": "0.035154",
 					"480p_video": "0.035154",
+				},
+				referenceVideoTokenPrice: {
+					// BytePlus's "input contains video" rate: $2.10/M tokens.
+					default: "0.0000021",
 				},
 				contextSize: 2000,
 				maxOutput: 1,
