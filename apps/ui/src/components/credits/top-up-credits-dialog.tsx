@@ -51,6 +51,9 @@ import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type React from "react";
 
+// From this top-up size on, a contract is worth a conversation.
+const COMMITTED_USE_HINT_MIN_AMOUNT = 500;
+
 export function TopUpCreditsButton() {
 	return (
 		<TopUpCreditsDialog>
@@ -460,6 +463,25 @@ function AmountStep({
 								and we can unlock a higher tier.
 							</p>
 						</div>
+					) : null}
+					{amount >= COMMITTED_USE_HINT_MIN_AMOUNT ? (
+						<p className="rounded-lg border border-border/70 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+							Topping up this much every month? Committed use lowers the 5%
+							platform fee and bills by invoice.{" "}
+							<Link
+								href="/enterprise#committed-use"
+								target="_blank"
+								className="font-medium text-foreground underline underline-offset-2"
+								onClick={() =>
+									posthog.capture("cta_clicked", {
+										location: "topup_dialog_committed_use",
+										cta: "committed_use",
+									})
+								}
+							>
+								See how it works
+							</Link>
+						</p>
 					) : null}
 				</div>
 
