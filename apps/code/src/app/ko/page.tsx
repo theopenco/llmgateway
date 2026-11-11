@@ -62,7 +62,7 @@ function koreanCount(stat: string): string {
 	if (!match) {
 		return stat;
 	}
-	const value = Number(match[1]) * (match[2] ? UNITS[match[2]] : 1);
+	const value = Math.round(Number(match[1]) * (match[2] ? UNITS[match[2]] : 1));
 	// Rounded down, because the figure is followed by "or more".
 	return new Intl.NumberFormat("ko", {
 		notation: "compact",
