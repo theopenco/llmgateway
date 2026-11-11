@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
+import Stripe from "stripe";
 import {
 	afterAll,
 	afterEach,
@@ -63,6 +64,7 @@ const stripeMock = vi.hoisted(() => ({
 	},
 	invoicePayments: { list: vi.fn() },
 	paymentIntents: { retrieve: vi.fn() },
+	checkout: { sessions: { retrieve: vi.fn() } },
 }));
 
 vi.mock("stripe", async (importOriginal) => {
@@ -125,6 +127,81 @@ function retrievedSubscription(
 		...overrides,
 	};
 }
+
+describe("dev plan finalize", () => {
+	let token: string;
+	const originalStripeSecretKey = process.env.STRIPE_SECRET_KEY;
+	beforeAll(() => {
+		process.env.STRIPE_SECRET_KEY ||= "sk_test_finalize";
+	});
+	afterAll(() => {
+		if (originalStripeSecretKey === undefined) {
+			delete process.env.STRIPE_SECRET_KEY;
+		} else {
+			process.env.STRIPE_SECRET_KEY = originalStripeSecretKey;
+		}
+	});
+
+	beforeEach(async () => {
+		vi.resetAllMocks();
+		token = await createTestUser();
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Personal Org",
+			billingEmail: "admin@example.com",
+			kind: "devpass",
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	function finalize(sessionId: string) {
+		return app.request("/dev-plans/finalize", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({ sessionId }),
+		});
+	}
+
+	it("rejects an unknown session with 400", async () => {
+		stripeMock.checkout.sessions.retrieve.mockRejectedValue(
+			new Stripe.errors.StripeInvalidRequestError({
+				type: "invalid_request_error",
+				code: "resource_missing",
+				message: "No such checkout.session: cs_test_missing",
+			}),
+		);
+
+		const response = await finalize("cs_test_missing");
+
+		expect(response.status).toBe(400);
+	});
+
+	it("rejects a session that belongs to another org", async () => {
+		stripeMock.checkout.sessions.retrieve.mockResolvedValue({
+			id: "cs_test_other",
+			mode: "setup",
+			metadata: {
+				subscriptionType: "dev_plan",
+				organizationId: "another-org",
+				devPlan: "lite",
+				priceId: "price_lite",
+			},
+		});
+
+		const response = await finalize("cs_test_other");
+
+		expect(response.status).toBe(400);
+		expect(stripeMock.customers.update).not.toHaveBeenCalled();
+	});
+});
 
 describe("dev plan renewal recovery after a card update", () => {
 	let token: string;
