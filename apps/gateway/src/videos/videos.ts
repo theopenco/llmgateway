@@ -393,7 +393,7 @@ const videoSourceVideoInputSchema = z
 	])
 	.openapi({
 		description:
-			"LLMGateway extension. Source video (up to 10 seconds) to edit or extend, see video_task. Must be a publicly reachable HTTPS URL. Currently only supported on google-ai-studio/gemini-omni-1.1-flash.",
+			"LLMGateway extension. Source video (up to 10 seconds) to edit or extend, see video_task. Must be a publicly reachable HTTPS URL. Currently only supported on google-ai-studio Gemini Omni models.",
 		example: {
 			video_url: "https://example.com/source.mp4",
 		},

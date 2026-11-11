@@ -1,6 +1,6 @@
 ---
 title: Speech Generation
-description: Generate speech (text-to-speech) using ElevenLabs, Gemini, OpenAI, and Qwen models through the OpenAI-compatible audio API
+description: Generate speech (text-to-speech) using ElevenLabs, Gemini, OpenAI, Qwen, and Orpheus models through the OpenAI-compatible audio API
 icon: Volume2
 ---
 
@@ -8,7 +8,8 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 LLMGateway supports text-to-speech (TTS) through the OpenAI-compatible
 **`/v1/audio/speech`** endpoint, powered by ElevenLabs, Google Gemini, OpenAI
-(also served through Azure), and Alibaba Qwen speech models.
+(also served through Azure), Alibaba Qwen, and Canopy Labs Orpheus (served through
+Groq) speech models.
 
 <Callout type="info">
 	Want to hear the voices before writing code? The [Audio
@@ -33,15 +34,15 @@ Browse all speech generation models, with up-to-date pricing, on the
 
 ## Parameters
 
-| Parameter         | Type   | Default  | Description                                                                                                                                                                     |
-| ----------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `model`           | string | required | The speech model to use                                                                                                                                                         |
-| `input`           | string | required | The text to synthesize into speech                                                                                                                                              |
-| `voice`           | string | model    | A prebuilt voice. Defaults to `Kore` (Gemini), `alloy` (OpenAI), `Sarah` (ElevenLabs), or the model's first voice on Qwen (`longanlingxin` on Plus, `longanhuan_v3.6` on Flash) |
-| `response_format` | string | model    | Audio format. OpenAI: `mp3` (default), `opus`, `aac`, `flac`, `wav`, `pcm`. ElevenLabs: `mp3` (default), `wav`, `pcm`, `opus`. Gemini: `wav` (default), `pcm`. Qwen: `wav`      |
-| `stream_format`   | string | `audio`  | Binary `audio`, or `sse` events ending with usage and cost; see Streaming below                                                                                                 |
-| `instructions`    | string | —        | Optional style/delivery directive prepended to the input (e.g. `"Say cheerfully"`)                                                                                              |
-| `speed`           | number | —        | Accepted for OpenAI compatibility, but not applied by Gemini speech models                                                                                                      |
+| Parameter         | Type   | Default  | Description                                                                                                                                                                            |
+| ----------------- | ------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`           | string | required | The speech model to use                                                                                                                                                                |
+| `input`           | string | required | The text to synthesize into speech                                                                                                                                                     |
+| `voice`           | string | model    | A prebuilt voice. Defaults to `Kore` (Gemini), `alloy` (OpenAI), `Sarah` (ElevenLabs), or the model's first voice on Qwen (`longanlingxin` on Plus, `longanhuan_v3.6` on Flash)        |
+| `response_format` | string | model    | Audio format. OpenAI: `mp3` (default), `opus`, `aac`, `flac`, `wav`, `pcm`. ElevenLabs: `mp3` (default), `wav`, `pcm`, `opus`. Gemini: `wav` (default), `pcm`. Qwen and Orpheus: `wav` |
+| `stream_format`   | string | `audio`  | Binary `audio`, or `sse` events ending with usage and cost; see Streaming below                                                                                                        |
+| `instructions`    | string | —        | Optional style/delivery directive prepended to the input (e.g. `"Say cheerfully"`)                                                                                                     |
+| `speed`           | number | —        | Accepted for OpenAI compatibility, but not applied by Gemini or Orpheus speech models                                                                                                  |
 
 <Callout type="info">
 	Gemini speech models return raw PCM audio. LLMGateway wraps it in a WAV
@@ -170,6 +171,10 @@ Qwen-Audio-3.0-TTS voices are model-specific and cannot be mixed between
 models: `longanlingxin` and `longanlufeng` on Plus (default `longanlingxin`),
 and `longanhuan_v3.6`, `longjielidou_v3.6`, `loongeva_v3.6`, and `loongjohn` on
 Flash (default `longanhuan_v3.6`).
+
+Orpheus Arabic Saudi offers six Saudi-dialect voices: `fahad` (default),
+`abdullah`, `sultan`, `lulwa`, `noura`, and `aisha`. Groq limits Orpheus `input`
+to 200 characters per request.
 
 ## ElevenLabs
 

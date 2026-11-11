@@ -6,6 +6,7 @@ import { baaiModels } from "./models/baai.js";
 import { baiduModels } from "./models/baidu.js";
 import { blackForestLabsModels } from "./models/black-forest-labs.js";
 import { bytedanceModels } from "./models/bytedance.js";
+import { canopylabsModels } from "./models/canopylabs.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
 import { googleModels } from "./models/google.js";
@@ -1087,6 +1088,7 @@ export const models = [
 	...openbmbModels,
 	...zaiModels,
 	...elevenlabsModels,
+	...canopylabsModels,
 	...typesafeModels,
 	...thinkingmachinesModels,
 	...stepfunModels,

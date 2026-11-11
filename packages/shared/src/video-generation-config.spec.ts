@@ -257,6 +257,45 @@ describe("video size options", () => {
 	});
 });
 
+describe("Gemini Omni 1.2 Flash", () => {
+	const omni: VideoCatalogModel = {
+		id: "gemini-omni-1.2-flash",
+		mappings: [
+			{
+				modelId: "gemini-omni-1.2-flash",
+				providerId: "google-ai-studio",
+				status: "active",
+				deactivatedAt: null,
+				perSecondPrice: { "360p": "0.023172", "720p": "0.069504" },
+				supportedVideoSizes: ["640x360", "1280x720"],
+				supportedVideoDurationsSeconds: [
+					3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+				],
+				supportedVideoDurationsSecondsImageToVideo: [3, 4, 5, 6, 7, 8, 9, 10],
+			},
+		],
+	};
+
+	test("caps frame durations at 10 seconds and allows every input mode", () => {
+		expect(
+			getSupportedVideoRequestOptions([omni], [omni.id], "none").durations,
+		).toEqual([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+		expect(
+			getSupportedVideoRequestOptions([omni], [omni.id], "frames").durations,
+		).toEqual([3, 4, 5, 6, 7, 8, 9, 10]);
+		const modelId = "google-ai-studio/gemini-omni-1.2-flash";
+		expect(supportsVideoFrameInput(modelId)).toBe(true);
+		expect(supportsVideoEndFrameInput(modelId)).toBe(true);
+		expect(supportsVideoReferenceInput(modelId)).toBe(true);
+		expect(supportsVideoReferenceVideoInput(modelId)).toBe(true);
+		expect(supportsVideoReferenceAudioInput(modelId)).toBe(false);
+		expect(
+			supportsVideoReferenceInput("google-vertex/gemini-omni-1.2-flash"),
+		).toBe(false);
+		expect(estimateVideoCostUsd(omni.mappings[0], "720p", 10, 0)).toBe(0.69504);
+	});
+});
+
 describe("Gemini Omni 1.1 Flash", () => {
 	const omni: VideoCatalogModel = {
 		id: "gemini-omni-1.1-flash",

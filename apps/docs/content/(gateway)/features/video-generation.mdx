@@ -12,7 +12,7 @@ Currently available models:
 
 - **FLUX 3 Max** (`flux-3-max`) through `fal-ai` (720p, 1080p; 5–20 seconds; optional audio; first/last frames)
 - **Veo 3.1** through `google-vertex` (720p, 1080p, 4k)
-- **Gemini Omni 1.1 Flash** through `google-ai-studio` (360p, 720p, 1080p, 4k; frames, references, and source video edit/extend; always with audio)
+- **Gemini Omni 1.2 Flash** and **Gemini Omni 1.1 Flash** through `google-ai-studio` (360p, 720p, 1080p, 4k; up to 15 seconds on 1.2 and 10 on 1.1; frames, references, and source video edit/extend; always with audio)
 - **Seedance 2.5** through `bytedance` (480p, 720p, 1080p; clips up to 30 seconds)
 - **Seedance 2.0** and **Seedance 1.5 Pro** through `bytedance` (720p, 1080p), **Seedance 2.0 Fast** through `bytedance` (720p only)
 - **Seedance 2.0 Mini** through `bytedance` (480p, 720p)
@@ -69,6 +69,7 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 | --------------------- | ------------------ | ------------------------------------------------------------------------------------------------ | ------------------- |
 | FLUX 3 Max            | `fal-ai`           | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                                                 | `5`–`20`            |
 | Veo 3.1               | `google-vertex`    | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840`                       | `4`, `6`, `8`, `10` |
+| Gemini Omni 1.2 Flash | `google-ai-studio` | `640x360`, `360x640`, `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840` | `3`–`15`            |
 | Gemini Omni 1.1 Flash | `google-ai-studio` | `640x360`, `360x640`, `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840` | `3`–`10`            |
 | Seedance 2.5          | `bytedance`        | `848x480`, `854x480`, `480x854`, `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                | `4`–`30`            |
 | Seedance 2.0          | `bytedance`        | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                                                 | `4`–`15`            |
@@ -83,9 +84,9 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 | Wan 2.6 Text-to-Video | `alibaba`          | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                                                 | `2`–`15`            |
 | VEED Fabric 1.0, Fast | `atlascloud`       | `854x480`, `480x854`, `1280x720`, `720x1280`                                                     | audio length, ≤ 300 |
 
-Requests return `400` when the selected provider cannot serve the requested `size` or `seconds`. Seedance, KLING v3.0, and Wan 3.0 derive the aspect ratio from the requested `size` (16:9 for landscape, 9:16 for portrait).
+Requests return `400` when the selected provider cannot serve the requested `size` or `seconds`. Gemini Omni 1.2 Flash accepts `3`–`10` seconds with first/last frames. Seedance, KLING v3.0, and Wan 3.0 derive the aspect ratio from the requested `size` (16:9 for landscape, 9:16 for portrait).
 
-**KLING v3.0 Turbo**, **MiniMax H3 Max**, **Wan 2.6 Text-to-Video**, and **Gemini Omni 1.1 Flash** always generate audio and do not support `audio: false`; silent requests return a `400`. Use **KLING v3.0** (`kling-v3-0`) when you need silent output.
+**KLING v3.0 Turbo**, **MiniMax H3 Max**, **Wan 2.6 Text-to-Video**, and **Gemini Omni** always generate audio and do not support `audio: false`; silent requests return a `400`. Use **KLING v3.0** (`kling-v3-0`) when you need silent output.
 
 ### FLUX 3 Max options
 
@@ -268,7 +269,7 @@ curl -X POST "https://api.llmgateway.io/v1/videos" \
 
 ### Edit or extend a video (Gemini Omni)
 
-`gemini-omni-1.1-flash` can edit or extend a source video passed as `video`, a publicly reachable HTTPS URL (or `{ "video_url": "…" }`) of up to 10 seconds. `video_task` selects the operation:
+`gemini-omni-1.2-flash` and `gemini-omni-1.1-flash` can edit or extend a source video passed as `video`, a publicly reachable HTTPS URL (or `{ "video_url": "…" }`) of up to 10 seconds. `video_task` selects the operation:
 
 | `video_task`     | Result                                                                                                                                                         |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -282,7 +283,7 @@ curl -X POST "https://api.llmgateway.io/v1/videos" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini-omni-1.1-flash",
+    "model": "gemini-omni-1.2-flash",
     "prompt": "Extend this video. The camera keeps walking along the path.",
     "size": "1280x720",
     "seconds": 6,
@@ -312,10 +313,14 @@ Veo 3.1:
 | `veo-3.1-generate-preview`      | `google-vertex` | `3840x2160`, `2160x3840`                         | `$0.60 / second` |
 | `veo-3.1-fast-generate-preview` | `google-vertex` | `3840x2160`, `2160x3840`                         | `$0.35 / second` |
 
-Gemini Omni 1.1 Flash bills video output at `$17.50 / 1M` video tokens, which works out to the per-second rates below, plus input tokens (text, images, and input video) at `$1.50 / 1M` and thinking tokens at `$9.00 / 1M`, all as reported by the upstream usage. An edit's length follows its source, so the reservation assumes the 10-second maximum:
+Gemini Omni bills video output at `$12.00 / 1M` (1.2 Flash) or `$17.50 / 1M` (1.1 Flash) video tokens, which works out to the per-second rates below, plus input tokens (text, images, and input video) at `$1.50 / 1M` and thinking tokens at `$9.00 / 1M`, all as reported by the upstream usage. An edit's length follows its source, so the reservation assumes the 10-second maximum:
 
 | Model                   | Provider           | Resolution | Video output       |
 | ----------------------- | ------------------ | ---------- | ------------------ |
+| `gemini-omni-1.2-flash` | `google-ai-studio` | 360p       | `$0.0232 / second` |
+| `gemini-omni-1.2-flash` | `google-ai-studio` | 720p       | `$0.0695 / second` |
+| `gemini-omni-1.2-flash` | `google-ai-studio` | 1080p      | `$0.1043 / second` |
+| `gemini-omni-1.2-flash` | `google-ai-studio` | 4k         | `$0.2085 / second` |
 | `gemini-omni-1.1-flash` | `google-ai-studio` | 360p       | `$0.0338 / second` |
 | `gemini-omni-1.1-flash` | `google-ai-studio` | 720p       | `$0.1014 / second` |
 | `gemini-omni-1.1-flash` | `google-ai-studio` | 1080p      | `$0.1520 / second` |

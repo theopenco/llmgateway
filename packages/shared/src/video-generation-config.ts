@@ -418,7 +418,10 @@ export function getVideoDurations(): VideoDuration[] {
 }
 
 function isGeminiOmniVideoModel(canonicalModelId: string): boolean {
-	return canonicalModelId === "gemini-omni-1.1-flash";
+	return (
+		canonicalModelId === "gemini-omni-1.1-flash" ||
+		canonicalModelId === "gemini-omni-1.2-flash"
+	);
 }
 
 export type VideoReasoningEffort = "low" | "high";
