@@ -437,6 +437,9 @@ ${changelog
 		: "";
 	return `<!doctype html>
 <html lang="en">
+<head>
+<meta charset="UTF-8">
+</head>
 <body style="margin:0;padding:0;background-color:#f6f6f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f6f6f6;">
 <tr><td align="center" style="padding:32px 16px;">
