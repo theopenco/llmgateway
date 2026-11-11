@@ -4,6 +4,7 @@ import {
 	rateLimitHeaders,
 	standardErrorResponses,
 } from "@/lib/error-schemas.js";
+import { usageCostSchema } from "@/lib/usage-cost.js";
 
 import {
 	DECISIONS_UPSTREAM_PATH,
@@ -12,14 +13,20 @@ import {
 import { shortid } from "@llmgateway/db";
 
 import { handleDecisionRequest } from "./handle-decision-request.js";
+import { loadDecisionImage } from "./load-decision-image.js";
 import {
 	decisionInputHasImages,
 	fromTypeSafeResponse,
+	loadTypeSafeAssets,
+	planTypeSafeImages,
 	toTypeSafeRequest,
-	type DecisionInput,
-	type DecisionRequestBody,
+	typeSafeRequestHeaders,
 } from "./typesafe-translation.js";
 
+import type {
+	DecisionInput,
+	DecisionRequestBody,
+} from "./typesafe-translation.js";
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderId } from "@llmgateway/models";
 
@@ -114,7 +121,7 @@ const decisionRequestSchema = z.object({
 	}),
 	safety_identifier: z.string().max(128).nullable().optional().openapi({
 		description:
-			"Accepted for OpenAI compatibility. Upstream abuse attribution always uses LLM Gateway's opaque per-API-key identifier.",
+			"Opaque end-user identifier stored in log params.safety_identifier. Credits requests use LLM Gateway's fixed API-key identifier upstream; BYOK requests omit it.",
 	}),
 });
 
@@ -155,6 +162,7 @@ const decisionResponseSchema = z
 				input_tokens: z.number().int(),
 				output_tokens: z.number().int(),
 				total_tokens: z.number().int(),
+				...usageCostSchema,
 			})
 			.passthrough()
 			.optional(),
@@ -318,25 +326,48 @@ decisions.openapi(createDecision, async (c): Promise<any> => {
 			upstreamModel,
 			safetyIdentifier,
 			wireFormat,
-		) => ({
-			path:
-				wireFormat === "openai"
-					? DECISIONS_UPSTREAM_PATH
-					: getDecisionsUpstreamPath(providerId as ProviderId),
-			body:
-				wireFormat === "openai"
+		) => {
+			if (wireFormat === "openai") {
+				return {
+					path: DECISIONS_UPSTREAM_PATH,
+					body: {
+						model: upstreamModel,
+						input: request.input,
+						questions: request.questions,
+						// OpenAI attributes abuse to it, so the client's value is
+						// replaced by the API key's; Airside carriers get none.
+						...(providerId === "openai"
+							? { safety_identifier: safetyIdentifier }
+							: {}),
+					},
+				};
+			}
+			const images = planTypeSafeImages(request.input);
+			const body = toTypeSafeRequest(upstreamModel, request, images.refs);
+			return {
+				path: getDecisionsUpstreamPath(providerId as ProviderId),
+				body,
+				// Azure's System One route takes neither images nor TypeSafe's
+				// opt-ins.
+				headers:
+					providerId === "typesafe"
+						? typeSafeRequestHeaders(body, {
+								images: images.urls.length > 0,
+							})
+						: undefined,
+				...(images.urls.length > 0
 					? {
-							model: upstreamModel,
-							input: request.input,
-							questions: request.questions,
-							// OpenAI attributes abuse to it, so the client's value is
-							// replaced by the API key's; Airside carriers get none.
-							...(providerId === "openai"
-								? { safety_identifier: safetyIdentifier }
-								: {}),
+							// System One takes images as inline base64 assets, so
+							// remote URLs are downloaded.
+							loadBody: async (signal) => ({
+								assets: await loadTypeSafeAssets(images, (url, maxSizeMB) =>
+									loadDecisionImage(url, maxSizeMB, signal),
+								),
+							}),
 						}
-					: toTypeSafeRequest(upstreamModel, request),
-		}),
+					: {}),
+			};
+		},
 		normalizeResponse: (_providerId, upstream, responseModel, wireFormat) => {
 			const body =
 				wireFormat === "openai"

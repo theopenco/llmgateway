@@ -22,6 +22,18 @@ describe("getModelImageConfig", () => {
 			expect(config.defaultSize).toBe("1024x1024");
 		}
 	});
+	it("offers Wan 2.7 Image resolution tiers and 9 input images", () => {
+		for (const model of ["wan-2-7-image", "alibaba/wan-2-7-image"]) {
+			const config = getModelImageConfig(model);
+			expect(config.usesPixelDimensions).toBe(false);
+			expect(config.availableSizes).toEqual(["1K", "2K"]);
+			expect(config.defaultSize).toBe("2K");
+			expect(config.maxInputImages).toBe(9);
+		}
+		expect(
+			getModelImageConfig("alibaba/wan-2-7-image-pro").availableSizes,
+		).toEqual(["1K", "2K", "4K"]);
+	});
 	it("exposes the cheapest supported image options", () => {
 		const gptImage = getModelImageConfig("openai/gpt-image-2");
 		const grok = getModelImageConfig("xai/grok-imagine-image-2-0");
@@ -59,5 +71,12 @@ describe("getModelImageConfig", () => {
 		expect(config.availableSizes).toEqual(["1K", "2K", "4K"]);
 		expect(config.defaultSize).toBe("1K");
 		expect(config.maxInputImages).toBe(14);
+	});
+
+	it("offers only 1K for Gemini 2.5 Flash Image", () => {
+		const config = getModelImageConfig("google-vertex/gemini-2.5-flash-image");
+
+		expect(config.availableSizes).toEqual(["1K"]);
+		expect(config.defaultSize).toBe("1K");
 	});
 });

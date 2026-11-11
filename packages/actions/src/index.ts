@@ -1,3 +1,4 @@
+export * from "./airside-gateway-inference.js";
 export * from "./anthropic-thinking.js";
 export * from "./anthropic-tool-search.js";
 export * from "./transform-anthropic-messages.js";
@@ -38,3 +39,9 @@ export * from "./notification-access.js";
 export * from "./compliance-alerts.js";
 export * from "./data-streams.js";
 export * from "./data-stream-runner.js";
+export * from "./model-verification-target.js";
+export * from "./provider-key/region.js";
+
+export * from "./airside-verification-credential.js";
+
+export * from "./airside-inference-pricing.js";

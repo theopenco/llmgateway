@@ -6,6 +6,7 @@ import {
 	ImagePlus,
 	MessageSquare,
 	PenTool,
+	Scale,
 	Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -60,6 +61,11 @@ const FEATURES: Feature[] = [
 		icon: AudioLines,
 		title: "Audio Studio",
 		description: "Turn text into natural-sounding speech",
+	},
+	{
+		icon: Scale,
+		title: "Decision Studio",
+		description: "Get typed answers with probabilities, not prose",
 	},
 	{
 		icon: PenTool,

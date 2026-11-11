@@ -20,13 +20,21 @@ import { useApi } from "@/lib/fetch-client";
 interface ActivateFlaggedAccountButtonProps {
 	userId: string;
 	email: string;
-	organizationCount: number;
+	/** Omit when unknown; the dialog then says "every organization". */
+	organizationCount?: number;
+	label?: string;
+	className?: string;
+	/** Runs after a successful activation, e.g. to refetch client queries. */
+	onActivated?: () => void;
 }
 
 export function ActivateFlaggedAccountButton({
 	userId,
 	email,
 	organizationCount,
+	label = "Activate",
+	className,
+	onActivated,
 }: ActivateFlaggedAccountButtonProps) {
 	const router = useRouter();
 	const $api = useApi();
@@ -39,6 +47,7 @@ export function ActivateFlaggedAccountButton({
 			onSuccess: () => {
 				setOpen(false);
 				toast.success(`${email} activated`);
+				onActivated?.();
 				router.refresh();
 			},
 		},
@@ -59,9 +68,9 @@ export function ActivateFlaggedAccountButton({
 			}}
 		>
 			<DialogTrigger asChild>
-				<Button variant="outline" size="sm">
+				<Button variant="outline" size="sm" className={className}>
 					<ShieldCheck className="mr-1.5 h-4 w-4" />
-					Activate
+					{label}
 				</Button>
 			</DialogTrigger>
 			<DialogContent>
@@ -77,9 +86,11 @@ export function ActivateFlaggedAccountButton({
 							<ul className="list-disc space-y-1 pl-5">
 								<li>
 									Unblock credit purchases and inference for{" "}
-									{organizationCount === 1
-										? "its organization"
-										: `all ${organizationCount} of its organizations`}
+									{organizationCount === undefined
+										? "every organization it belongs to"
+										: organizationCount === 1
+											? "its organization"
+											: `all ${organizationCount} of its organizations`}
 									.
 								</li>
 								<li>

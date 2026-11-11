@@ -88,6 +88,7 @@ function formatOptionLabel(key: string, value: string): string {
 		azure_validation_model: "Validation Model",
 		alibaba_region: "Region",
 		alibaba_workspace_id: "Workspace ID",
+		cloudflare_account_id: "Account ID",
 	};
 
 	const label = labels[key] || key;

@@ -130,6 +130,23 @@ export default function OverviewPage() {
 				planPrice={currentPlanData?.price}
 				creditsUsed={creditsUsed}
 				creditsLimit={creditsLimit}
+				dailyCreditsUsed={parseFloat(
+					devPlanStatus.devPlanDailyCreditsUsed ?? "0",
+				)}
+				dailyLimit={parseFloat(devPlanStatus.devPlanDailyLimit ?? "0")}
+				dayResetsAt={devPlanStatus.devPlanDayResetsAt ?? null}
+				premiumCreditsUsed={parseFloat(
+					devPlanStatus.devPlanPremiumCreditsUsed ?? "0",
+				)}
+				premiumWeeklyLimit={parseFloat(
+					devPlanStatus.devPlanPremiumWeeklyLimit ?? "0",
+				)}
+				premiumWeekResetsAt={devPlanStatus.devPlanPremiumWeekResetsAt ?? null}
+				renewsAt={
+					devPlanStatus.devPlanCancelled
+						? null
+						: (devPlanStatus.devPlanExpiresAt ?? null)
+				}
 				paygEnabled={devPlanStatus.devPlanPaygEnabled ?? false}
 				regularCredits={parseFloat(devPlanStatus.regularCredits ?? "0")}
 			/>

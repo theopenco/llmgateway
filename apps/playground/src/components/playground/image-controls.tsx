@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import type { AspectRatio } from "@/lib/image-gen";
 
 export type ImageServiceTier = "default" | "flex";
+export type ImageOutputFormat = "image" | "svg";
 
 interface InputImage {
 	dataUrl: string;
@@ -54,6 +55,9 @@ interface ImageControlsProps {
 	setImageModeration: (value: string) => void;
 	imageCount: 1 | 2 | 3 | 4;
 	setImageCount: (value: 1 | 2 | 3 | 4) => void;
+	imageFormat: ImageOutputFormat;
+	supportsSvgOutput: boolean;
+	setImageFormat: (value: ImageOutputFormat) => void;
 	serviceTier: ImageServiceTier;
 	setServiceTier: (value: ImageServiceTier) => void;
 	// Whether any model in the current selection offers the flex tier.
@@ -100,6 +104,9 @@ export function ImageControls({
 	setImageModeration,
 	imageCount,
 	setImageCount,
+	imageFormat,
+	supportsSvgOutput,
+	setImageFormat,
 	serviceTier,
 	setServiceTier,
 	supportsFlex,
@@ -118,6 +125,9 @@ export function ImageControls({
 	// Derive config from first selected model (settings apply globally)
 	const primaryModel = selectedModels[0] ?? "";
 	const config = getModelImageConfig(primaryModel);
+	const svgSelected = supportsSvgOutput && imageFormat === "svg";
+	// SVG output takes no reference images, so attachments are off while it is on.
+	const acceptsImages = isEditModel && !svgSelected;
 	const maxInputImages = config.maxInputImages;
 	const filteredAspectRatios = config.supportedAspectRatios ?? aspectRatios;
 
@@ -135,7 +145,7 @@ export function ImageControls({
 			if (!file.type.startsWith("image/")) {
 				return;
 			}
-			if (!isEditModel) {
+			if (!acceptsImages) {
 				return;
 			}
 			const reader = new FileReader();
@@ -152,7 +162,7 @@ export function ImageControls({
 			};
 			reader.readAsDataURL(file);
 		},
-		[isEditModel, setInputImages, maxInputImages],
+		[acceptsImages, setInputImages, maxInputImages],
 	);
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -179,7 +189,7 @@ export function ImageControls({
 	// Paste handler for images
 	const handlePaste = useCallback(
 		(e: React.ClipboardEvent) => {
-			if (!isEditModel || inputImages.length >= maxInputImages) {
+			if (!acceptsImages || inputImages.length >= maxInputImages) {
 				return;
 			}
 			const items = Array.from(e.clipboardData.items);
@@ -194,7 +204,7 @@ export function ImageControls({
 				}
 			}
 		},
-		[isEditModel, inputImages.length, addImageFile, maxInputImages],
+		[acceptsImages, inputImages.length, addImageFile, maxInputImages],
 	);
 
 	// Drag-and-drop handlers
@@ -202,11 +212,11 @@ export function ImageControls({
 		(e: React.DragEvent) => {
 			e.preventDefault();
 			e.stopPropagation();
-			if (isEditModel && inputImages.length < maxInputImages) {
+			if (acceptsImages && inputImages.length < maxInputImages) {
 				setIsDragging(true);
 			}
 		},
-		[isEditModel, inputImages.length, maxInputImages],
+		[acceptsImages, inputImages.length, maxInputImages],
 	);
 
 	const handleDragLeave = useCallback((e: React.DragEvent) => {
@@ -226,7 +236,7 @@ export function ImageControls({
 			e.preventDefault();
 			e.stopPropagation();
 			setIsDragging(false);
-			if (!isEditModel || inputImages.length >= maxInputImages) {
+			if (!acceptsImages || inputImages.length >= maxInputImages) {
 				return;
 			}
 			const files = Array.from(e.dataTransfer.files);
@@ -236,7 +246,7 @@ export function ImageControls({
 				}
 			}
 		},
-		[isEditModel, inputImages.length, addImageFile, maxInputImages],
+		[acceptsImages, inputImages.length, addImageFile, maxInputImages],
 	);
 
 	// Reset drag state when mouse leaves the window
@@ -272,12 +282,14 @@ export function ImageControls({
 						isDragging ? "border-primary bg-primary/5 ring-1 ring-primary" : ""
 					}`}
 				>
-					{isDragging && isEditModel && inputImages.length < maxInputImages && (
-						<div className="flex items-center justify-center py-4 text-sm text-muted-foreground">
-							<ImagePlus className="h-4 w-4 mr-2" />
-							Drop image here
-						</div>
-					)}
+					{isDragging &&
+						acceptsImages &&
+						inputImages.length < maxInputImages && (
+							<div className="flex items-center justify-center py-4 text-sm text-muted-foreground">
+								<ImagePlus className="h-4 w-4 mr-2" />
+								Drop image here
+							</div>
+						)}
 					{isEditModel && inputImages.length > 0 && (
 						<div className="flex flex-wrap gap-2 px-3 pt-3">
 							{inputImages.map((img, i) => (
@@ -335,12 +347,15 @@ export function ImageControls({
 						disabled={
 							isGenerating ||
 							!isEditModel ||
+							svgSelected ||
 							inputImages.length >= maxInputImages
 						}
 						title={
 							!isEditModel
 								? "Image input not supported by selected model"
-								: undefined
+								: svgSelected
+									? "SVG output does not take reference images"
+									: undefined
 						}
 					>
 						<ImagePlus className="h-4 w-4 mr-1.5" />
@@ -446,11 +461,34 @@ export function ImageControls({
 							</SelectContent>
 						</Select>
 					)}
+					{supportsSvgOutput && (
+						<Select
+							value={imageFormat}
+							onValueChange={(val) => setImageFormat(val as ImageOutputFormat)}
+						>
+							<SelectTrigger
+								size="sm"
+								className="min-w-[90px]"
+								aria-label="Output format"
+							>
+								<SelectValue placeholder="Format" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="image">Image</SelectItem>
+								<SelectItem value="svg">SVG</SelectItem>
+							</SelectContent>
+						</Select>
+					)}
 					<Select
 						value={String(imageCount)}
 						onValueChange={(val) => setImageCount(Number(val) as 1 | 2 | 3 | 4)}
+						disabled={svgSelected}
 					>
-						<SelectTrigger size="sm" className="min-w-[90px]">
+						<SelectTrigger
+							size="sm"
+							className="min-w-[90px]"
+							title={svgSelected ? "SVG output returns one image" : undefined}
+						>
 							<SelectValue placeholder="Count" />
 						</SelectTrigger>
 						<SelectContent>
@@ -498,7 +536,7 @@ export function ImageControls({
 					<Button
 						onClick={onGenerate}
 						disabled={isGenerating || !canGenerate}
-						className="min-w-[120px]"
+						className="ml-auto min-w-[120px]"
 					>
 						{isGenerating ? (
 							<>

@@ -1,3 +1,7 @@
+import { models } from "@llmgateway/models";
+
+import type { ProviderModelMapping } from "@llmgateway/models";
+
 export type AspectRatio =
 	| "auto"
 	| "1:1"
@@ -56,16 +60,18 @@ export function getModelImageConfig(model: string) {
 	const lower = model.toLowerCase();
 
 	const isGptImage = lower.includes("gpt-image");
-	const isGptImage25 = lower.includes("gpt-image-2.5-");
+	const hasGptImageMaxQuality = /gpt-image-2\.[56]-/.test(lower);
 	const isReve = lower.includes("reve");
 	const isMuseImage = lower.includes("muse-image");
 	const isHyImage = lower.includes("hy-image");
+	const isWanImagePro = lower.includes("wan-2-7-image-pro");
+	const isWanImage = lower.includes("wan-2-7-image");
 
 	const usesPixelDimensions =
 		isGptImage ||
 		isMuseImage ||
 		isHyImage ||
-		lower.includes("alibaba") ||
+		(lower.includes("alibaba") && !isWanImage) ||
 		lower.includes("qwen-image") ||
 		lower.includes("zai") ||
 		lower.includes("cogview");
@@ -79,6 +85,8 @@ export function getModelImageConfig(model: string) {
 	const isGemini31FlashLiteImage = lower.includes(
 		"gemini-3.1-flash-lite-image",
 	);
+	// Ignores imageSize and always returns 1024px images.
+	const isGemini25FlashImage = lower.includes("gemini-2.5-flash-image");
 
 	const isGrokImagine20 = lower.includes("grok-imagine-image-2-0");
 
@@ -88,40 +96,42 @@ export function getModelImageConfig(model: string) {
 			? (["1024x1024", "1024x1536", "1536x1024"] as const)
 			: isHyImage
 				? HY_IMAGE_SIZES
-				: usesPixelDimensions
-					? ([
-							"1024x1024",
-							"720x1280",
-							"1280x720",
-							"1024x1536",
-							"1536x1024",
-							"2048x1024",
-							"1024x2048",
-						] as const)
-					: isReve
-						? (["2K"] as const)
-						: isSeedreamPro || isGrokImagine20
-							? (["1K", "2K"] as const)
-							: isSeedreamFlash
-								? (["1K", "1.5K", "2K"] as const)
-								: isSeedream
-									? (["2K", "4K"] as const)
-									: isGemini31FlashLiteImage
-										? (["1K"] as const)
-										: isGemini31FlashImage
-											? (["0.5K", "1K", "2K", "4K"] as const)
-											: (["1K", "2K", "4K"] as const);
+				: isWanImagePro
+					? (["1K", "2K", "4K"] as const)
+					: isWanImage
+						? (["1K", "2K"] as const)
+						: usesPixelDimensions
+							? ([
+									"1024x1024",
+									"720x1280",
+									"1280x720",
+									"1024x1536",
+									"1536x1024",
+									"2048x1024",
+									"1024x2048",
+								] as const)
+							: isReve
+								? (["2K"] as const)
+								: isSeedreamPro || isGrokImagine20
+									? (["1K", "2K"] as const)
+									: isSeedreamFlash
+										? (["1K", "1.5K", "2K"] as const)
+										: isSeedream
+											? (["2K", "4K"] as const)
+											: isGemini31FlashLiteImage || isGemini25FlashImage
+												? (["1K"] as const)
+												: isGemini31FlashImage
+													? (["0.5K", "1K", "2K", "4K"] as const)
+													: (["1K", "2K", "4K"] as const);
 
 	const defaultSize = usesPixelDimensions
 		? "1024x1024"
-		: isReve
+		: isReve || isSeedream || isWanImage
 			? "2K"
-			: isSeedream
-				? "2K"
-				: "1K";
+			: "1K";
 
 	const supportsQuality = isGptImage || isGrokImagine20;
-	const availableQualities = isGptImage25
+	const availableQualities = hasGptImageMaxQuality
 		? (["auto", "low", "medium", "high", "xhigh", "max"] as const)
 		: isGptImage
 			? (["auto", "low", "medium", "high"] as const)
@@ -145,6 +155,8 @@ export function getModelImageConfig(model: string) {
 
 	const maxInputImages = getMaxInputImages(lower);
 
+	const supportsSvgOutput = modelSupportsSvgOutput(model);
+
 	const supportedAspectRatios: AspectRatio[] | undefined = isReve
 		? REVE_ASPECT_RATIOS
 		: undefined;
@@ -167,7 +179,26 @@ export function getModelImageConfig(model: string) {
 		defaultModeration,
 		maxInputImages,
 		supportedAspectRatios,
+		supportsSvgOutput,
 	};
+}
+
+// Mirrors the gateway's check: a bare model id needs SVG output on every active
+// mapping, a "provider/model" id only on that provider's mapping.
+function modelSupportsSvgOutput(model: string): boolean {
+	const slash = model.indexOf("/");
+	const providerId = slash > 0 ? model.slice(0, slash) : undefined;
+	const modelId = slash > 0 ? model.slice(slash + 1) : model;
+	const now = new Date();
+	const mappings = (
+		(models.find((m) => m.id === modelId)?.providers ??
+			[]) as ProviderModelMapping[]
+	).filter(
+		(p) =>
+			(!providerId || p.providerId === providerId) &&
+			(!p.deactivatedAt || p.deactivatedAt > now),
+	);
+	return mappings.length > 0 && mappings.every((p) => p.svgOutput === true);
 }
 
 function getMaxInputImages(lowerModel: string): number {
@@ -191,6 +222,9 @@ function getMaxInputImages(lowerModel: string): number {
 	}
 	if (lowerModel.includes("qwen-image-2.1")) {
 		return 10;
+	}
+	if (lowerModel.includes("wan-2-7-image")) {
+		return 9;
 	}
 	if (lowerModel.includes("qwen-image-edit")) {
 		return 5;

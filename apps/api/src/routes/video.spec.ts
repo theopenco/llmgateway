@@ -3,11 +3,13 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, tables, eq } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import { verifyVideoJobContentAccessToken } from "@llmgateway/shared/video-access";
 
 const SECRET_ENV = "LLM_VIDEO_CONTENT_JWT_SECRET";
 const ALLOW_DEV_ENV = "VIDEO_CONTENT_TOKEN_ALLOW_DEV";
+const OVERDUE_MS = 10 * 60 * 1000;
 
 async function seedCompletedVideoJob() {
 	await db.insert(tables.organization).values({
@@ -109,5 +111,111 @@ describe("GET /video/{videoId}", () => {
 		expect(json.status).toBe("completed");
 		expect(json.progress).toBe(100);
 		expect(json.content).toBeUndefined();
+	});
+
+	async function getUnloggedJob(completedAt: Date) {
+		vi.stubEnv(SECRET_ENV, "video-content-secret");
+		await db.insert(tables.videoJob).values({
+			id: "finishing-video-id",
+			requestId: "finishing-request-id",
+			organizationId: "org-id",
+			projectId: "project-id",
+			apiKeyId: "api-key-id",
+			mode: "credits",
+			usedMode: "credits",
+			model: "flux-3-max",
+			usedProvider: "fal-ai",
+			usedModel: "blackforestlabs/flux-3-max",
+			upstreamId: "fal-request",
+			prompt: "a paper plane over a night city",
+			status: "completed",
+			progress: 100,
+			completedAt,
+		});
+
+		const res = await app.request("/video/finishing-video-id", {
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(200);
+		return await res.json();
+	}
+
+	// The worker marks a job completed before it writes the log playback is
+	// served from. A poller in that gap must keep polling instead of loading a
+	// player that can only 404.
+	test("reports a completed job without its result log as still in progress", async () => {
+		const json = await getUnloggedJob(new Date());
+
+		expect(json.status).toBe("in_progress");
+		expect(json.progress).toBe(99);
+		expect(json.completed_at).toBeNull();
+		expect(json.content).toBeUndefined();
+	});
+
+	// Finalization is retried every worker tick. A job still unlogged long
+	// after completion reports its terminal status so pollers stop.
+	test("reports completion once the result log is overdue", async () => {
+		const json = await getUnloggedJob(new Date(Date.now() - OVERDUE_MS));
+
+		expect(json.status).toBe("completed");
+		expect(json.progress).toBe(100);
+		expect(json.content).toBeUndefined();
+	});
+
+	async function quarantineCompletedJob(quarantined = true) {
+		await db
+			.update(tables.videoJob)
+			.set({
+				logId: null,
+				resultLoggedAt: null,
+				cost: null,
+				videoOutputCost: null,
+				completedAt: new Date(),
+				contentUrl: "https://example.com/generated.mp4",
+				upstreamStatusResponse: {
+					llmgateway_billing_pending: true,
+					llmgateway_billing_quarantined: quarantined,
+				},
+			})
+			.where(eq(tables.videoJob.id, "video-id"));
+		await db.delete(tables.log).where(eq(tables.log.id, "log-id"));
+	}
+
+	test.each([true, false])(
+		"serves unsettled completion through a signed job URL: quarantined=%s",
+		async (quarantined) => {
+			await quarantineCompletedJob(quarantined);
+			const res = await app.request("/video/video-id", {
+				headers: { Cookie: token },
+			});
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.status).toBe("completed");
+			expect(json.progress).toBe(100);
+			expect(json.completed_at).not.toBeNull();
+			expect(json.usage).toBeUndefined();
+			const url = new URL(json.content[0].url);
+			expect(url.pathname).toBe("/v1/video-assets/jobs/video-id/content");
+			expect(
+				verifyVideoJobContentAccessToken(
+					url.searchParams.get("token")!,
+					"video-id",
+				),
+			).toBe(true);
+			expect(json.content[0].url).not.toContain("example.com");
+			expect(await db.query.log.findMany()).toHaveLength(0);
+		},
+	);
+
+	test("does not sign quarantined playback for a caller outside the organization", async () => {
+		await quarantineCompletedJob();
+		await db
+			.delete(tables.userOrganization)
+			.where(eq(tables.userOrganization.id, "user-org-id"));
+		const res = await app.request("/video/video-id", {
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(404);
+		expect((await res.json()).content).toBeUndefined();
 	});
 });

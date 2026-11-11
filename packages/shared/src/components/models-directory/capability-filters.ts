@@ -1,5 +1,7 @@
 import { discountFraction } from "@/lib/discount";
 
+import { hasBatchSupport } from "./mapping-capabilities";
+
 import type { ApiModelProviderMapping } from "./api-types";
 
 export type CapabilityFilter =
@@ -11,6 +13,7 @@ export type CapabilityFilter =
 	| "jsonOutput"
 	| "jsonOutputSchema"
 	| "webSearch"
+	| "batch"
 	| "discounted";
 
 export const OUTPUT_KIND_BY_CAPABILITY_FILTER = {
@@ -60,6 +63,8 @@ export function matchesCapability(
 			return provider.jsonOutputSchema === true;
 		case "webSearch":
 			return provider.webSearch === true;
+		case "batch":
+			return hasBatchSupport(provider);
 		case "discounted":
 			return discountFraction(provider.discount) > 0;
 	}

@@ -36,10 +36,7 @@ interface MessageLike {
 export function estimateTokensFromText(
 	text: string | null | undefined,
 ): number {
-	if (!text) {
-		return 0;
-	}
-	return Math.max(1, Math.round(text.length / CHARS_PER_TOKEN));
+	return estimateTokensFromTextLength(text?.length ?? 0);
 }
 
 /**
@@ -187,4 +184,11 @@ export function estimateChatMessageTokens(
 			? 0
 			: Math.max(1, Math.round(totalLength / CHARS_PER_TOKEN));
 	return textTokens + nonTextTokens;
+}
+/** Same text estimate without retaining a streamed completion in memory. */
+export function estimateTokensFromTextLength(characterCount: number): number {
+	if (characterCount <= 0) {
+		return 0;
+	}
+	return Math.max(1, Math.round(characterCount / CHARS_PER_TOKEN));
 }

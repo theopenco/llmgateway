@@ -11,6 +11,10 @@ import {
 } from "@/lib/account-deletion.js";
 import { approveHighRiskUser } from "@/lib/account-risk.js";
 import {
+	modelBreakdownKey,
+	modelBreakdownSql,
+} from "@/lib/admin-model-breakdown.js";
+import {
 	ADMIN_REFUND_REASONS,
 	computeAdminRefundability,
 	executeAdminRefund,
@@ -64,6 +68,7 @@ import {
 	organizationTimeseriesQuery,
 	organizationTimeseriesSchema,
 } from "@/lib/organization-timeseries.js";
+import { managedProviderKeyName } from "@/lib/provider-key-label.js";
 import { PG_INTEGER_MAX } from "@/lib/provider-key-rate-limits.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
@@ -232,7 +237,9 @@ function buildOrganizationSearchFilter(search: string | undefined) {
 		// Provider abuse reports quote the safety identifier we send upstream:
 		// per API key now, per organization for older reports.
 		sql`${tables.organization.safetyIdentifier} LIKE ${idPattern} ESCAPE '\\'`,
-		sql`EXISTS (SELECT 1 FROM ${tables.apiKey} ak JOIN ${tables.project} p ON ak.project_id = p.id WHERE p.organization_id = ${tables.organization.id} AND ak.safety_identifier = ${trimmed})`,
+		// Project and API key IDs match exactly, resolving to their organization.
+		sql`EXISTS (SELECT 1 FROM ${tables.project} p WHERE p.organization_id = ${tables.organization.id} AND p.id = ${trimmed})`,
+		sql`EXISTS (SELECT 1 FROM ${tables.apiKey} ak JOIN ${tables.project} p ON ak.project_id = p.id WHERE p.organization_id = ${tables.organization.id} AND (ak.safety_identifier = ${trimmed} OR ak.id = ${trimmed}))`,
 		sql`EXISTS (SELECT 1 FROM ${tables.userOrganization} uo JOIN ${tables.user} u ON uo.user_id = u.id WHERE uo.organization_id = ${tables.organization.id} AND LOWER(u.email) LIKE ${textPattern} ESCAPE '\\')`,
 	);
 }
@@ -856,6 +863,41 @@ const providerKeysListSchema = z.object({
 	counts: keyStatusCountsSchema,
 });
 
+// High-risk review state of a user (see `user.riskStatus`), returned wherever
+// an admin may need to approve the account.
+const accountRiskSchema = z.object({
+	status: z.enum(["none", "flagged", "approved"]),
+	flaggedAt: z.string().nullable(),
+	source: z.enum(["signup", "email_verification"]).nullable(),
+	ipAddress: z.string().nullable(),
+	abuseConfidenceScore: z.number().nullable(),
+	countryCode: z.string().nullable(),
+	reviewedAt: z.string().nullable(),
+});
+
+const accountRiskColumns = {
+	riskStatus: true,
+	riskFlaggedAt: true,
+	riskFlagSource: true,
+	riskFlagIp: true,
+	riskFlagDetails: true,
+	riskReviewedAt: true,
+} as const;
+
+function toAccountRisk(
+	user: Pick<typeof tables.user.$inferSelect, keyof typeof accountRiskColumns>,
+): z.infer<typeof accountRiskSchema> {
+	return {
+		status: user.riskStatus,
+		flaggedAt: user.riskFlaggedAt?.toISOString() ?? null,
+		source: user.riskFlagSource,
+		ipAddress: user.riskFlagIp,
+		abuseConfidenceScore: user.riskFlagDetails?.abuseConfidenceScore ?? null,
+		countryCode: user.riskFlagDetails?.countryCode ?? null,
+		reviewedAt: user.riskReviewedAt?.toISOString() ?? null,
+	};
+}
+
 const memberSchema = z.object({
 	id: z.string(),
 	userId: z.string(),
@@ -876,6 +918,8 @@ const memberSchema = z.object({
 		email: z.string(),
 		name: z.string().nullable(),
 		emailVerified: z.boolean(),
+		status: z.enum(["active", "deactivated"]),
+		risk: accountRiskSchema,
 	}),
 });
 
@@ -2753,17 +2797,6 @@ admin.openapi(getGlobalStatsProviderKeys, async (c) => {
 	});
 });
 
-// `used_model` in global_model_stats is stored as `<provider>/<canonical-model>[:<region>]`
-// (e.g. `google-ai-studio/gemini-embedding-2`, `alibaba/deepseek-v4-flash:singapore`).
-// The canonical id is the segment between the first `/` and the optional `:`.
-function extractCanonicalModelId(usedModel: string): string {
-	const slashIdx = usedModel.indexOf("/");
-	const withoutProvider =
-		slashIdx === -1 ? usedModel : usedModel.slice(slashIdx + 1);
-	const colonIdx = withoutProvider.indexOf(":");
-	return colonIdx === -1 ? withoutProvider : withoutProvider.slice(0, colonIdx);
-}
-
 const GLOBAL_STATS_MODE_LABELS: Record<string, string> = {
 	credits: "Credits",
 	"api-keys": "BYOK",
@@ -3899,7 +3932,14 @@ admin.openapi(getOrganizationMembers, async (c) => {
 			where: { organizationId: { eq: orgId } },
 			with: {
 				user: {
-					columns: { id: true, email: true, name: true, emailVerified: true },
+					columns: {
+						id: true,
+						email: true,
+						name: true,
+						emailVerified: true,
+						status: true,
+						...accountRiskColumns,
+					},
 				},
 				team: { columns: { id: true, name: true, isDefault: true } },
 				iamRules: true,
@@ -3950,6 +3990,8 @@ admin.openapi(getOrganizationMembers, async (c) => {
 				email: m.user!.email,
 				name: m.user!.name,
 				emailVerified: m.user!.emailVerified,
+				status: m.user!.status,
+				risk: toAccountRisk(m.user!),
 			},
 		})),
 		total: members.length,
@@ -4794,6 +4836,35 @@ const deleteGlobalDiscount = createRoute({
 	},
 });
 
+const updateGlobalDiscount = createRoute({
+	method: "put",
+	path: "/discounts/{discountId}",
+	request: {
+		params: z.object({ discountId: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: createDiscountBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: discountSchema.openapi({}) },
+			},
+			description: "Updated global discount.",
+		},
+		400: { description: "Invalid discount data." },
+		404: { description: "Discount not found." },
+		409: {
+			description:
+				"Discount already exists for this provider/model combination.",
+		},
+	},
+});
+
 const routingScoreMultiplierSchema = z.object({
 	id: z.string(),
 	provider: z.string().nullable(),
@@ -4880,6 +4951,36 @@ const deleteRoutingScoreMultiplier = createRoute({
 			description: "Routing score multiplier deleted.",
 		},
 		404: { description: "Routing score multiplier not found." },
+	},
+});
+
+const updateRoutingScoreMultiplier = createRoute({
+	method: "put",
+	path: "/routing-score-multipliers/{multiplierId}",
+	request: {
+		params: z.object({ multiplierId: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: createRoutingScoreMultiplierBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: routingScoreMultiplierSchema.openapi({}),
+				},
+			},
+			description: "Updated routing score multiplier.",
+		},
+		400: { description: "Invalid routing score multiplier." },
+		404: { description: "Routing score multiplier not found." },
+		409: {
+			description: "Routing score multiplier already exists for this target.",
+		},
 	},
 });
 
@@ -4992,6 +5093,38 @@ const deleteOrganizationDiscount = createRoute({
 		},
 		404: {
 			description: "Discount not found.",
+		},
+	},
+});
+
+const updateOrganizationDiscount = createRoute({
+	method: "put",
+	path: "/organizations/{orgId}/discounts/{discountId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			discountId: z.string(),
+		}),
+		body: {
+			content: {
+				"application/json": {
+					schema: createDiscountBodySchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: discountSchema.openapi({}) },
+			},
+			description: "Updated organization discount.",
+		},
+		400: { description: "Invalid discount data." },
+		404: { description: "Discount not found." },
+		409: {
+			description:
+				"Discount already exists for this provider/model combination.",
 		},
 	},
 });
@@ -5384,6 +5517,107 @@ admin.openapi(deleteGlobalDiscount, async (c) => {
 	return c.json({ success: true });
 });
 
+function isUniqueViolation(error: unknown, constraint: string): boolean {
+	const cause = error instanceof Error && error.cause ? error.cause : error;
+	return (
+		typeof cause === "object" &&
+		cause !== null &&
+		"code" in cause &&
+		cause.code === "23505" &&
+		"constraint" in cause &&
+		cause.constraint === constraint
+	);
+}
+
+const DUPLICATE_DISCOUNT_MESSAGE =
+	"A discount already exists for this provider/model combination";
+const DUPLICATE_ROUTING_SCORE_MULTIPLIER_MESSAGE =
+	"A routing score multiplier already exists for this provider/model combination";
+
+async function updateDiscount(
+	discountId: string,
+	organizationId: string | null,
+	body: z.infer<typeof createDiscountBodySchema>,
+) {
+	const orgScope =
+		organizationId === null
+			? isNull(tables.discount.organizationId)
+			: eq(tables.discount.organizationId, organizationId);
+	const scope = and(eq(tables.discount.id, discountId), orgScope);
+
+	const [before] = await db
+		.select()
+		.from(tables.discount)
+		.where(scope)
+		.limit(1);
+	if (!before) {
+		throw new HTTPException(404, { message: "Discount not found" });
+	}
+
+	const provider = body.provider ?? null;
+	const model = body.model ?? null;
+	const validation = await validateProviderAndModel(provider, model);
+	if (validation.error) {
+		throw new HTTPException(400, { message: validation.error });
+	}
+
+	// The unique constraint treats NULL targets as distinct, so check explicitly.
+	const [duplicate] = await db
+		.select({ id: tables.discount.id })
+		.from(tables.discount)
+		.where(
+			and(
+				orgScope,
+				ne(tables.discount.id, discountId),
+				provider
+					? eq(tables.discount.provider, provider)
+					: isNull(tables.discount.provider),
+				model
+					? eq(tables.discount.model, model)
+					: isNull(tables.discount.model),
+			),
+		)
+		.limit(1);
+	if (duplicate) {
+		throw new HTTPException(409, { message: DUPLICATE_DISCOUNT_MESSAGE });
+	}
+
+	let updated: typeof before | undefined;
+	try {
+		[updated] = await cdb
+			.update(tables.discount)
+			.set({
+				provider,
+				model,
+				discountPercent: new Decimal(body.discountPercent).div(100).toFixed(4),
+				reason: body.reason ?? null,
+				expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+			})
+			.where(scope)
+			.returning();
+	} catch (error) {
+		if (isUniqueViolation(error, "discount_org_provider_model_unique")) {
+			throw new HTTPException(409, { message: DUPLICATE_DISCOUNT_MESSAGE });
+		}
+		throw error;
+	}
+	if (!updated) {
+		throw new HTTPException(404, { message: "Discount not found" });
+	}
+
+	return { before, updated };
+}
+
+admin.openapi(updateGlobalDiscount, async (c) => {
+	const { discountId } = c.req.valid("param");
+	const { updated } = await updateDiscount(
+		discountId,
+		null,
+		c.req.valid("json"),
+	);
+	return c.json(formatDiscount(updated), 200);
+});
+
 admin.openapi(getRoutingScoreMultipliers, async (c) => {
 	const multipliers = await db
 		.select()
@@ -5454,6 +5688,81 @@ admin.openapi(deleteRoutingScoreMultiplier, async (c) => {
 	}
 
 	return c.json({ success: true });
+});
+
+admin.openapi(updateRoutingScoreMultiplier, async (c) => {
+	const { multiplierId } = c.req.valid("param");
+	const body = c.req.valid("json");
+	const provider = body.provider ?? null;
+	const model = body.model ?? null;
+
+	const [existing] = await db
+		.select({ id: tables.routingScoreMultiplier.id })
+		.from(tables.routingScoreMultiplier)
+		.where(eq(tables.routingScoreMultiplier.id, multiplierId))
+		.limit(1);
+	if (!existing) {
+		throw new HTTPException(404, {
+			message: "Routing score multiplier not found",
+		});
+	}
+
+	const validation = await validateProviderAndModel(provider, model);
+	if (validation.error) {
+		throw new HTTPException(400, { message: validation.error });
+	}
+
+	const [duplicate] = await db
+		.select({ id: tables.routingScoreMultiplier.id })
+		.from(tables.routingScoreMultiplier)
+		.where(
+			and(
+				ne(tables.routingScoreMultiplier.id, multiplierId),
+				provider
+					? eq(tables.routingScoreMultiplier.provider, provider)
+					: isNull(tables.routingScoreMultiplier.provider),
+				model
+					? eq(tables.routingScoreMultiplier.model, model)
+					: isNull(tables.routingScoreMultiplier.model),
+			),
+		)
+		.limit(1);
+	if (duplicate) {
+		throw new HTTPException(409, {
+			message: DUPLICATE_ROUTING_SCORE_MULTIPLIER_MESSAGE,
+		});
+	}
+
+	let updated: typeof tables.routingScoreMultiplier.$inferSelect | undefined;
+	try {
+		[updated] = await cdb
+			.update(tables.routingScoreMultiplier)
+			.set({
+				provider,
+				model,
+				scoreMultiplier: new Decimal(body.scoreMultiplier).div(100).toFixed(4),
+				reason: body.reason ?? null,
+				expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+			})
+			.where(eq(tables.routingScoreMultiplier.id, multiplierId))
+			.returning();
+	} catch (error) {
+		if (
+			isUniqueViolation(error, "routing_score_multiplier_provider_model_unique")
+		) {
+			throw new HTTPException(409, {
+				message: DUPLICATE_ROUTING_SCORE_MULTIPLIER_MESSAGE,
+			});
+		}
+		throw error;
+	}
+	if (!updated) {
+		throw new HTTPException(404, {
+			message: "Routing score multiplier not found",
+		});
+	}
+
+	return c.json(formatRoutingScoreMultiplier(updated), 200);
 });
 
 admin.openapi(getAllOrganizationDiscounts, async (c) => {
@@ -5627,6 +5936,31 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 	});
 
 	return c.json({ success: true });
+});
+
+admin.openapi(updateOrganizationDiscount, async (c) => {
+	const user = c.get("user");
+	const { orgId, discountId } = c.req.valid("param");
+	const { before, updated } = await updateDiscount(
+		discountId,
+		orgId,
+		c.req.valid("json"),
+	);
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user!.id,
+		action: "discount.update",
+		resourceType: "discount",
+		resourceId: updated.id,
+		metadata: {
+			before: formatDiscount(before),
+			after: formatDiscount(updated),
+			source: "admin",
+		},
+	});
+
+	return c.json(formatDiscount(updated), 200);
 });
 
 // --- Available Options Handler ---
@@ -5992,15 +6326,7 @@ async function updateRateLimit(
 			return { before, updated };
 		});
 	} catch (error) {
-		const cause = error instanceof Error && error.cause ? error.cause : error;
-		if (
-			typeof cause === "object" &&
-			cause !== null &&
-			"code" in cause &&
-			cause.code === "23505" &&
-			"constraint" in cause &&
-			cause.constraint === "rate_limit_org_provider_model_unique"
-		) {
+		if (isUniqueViolation(error, "rate_limit_org_provider_model_unique")) {
 			throw new HTTPException(409, {
 				message:
 					"A rate limit already exists for this provider/model/limit type combination",
@@ -6211,7 +6537,7 @@ const updateContentFilterSettingsRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: contentFilterSettingsSchema.openapi({}),
+					schema: contentFilterSettingsSchema,
 				},
 			},
 		},
@@ -6468,7 +6794,7 @@ const getModelErrorRateAlertsRoute = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+					schema: modelErrorRateAlertsSettingsSchema,
 				},
 			},
 			description: "Model error-rate Discord alert rules.",
@@ -6483,7 +6809,7 @@ const updateModelErrorRateAlertsRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+					schema: modelErrorRateAlertsSettingsSchema,
 				},
 			},
 		},
@@ -6492,7 +6818,7 @@ const updateModelErrorRateAlertsRoute = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: modelErrorRateAlertsSettingsSchema.openapi({}),
+					schema: modelErrorRateAlertsSettingsSchema,
 				},
 			},
 			description: "Updated model error-rate Discord alert rules.",
@@ -10801,8 +11127,7 @@ const providerDetailSchema = z.object({
 				logoUrl: z.string().nullable(),
 				iconUrl: z.string().nullable(),
 				hasPendingBranding: z.boolean(),
-				verificationKeyMasked: z.string().nullable(),
-				verificationKeyUpdatedAt: z.string().nullable(),
+
 				claimedAt: z.string(),
 				approvedAt: z.string().nullable(),
 				companyWebsite: z.string().nullable(),
@@ -10979,9 +11304,7 @@ admin.openapi(getProviderDetail, async (c) => {
 					logoUrl: tables.providerClaim.logoUrl,
 					iconUrl: tables.providerClaim.iconUrl,
 					pendingBranding: tables.providerClaim.pendingBranding,
-					verificationKeyMasked: tables.providerClaim.verificationKeyMasked,
-					verificationKeyUpdatedAt:
-						tables.providerClaim.verificationKeyUpdatedAt,
+
 					billingMode: tables.providerClaim.billingMode,
 					createdAt: tables.providerClaim.createdAt,
 					reviewedAt: tables.providerClaim.reviewedAt,
@@ -11221,9 +11544,7 @@ admin.openapi(getProviderDetail, async (c) => {
 						logoUrl: carrier.claim.logoUrl,
 						iconUrl: carrier.claim.iconUrl,
 						hasPendingBranding: carrier.claim.pendingBranding !== null,
-						verificationKeyMasked: carrier.claim.verificationKeyMasked,
-						verificationKeyUpdatedAt:
-							carrier.claim.verificationKeyUpdatedAt?.toISOString() ?? null,
+
 						claimedAt: carrier.claim.createdAt.toISOString(),
 						approvedAt: carrier.claim.reviewedAt?.toISOString() ?? null,
 						companyWebsite: carrier.companyWebsite,
@@ -11544,7 +11865,12 @@ const costByModelResponseSchema = z.object({
 	totalApiKeysCost: z.number(),
 });
 
-const costByModelViewSchema = z.enum(["mapping", "canonical"]);
+const costByModelViewSchema = z.enum([
+	"mapping",
+	"canonical",
+	"provider",
+	"family",
+]);
 const organizationCostGroupBySchema = z.enum([
 	"model",
 	"project",
@@ -11845,6 +12171,7 @@ admin.openapi(getOrgCostByModel, async (c) => {
 	const rows = await db
 		.select({
 			usedModel: projectHourlyModelStats.usedModel,
+			usedProvider: projectHourlyModelStats.usedProvider,
 			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
 				"cost",
 			),
@@ -11865,14 +12192,14 @@ admin.openapi(getOrgCostByModel, async (c) => {
 				gte(projectHourlyModelStats.hourTimestamp, startDate),
 			),
 		)
-		.groupBy(projectHourlyModelStats.usedModel);
+		.groupBy(
+			projectHourlyModelStats.usedModel,
+			projectHourlyModelStats.usedProvider,
+		);
 
 	const byModel = new Map<string, CostBreakdownRow>();
 	for (const row of rows) {
-		const model =
-			modelView === "canonical"
-				? extractCanonicalModelId(row.usedModel)
-				: row.usedModel;
+		const model = modelBreakdownKey(row.usedModel, row.usedProvider, modelView);
 		const current = byModel.get(model) ?? {
 			model,
 			cost: 0,
@@ -12424,84 +12751,50 @@ async function buildCostByModelTimeseries({
 	models: string[];
 	data: z.infer<typeof costByModelTimeseriesPointSchema>[];
 }> {
-	const keyOf = (usedModel: string) =>
-		modelView === "canonical" ? extractCanonicalModelId(usedModel) : usedModel;
-
+	const dimension = modelBreakdownSql(projectHourlyModelStats, modelView);
 	const modelTotals = await db
 		.select({
-			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
-				"cost",
-			),
+			key: dimension,
+			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`,
 		})
 		.from(projectHourlyModelStats)
 		.where(baseFilter)
-		.groupBy(projectHourlyModelStats.usedModel);
-
-	const totalByKey = new Map<string, number>();
-	const usedModelsByKey = new Map<string, string[]>();
-	for (const row of modelTotals) {
-		const key = keyOf(row.usedModel);
-		totalByKey.set(key, (totalByKey.get(key) ?? 0) + Number(row.cost));
-		const list = usedModelsByKey.get(key) ?? [];
-		list.push(row.usedModel);
-		usedModelsByKey.set(key, list);
-	}
-
-	const topKeys = [...totalByKey.entries()]
-		.sort((a, b) => b[1] - a[1])
+		.groupBy(sql`1`);
+	const topKeys = modelTotals
+		.sort(
+			(a, b) => Number(b.cost) - Number(a.cost) || a.key.localeCompare(b.key),
+		)
 		.slice(0, TOP_TIMESERIES_SERIES)
-		.map(([k]) => k);
-
-	if (topKeys.length === 0) {
+		.map((row) => row.key);
+	if (!topKeys.length) {
 		return { models: [], data: [] };
 	}
-
 	const allBuckets = generateBucketTimestamps(
 		startDate,
 		new Date(),
 		bucketUnit,
 	);
-	const usedModelsToFetch = topKeys.flatMap(
-		(k) => usedModelsByKey.get(k) ?? [],
-	);
-
-	const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${projectHourlyModelStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
-
+	const bucketExpr = sql<string>`to_char(date_trunc(${bucketUnit}, ${projectHourlyModelStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
 	const rows = await db
 		.select({
 			bucket: bucketExpr.as("bucket"),
-			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
-				"cost",
-			),
-			requestCount:
-				sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
-					"request_count",
-				),
-			totalTokens:
-				sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
-					"total_tokens",
-				),
+			key: dimension,
+			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`,
+			requestCount: sql<number>`SUM(${projectHourlyModelStats.requestCount})`,
+			totalTokens: sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`,
 			...modeSplitFields(projectHourlyModelStats),
 		})
 		.from(projectHourlyModelStats)
-		.where(
-			and(
-				baseFilter,
-				inArray(projectHourlyModelStats.usedModel, usedModelsToFetch),
-			),
-		)
-		.groupBy(bucketExpr, projectHourlyModelStats.usedModel)
-		.orderBy(asc(bucketExpr));
-
+		.where(and(baseFilter, inArray(dimension, topKeys)))
+		.groupBy(sql`1, 2`)
+		.orderBy(sql`1`);
 	return {
 		models: topKeys,
 		data: assembleCostTimeseriesPoints({
 			allBuckets,
 			rows: rows.map((row) => ({
 				bucket: row.bucket,
-				key: keyOf(row.usedModel),
+				key: row.key,
 				cost: Number(row.cost),
 				requestCount: Number(row.requestCount),
 				totalTokens: Number(row.totalTokens),
@@ -13407,7 +13700,7 @@ function describeProviderKey(
 	}
 	return {
 		providerKeyLabel: keyRow.managed
-			? keyRow.comment?.trim() || keyRow.tokenMasked
+			? managedProviderKeyName(keyRow)
 			: keyRow.description?.trim() || "Bring your own key",
 		providerKeyMaskedToken: keyRow.tokenMasked,
 		providerKeyManaged: keyRow.managed,
@@ -14435,8 +14728,30 @@ const chatSupportConversationDetailSchema = z.object({
 	archivedAt: z.string().nullable(),
 	resolvedAt: z.string().nullable(),
 	rating: z.number().int().min(0).max(5).nullable(),
-	organizationId: z.string().nullable(),
-	organizationName: z.string().nullable(),
+	// The visitor's account, matched by email, so admins can see restrictions
+	// and jump to (or unblock) every organization the visitor belongs to.
+	account: z
+		.object({
+			userId: z.string(),
+			email: z.string(),
+			status: z.enum(["active", "deactivated"]),
+			blockReason: z.string().nullable(),
+			risk: accountRiskSchema,
+			organizations: z.array(
+				z.object({
+					id: z.string(),
+					name: z.string(),
+					kind: z.enum(["default", "chat", "devpass"]),
+					plan: z.string(),
+					devPlan: z.string(),
+					status: z.string().nullable(),
+					blockReason: z.string().nullable(),
+					riskFlagged: z.boolean(),
+					role: z.string(),
+				}),
+			),
+		})
+		.nullable(),
 	messages: z.array(chatSupportMessageSchema),
 });
 
@@ -14690,6 +15005,63 @@ const getChatSupportConversation = createRoute({
 	},
 });
 
+async function findChatSupportAccount(
+	email: string,
+): Promise<z.infer<typeof chatSupportConversationDetailSchema>["account"]> {
+	const [user] = await db
+		.select({
+			id: tables.user.id,
+			email: tables.user.email,
+			status: tables.user.status,
+			blockReason: tables.user.blockReason,
+			riskStatus: tables.user.riskStatus,
+			riskFlaggedAt: tables.user.riskFlaggedAt,
+			riskFlagSource: tables.user.riskFlagSource,
+			riskFlagIp: tables.user.riskFlagIp,
+			riskFlagDetails: tables.user.riskFlagDetails,
+			riskReviewedAt: tables.user.riskReviewedAt,
+		})
+		.from(tables.user)
+		.where(sql`LOWER(${tables.user.email}) = LOWER(${email})`)
+		.limit(1);
+	if (!user) {
+		return null;
+	}
+
+	// Owners first, so the visitor's own organization leads the list.
+	const organizations = await db
+		.select({
+			id: tables.organization.id,
+			name: tables.organization.name,
+			kind: tables.organization.kind,
+			plan: tables.organization.plan,
+			devPlan: tables.organization.devPlan,
+			status: tables.organization.status,
+			blockReason: tables.organization.blockReason,
+			riskFlagged: tables.organization.riskFlagged,
+			role: tables.userOrganization.role,
+		})
+		.from(tables.userOrganization)
+		.innerJoin(
+			tables.organization,
+			eq(tables.organization.id, tables.userOrganization.organizationId),
+		)
+		.where(eq(tables.userOrganization.userId, user.id))
+		.orderBy(
+			sql`CASE ${tables.userOrganization.role} WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END`,
+			asc(tables.userOrganization.createdAt),
+		);
+
+	return {
+		userId: user.id,
+		email: user.email,
+		status: user.status,
+		blockReason: user.blockReason,
+		risk: toAccountRisk(user),
+		organizations,
+	};
+}
+
 admin.openapi(getChatSupportConversation, async (c) => {
 	const { id } = c.req.valid("param");
 
@@ -14733,37 +15105,9 @@ admin.openapi(getChatSupportConversation, async (c) => {
 		.where(eq(mt.conversationId, id))
 		.orderBy(asc(mt.sequence));
 
-	// Best-effort link to the visitor's organization so admins can jump straight
-	// to their account. Matched by email; owners are preferred when a visitor
-	// belongs to more than one org.
-	let organizationId: string | null = null;
-	let organizationName: string | null = null;
-	if (conversation.email) {
-		const orgRows = await db
-			.select({
-				id: tables.organization.id,
-				name: tables.organization.name,
-			})
-			.from(tables.user)
-			.innerJoin(
-				tables.userOrganization,
-				eq(tables.userOrganization.userId, tables.user.id),
-			)
-			.innerJoin(
-				tables.organization,
-				eq(tables.organization.id, tables.userOrganization.organizationId),
-			)
-			.where(sql`LOWER(${tables.user.email}) = LOWER(${conversation.email})`)
-			.orderBy(
-				sql`CASE ${tables.userOrganization.role} WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END`,
-				asc(tables.userOrganization.createdAt),
-			)
-			.limit(1);
-		if (orgRows[0]) {
-			organizationId = orgRows[0].id;
-			organizationName = orgRows[0].name;
-		}
-	}
+	const account = conversation.email
+		? await findChatSupportAccount(conversation.email)
+		: null;
 
 	return c.json({
 		...conversation,
@@ -14773,8 +15117,7 @@ admin.openapi(getChatSupportConversation, async (c) => {
 		archivedAt: conversation.archivedAt?.toISOString() ?? null,
 		resolvedAt: conversation.resolvedAt?.toISOString() ?? null,
 		rating: conversation.rating ?? null,
-		organizationId,
-		organizationName,
+		account,
 		messages: messages.map((m) => ({
 			...m,
 			createdAt: m.createdAt.toISOString(),

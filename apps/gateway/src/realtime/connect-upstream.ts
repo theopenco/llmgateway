@@ -1,8 +1,18 @@
 import { WebSocket } from "ws";
 
-import { getCredentialSetting } from "@/chat/tools/resolve-platform-credential.js";
+import {
+	getAzureCredentialBaseUrl,
+	getCredentialSetting,
+} from "@/chat/tools/resolve-platform-credential.js";
+
+import {
+	assertSafeUserUrl,
+	isProviderUrlGuardEnabled,
+} from "@llmgateway/shared";
+import { safeOutboundLookup } from "@llmgateway/shared/url-safety-node";
 
 import { RealtimeConnectError } from "./errors.js";
+import { getRealtimeUpstreamModel } from "./upstream-model.js";
 
 import type { RealtimePreflightResult } from "./preflight.js";
 import type { Provider } from "@llmgateway/models";
@@ -33,15 +43,20 @@ export function resolveUpstreamTarget(
 
 	// Base URL of the credential serving the session: the managed credential's
 	// own config when one is active, the provider's env var on the env path. A
-	// BYOK key always uses the provider default: custom BYOK base URLs are
-	// rejected in preflight, and the deployment's proxy must not receive an
-	// org's own key.
-	const credentialBaseUrl = getCredentialSetting(
-		providerId,
-		"baseUrl",
-		{ providerKey: preflight.providerKey, managedKey: preflight.managedKey },
-		{ configIndex: preflight.configIndex, variant: preflight.envVariant },
-	)?.replace(/\/+$/, "");
+	// BYOK key never inherits an env or managed proxy. Azure may use its own
+	// resource or public HTTPS base URL, guarded again when the socket opens.
+	const credentialBaseUrl =
+		providerId === "azure"
+			? undefined
+			: getCredentialSetting(
+					providerId,
+					"baseUrl",
+					{
+						providerKey: preflight.providerKey,
+						managedKey: preflight.managedKey,
+					},
+					{ configIndex: preflight.configIndex, variant: preflight.envVariant },
+				)?.replace(/\/+$/, "");
 
 	if (providerId === "google-ai-studio") {
 		const baseUrl =
@@ -68,18 +83,42 @@ export function resolveUpstreamTarget(
 		};
 	}
 
-	const baseUrl = credentialBaseUrl ?? "https://api.openai.com";
 	// A transcription session has no session model in the URL: the ASR model
 	// is applied by the gateway's control session.update once connected.
 	const query =
 		preflight.sessionType === "transcription"
 			? "intent=transcription"
-			: `model=${encodeURIComponent(preflight.match.mapping.externalId)}`;
+			: `model=${encodeURIComponent(getRealtimeUpstreamModel(preflight))}`;
+
+	if (providerId === "azure") {
+		// Azure serves the OpenAI realtime protocol on the resource's v1 API,
+		// addressing the deployment by name through the same model parameter.
+		const baseUrl = getAzureCredentialBaseUrl(
+			{ providerKey: preflight.providerKey, managedKey: preflight.managedKey },
+			{ configIndex: preflight.configIndex, variant: preflight.envVariant },
+		);
+		if (!baseUrl) {
+			throw new RealtimeConnectError(
+				500,
+				"upstream_config_missing",
+				"Azure requires a resource or a base URL for realtime sessions.",
+			);
+		}
+		return {
+			url: `${baseUrl.replace(/^http/, "ws")}/openai/v1/realtime?${query}`,
+			headers: { "api-key": preflight.upstreamToken },
+		};
+	}
+
+	const baseUrl = credentialBaseUrl ?? "https://api.openai.com";
 	return {
 		url: `${baseUrl.replace(/^http/, "ws")}/v1/realtime?${query}`,
 		headers: {
 			Authorization: `Bearer ${preflight.upstreamToken}`,
-			"OpenAI-Safety-Identifier": preflight.safetyIdentifier,
+			...(preflight.usedMode === "credits" &&
+				preflight.safetyIdentifier !== undefined && {
+					"OpenAI-Safety-Identifier": preflight.safetyIdentifier,
+				}),
 		},
 	};
 }
@@ -93,11 +132,41 @@ export async function connectUpstream(
 	preflight: RealtimePreflightResult,
 ): Promise<WebSocket> {
 	const target = resolveUpstreamTarget(preflight);
-
+	const guardTenantTarget =
+		Boolean(preflight.providerKey) && isProviderUrlGuardEnabled();
+	if (guardTenantTarget) {
+		try {
+			const url = new URL(target.url);
+			if (
+				!["wss:", "https:"].includes(url.protocol) ||
+				url.username ||
+				url.password
+			) {
+				throw new Error("Unsafe realtime target");
+			}
+			url.protocol = "https:";
+			assertSafeUserUrl(url.href);
+		} catch {
+			throw new RealtimeConnectError(
+				400,
+				"invalid_base_url",
+				"Realtime provider URLs must use public HTTPS hosts without URL credentials.",
+			);
+		}
+	}
+	const handshakeTimeout = upstreamHandshakeTimeoutMs();
+	const timeoutError = () =>
+		new RealtimeConnectError(
+			504,
+			"upstream_connect_timeout",
+			"Realtime provider connection timed out.",
+		);
 	const upstream = new WebSocket(target.url, {
 		headers: target.headers,
 		maxPayload: maxMessageBytes(),
-		handshakeTimeout: upstreamHandshakeTimeoutMs(),
+		handshakeTimeout,
+		followRedirects: false,
+		...(guardTenantTarget && { lookup: safeOutboundLookup }),
 	});
 
 	await new Promise<void>((resolve, reject) => {
@@ -109,7 +178,26 @@ export async function connectUpstream(
 		};
 		const onError = (error: Error) => {
 			cleanup();
-			reject(error);
+			discardUpstream(upstream);
+			if (
+				guardTenantTarget &&
+				(error as NodeJS.ErrnoException).code === "EACCES"
+			) {
+				reject(
+					new RealtimeConnectError(
+						400,
+						"invalid_base_url",
+						"Realtime provider URLs must resolve to public addresses.",
+					),
+				);
+			} else if (
+				(error as NodeJS.ErrnoException).code === "ETIMEDOUT" ||
+				error.message === "Opening handshake has timed out"
+			) {
+				reject(timeoutError());
+			} else {
+				reject(error);
+			}
 		};
 		const onUnexpected = (
 			upstreamReq: ClientRequest,
@@ -133,10 +221,13 @@ export async function connectUpstream(
 			);
 		};
 		const cleanup = () => {
+			clearTimeout(timer);
 			upstream.off("open", onOpen);
 			upstream.off("error", onError);
 			upstream.off("unexpected-response", onUnexpected);
 		};
+		// Keep a wall-clock deadline alongside the transport's request timeout.
+		const timer = setTimeout(() => onError(timeoutError()), handshakeTimeout);
 		upstream.on("open", onOpen);
 		upstream.on("error", onError);
 		upstream.on("unexpected-response", onUnexpected);

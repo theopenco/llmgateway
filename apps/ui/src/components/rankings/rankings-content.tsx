@@ -37,6 +37,8 @@ import { cn } from "@/lib/utils";
 import { getProviderIcon } from "@llmgateway/shared/components";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
+import type { paths } from "@/lib/api/v1";
+
 export interface RankingsModelMeta {
 	name: string;
 	family: string;
@@ -50,7 +52,12 @@ export interface RankingsAppStat {
 	lastUsedAt: string | null;
 }
 
+export type RankingsStats =
+	paths["/public/models/stats"]["get"]["responses"][200]["content"]["application/json"];
+
 interface RankingsContentProps {
+	initialStats: RankingsStats | null;
+	initialStatsFetchedAt: number;
 	modelMeta: Record<string, RankingsModelMeta>;
 	providerNames: Record<string, string>;
 	topApps: RankingsAppStat[];
@@ -193,6 +200,8 @@ function TopAppRow({
 }
 
 export function RankingsContent({
+	initialStats,
+	initialStatsFetchedAt,
 	modelMeta,
 	providerNames,
 	topApps,
@@ -208,6 +217,9 @@ export function RankingsContent({
 		"/public/models/stats",
 		{ params: { query: { window: statsWindow } } },
 		{
+			initialData:
+				statsWindow === "7d" ? (initialStats ?? undefined) : undefined,
+			initialDataUpdatedAt: initialStatsFetchedAt,
 			refetchOnWindowFocus: false,
 			staleTime: 5 * 60_000,
 		},
@@ -411,6 +423,17 @@ export function RankingsContent({
 					</div>
 				))}
 			</div>
+
+			<p className="-mt-5 flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-xs text-muted-foreground">
+				<span>Curious which apps send the most tokens overall?</span>
+				<Link
+					href="/apps"
+					className="group inline-flex items-center gap-1 font-medium text-foreground underline-offset-4 hover:underline"
+				>
+					See all-time app stats
+					<ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
+				</Link>
+			</p>
 
 			{/* Token volume chart */}
 			<Card>

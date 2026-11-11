@@ -178,7 +178,7 @@ function getResponsesApiUserMessage(input: unknown): string {
 		.join(" ");
 }
 
-function buildAwsEventStreamMessage(
+export function buildAwsEventStreamMessage(
 	eventType: string,
 	payload: Record<string, unknown>,
 ): Uint8Array {
@@ -608,6 +608,8 @@ function stripAzureOpenaiPrefix(c: Context): Response | Promise<Response> {
 }
 mockOpenAIServer.post("/openai/v1/responses", stripAzureOpenaiPrefix);
 mockOpenAIServer.post("/openai/v1/chat/completions", stripAzureOpenaiPrefix);
+mockOpenAIServer.post("/openai/v1/embeddings", stripAzureOpenaiPrefix);
+mockOpenAIServer.post("/openai/v1/audio/speech", stripAzureOpenaiPrefix);
 
 // The legacy Azure deployment-based surface, where the model lives in the path
 // and the api-version in the query string. Rewrite it to the plain handler so
@@ -1492,6 +1494,16 @@ mockOpenAIServer.post("/v1/moderations", async (c) => {
 
 mockOpenAIServer.post("/v1/systemone", async (c) => {
 	const body = await c.req.json();
+	const hasBox = Object.values(
+		(body.questions ?? {}) as Record<string, { type: string }>,
+	).some((question) => question.type === "box");
+	if (
+		((body.assets && Object.keys(body.assets).length > 0) || hasBox) &&
+		c.req.header("TypeSafe-Danger-Zone-Images") !== "true"
+	) {
+		c.status(400);
+		return c.json({ error: { message: "Images are not turned on" } });
+	}
 	const stateText =
 		typeof body.state === "string" ? body.state : JSON.stringify(body.state);
 
@@ -1535,6 +1547,14 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 	)) {
 		if (question.type === "noul") {
 			answers[id] = { type: "noul", noul: harmful ? 0.97 : 0.01 };
+			continue;
+		}
+		if (question.type === "box") {
+			answers[id] = {
+				type: "box",
+				box: { top: 0.25, bottom: 0.75, left: 0.25, right: 0.75 },
+				confidence: 0.9,
+			};
 			continue;
 		}
 		if (question.type === "choice") {

@@ -10,6 +10,7 @@ const catalogue = new Map(
 
 // Mirrors the directory's default visibility (status-filters.ts): a mapping
 // that is already deprecated or deactivated never renders, so a curated id
+
 // whose mappings are all in that state is dead weight on the page.
 function liveMappings(model: ModelDefinition, now: number) {
 	return model.providers.filter(
@@ -18,6 +19,14 @@ function liveMappings(model: ModelDefinition, now: number) {
 			!(mapping.deactivatedAt && mapping.deactivatedAt.getTime() <= now),
 	);
 }
+
+test("July snapshot retains the root's curated use cases", () => {
+	for (const ids of Object.values(curatedCategoryModelIds)) {
+		expect(ids.has("deepseek-v4-flash-0731")).toBe(
+			ids.has("deepseek-v4-flash"),
+		);
+	}
+});
 
 describe("curated category model ids", () => {
 	const now = Date.now();

@@ -1,6 +1,6 @@
 import { isUserHighRisk } from "@/lib/account-risk.js";
 
-import { db, tables, eq } from "@llmgateway/db";
+import { db, tables, sql } from "@llmgateway/db";
 
 interface PersonalOrgUser {
 	id: string;
@@ -60,37 +60,27 @@ export async function getOrCreatePersonalOrg(user: PersonalOrgUser) {
 // Get or create the dedicated "Chat" organization for a user. This backs
 // lounge.llmgateway.io (apps/playground): the chat plan, pay-as-you-go top-ups,
 // and all playground billing live here, kept separate from the DevPass personal
-// org used by the coding product.
-//
-// On first creation, any pay-as-you-go balance the user had on their personal
-// org is migrated to the chat org so the playground keeps access to it.
+// org used by the coding product. It never touches the DevPass balance.
 export async function getOrCreateChatOrg(user: PersonalOrgUser) {
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	const existingChatOrg = userOrgs.find(
-		(uo) => uo.organization?.kind === "chat",
-	);
-
-	if (existingChatOrg?.organization) {
-		return existingChatOrg.organization;
+	const existingChatOrg = await findChatOrgMembership(db, user.id);
+	if (existingChatOrg) {
+		return existingChatOrg;
 	}
 
-	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.kind === "devpass",
-	)?.organization;
-	const migratedCredits =
-		personalOrg && parseFloat(personalOrg.credits || "0") > 0
-			? personalOrg.credits
-			: null;
+	const riskFlagged = await isUserHighRisk(user.id);
 
 	return await db.transaction(async (tx) => {
+		// Serialize first-time creation per user so concurrent callers cannot
+		// each create a chat org.
+		await tx.execute(
+			sql`SELECT pg_advisory_xact_lock(hashtext(${`chat-org:${user.id}`}))`,
+		);
+
+		const chatOrg = await findChatOrgMembership(tx, user.id);
+		if (chatOrg) {
+			return chatOrg;
+		}
+
 		const [newOrg] = await tx
 			.insert(tables.organization)
 			.values({
@@ -98,8 +88,7 @@ export async function getOrCreateChatOrg(user: PersonalOrgUser) {
 				kind: "chat",
 				billingEmail: user.email,
 				retentionLevel: "none",
-				riskFlagged: await isUserHighRisk(user.id),
-				...(migratedCredits ? { credits: migratedCredits } : {}),
+				riskFlagged,
 			})
 			.returning();
 
@@ -115,33 +104,21 @@ export async function getOrCreateChatOrg(user: PersonalOrgUser) {
 			mode: "credits",
 		});
 
-		// One-time migration of the personal org's pay-as-you-go balance into the
-		// chat org. Recorded as offsetting credit_gift transactions (excluded from
-		// revenue analytics) so the move is auditable on both orgs.
-		if (migratedCredits && personalOrg) {
-			await tx
-				.update(tables.organization)
-				.set({ credits: "0" })
-				.where(eq(tables.organization.id, personalOrg.id));
-
-			await tx.insert(tables.transaction).values([
-				{
-					organizationId: personalOrg.id,
-					type: "credit_gift",
-					creditAmount: `-${migratedCredits}`,
-					status: "completed",
-					description: "Balance migrated to Chat organization",
-				},
-				{
-					organizationId: newOrg.id,
-					type: "credit_gift",
-					creditAmount: migratedCredits,
-					status: "completed",
-					description: "Balance migrated from personal organization",
-				},
-			]);
-		}
-
 		return newOrg;
 	});
+}
+
+async function findChatOrgMembership(
+	database: Pick<typeof db, "query">,
+	userId: string,
+) {
+	const userOrgs = await database.query.userOrganization.findMany({
+		where: {
+			userId,
+		},
+		with: {
+			organization: true,
+		},
+	});
+	return userOrgs.find((uo) => uo.organization?.kind === "chat")?.organization;
 }

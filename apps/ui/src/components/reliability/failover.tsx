@@ -1,5 +1,3 @@
-"use client";
-
 import { AlertCircle, ArrowRight, CheckCircle2, Zap } from "lucide-react";
 
 export function ReliabilityFailover() {

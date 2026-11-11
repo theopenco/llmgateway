@@ -613,177 +613,6 @@ export const ZaiIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 		/>
 	</svg>
 );
-
-export const NanoGPTIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-	<svg
-		id="Layer_1"
-		data-name="Layer 1"
-		xmlns="http://www.w3.org/2000/svg"
-		xmlnsXlink="http://www.w3.org/1999/xlink"
-		viewBox="0 0 181.45 186.88"
-		{...props}
-	>
-		<defs>
-			<style>
-				{
-					"\n      .cls-1 {\n        fill: url(#linear-gradient-8);\n      }\n\n      .cls-2 {\n        fill: url(#linear-gradient-7);\n      }\n\n      .cls-3 {\n        fill: url(#linear-gradient-5);\n      }\n\n      .cls-4 {\n        fill: url(#linear-gradient-6);\n      }\n\n      .cls-5 {\n        fill: url(#linear-gradient-9);\n      }\n\n      .cls-6 {\n        fill: url(#linear-gradient-4);\n      }\n\n      .cls-7 {\n        fill: url(#linear-gradient-3);\n      }\n\n      .cls-8 {\n        fill: url(#linear-gradient-2);\n      }\n\n      .cls-9 {\n        fill: url(#linear-gradient);\n      }\n\n      .cls-10 {\n        fill: url(#linear-gradient-10);\n      }\n\n      .cls-11 {\n        fill: url(#linear-gradient-11);\n      }\n\n      .cls-12 {\n        fill: url(#linear-gradient-12);\n      }\n    "
-				}
-			</style>
-			<linearGradient
-				id="linear-gradient"
-				x1={43.86}
-				y1={128.24}
-				x2={145.31}
-				y2={128.24}
-				gradientUnits="userSpaceOnUse"
-			>
-				<stop offset={0} stopColor="#015a9e" />
-				<stop offset={1} stopColor="#11e9bb" />
-			</linearGradient>
-			<linearGradient
-				id="linear-gradient-2"
-				x1={44.1}
-				y1={49.57}
-				x2={146.51}
-				y2={49.57}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-3"
-				x1={2.6}
-				y1={69.86}
-				x2={53.68}
-				y2={69.86}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-4"
-				x1={109.82}
-				y1={118.94}
-				x2={178.89}
-				y2={118.94}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-5"
-				x1={129.51}
-				y1={46.47}
-				x2={173.61}
-				y2={46.47}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-6"
-				x1={12.44}
-				y1={122.84}
-				x2={65.92}
-				y2={122.84}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-7"
-				x1={46.28}
-				y1={157.04}
-				x2={128.11}
-				y2={15.32}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-8"
-				x1={46.28}
-				y1={157.04}
-				x2={128.11}
-				y2={15.32}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-9"
-				x1={46.28}
-				y1={157.04}
-				x2={128.11}
-				y2={15.32}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-10"
-				x1={46.28}
-				y1={157.04}
-				x2={128.11}
-				y2={15.32}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-11"
-				x1={46.28}
-				y1={157.04}
-				x2={128.11}
-				y2={15.32}
-				xlinkHref="#linear-gradient"
-			/>
-			<linearGradient
-				id="linear-gradient-12"
-				x1={46.28}
-				y1={157.04}
-				x2={128.11}
-				y2={15.32}
-				xlinkHref="#linear-gradient"
-			/>
-		</defs>
-		<g>
-			<polygon
-				className="cls-9"
-				points="145.31 72.24 93.39 184.24 43.86 103.66 145.31 72.24"
-			/>
-			<polyline
-				className="cls-8"
-				points="106.21 2.68 146.51 64.44 44.1 96.46 70.86 27.88"
-			/>
-			<polygon
-				className="cls-7"
-				points="30.06 42.79 53.68 52.46 36.31 96.93 2.6 78.59 30.06 42.79"
-			/>
-			<polygon
-				className="cls-6"
-				points="109.82 166.73 153.7 71.14 178.89 81.47 109.82 166.73"
-			/>
-			<polygon
-				className="cls-3"
-				points="173.61 71.76 154.18 63.48 129.51 25.14 134.6 21.19 173.61 71.76"
-			/>
-			<polygon
-				className="cls-4"
-				points="65.92 153.78 12.44 91.91 34.91 104.09 35.83 104.85 65.92 153.78"
-			/>
-		</g>
-		<g>
-			<polygon
-				className="cls-2"
-				points="145.31 72.24 93.39 184.24 43.86 103.66 145.31 72.24"
-			/>
-			<polyline
-				className="cls-1"
-				points="106.21 2.68 146.51 64.44 44.1 96.46 70.86 27.88"
-			/>
-			<polygon
-				className="cls-5"
-				points="30.06 42.79 53.68 52.46 36.31 96.93 2.6 78.59 30.06 42.79"
-			/>
-			<polygon
-				className="cls-10"
-				points="109.82 166.73 153.7 71.14 178.89 81.47 109.82 166.73"
-			/>
-			<polygon
-				className="cls-11"
-				points="173.61 71.76 154.18 63.48 129.51 25.14 134.6 21.19 173.61 71.76"
-			/>
-			<polygon
-				className="cls-12"
-				points="65.92 153.78 12.44 91.91 34.91 104.09 35.83 104.85 65.92 153.78"
-			/>
-		</g>
-	</svg>
-);
-
 // Static version for OG images (no CSS classes/style tags)
 export const AWSBedrockIconStatic: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
@@ -1228,40 +1057,6 @@ export const XiaomiIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 		/>
 	</svg>
 );
-
-export const EmberCloudIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
-	props,
-) => (
-	<svg
-		fill="none"
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 141 89"
-		{...props}
-	>
-		<path
-			d="M35.727 28.3783c.0449.0071.0908-.0028.1287-.0279s.0651-.0635.0761-.1076c.4493-1.8102.9514-3.9639 1.6517-5.7147 1.8961-4.7391 4.4969-8.8022 7.8024-12.1891 4.1907-4.29653 9.3263-7.30363 15.4066-9.02135 9.1534-2.58648 18.6173-1.3411397 26.7897 3.52462C94.235 8.80403 99.092 14.4351 102.153 21.7353c.842 2.0051 1.414 4.4595 2.005 6.4448.017.0547.053.1013.103.1311.049.0298.108.0407.165.0307q9.345-1.6119 18.009 2.3751c13.802 6.3523 20.729 22.0132 16.249 36.6369-1.962 6.4106-5.642 11.6331-11.039 15.6676-5.263 3.9342-11.77 6.0582-18.512 5.9558-1.2-.0176-2.97-.0176-5.308 0-.074-.0001-.146-.019-.21-.0549s-.117-.0875-.154-.1499L70.0945 32.3158c-.0173-.0284-.0416-.052-.0706-.0683-.0289-.0164-.0615-.025-.0945-.025s-.0653.0086-.0937.025c-.0284.0163-.0519.0399-.0682.0683l-33.185 56.5096c-.026.0452-.0633.0828-.1079.1089-.0447.0261-.0952.0398-.1464.0397-2.6691-.0132-4.3945-.0132-5.1763 0-7.8817.1255-15.1952-2.57-21.0949-7.809-2.83199-2.5127-5.18284-5.6861-7.0525-9.5201-4.45616-9.1369-4.0102-20.9297 1.70451-29.5117 2.36847-3.5543 4.87235-6.4282 8.11619-8.7075.9954-.6959 2.4511-1.5096 4.367-2.4411 5.8358-2.8342 12.0141-3.703 18.5348-2.6063"
-			fill="#ff6047"
-		/>
-		<path
-			d="M78.4334 67.8067c-.0024-.0205.0019-.0411.0122-.0589.0103-.0179.0261-.0319.045-.0401.0189-.0081.0399-.01.06-.0052.02.0047.038.0158.0512.0315 4.6775 6.1078 9.4277 13.1108 4.4793 20.8505-.0771.1205-.1835.2198-.3094.2885-.1258.0687-.2671.1046-.4107.1046H49.4898c-.0251 0-.0497-.0066-.0714-.0193-.0218-.0126-.0397-.0307-.0521-.0525-.0125-.0218-.0189-.0466-.0186-.0717.0002-.0251.0071-.0497.0199-.0713l21.0057-35.3882c.0083-.0149.0215-.026.0374-.0313.0158-.0053.0331-.0045.0488.0023.0157.0069.0286.0192.0364.0349.0079.0156.0101.0334.0062.0502q-1.8333 6.5769-.3765 13.4346c.7366 3.4585 2.8804 6.7783 5.2159 9.3054.0461.0504.1087.0827.1765.0912s.1363-.0075.1934-.045c2.1824-1.4623 3.1822-3.5356 2.9995-6.2201-.0331-.4691-.1256-1.1991-.2775-2.1901"
-			fill="#ff6047"
-		/>
-	</svg>
-);
-
-export const Gonka24Icon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1080" {...props}>
-		<g
-			transform="translate(0,1080) scale(0.1,-0.1)"
-			fill="currentColor"
-			stroke="none"
-		>
-			<path d="M9445 7634 c-533 -7 -1382 -17 -1885 -23 -1839 -22 -2309 -31 -2410 -47 -439 -69 -1044 -330 -1383 -596 -216 -170 -813 -771 -2022 -2033 -700 -730 -1216 -1267 -1384 -1439 -152 -154 -155 -159 -131 -169 35 -14 486 -21 844 -12 l301 7 395 419 c217 231 449 477 515 547 66 71 262 279 436 463 173 184 378 402 454 484 240 259 676 713 851 885 331 325 465 418 796 554 251 102 372 128 687 146 265 15 1343 28 2939 36 l1393 7 382 384 c210 211 384 388 385 394 2 5 -36 8 -95 8 -54 -1 -534 -8 -1068 -15z" />
-			<path d="M7000 5983 c-490 -4 -1549 -24 -1705 -33 -234 -12 -380 -49 -580 -145 -131 -63 -217 -118 -305 -193 -176 -152 -987 -976 -2153 -2188 -43 -45 -74 -85 -68 -88 10 -6 678 0 3101 30 l1355 16 190 75 c218 86 406 180 556 278 92 61 154 119 560 524 450 450 1659 1697 1659 1711 0 16 -1431 23 -2610 13z m531 -972 c-313 -324 -547 -551 -634 -615 -149 -110 -337 -180 -547 -205 -200 -24 -467 -32 -1330 -40 -503 -5 -917 -8 -919 -6 -7 7 604 627 741 753 210 192 262 226 413 270 90 27 180 43 280 51 44 3 558 7 1142 7 l1063 1 -209 -216z" />
-		</g>
-	</svg>
-);
-
 export const FireworksIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
 ) => (
@@ -1308,22 +1103,16 @@ export const AtriaIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 		<path d="M11.4 16.3H8.9a2.31 2.31 0 0 1-2-3.46l1.25-2.17" />
 	</svg>
 );
-
-export const ConsensusProtocolIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+export const CloudflareIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
 ) => (
 	<svg
 		xmlns="http://www.w3.org/2000/svg"
 		viewBox="0 0 24 24"
-		fill="none"
-		stroke="currentColor"
-		strokeLinecap="round"
+		fill="currentColor"
 		{...props}
 	>
-		<path d="M20.6 5.98A10.5 10.5 0 1 0 20.6 18.02" strokeWidth="1.4" />
-		<path d="M15.17 5.2A7.5 7.5 0 1 1 8.83 5.2" strokeWidth="1.4" />
-		<path d="M15.22 9.3A4.2 4.2 0 1 0 15.22 14.7" strokeWidth="2.8" />
-		<circle cx="3.96" cy="18.75" r="1.1" fill="currentColor" stroke="none" />
+		<path d="M16.5088 16.8447c.1475-.5068.0908-.9707-.1553-1.3154-.2246-.3164-.6045-.499-1.0615-.5205l-8.6592-.1123a.1559.1559 0 0 1-.1333-.0713c-.0283-.042-.0351-.0986-.021-.1553.0278-.084.1123-.1484.2036-.1562l8.7359-.1123c1.0351-.0489 2.1601-.8868 2.5537-1.9136l.499-1.3013c.0215-.0561.0293-.1128.0147-.168-.5625-2.5463-2.835-4.4453-5.5499-4.4453-2.5039 0-4.6284 1.6177-5.3876 3.8614-.4927-.3658-1.1187-.5625-1.794-.499-1.2026.119-2.1665 1.083-2.2861 2.2856-.0283.31-.0069.6128.0635.894C1.5683 13.171 0 14.7754 0 16.752c0 .1748.0142.3515.0352.5273.0141.083.0844.1475.1689.1475h15.9814c.0909 0 .1758-.0645.2032-.1553l.12-.4268zm2.7568-5.5634c-.0771 0-.1611 0-.2383.0112-.0566 0-.1054.0415-.127.0976l-.3378 1.1744c-.1475.5068-.0918.9707.1543 1.3164.2256.3164.6055.498 1.0625.5195l1.8437.1133c.0557 0 .1055.0263.1329.0703.0283.043.0351.1074.0214.1562-.0283.084-.1132.1485-.204.1553l-1.921.1123c-1.041.0488-2.1582.8867-2.5527 1.914l-.1406.3585c-.0283.0713.0215.1416.0986.1416h6.5977c.0771 0 .1474-.0489.169-.126.1122-.4082.1757-.837.1757-1.2803 0-2.6025-2.125-4.727-4.7344-4.727" />
 	</svg>
 );
 
@@ -1507,66 +1296,6 @@ export const NvidiaIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	</svg>
 );
 
-// SCX Icon (SCX.ai provider) — official "SCXai" wordmark
-export const ScxIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-	<svg
-		xmlns="http://www.w3.org/2000/svg"
-		xmlnsXlink="http://www.w3.org/1999/xlink"
-		width={760}
-		zoomAndPan="magnify"
-		viewBox="107.5 18.8 760 277.2"
-		height={277.2}
-		preserveAspectRatio="xMidYMid meet"
-		{...props}
-	>
-		<defs>
-			<g />
-			<clipPath id="6b6759321b">
-				<rect x={0} width={60} y={0} height={93} />
-			</clipPath>
-		</defs>
-		<g fill="currentColor" fillOpacity={1}>
-			<g transform="translate(94.030795, 291.6585)">
-				<g>
-					<path d="M 100.75 4.296875 C 82.726562 4.296875 67.210938 1.328125 54.203125 -4.609375 C 41.203125 -10.546875 31.171875 -18.992188 24.109375 -29.953125 C 17.046875 -40.910156 13.515625 -53.757812 13.515625 -68.5 L 61.4375 -68.5 C 61.4375 -58.257812 64.96875 -50.269531 72.03125 -44.53125 C 79.09375 -38.800781 88.5625 -35.9375 100.4375 -35.9375 C 110.675781 -35.9375 118.765625 -37.929688 124.703125 -41.921875 C 130.648438 -45.921875 133.625 -51.503906 133.625 -58.671875 C 133.625 -66.242188 130.039062 -72.382812 122.875 -77.09375 C 115.707031 -81.8125 104.546875 -85.804688 89.390625 -89.078125 C 64.203125 -94.398438 45.566406 -102.488281 33.484375 -113.34375 C 21.398438 -124.195312 15.359375 -138.328125 15.359375 -155.734375 C 15.359375 -175.390625 22.523438 -190.898438 36.859375 -202.265625 C 51.191406 -213.640625 70.75 -219.328125 95.53125 -219.328125 C 112.53125 -219.328125 127.273438 -216.40625 139.765625 -210.5625 C 152.253906 -204.726562 161.925781 -196.535156 168.78125 -185.984375 C 175.644531 -175.441406 179.078125 -162.898438 179.078125 -148.359375 L 132.078125 -148.359375 C 132.078125 -157.984375 128.90625 -165.5625 122.5625 -171.09375 C 116.21875 -176.625 107.410156 -179.390625 96.140625 -179.390625 C 85.898438 -179.390625 77.8125 -177.390625 71.875 -173.390625 C 65.9375 -169.398438 62.96875 -163.820312 62.96875 -156.65625 C 62.96875 -150.101562 66.242188 -144.570312 72.796875 -140.0625 C 79.347656 -135.5625 90.816406 -131.363281 107.203125 -127.46875 C 134.023438 -121.125 153.375 -112.628906 165.25 -101.984375 C 177.132812 -91.335938 183.078125 -77.515625 183.078125 -60.515625 C 183.078125 -40.242188 175.753906 -24.375 161.109375 -12.90625 C 146.472656 -1.4375 126.351562 4.296875 100.75 4.296875 Z M 100.75 4.296875 " />
-				</g>
-			</g>
-		</g>
-		<g fill="currentColor" fillOpacity={1}>
-			<g transform="translate(290.928082, 291.6585)">
-				<g>
-					<path d="M 124.40625 4.296875 C 102.695312 4.296875 83.445312 -0.460938 66.65625 -9.984375 C 49.863281 -19.503906 36.753906 -32.660156 27.328125 -49.453125 C 17.910156 -66.242188 13.203125 -85.597656 13.203125 -107.515625 C 13.203125 -129.421875 17.910156 -148.769531 27.328125 -165.5625 C 36.753906 -182.351562 49.8125 -195.507812 66.5 -205.03125 C 83.1875 -214.5625 102.382812 -219.328125 124.09375 -219.328125 C 142.320312 -219.328125 159.007812 -215.84375 174.15625 -208.875 C 189.3125 -201.914062 202.0625 -192.085938 212.40625 -179.390625 C 222.75 -166.691406 229.96875 -151.742188 234.0625 -134.546875 L 183.6875 -134.546875 C 179.59375 -146.421875 172.320312 -155.785156 161.875 -162.640625 C 151.4375 -169.503906 139.359375 -172.9375 125.640625 -172.9375 C 113.554688 -172.9375 102.75 -170.171875 93.21875 -164.640625 C 83.695312 -159.109375 76.273438 -151.425781 70.953125 -141.59375 C 65.628906 -131.769531 62.96875 -120.410156 62.96875 -107.515625 C 62.96875 -94.609375 65.628906 -83.238281 70.953125 -73.40625 C 76.273438 -63.582031 83.644531 -55.90625 93.0625 -50.375 C 102.488281 -44.84375 113.242188 -42.078125 125.328125 -42.078125 C 139.453125 -42.078125 151.835938 -45.710938 162.484375 -52.984375 C 173.140625 -60.253906 180.71875 -70.035156 185.21875 -82.328125 L 235.59375 -82.328125 C 232.113281 -64.921875 225.148438 -49.710938 214.703125 -36.703125 C 204.265625 -23.703125 191.316406 -13.617188 175.859375 -6.453125 C 160.398438 0.710938 143.25 4.296875 124.40625 4.296875 Z M 124.40625 4.296875 " />
-				</g>
-			</g>
-		</g>
-		<g fill="currentColor" fillOpacity={1}>
-			<g transform="translate(525.914765, 291.6585)">
-				<g>
-					<path d="M 8.296875 0 L 81.40625 -109.96875 L 11.671875 -215.015625 L 67.578125 -215.015625 L 93.375 -175.09375 L 113.046875 -145.296875 L 158.8125 -215.015625 L 214.40625 -215.015625 L 144.984375 -110.28125 L 218.09375 0 L 160.65625 0 L 131.15625 -45.46875 L 113.34375 -72.796875 L 95.21875 -45.46875 L 65.734375 0 Z M 8.296875 0 " />
-				</g>
-			</g>
-		</g>
-		<g transform="matrix(2, 0, 0, 2, 749, 1)">
-			<g clipPath="url(#6b6759321b)">
-				<g fill="currentColor" fillOpacity={1}>
-					<g transform="translate(0.32161, 67.761121)">
-						<g>
-							<path d="M 15.859375 0.625 C 11.941406 0.625 8.84375 -0.285156 6.5625 -2.109375 C 4.289062 -3.941406 3.15625 -6.460938 3.15625 -9.671875 C 3.15625 -12.742188 4.175781 -15.195312 6.21875 -17.03125 C 8.269531 -18.863281 11.019531 -19.78125 14.46875 -19.78125 L 26.484375 -19.78125 L 26.484375 -21.296875 C 26.484375 -22.941406 25.890625 -24.257812 24.703125 -25.25 C 23.523438 -26.238281 21.988281 -26.734375 20.09375 -26.734375 C 18.539062 -26.734375 17.210938 -26.375 16.109375 -25.65625 C 15.015625 -24.945312 14.320312 -24 14.03125 -22.8125 L 4.796875 -22.8125 C 5.390625 -26.4375 7.023438 -29.21875 9.703125 -31.15625 C 12.378906 -33.09375 15.820312 -34.0625 20.03125 -34.0625 C 25.007812 -34.0625 28.898438 -32.804688 31.703125 -30.296875 C 34.503906 -27.796875 35.90625 -24.351562 35.90625 -19.96875 L 35.90625 0 L 28.75 0 L 27.6875 -3.859375 C 24.78125 -0.867188 20.835938 0.625 15.859375 0.625 Z M 12.640625 -10.046875 C 12.640625 -8.910156 13.132812 -7.992188 14.125 -7.296875 C 15.113281 -6.597656 16.429688 -6.25 18.078125 -6.25 C 20.472656 -6.25 22.460938 -6.941406 24.046875 -8.328125 C 25.628906 -9.722656 26.460938 -11.539062 26.546875 -13.78125 L 17.4375 -13.78125 C 16.007812 -13.78125 14.851562 -13.441406 13.96875 -12.765625 C 13.082031 -12.085938 12.640625 -11.179688 12.640625 -10.046875 Z M 12.640625 -10.046875 " />
-						</g>
-					</g>
-				</g>
-				<g fill="currentColor" fillOpacity={1}>
-					<g transform="translate(40.391083, 67.761121)">
-						<g>
-							<path d="M 4.796875 0 L 4.796875 -33.1875 L 14.40625 -33.1875 L 14.40625 0 Z M 3.40625 -43.921875 C 3.40625 -45.691406 3.984375 -47.132812 5.140625 -48.25 C 6.304688 -49.375 7.796875 -49.9375 9.609375 -49.9375 C 11.460938 -49.9375 12.957031 -49.375 14.09375 -48.25 C 15.226562 -47.132812 15.796875 -45.691406 15.796875 -43.921875 C 15.796875 -42.148438 15.226562 -40.707031 14.09375 -39.59375 C 12.957031 -38.476562 11.460938 -37.921875 9.609375 -37.921875 C 7.796875 -37.921875 6.304688 -38.476562 5.140625 -39.59375 C 3.984375 -40.707031 3.40625 -42.148438 3.40625 -43.921875 Z M 3.40625 -43.921875 " />
-						</g>
-					</g>
-				</g>
-			</g>
-		</g>
-	</svg>
-);
-
 export const RunpodIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	<svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 195 206">
 		<path
@@ -1594,6 +1323,34 @@ export const TypeSafeIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	</svg>
 );
 
+export const FalIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill="currentColor"
+		{...props}
+	>
+		<path
+			fillRule="evenodd"
+			clipRule="evenodd"
+			d="M15.477 0c.415 0 .749.338.788.752a7.775 7.775 0 006.985 6.984c.413.04.752.373.752.788v6.952c0 .415-.338.748-.752.788a7.775 7.775 0 00-6.985 6.984c-.04.414-.373.752-.788.752H8.525c-.416 0-.749-.338-.789-.752a7.775 7.775 0 00-6.984-6.984c-.414-.04-.752-.373-.752-.788V8.524c0-.415.338-.748.752-.788A7.775 7.775 0 007.736.752C7.776.338 8.11 0 8.526 0h6.95zM4.819 11.98a7.226 7.226 0 007.223 7.23 7.226 7.226 0 007.223-7.23c0-3.994-3.234-7.23-7.223-7.23a7.227 7.227 0 00-7.223 7.23z"
+		/>
+	</svg>
+);
+
+export const BlackForestLabsIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
+	props,
+) => (
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill="currentColor"
+		{...props}
+	>
+		<path d="M17.113 10.248H14.56l-2.553-3.616-7.963 11.27h2.558l5.405-7.654h2.552l-5.404 7.653h2.565l5.392-7.653L24 20 19.97 20v-2.091l-2.857-4.044-2.842 4.037V20H0L12.008 3l5.105 7.249z" />
+	</svg>
+);
+
 export const ProviderIcons = {
 	atlascloud: AtlasCloudIcon,
 	anthropic: AnthropicIcon,
@@ -1601,7 +1358,6 @@ export const ProviderIcons = {
 	bytedance: BytedanceIcon,
 	deepseek: DeepseekIcon,
 	"google-ai-studio": GoogleStudioAIIcon,
-	glacier: GoogleStudioAIIcon,
 	"google-vertex": GoogleVertexIcon,
 	"vertex-anthropic": GoogleVertexIcon,
 	"vertex-openai": GoogleVertexIcon,
@@ -1620,7 +1376,6 @@ export const ProviderIcons = {
 	alibaba: AlibabaIcon,
 	nebius: NebiusIcon,
 	zai: ZaiIcon,
-	nanogpt: NanoGPTIcon,
 	"aws-bedrock": AWSBedrockIcon,
 	"aws-mantle": AWSBedrockIcon,
 	azure: AzureIcon,
@@ -1630,21 +1385,18 @@ export const ProviderIcons = {
 	cerebras: CerebrasIcon,
 	minimax: MinimaxIcon,
 	xiaomi: XiaomiIcon,
-	embercloud: EmberCloudIcon,
 	deepinfra: DeepInfraIcon,
 	reve: ReveIcon,
 	sakana: SakanaIcon,
-	"scx-ai": ScxIcon,
-	"scx-ai-gp": ScxIcon,
-	gonka24: Gonka24Icon,
 	fireworks: FireworksIcon,
 	runpod: RunpodIcon,
 	ranoai: RanoAIIcon,
 	baidu: BaiduIcon,
-	consensusprotocol: ConsensusProtocolIcon,
 	atria: AtriaIcon,
 	tencent: TencentCloudIcon,
 	typesafe: TypeSafeIcon,
+	cloudflare: CloudflareIcon,
+	"fal-ai": FalIcon,
 } as const;
 
 // Type for provider icon keys
@@ -1693,7 +1445,6 @@ const bundledProviderLogos: Partial<
 	elevenlabs: ProviderIcons.elevenlabs,
 	bytedance: ProviderIcons.bytedance,
 	"google-ai-studio": ProviderIcons["google-ai-studio"],
-	glacier: ProviderIcons.glacier,
 	"google-vertex": ProviderIcons["google-vertex"],
 	"vertex-anthropic": ProviderIcons["vertex-anthropic"],
 	"vertex-openai": ProviderIcons["vertex-openai"],
@@ -1712,7 +1463,6 @@ const bundledProviderLogos: Partial<
 	alibaba: ProviderIcons.alibaba,
 	nebius: ProviderIcons.nebius,
 	zai: ProviderIcons.zai,
-	nanogpt: ProviderIcons.nanogpt,
 	"aws-bedrock": ProviderIcons["aws-bedrock"],
 	"aws-mantle": ProviderIcons["aws-bedrock"],
 	azure: ProviderIcons.azure,
@@ -1722,21 +1472,18 @@ const bundledProviderLogos: Partial<
 	cerebras: ProviderIcons.cerebras,
 	minimax: ProviderIcons.minimax,
 	xiaomi: ProviderIcons.xiaomi,
-	embercloud: ProviderIcons.embercloud,
 	deepinfra: ProviderIcons.deepinfra,
 	reve: ProviderIcons.reve,
 	sakana: ProviderIcons.sakana,
-	"scx-ai": ProviderIcons["scx-ai"],
-	"scx-ai-gp": ProviderIcons["scx-ai-gp"],
-	gonka24: ProviderIcons.gonka24,
 	fireworks: ProviderIcons.fireworks,
 	runpod: ProviderIcons.runpod,
 	ranoai: ProviderIcons.ranoai,
 	baidu: ProviderIcons.baidu,
-	consensusprotocol: ProviderIcons.consensusprotocol,
 	atria: ProviderIcons.atria,
 	tencent: ProviderIcons.tencent,
 	typesafe: ProviderIcons.typesafe,
+	cloudflare: ProviderIcons.cloudflare,
+	"fal-ai": ProviderIcons["fal-ai"],
 };
 
 export const providerLogoUrls: Partial<
@@ -1785,6 +1532,7 @@ export const ModelFamilyIcons: Record<
 	alibaba: AlibabaIcon,
 	anthropic: AnthropicIcon,
 	atlascloud: AtlasCloudIcon,
+	"black-forest-labs": BlackForestLabsIcon,
 	bytedance: BytedanceIcon,
 	deepseek: DeepseekIcon,
 	elevenlabs: ElevenLabsIcon,
@@ -1821,15 +1569,12 @@ export const iconAspectRatios = new Map<
 	[CanopyWaveIcon, 1628 / 1561],
 	[DeepInfraIcon, 28 / 32],
 	[DeepseekIcon, 57.86 / 43.38],
-	[EmberCloudIcon, 141 / 89],
 	[FireworksIcon, 88 / 44],
 	[GroqIcon, 200.18 / 69.76],
 	[InferenceNetIcon, 256 / 235.039],
 	[MistralIcon, 41 / 29],
-	[NanoGPTIcon, 181.45 / 186.88],
 	[ReveIcon, 182 / 148],
 	[RunpodIcon, 195 / 206],
-	[ScxIcon, 760 / 277.2],
 	[XAIIcon, 759 / 290.2],
 	[ZaiIcon, 161 / 129],
 ]);

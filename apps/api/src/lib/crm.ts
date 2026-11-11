@@ -7,12 +7,14 @@ import {
 	gt,
 	inArray,
 	isNull,
+	like,
 	ne,
 	or,
 	sql,
 	tables,
 	type CrmStage,
 } from "@llmgateway/db";
+import { addWorkingDays } from "@llmgateway/shared/working-days";
 
 export type CrmSegment = "customer" | "trial" | "lead" | "prospect";
 
@@ -557,6 +559,131 @@ export interface ActivityStats {
 	nextTaskDueAt: Date | null;
 }
 
+const LEAD_REF_PREFIX = "lead:";
+const LEAD_FOLLOW_UP_REFS = `${LEAD_REF_PREFIX}%`;
+const LEAD_FOLLOW_UP_WINDOW_DAYS = 14;
+const LEAD_FOLLOW_UP_DUE_HOUR_UTC = 17;
+
+/** An inquiry is due an answer by the end of the next working day. */
+export function leadFollowUpDueAt(receivedAt: Date): Date {
+	const due = addWorkingDays(receivedAt, 1, "utc");
+	due.setUTCHours(LEAD_FOLLOW_UP_DUE_HOUR_UTC, 0, 0, 0);
+	return due;
+}
+
+/** True for the follow-up task an inquiry gets, see {@link syncLeadFollowUps}. */
+export function isLeadFollowUpRef(externalRef: string | null): boolean {
+	return externalRef?.startsWith(LEAD_REF_PREFIX) ?? false;
+}
+
+/**
+ * Keeps exactly one follow-up task per inquiry of the last two weeks, on the
+ * account the inquiry is listed under, and gives an unowned lead account
+ * `CRM_DEFAULT_OWNER_EMAIL`. It runs when the desk loads, so the public
+ * contact form writes nothing here. The task is keyed on its submission
+ * (`lead:<id>`): two runs at once cannot double it, it follows the inquiry
+ * when its sender moves to another account, and an open one is removed once
+ * the inquiry is archived, deleted or rejected. Answering an inquiry means
+ * completing its task; other activity on the account does not stand in for
+ * that. Returns whether anything changed.
+ */
+export async function syncLeadFollowUps(
+	book: Map<string, CrmBookEntry>,
+	now: Date,
+): Promise<boolean> {
+	const a = tables.crmActivity;
+	const submission = tables.enterpriseContactSubmission;
+	// Judged against the table, not the book: a book read a moment ago may
+	// not know an inquiry that another load has just given its follow-up.
+	const removed = await db
+		.delete(a)
+		.where(
+			and(
+				isNull(a.completedAt),
+				like(a.externalRef, LEAD_FOLLOW_UP_REFS),
+				sql`not exists (select 1 from ${submission} where ${LEAD_REF_PREFIX} || ${submission.id} = ${a.externalRef} and ${submission.archivedAt} is null and ${submission.spamFilterStatus} <> 'rejected')`,
+			),
+		)
+		.returning({ id: a.id });
+	const existing = await db
+		.select({
+			id: a.id,
+			accountId: a.accountId,
+			externalRef: a.externalRef,
+			completedAt: a.completedAt,
+		})
+		.from(a)
+		.where(like(a.externalRef, LEAD_FOLLOW_UP_REFS));
+	const byRef = new Map(existing.map((row) => [row.externalRef, row]));
+	const windowMs = LEAD_FOLLOW_UP_WINDOW_DAYS * DAY_MS;
+	const since = now.getTime() - windowMs;
+
+	const missing: { entry: CrmBookEntry; lead: CrmLeadRow }[] = [];
+	const moved: { id: string; accountId: string }[] = [];
+	for (const entry of book.values()) {
+		for (const lead of entry.leads) {
+			const row = byRef.get(`${LEAD_REF_PREFIX}${lead.id}`);
+			if (!row) {
+				if (lead.createdAt.getTime() > since) {
+					missing.push({ entry, lead });
+				}
+			} else if (!row.completedAt && row.accountId !== entry.id) {
+				moved.push({ id: row.id, accountId: entry.id });
+			}
+		}
+	}
+	if (removed.length === 0 && missing.length === 0 && moved.length === 0) {
+		return false;
+	}
+
+	const accountIds = [
+		...new Set([
+			...missing.map(({ entry }) => entry.id),
+			...moved.map(({ accountId }) => accountId),
+		]),
+	];
+	if (accountIds.length > 0) {
+		await db
+			.insert(tables.crmAccount)
+			.values(accountIds.map((id) => ({ id })))
+			.onConflictDoNothing();
+	}
+	const ownerEmail = process.env.CRM_DEFAULT_OWNER_EMAIL || null;
+	const leadAccountIds = missing
+		.filter(({ entry }) => segmentOf(entry, now) === "lead")
+		.map(({ entry }) => entry.id);
+	if (ownerEmail && leadAccountIds.length > 0) {
+		await db
+			.update(tables.crmAccount)
+			.set({ ownerEmail })
+			.where(
+				and(
+					inArray(tables.crmAccount.id, leadAccountIds),
+					isNull(tables.crmAccount.ownerEmail),
+				),
+			);
+	}
+	if (missing.length > 0) {
+		await db
+			.insert(a)
+			.values(
+				missing.map(({ entry, lead }) => ({
+					accountId: entry.id,
+					kind: "task" as const,
+					subject: `Reply to ${lead.name}'s enterprise inquiry`,
+					contactEmail: lead.email.trim().toLowerCase(),
+					dueAt: leadFollowUpDueAt(lead.createdAt),
+					externalRef: `${LEAD_REF_PREFIX}${lead.id}`,
+				})),
+			)
+			.onConflictDoNothing();
+	}
+	for (const { id, accountId } of moved) {
+		await db.update(a).set({ accountId }).where(eq(a.id, id));
+	}
+	return true;
+}
+
 export async function loadActivityStats(
 	now: Date,
 ): Promise<Map<string, ActivityStats>> {
@@ -566,7 +693,7 @@ export async function loadActivityStats(
 		.select({
 			accountId: a.accountId,
 			lastActivityAt:
-				sql<Date | null>`max(coalesce(${a.completedAt}, ${a.createdAt}))`.mapWith(
+				sql<Date | null>`max(coalesce(${a.completedAt}, ${a.createdAt})) filter (where ${a.createdAt} <= ${nowIso}::timestamp and not (${a.kind} = 'task' and ${a.completedAt} is null and coalesce(${a.externalRef}, '') like ${LEAD_FOLLOW_UP_REFS}))`.mapWith(
 					a.createdAt,
 				),
 			openTasks: sql<number>`count(*) filter (where ${a.kind} = 'task' and ${a.completedAt} is null)`,
@@ -745,5 +872,104 @@ export function summarizeAccount(
 		trialEndsAt: trialEndsAt?.toISOString() ?? null,
 		score,
 		scoreKind: segment === "lead" || segment === "prospect" ? "lead" : "health",
+	};
+}
+
+export interface CrmAccountPerson {
+	email: string;
+	name: string | null;
+}
+
+/**
+ * Every address tied to an account: platform members, contact-form senders,
+ * billing addresses and contacts sales added by hand, deduplicated case-insensitively with the
+ * best-known name. This is the audience integrations search mail and
+ * meetings for.
+ */
+export async function loadAccountPeople(
+	entry: CrmBookEntry,
+): Promise<CrmAccountPerson[]> {
+	const crmContacts = await db
+		.select({ email: tables.crmContact.email, name: tables.crmContact.name })
+		.from(tables.crmContact)
+		.where(eq(tables.crmContact.accountId, entry.id));
+	const people = new Map<string, CrmAccountPerson>();
+	const add = (email: string, name: string | null) => {
+		const key = email.trim().toLowerCase();
+		if (!key.includes("@")) {
+			return;
+		}
+		const existing = people.get(key);
+		people.set(key, { email: key, name: existing?.name ?? name ?? null });
+	};
+	for (const ct of crmContacts) {
+		add(ct.email, ct.name);
+	}
+	for (const m of entry.members) {
+		add(m.email, m.name);
+	}
+	for (const l of entry.leads) {
+		add(l.email, l.name);
+	}
+	for (const o of entry.orgs) {
+		add(o.billingEmail, o.billingCompany);
+	}
+	return [...people.values()];
+}
+
+/**
+ * The account an outside address belongs to: its corporate domain when the
+ * book has it, else a hand-added contact, else a free-mail lead key.
+ */
+export async function resolveAccountIdForEmail(
+	email: string,
+	book: Map<string, CrmBookEntry>,
+): Promise<string | null> {
+	const normalized = email.trim().toLowerCase();
+	const domain = corporateDomain(normalized);
+	if (domain && book.has(domain)) {
+		return domain;
+	}
+	const contact = await db.query.crmContact.findFirst({
+		where: { email: normalized },
+		columns: { accountId: true },
+	});
+	if (contact && book.has(contact.accountId)) {
+		return contact.accountId;
+	}
+	for (const entry of book.values()) {
+		if (
+			entry.members.some((m) => m.email.toLowerCase() === normalized) ||
+			entry.leads.some((l) => l.email.toLowerCase() === normalized)
+		) {
+			return entry.id;
+		}
+	}
+	return null;
+}
+
+/**
+ * The book plus a summary row per account, as the CRM list and details use.
+ * Not a pure read: loading the desk is what creates the follow-up tasks new
+ * inquiries need (see {@link syncLeadFollowUps}), whatever the admin's role.
+ * Call it from the admin CRM only.
+ */
+export async function loadSummaries(now: Date = new Date()) {
+	let book = await loadCrmBook(now);
+	if (await syncLeadFollowUps(book, now)) {
+		book = await loadCrmBook(now);
+	}
+	const entries = [...book.values()];
+	const [usage, activity] = await Promise.all([
+		loadOrgUsage(
+			entries.flatMap((e) => e.orgs.map((o) => o.id)),
+			now,
+		),
+		loadActivityStats(now),
+	]);
+	return {
+		book,
+		usage,
+		summaries: entries.map((e) => summarizeAccount(e, usage, activity, now)),
 	};
 }

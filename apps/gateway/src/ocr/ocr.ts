@@ -55,6 +55,7 @@ import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
 
 import {
 	getProviderDefaultBaseUrl,
@@ -128,8 +129,8 @@ const ocrRequestSchema = z
 		}),
 		image_limit: z.number().int().optional(),
 		image_min_size: z.number().int().optional(),
-		bbox_annotation_format: z.record(z.unknown()).optional(),
-		document_annotation_format: z.record(z.unknown()).optional(),
+		bbox_annotation_format: z.record(z.string(), z.unknown()).optional(),
+		document_annotation_format: z.record(z.string(), z.unknown()).optional(),
 	})
 	.passthrough();
 
@@ -137,8 +138,8 @@ const ocrPageSchema = z
 	.object({
 		index: z.number().int().optional(),
 		markdown: z.string().optional(),
-		images: z.array(z.record(z.unknown())).optional(),
-		dimensions: z.record(z.unknown()).nullable().optional(),
+		images: z.array(z.record(z.string(), z.unknown())).optional(),
+		dimensions: z.record(z.string(), z.unknown()).nullable().optional(),
 	})
 	.passthrough();
 
@@ -155,6 +156,7 @@ const ocrResponseSchema = z
 		model: z.string().optional(),
 		document_annotation: z.string().nullable().optional(),
 		usage_info: ocrUsageInfoSchema.optional(),
+		usage: usageWithCostSchema.optional(),
 	})
 	.passthrough()
 	.openapi({
@@ -484,7 +486,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 		});
 	}
 
-	const retentionLevel = getEffectiveRetentionLevel(organization);
+	const retentionLevel = getEffectiveRetentionLevel(organization, apiKey);
 
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
@@ -502,12 +504,17 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 	// Enterprise provider compliance policy: OCR resolves to a single provider,
 	// so block the request before any data is sent if that provider doesn't meet
 	// the org's required certifications/data policies.
-	await assertProviderCompliant(organization, providerId, {
-		organizationId: project.organizationId,
-		modelId: modelDefId,
-		apiKeyId: apiKey.id,
-		model: requestedModel,
-	});
+	await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: modelDefId,
+			apiKeyId: apiKey.id,
+			model: requestedModel,
+		},
+		apiKey,
+	);
 
 	const finalLogId = shortid();
 	const failedKeys = createFailedKeyTracker();
@@ -1195,10 +1202,17 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				{ retentionLevel },
 			);
 
-			return c.json({
-				...(upstreamJson as z.infer<typeof ocrResponseSchema>),
-				model: responseModel,
-			});
+			return c.json(
+				withUsageCost(
+					{
+						...(upstreamJson as z.infer<typeof ocrResponseSchema>),
+						model: responseModel,
+					},
+					cost,
+					{ page_cost: pageCost, request_cost: requestCost },
+					pagesProcessed !== null ? { pages_processed: pagesProcessed } : {},
+				),
+			);
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

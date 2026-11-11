@@ -14,6 +14,7 @@ export const notificationCategories = [
 	"compliance_downgrade",
 	"org_limit",
 	"data_stream",
+	"model_price_change",
 ] as const;
 export type NotificationCategory = (typeof notificationCategories)[number];
 
@@ -43,11 +44,12 @@ const CATEGORY_LABELS: Record<EmailCategory, string> = {
 	compliance_downgrade: "compliance downgrade alerts",
 	org_limit: "organization limit alerts",
 	data_stream: "data stream delivery alerts",
+	model_price_change: "model price change alerts",
 	marketing: "product tips and offers",
 	credit_alerts: "credit balance reminders",
 };
 
-const POSTAL_ADDRESS =
+export const POSTAL_ADDRESS =
 	"Polar Lights LLC, 16192 Coastal Highway, Lewes, DE 19958, United States";
 
 interface UnsubscribeTokenPayload {
@@ -162,7 +164,7 @@ export function buildUnsubscribeHeaders(token: string): Record<string, string> {
 	};
 }
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
 	return value
 		.replace(/&/g, "&amp;")
 		.replace(/</g, "&lt;")

@@ -1,7 +1,7 @@
 "use client";
 
 import { addMonths, addYears, formatDistanceToNowStrict } from "date-fns";
-import { Activity, Coins, Cpu, Gem, Timer, TrendingUp } from "lucide-react";
+import { Activity, Coins, Cpu, TrendingUp } from "lucide-react";
 import dynamic from "next/dynamic";
 import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
@@ -22,9 +22,9 @@ import {
 } from "@llmgateway/shared/number-format";
 
 import AllowanceExhaustedCard from "./AllowanceExhaustedCard";
+import { AllowanceWindows } from "./AllowanceWindows";
 import PayAsYouGoCard from "./PayAsYouGoCard";
 import ResetPassCard from "./ResetPassCard";
-import { UsageBar } from "./UsageBar";
 
 import type { paths } from "@/lib/api/v1";
 import type { DevPlanCycle } from "@llmgateway/shared";
@@ -46,6 +46,7 @@ interface UsageOverviewProps {
 	organizationId: string | null;
 	creditsUsed: number;
 	creditsLimit: number;
+	renewalRollover: number;
 	premiumCreditsUsed: number;
 	premiumWeeklyLimit: number;
 	premiumWeekResetsAt: string | null;
@@ -97,179 +98,12 @@ function MetricCard({
 	);
 }
 
-// Weekly premium allowance meter: "$X.XX spent" with the reset date on the
-// left, a slim track in the middle, "N% used" on the right.
-function WeeklyAllowanceMeter({
-	used,
-	limit,
-	resetsAt,
-	resetPassAvailable,
-	overflowCovering,
-}: {
-	used: number;
-	limit: number;
-	resetsAt: string | null;
-	// False when the monthly pool is exhausted: the Reset Pass card below is
-	// replaced by the upgrade/PAYG promo, so don't point at a card that isn't
-	// there — and "standard models keep working" no longer holds either.
-	resetPassAvailable: boolean;
-	// True when PAYG overflow can bill premium usage past the weekly cap
-	// (opt-in on, balance positive): premium keeps accruing past the cap on
-	// the credits balance, so the meter can legitimately exceed 100% and must
-	// not read as an error.
-	overflowCovering: boolean;
-}) {
-	const { timeZone: displayTimeZone } = useDisplayTimeZone();
-	const percentage = limit > 0 ? (used / limit) * 100 : 0;
-	const clamped = Math.min(100, percentage);
-	const isLow = percentage > 80;
-	const isExhausted = percentage >= 100;
-	const isOverCap = percentage > 100;
-
-	return (
-		<div className="space-y-3">
-			<div className="flex items-center gap-4 sm:gap-6">
-				<div className="w-44 shrink-0">
-					<div className="text-base font-semibold tracking-tight tabular-nums">
-						${used.toFixed(2)}{" "}
-						<span className="font-normal text-muted-foreground">spent</span>
-					</div>
-					<div className="mt-0.5 text-xs text-muted-foreground">
-						{resetsAt
-							? `Resets ${formatDateTime(resetsAt, displayTimeZone, "monthDayHourMinuteZone")}`
-							: "Window starts with your first premium request"}
-					</div>
-				</div>
-				<div
-					role="progressbar"
-					aria-label="Weekly premium allowance used"
-					aria-valuenow={Math.round(clamped)}
-					aria-valuemin={0}
-					aria-valuemax={100}
-					className="relative h-2 flex-1 overflow-hidden rounded-full border border-border/60 bg-muted"
-				>
-					<div
-						className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
-							isExhausted
-								? overflowCovering
-									? "bg-amber-500"
-									: "bg-destructive"
-								: isLow
-									? "bg-yellow-500"
-									: "bg-foreground"
-						}`}
-						style={{ width: `${clamped}%` }}
-					/>
-				</div>
-				<div
-					className={`w-20 shrink-0 text-right text-sm tabular-nums ${
-						isOverCap
-							? "font-medium text-amber-600 dark:text-amber-400"
-							: "text-muted-foreground"
-					}`}
-				>
-					{isOverCap ? "Over cap" : `${Math.round(percentage)}% used`}
-				</div>
-			</div>
-			{isLow && !isExhausted && (
-				<p className="text-xs text-yellow-700 dark:text-yellow-400">
-					Above 80% of your weekly premium allowance. Standard models stay
-					available.
-				</p>
-			)}
-			{isExhausted &&
-				(overflowCovering ? (
-					<p className="text-xs text-amber-600 dark:text-amber-400">
-						Past the weekly premium allowance — pay-as-you-go overflow is
-						billing premium usage to your credits balance at provider rates.
-					</p>
-				) : (
-					<p className="text-xs text-destructive">
-						{resetPassAvailable
-							? "Weekly premium allowance reached — redeem a Reset Pass below for an instant reset, or standard models keep working until the window resets."
-							: "Weekly premium allowance reached for this window."}
-					</p>
-				))}
-		</div>
-	);
-}
-
-// Daily pacing meter: the rolling 24-hour share of the monthly allowance.
-// Compact on purpose — it sits directly under the monthly bar and only
-// grows a message once the window is spent.
-function DailyPacingMeter({
-	used,
-	limit,
-	resetsAt,
-	paygEnabled,
-	overflowCovering,
-}: {
-	used: number;
-	limit: number;
-	resetsAt: string | null;
-	paygEnabled: boolean;
-	overflowCovering: boolean;
-}) {
-	const percentage = limit > 0 ? (used / limit) * 100 : 0;
-	const clamped = Math.min(100, percentage);
-	const isExhausted = percentage >= 100;
-	const resetsIn = resetsAt
-		? formatDistanceToNowStrict(new Date(resetsAt))
-		: null;
-
-	return (
-		<div className="mt-4 space-y-2">
-			<div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-				<div className="flex w-44 shrink-0 items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground/70">
-					<Timer className="h-3.5 w-3.5 shrink-0" />
-					Daily pace
-				</div>
-				<div
-					role="progressbar"
-					aria-label="Daily pacing allowance used"
-					aria-valuenow={Math.round(clamped)}
-					aria-valuemin={0}
-					aria-valuemax={100}
-					className="relative h-1.5 min-w-24 flex-1 overflow-hidden rounded-full border border-border/60 bg-muted"
-				>
-					<div
-						className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${
-							isExhausted
-								? overflowCovering
-									? "bg-amber-500"
-									: "bg-destructive"
-								: "bg-foreground/70"
-						}`}
-						style={{ width: `${clamped}%` }}
-					/>
-				</div>
-				<span className="text-xs text-muted-foreground tabular-nums">
-					${used.toFixed(2)} of ${limit.toFixed(2)} today
-					{resetsIn ? ` · resets in ${resetsIn}` : ""}
-				</span>
-			</div>
-			{isExhausted &&
-				(overflowCovering ? (
-					<p className="text-xs text-amber-600 dark:text-amber-400">
-						Past today&apos;s pace — pay-as-you-go overflow is covering the rest
-						at provider rates.
-					</p>
-				) : (
-					<p className="text-xs text-destructive">
-						{paygEnabled
-							? "Daily pace reached — top up your credits balance below to keep going today."
-							: "Daily pace reached for this window. Enable pay-as-you-go overflow below, or upgrade for a higher daily allowance."}
-					</p>
-				))}
-		</div>
-	);
-}
-
 export default function UsageOverview({
 	projectId,
 	organizationId,
 	creditsUsed,
 	creditsLimit,
+	renewalRollover,
 	premiumCreditsUsed,
 	premiumWeeklyLimit,
 	premiumWeekResetsAt,
@@ -453,36 +287,45 @@ export default function UsageOverview({
 							</span>
 						)}
 					</div>
-					<p className="mt-0.5 text-xs text-muted-foreground">
+					{/* The relative "(in …)" part is clock-derived and can round
+					    differently between server render and hydration. */}
+					<p
+						suppressHydrationWarning
+						className="mt-0.5 text-xs text-muted-foreground"
+					>
 						{cycleLabel} · {cycleEndsHint}
 					</p>
 				</div>
 			</div>
 
-			{/* Usage progress */}
-			<div className="rounded-xl border bg-card p-6">
-				<UsageBar
-					used={creditsUsed}
-					limit={creditsLimit}
-					exhaustedMessage={
-						paygAvailable
-							? "Allowance reached — pay-as-you-go overflow is active, so requests keep flowing from your credits balance below."
-							: paygEnabled
-								? "Allowance reached — pay-as-you-go overflow is enabled but your credits balance is empty. Top up below to keep coding."
-								: "Allowance reached for this billing cycle. Upgrade, or enable pay-as-you-go overflow below to keep coding."
-					}
-				/>
-				{dailyLimit > 0 && (
-					<DailyPacingMeter
-						used={dailyCreditsUsed}
-						limit={dailyLimit}
-						resetsAt={dayResetsAt}
-						paygEnabled={paygEnabled}
-						overflowCovering={paygAvailable}
-					/>
-				)}
-				{/* PAYG overflow lives directly under the monthly meter: it extends
-				    the monthly pool, not the weekly premium allowance below. */}
+			<AllowanceWindows
+				daily={{
+					used: dailyCreditsUsed,
+					limit: dailyLimit,
+					resetsAt: dayResetsAt,
+				}}
+				weekly={{
+					used: premiumCreditsUsed,
+					limit: premiumWeeklyLimit,
+					resetsAt: premiumWeekResetsAt,
+				}}
+				monthly={{
+					used: creditsUsed,
+					limit: creditsLimit,
+					resetsAt: cancelledAtPeriodEnd ? null : renewAt,
+					carryOver: cancelledAtPeriodEnd ? undefined : renewalRollover,
+					exhaustedMessage: paygAvailable
+						? "Allowance reached — pay-as-you-go overflow is active, so requests keep flowing from your credits balance below."
+						: paygEnabled
+							? "Allowance reached — pay-as-you-go overflow is enabled but your credits balance is empty. Top up below to keep coding."
+							: "Allowance reached for this billing cycle. Upgrade, or enable pay-as-you-go overflow below to keep coding.",
+				}}
+				paygEnabled={paygEnabled}
+				overflowCovering={paygAvailable}
+				resetPassAvailable={!monthlyExhausted}
+			/>
+
+			<div className="grid items-start gap-4 lg:grid-cols-2 [&>*]:mt-0">
 				{monthlyExhausted && !paygEnabled && (
 					<AllowanceExhaustedCard
 						tier={tierKey}
@@ -498,39 +341,19 @@ export default function UsageOverview({
 					autoTopUpThreshold={autoTopUpThreshold}
 					autoTopUpAmount={autoTopUpAmount}
 				/>
-				{premiumWeeklyLimit > 0 && (
-					<div className="mt-6 border-t pt-6">
-						<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-							<div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground/70">
-								<Gem className="h-3.5 w-3.5 text-amber-500" />
-								Premium models · weekly allowance
-							</div>
-							<span className="text-xs text-muted-foreground tabular-nums">
-								${premiumWeeklyLimit.toFixed(2)}/week
-							</span>
-						</div>
-						<WeeklyAllowanceMeter
-							used={premiumCreditsUsed}
-							limit={premiumWeeklyLimit}
-							resetsAt={premiumWeekResetsAt}
-							resetPassAvailable={!monthlyExhausted}
-							overflowCovering={paygAvailable}
-						/>
-						{!monthlyExhausted && (
-							<ResetPassCard
-								tier={tierKey}
-								organizationId={organizationId}
-								purchased={resetPasses}
-								includedTotal={includedResetPasses}
-								includedRemaining={includedResetPassesRemaining}
-								price={resetPassPrice}
-								premiumCreditsUsed={premiumCreditsUsed}
-								premiumWeeklyLimit={premiumWeeklyLimit}
-								cycleCreditsUsed={creditsUsed}
-								cycleCreditsLimit={creditsLimit}
-							/>
-						)}
-					</div>
+				{premiumWeeklyLimit > 0 && !monthlyExhausted && (
+					<ResetPassCard
+						tier={tierKey}
+						organizationId={organizationId}
+						purchased={resetPasses}
+						includedTotal={includedResetPasses}
+						includedRemaining={includedResetPassesRemaining}
+						price={resetPassPrice}
+						premiumCreditsUsed={premiumCreditsUsed}
+						premiumWeeklyLimit={premiumWeeklyLimit}
+						cycleCreditsUsed={creditsUsed}
+						cycleCreditsLimit={creditsLimit}
+					/>
 				)}
 			</div>
 

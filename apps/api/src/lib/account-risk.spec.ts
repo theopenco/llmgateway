@@ -393,6 +393,68 @@ describe("admin flagged accounts routes", () => {
 		expect((await listed.json()).accounts).toEqual([]);
 	});
 
+	test("chat support detail shows the visitor's restricted organizations", async () => {
+		await db.insert(tables.chatSupportConversation).values({
+			id: "risk-chat",
+			email: "FLAGGED@example.com",
+		});
+
+		const res = await app.request("/admin/chat-support-logs/risk-chat", {
+			headers: { Cookie: cookie },
+		});
+
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.account).toMatchObject({
+			userId: "flagged-user",
+			email: "flagged@example.com",
+			status: "active",
+			risk: {
+				status: "flagged",
+				source: "signup",
+				ipAddress: abusiveIp,
+				abuseConfidenceScore: 100,
+				countryCode: "NL",
+			},
+			organizations: [
+				expect.objectContaining({
+					id: "flagged-org",
+					kind: "default",
+					role: "owner",
+					riskFlagged: true,
+				}),
+			],
+		});
+	});
+
+	test("chat support detail has no account for an unknown email", async () => {
+		await db.insert(tables.chatSupportConversation).values({
+			id: "unknown-chat",
+			email: "nobody@example.com",
+		});
+
+		const res = await app.request("/admin/chat-support-logs/unknown-chat", {
+			headers: { Cookie: cookie },
+		});
+
+		expect(res.status).toBe(200);
+		expect((await res.json()).account).toBe(null);
+	});
+
+	test("organization members carry their risk review state", async () => {
+		const res = await app.request("/admin/organizations/flagged-org/members", {
+			headers: { Cookie: cookie },
+		});
+
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.members[0].user).toMatchObject({
+			id: "flagged-user",
+			status: "active",
+			risk: { status: "flagged", abuseConfidenceScore: 100 },
+		});
+	});
+
 	test("returns 404 for an unknown user", async () => {
 		const res = await app.request("/admin/flagged-accounts/nope/approve", {
 			method: "POST",

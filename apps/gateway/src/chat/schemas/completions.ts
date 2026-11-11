@@ -10,6 +10,23 @@ export const reasoningDetailsSchema = z.array(
 		.passthrough(),
 );
 
+export const svgOptionsSchema = z.object({
+	model: z.string().min(1),
+	reasoning: z
+		.object({
+			effort: z
+				.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
+				.nullable()
+				.optional(),
+		})
+		.nullable()
+		.optional(),
+});
+export const imageAnimationFields = {
+	frame_count: z.number().int().min(2).max(16).optional(),
+	frame_duration_ms: z.number().int().min(20).max(2000).optional(),
+};
+export const imageMarkupSchema = z.object({ image_url: z.string().min(1) });
 export const completionsRequestSchema = z.object({
 	model: z.string().openapi({
 		example: "gpt-5",
@@ -238,7 +255,7 @@ export const completionsRequestSchema = z.object({
 				json_schema: z.object({
 					name: z.string(),
 					description: z.string().optional(),
-					schema: z.record(z.any()),
+					schema: z.record(z.string(), z.any()),
 					strict: z.boolean().optional(),
 				}),
 			}),
@@ -306,6 +323,10 @@ export const completionsRequestSchema = z.object({
 				"OpenAI explicit prompt caching options (GPT-5.6 and later). mode 'implicit' (default) places an automatic cache breakpoint at the latest message; 'explicit' caches only content parts marked with prompt_cache_breakpoint. Only forwarded for OpenAI models that support explicit prompt caching.",
 			example: { mode: "explicit" },
 		}),
+	safety_identifier: z.string().max(128).nullable().optional().openapi({
+		description:
+			"Opaque end-user identifier stored in log params.safety_identifier. Never forwarded upstream; credits requests use the fixed LLM Gateway API-key identifier instead.",
+	}),
 	user: z
 		.string()
 		.nullable()
@@ -324,7 +345,7 @@ export const completionsRequestSchema = z.object({
 					function: z.object({
 						name: z.string(),
 						description: z.string().optional(),
-						parameters: z.record(z.any()).optional(),
+						parameters: z.record(z.string(), z.any()).optional(),
 						strict: z.boolean().optional().openapi({
 							description:
 								"Ask the provider to constrain tool arguments to the schema. Forwarded to OpenAI-compatible providers and, as Anthropic's tool-level `strict`, to the Anthropic Messages API. Dropped for providers without an equivalent.",
@@ -333,6 +354,10 @@ export const completionsRequestSchema = z.object({
 					allowed_callers: z.array(z.string()).optional().openapi({
 						description:
 							"Anthropic only. Which callers may invoke the tool (programmatic tool calling). Stripped for every other provider.",
+					}),
+					eager_input_streaming: z.boolean().optional().openapi({
+						description:
+							"Anthropic only. Streams the tool input as the model generates it (fine-grained tool streaming) instead of buffering each parameter until it validates. Claude on AWS Bedrock gets it as the request-wide fine-grained tool streaming beta when every tool sets it. Stripped for every other provider.",
 					}),
 					defer_loading: z.boolean().optional().openapi({
 						description:
@@ -374,6 +399,10 @@ export const completionsRequestSchema = z.object({
 					max_uses: z.number().optional(),
 					allowed_domains: z.array(z.string()).optional(),
 					blocked_domains: z.array(z.string()).optional(),
+					external_web_access: z.boolean().optional().openapi({
+						description:
+							"OpenAI's live-access switch. `false` requests cache-only search: forwarded to OpenAI's Responses API, and on every other provider the tool is dropped instead of running a live search. Omitted or `true` is live search.",
+					}),
 				}),
 				z
 					.object({
@@ -550,9 +579,17 @@ export const completionsRequestSchema = z.object({
 				.enum(["low", "medium", "high", "xhigh", "max", "auto"])
 				.optional(),
 			moderation: z.enum(["auto", "low"]).optional(),
+			complexity: z.enum(["low", "medium", "high"]).optional(),
+			background: z.string().optional(),
+			output_format: z.string().optional(),
+			...imageAnimationFields,
+			markup: imageMarkupSchema.optional(),
+			svg: svgOptionsSchema.nullable().optional(),
+			output_compression: z.number().optional(),
 			n: z.number().optional(),
 			seed: z.number().optional(),
 		})
+		.superRefine(validateImageAnimation)
 		.optional(),
 	// OpenAI Chat Completions web search options
 	web_search_options: z
@@ -604,3 +641,30 @@ export const completionsRequestSchema = z.object({
 });
 
 export type CompletionsRequest = z.infer<typeof completionsRequestSchema>;
+
+export function validateImageAnimation(
+	value: {
+		output_format?: string;
+		frame_count?: number;
+		frame_duration_ms?: number;
+		output_compression?: number;
+	},
+	ctx: z.RefinementCtx,
+): void {
+	for (const field of ["frame_count", "frame_duration_ms"] as const) {
+		if (value[field] !== undefined && value.output_format !== "gif") {
+			ctx.addIssue({
+				code: "custom",
+				path: [field],
+				message: `${field} requires output_format=gif.`,
+			});
+		}
+	}
+	if (value.output_format === "gif" && value.output_compression !== undefined) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["output_compression"],
+			message: "output_compression is not supported with GIF output.",
+		});
+	}
+}

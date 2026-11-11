@@ -1,27 +1,28 @@
 /* eslint-disable no-console */
 /**
- * Send a one-off email to every user with an ACTIVE DevPass subscription,
- * including users who cancelled but whose subscription is still active until
- * the end of the current billing period.
+ * Send a one-off email to a DevPass audience:
  *
- * "Active" means the user's devpass organization has:
- *   - kind = 'devpass'
- *   - devPlan != 'none'
- *   - a linked Stripe subscription (devPlanStripeSubscriptionId is set)
- *   - and either: not cancelled, OR cancelled but devPlanExpiresAt is still in
- *     the future (cancelled-but-still-active grace period).
+ *   active     Everyone whose plan still runs, including a cancelled plan
+ *              inside its paid period. The default.
+ *   past       People who paid for a plan once and have none now (win-back).
+ *   past-due   Running plans whose last renewal payment failed.
  *
- * Recipients are de-duplicated by email (a user could own multiple devpass orgs).
+ * Every audience leaves out deactivated users, unverified addresses, and
+ * organizations that are disabled, deleted or flagged as high risk. Recipients
+ * are de-duplicated by email, and addresses that unsubscribed from marketing
+ * email are skipped.
  *
  * Usage:
  *   # dry run: print the resolved recipient list and exit without sending
- *   pnpm --filter @llmgateway/scripts send-devpass --subject="..." --body=body.txt --dry-run
+ *   pnpm --filter @llmgateway/scripts send-devpass --audience=past --dry-run
  *
  *   # actually send
  *   RESEND_API_KEY=re_xxx pnpm --filter @llmgateway/scripts send-devpass \
- *     --subject="Important DevPass update" --body=body.txt
+ *     --audience=past --subject="Unused DevPass allowance now carries over" \
+ *     --body=body.txt
  *
  * Flags:
+ *   --audience=...    active (default), past or past-due.
  *   --subject="..."   Email subject line (required to send).
  *   --body=path.txt   Path to a UTF-8 text file with the email body (required to send).
  *   --dry-run         Resolve recipients and print them, but do not send.
@@ -35,91 +36,41 @@ import { readFileSync } from "fs";
 
 import { Resend } from "resend";
 
-import {
-	and,
-	db,
-	eq,
-	gt,
-	isEmailSuppressed,
-	isNotNull,
-	ne,
-	or,
-	tables,
-} from "@llmgateway/db";
+import { isEmailSuppressed } from "@llmgateway/db";
 import {
 	buildUnsubscribeHeaders,
 	renderFooterText,
 	signUnsubscribeToken,
 } from "@llmgateway/shared/email-unsubscribe";
 
+import {
+	parseSendArgs,
+	selectDevPassAudience,
+	type DevPassAudience,
+	type DevPassMembership,
+	type SendArgs,
+} from "./devpass-audiences.js";
+import { loadDevPassMemberships } from "./devpass-memberships.js";
+
 const FROM = "Luca from LLMGateway <contact@mail.llmgateway.io>";
 const REPLY_TO = "luca.steeb@llmgateway.io";
 const RATE_LIMIT_DELAY_MS = 600;
 const MAX_RETRIES = 5;
 
-interface Recipient {
-	email: string;
-	name: string | null;
-	devPlan: string;
-	cancelled: boolean;
-	expiresAt: Date | null;
-}
-
-function getArg(name: string): string | undefined {
-	const flag = `--${name}=`;
-	const arg = process.argv.find((a) => a.startsWith(flag));
-	return arg?.slice(flag.length);
-}
-
-function hasFlag(name: string): boolean {
-	return process.argv.includes(`--${name}`);
-}
+type Recipient = DevPassMembership;
 
 async function sleep(ms: number) {
 	return await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function getActiveDevPassRecipients(): Promise<Recipient[]> {
-	const rows = await db
-		.select({
-			email: tables.user.email,
-			name: tables.user.name,
-			devPlan: tables.organization.devPlan,
-			cancelled: tables.organization.devPlanCancelled,
-			expiresAt: tables.organization.devPlanExpiresAt,
-		})
-		.from(tables.organization)
-		.innerJoin(
-			tables.userOrganization,
-			eq(tables.userOrganization.organizationId, tables.organization.id),
-		)
-		.innerJoin(
-			tables.user,
-			eq(tables.user.id, tables.userOrganization.userId),
-		)
-		.where(
-			and(
-				eq(tables.organization.kind, "devpass"),
-				ne(tables.organization.devPlan, "none"),
-				isNotNull(tables.organization.devPlanStripeSubscriptionId),
-				or(
-					eq(tables.organization.devPlanCancelled, false),
-					and(
-						eq(tables.organization.devPlanCancelled, true),
-						gt(tables.organization.devPlanExpiresAt, new Date()),
-					),
-				),
-			),
-		);
-
-	const byEmail = new Map<string, Recipient>();
-	for (const row of rows) {
-		const key = row.email.toLowerCase();
-		if (!byEmail.has(key)) {
-			byEmail.set(key, row);
-		}
+function describe(recipient: Recipient, audience: DevPassAudience): string {
+	if (audience === "past") {
+		return "had a plan, none now";
 	}
-	return [...byEmail.values()].sort((a, b) => a.email.localeCompare(b.email));
+	const plan = recipient.cancelled
+		? `${recipient.devPlan}, cancelled, active until ${recipient.expiresAt?.toISOString() ?? "?"}`
+		: `${recipient.devPlan}, active`;
+	return audience === "past-due" ? `${plan}, renewal payment failed` : plan;
 }
 
 async function sendWithRetry(
@@ -168,19 +119,25 @@ async function sendWithRetry(
 }
 
 async function main() {
-	const dryRun = hasFlag("dry-run");
-	const subject = getArg("subject");
-	const bodyPath = getArg("body");
+	let args: SendArgs;
+	try {
+		args = parseSendArgs(process.argv.slice(2));
+	} catch (error) {
+		console.error(error instanceof Error ? error.message : error);
+		process.exit(1);
+	}
+	const { audience, subject, bodyPath, dryRun } = args;
 
-	const recipients = await getActiveDevPassRecipients();
-	console.log(`Found ${recipients.length} active DevPass recipient(s).`);
+	const recipients = selectDevPassAudience(
+		await loadDevPassMemberships(),
+		audience,
+		new Date(),
+	);
+	console.log(`Found ${recipients.length} "${audience}" DevPass recipient(s).`);
 
 	if (dryRun) {
 		for (const r of recipients) {
-			const status = r.cancelled
-				? `cancelled, active until ${r.expiresAt?.toISOString() ?? "?"}`
-				: "active";
-			console.log(`- ${r.email} (${r.devPlan}, ${status})`);
+			console.log(`- ${r.email} (${describe(r, audience)})`);
 		}
 		console.log("\nDry run: no emails sent.");
 		return;

@@ -28,7 +28,9 @@ export function useDefaultProject() {
 		},
 	);
 
-	const isLoading = orgsLoading ?? (!!defaultOrg && projectsLoading);
+	// `??` would never reach the right-hand side (orgsLoading is a boolean),
+	// which made the hook report isError while projects were still loading.
+	const isLoading = orgsLoading || (!!defaultOrg && projectsLoading);
 
 	if (isLoading) {
 		return { data: null, isError: false, isLoading: true };

@@ -56,6 +56,7 @@ export {
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
+	DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
 	DEV_PLAN_RESET_PASS_PRICES,
 	DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE,
 	DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
@@ -65,6 +66,8 @@ export {
 	getDevPlanCycleUsageFraction,
 	getDevPlanDailyLimit,
 	getDevPlanPremiumWeeklyLimit,
+	getDevPlanRenewalCredits,
+	getDevPlanRenewalRolloverCap,
 	getDevPlanUpgradeCredits,
 	getIncludedResetPassesRemaining,
 	getRemainingDailyAllowance,
@@ -240,11 +243,7 @@ export {
 	LOUNGE_SOURCE,
 } from "./lounge-source.js";
 
-export {
-	getActiveProviderPromo,
-	MARKETING_STATS,
-	SCX_PROMO,
-} from "./marketing.js";
+export { MARKETING_STATS } from "./marketing.js";
 
 export {
 	type DiscordEmbed,
@@ -313,6 +312,8 @@ export {
 
 export {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_REGEX,
 	CUSTOM_PROVIDER_NAME_REGEX,
 	isProviderBaseUrlOverrideAllowed,
 	isProviderHostnameLabel,
@@ -338,6 +339,7 @@ export {
 export {
 	estimateChatMessageTokens,
 	estimateTokensFromText,
+	estimateTokensFromTextLength,
 	type TokenEstimateFallback,
 } from "./token-estimate.js";
 

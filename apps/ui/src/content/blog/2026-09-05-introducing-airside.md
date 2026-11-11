@@ -2,13 +2,13 @@
 id: "blog-introducing-airside"
 slug: "introducing-airside"
 date: "2026-09-05"
-updatedAt: "2026-09-25"
+updatedAt: "2026-11-05"
 title: "Introducing Airside: List Your Models on LLM Gateway"
 summary: "Airside is the self-serve carrier console where LLM providers claim their listing on LLM Gateway, register models, file prices for review, and tune the discount and margin that win routed traffic. Listing costs a one-time $2,500 fee per provider company, and every model is verified live before it goes on the departure board, with a per-request breakdown of what your endpoint served."
 categories: ["Announcements"]
 faqs:
   - question: "How do I list my LLM provider on LLM Gateway?"
-    answer: "Sign up at airside.llmgateway.io with your company email. If its domain matches your API endpoint's domain or your published website, your existing catalogue entry is claimable; otherwise register a new carrier by pointing Airside at your API. Every claim is reviewed by the LLM Gateway team, and listing carries a one-time $2,500 fee per provider company unless you have an invite code."
+    answer: "Sign up at airside.llmgateway.io with your company email. If its domain matches your API endpoint's domain or your published website, your existing catalogue entry is claimable; otherwise register a new carrier by pointing Airside at your API. Every claim is reviewed by the LLM Gateway team, and listing carries a one-time $2,500 fee per provider company unless you have an invite code. Preflight and live traffic use the same provider key; no separate test key is needed."
   - question: "What does it cost to list a model on LLM Gateway?"
     answer: "A one-time $2,500 listing fee per provider company, paid through Stripe during onboarding. There is no subscription and no minimum volume. Once listed, you share the gateway margin you accept, called the landing fee, on the traffic you win, with a baseline of 20%."
   - question: "How does LLM Gateway decide which provider serves a request?"
@@ -55,9 +55,11 @@ Listed prices are what developers are billed, so pricing never changes silently.
 
 ## Every listing is verified before it flies
 
-A listing is a set of claims, and a wrong claim costs developers a `400`. So before a model can be filed, Airside runs a **preflight verification** against your endpoint. You paste a provider API key once: it is stored encrypted as your carrier's **test key**, reused by later runs (yours and ours), and can be replaced or removed under **Settings**. Use a key separate from your live integration, since preflight traffic is billed by your own platform. Then pick the upstream API the gateway should speak (carrier default, OpenAI Chat Completions, OpenAI Responses, or Google Vertex `generateContent`), and every capability you declared gets its own live check:
+A listing is a set of claims, and a wrong claim costs developers a `400`. So before a model can be filed, Airside runs a **preflight verification** against your endpoint using the same saved **provider key** as live traffic. A new carrier supplies this one key with its first preflight; it is stored encrypted, and replacements are smoke-tested and reviewed under **Settings**. Previously saved test keys are no longer used. You do not need to remove them or resubmit an existing provider key.
 
-![Registering a model with capability flags, upstream API, and preflight verification](/blog/airside/register-model.png)
+Preflight, benchmarks/load tests and enabled scheduled checks consume real usage on this same provider-key account. LLM Gateway logs those requests as inference and bills its operator project, so usage is included on both sides for accounting, billing and reconciliation. Your agreed carrier billing mode is unchanged. Enter proposed prices before preflight, pick the upstream API the gateway should speak, and every capability you declare gets its own live check:
+
+![Registering a model with one provider key for preflight and live traffic](/blog/airside/register-model.png)
 
 | Check            | Runs when you declare    |
 | ---------------- | ------------------------ |
@@ -76,9 +78,9 @@ Results come back per check, and each check lists every upstream request it actu
 
 That distinction matters. A refused `tool_choice` mode or `reasoning_effort` tier comes off your declared set while the capability stays on, so a deployment that implements a subset verifies without you knowing the subset in advance. A check that fails outright is **reported, not enforced**: the listing stays exactly as you declared it and Fleet marks it **In service · unverified** until a run passes again. One refused request is as easily a transient fault as a missing capability, so fixing the endpoint or switching the flag off stays your call.
 
-Editing a model after its preflight invalidates the run, and existing listings can be re-verified at any time. On a live listing, a capability you have edited is verified as filed, not as currently serving, so the run actually exercises what you are trying to prove. The verified capabilities appear as badges on the model's provider page on llmgateway.io, which is what developers and routing read.
+Changing the deployment, adding capabilities or raising limits needs new preflight; descriptive edits and narrowing existing claims do not. Existing listings can be re-verified at any time. On a live listing, a capability you have edited is verified as filed, not as currently serving, so the run actually exercises what you are trying to prove. The verified capabilities appear as badges on the model's provider page on llmgateway.io, which is what developers and routing read.
 
-![Carrier settings with the saved preflight test key](/blog/airside/settings.png)
+![Carrier settings using one saved provider key for traffic and tests](/blog/airside/settings.png)
 
 ## Fares: two knobs that move routing
 

@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { KeyRound, Loader2, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -138,99 +139,6 @@ function KeyForm({
 	);
 }
 
-function TestingKeySection({ claim }: { claim: Claim }) {
-	const api = useApi();
-	const invalidate = useInvalidateCompanies();
-	const onError = (fallback: string) => (error: unknown) => {
-		toast.error((error as { message?: string })?.message ?? fallback);
-	};
-	const saveKey = api.useMutation(
-		"put",
-		"/airside/claims/{id}/verification-key",
-		{
-			onSuccess: async () => {
-				await invalidate();
-				toast.success("Testing key saved.");
-			},
-			onError: onError("Failed to save the key"),
-		},
-	);
-	const removeKey = api.useMutation(
-		"delete",
-		"/airside/claims/{id}/verification-key",
-		{
-			onSuccess: async () => {
-				await invalidate();
-				toast.success("Testing key removed.");
-			},
-			onError: onError("Failed to remove the key"),
-		},
-	);
-
-	return (
-		<KeySection
-			title="Testing key"
-			description="Runs preflight and verification — yours from Fleet and ours against your listings. Billed by your own platform; not tracked in LLM Gateway usage."
-			testId={`verification-key-${claim.providerId}`}
-		>
-			{claim.verificationKeyMasked ? (
-				<KeyStatusRow
-					label="Saved"
-					masked={claim.verificationKeyMasked}
-					maskedTestId={`verification-key-masked-${claim.providerId}`}
-					meta={<RelativeDate date={claim.verificationKeySetAt} />}
-					action={
-						<Button
-							type="button"
-							size="sm"
-							variant="outline"
-							data-testid={`verification-key-remove-${claim.providerId}`}
-							disabled={removeKey.isPending}
-							onClick={() =>
-								removeKey.mutate({ params: { path: { id: claim.id } } })
-							}
-						>
-							{removeKey.isPending ? (
-								<Loader2 className="size-4 animate-spin" />
-							) : (
-								<Trash2 className="size-4" />
-							)}
-							Remove
-						</Button>
-					}
-				/>
-			) : (
-				<p className="text-muted-foreground text-sm">
-					No test key saved — preflight asks for one on every run.
-				</p>
-			)}
-			<KeyForm
-				inputId={`verification-key-input-${claim.providerId}`}
-				label={`Testing key for ${claim.providerName}`}
-				placeholder={
-					claim.verificationKeyMasked
-						? "Paste a new key to replace it"
-						: "A key that can call your models"
-				}
-				submitLabel={
-					saveKey.isPending
-						? "Saving…"
-						: claim.verificationKeyMasked
-							? "Replace"
-							: "Save"
-				}
-				pending={saveKey.isPending}
-				onSubmit={(apiKey, reset) =>
-					saveKey.mutate(
-						{ params: { path: { id: claim.id } }, body: { apiKey } },
-						{ onSuccess: reset },
-					)
-				}
-			/>
-		</KeySection>
-	);
-}
-
 function ProviderKeySection({ claim }: { claim: Claim }) {
 	const api = useApi();
 	const invalidate = useInvalidateCompanies();
@@ -263,7 +171,7 @@ function ProviderKeySection({ claim }: { claim: Claim }) {
 	return (
 		<KeySection
 			title="Provider key"
-			description="Serves your live LLM Gateway traffic. Filed with your first model; a replacement is smoke-tested against one of your listings and takes over once we approve it."
+			description="Used for live traffic, preflight and automated tests. Filed with your first model; replacements are smoke-tested and reviewed before taking over."
 			testId={`provider-key-${claim.providerId}`}
 		>
 			{claim.providerKey ? (
@@ -352,6 +260,20 @@ function BillingSection({ claim }: { claim: Claim }) {
 			<p className="text-muted-foreground text-sm">
 				{AIRSIDE_BILLING_MODE_DESCRIPTIONS[claim.billingMode]}
 			</p>
+			{claim.billingMode === "payout" ? (
+				<p className="text-muted-foreground text-sm">
+					Your monthly statements are under{" "}
+					<Link href="/dashboard/payouts" className="text-primary underline">
+						Payouts
+					</Link>
+					.
+				</p>
+			) : null}
+			<p className="text-muted-foreground text-sm">
+				Airside test requests consume usage on the same provider-key account. We
+				log and bill them to our gateway project for reconciliation; your agreed
+				billing mode stays the same.
+			</p>
 		</KeySection>
 	);
 }
@@ -368,14 +290,15 @@ function CarrierKeysCard({ claim }: { claim: Claim }) {
 				</CardTitle>
 				<CardDescription>
 					{claim.kind === "custom"
-						? "Two separate keys, so test traffic bills apart from live traffic. Both are stored encrypted and only ever shown back to you masked."
-						: "We serve this carrier's traffic with our own credentials; you only supply the key preflight runs on. Stored encrypted and only ever shown back to you masked."}
+						? "One provider key is used for live traffic and Airside testing. Stored encrypted and only shown masked."
+						: "Airside tests and live traffic use this carrier's provider key managed by LLM Gateway."}{" "}
+					Previously saved test keys are no longer used; you do not need to
+					remove them.
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="divide-border divide-y">
 				<BillingSection claim={claim} />
 				{claim.kind === "custom" ? <ProviderKeySection claim={claim} /> : null}
-				<TestingKeySection claim={claim} />
 			</CardContent>
 		</Card>
 	);

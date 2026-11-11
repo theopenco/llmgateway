@@ -12,6 +12,8 @@ import { notFound } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
+import { VirtualModelBanner } from "@/components/models/virtual-model-banner";
+import { JsonLd } from "@/components/seo/json-ld";
 import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
 import {
@@ -179,27 +181,9 @@ export default async function ModelUptimePage({ params }: PageProps) {
 
 	return (
 		<>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(breadcrumbSchema),
-				}}
-			/>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(datasetSchema),
-				}}
-			/>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(faqSchema),
-				}}
-			/>
+			<JsonLd data={breadcrumbSchema} />
+			<JsonLd data={datasetSchema} />
+			<JsonLd data={faqSchema} />
 			<Navbar />
 			<div className="min-h-screen bg-background pt-24 md:pt-32 pb-16">
 				<div className="container mx-auto px-4 py-8">
@@ -213,6 +197,7 @@ export default async function ModelUptimePage({ params }: PageProps) {
 						</Link>
 					</div>
 
+					<VirtualModelBanner target={modelDef.virtualModelTarget} />
 					<header className="mb-8 max-w-3xl">
 						<div className="flex items-center gap-2 mb-3">
 							<Badge variant="outline" className="gap-1.5">
@@ -276,7 +261,9 @@ export default async function ModelUptimePage({ params }: PageProps) {
 								</p>
 							</div>
 						</div>
-						<ModelUptimeCharts modelId={decodedName} />
+						<ModelUptimeCharts
+							modelId={modelDef.virtualModelTarget ?? decodedName}
+						/>
 					</section>
 
 					<section className="mb-12">

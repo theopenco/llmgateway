@@ -4,7 +4,9 @@ import { atlascloudModels } from "./models/atlascloud.js";
 import { atriaModels } from "./models/atria.js";
 import { baaiModels } from "./models/baai.js";
 import { baiduModels } from "./models/baidu.js";
+import { blackForestLabsModels } from "./models/black-forest-labs.js";
 import { bytedanceModels } from "./models/bytedance.js";
+import { canopylabsModels } from "./models/canopylabs.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
 import { googleModels } from "./models/google.js";
@@ -32,7 +34,7 @@ import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
 
-import type { providers } from "./providers.js";
+import type { MappingDataPolicy, providers } from "./providers.js";
 
 export type Provider = (typeof providers)[number]["id"];
 
@@ -79,6 +81,12 @@ export const PROVIDER_API_FORMATS = [
 ] as const;
 
 export type ProviderApiFormat = (typeof PROVIDER_API_FORMATS)[number];
+
+/**
+ * API surfaces a single request can be sent on: the mapping formats plus
+ * `anthropic-messages`, which only `webSearchApiFormat` selects.
+ */
+export type RequestApiFormat = ProviderApiFormat | "anthropic-messages";
 
 /**
  * Pricing tier for models with context-length based pricing
@@ -310,6 +318,11 @@ export interface ProviderModelMapping {
 	 */
 	externalId: string;
 	/**
+	 * Overrides the provider's data policy for this mapping, when the upstream
+	 * model's retention terms differ from the provider default.
+	 */
+	dataPolicy?: MappingDataPolicy;
+	/**
 	 * Price per input token in USD
 	 */
 	inputPrice?: Price;
@@ -436,8 +449,10 @@ export interface ProviderModelMapping {
 	 * provider bills by output tokens (e.g. Gemini Omni). When the upstream
 	 * usage reports video output tokens, finalization bills them at this rate
 	 * instead of `perSecondPrice`, which still drives estimates and routing.
+	 * Records select `<resolution>_with_video` / `_without_video` or
+	 * `<resolution>_audio` / `_video`, with `default_` fallbacks.
 	 */
-	videoOutputPrice?: Price;
+	videoOutputPrice?: Price | Record<string, Price>;
 	/**
 	 * Price per generated output image in USD, keyed by resolution tier
 	 * (e.g. "1K", "2K") with a "default" fallback. For image models whose
@@ -569,6 +584,13 @@ export interface ProviderModelMapping {
 	 */
 	apiFormat?: ProviderApiFormat;
 	/**
+	 * API surface for requests carrying a `web_search` tool, when the
+	 * provider serves hosted search on a different surface than `apiFormat`
+	 * (e.g. DeepSeek: Responses API on V4 Pro, Anthropic Messages API on
+	 * Flash). Other requests keep `apiFormat`.
+	 */
+	webSearchApiFormat?: RequestApiFormat;
+	/**
 	 * AWS Bedrock OpenAI-format mappings only: the cross-region regions
 	 * (`global`, `us`, …) are real inference profiles, served by
 	 * bedrock-runtime under the region-prefixed model id. Without it every
@@ -628,6 +650,8 @@ export interface ProviderModelMapping {
 	 *   simpler prompts)
 	 */
 	reasoningOutput?: "omit";
+	/** Overrides the provider default for credential-bound reasoning payloads. */
+	encryptedReasoning?: boolean;
 	/** Responses API reasoning summary mode. Defaults to detailed. */
 	reasoningSummary?: "auto" | "detailed";
 	/**
@@ -648,8 +672,8 @@ export interface ProviderModelMapping {
 	 * (e.g. GPT-5 accepts `minimal`..`high`, GPT-5.6 accepts `none`..`max`,
 	 * Anthropic thinking models accept `low`..`max`), so each mapping declares
 	 * its own list. The gateway forwards effort values to the provider as-is
-	 * (unsupported values fail upstream); this metadata is exposed via the
-	 * models APIs so clients can present valid options. When unset, the
+	 * and excludes mappings that declare an incompatible effort during automatic
+	 * provider selection. The models APIs expose the list for clients. When unset, the
 	 * supported values are not (yet) declared for this mapping.
 	 */
 	reasoningEfforts?: ReasoningEffort[];
@@ -804,6 +828,12 @@ export interface ProviderModelMapping {
 	 * When true, requests are routed to a provider-specific image generation endpoint.
 	 */
 	imageGenerations?: boolean;
+	/**
+	 * Whether the image generation endpoint accepts `output_format: "svg"` and
+	 * returns a base64-encoded SVG document. Requests for SVG output are
+	 * rejected up front for mappings without this flag.
+	 */
+	svgOutput?: boolean;
 	/**
 	 * Whether this model uses a dedicated embeddings API.
 	 * When true, requests are routed to a provider-specific /v1/embeddings endpoint
@@ -969,6 +999,11 @@ export interface ModelDefinition {
 	 */
 	free?: boolean;
 	/**
+	 * Only organizations with enterprise access (KYC'd) may request this
+	 * model; everyone else gets a 403 and auto routing never selects it.
+	 */
+	enterpriseOnly?: boolean;
+	/**
 	 * Rate limit tier for free models (defaults to 'low' if not specified)
 	 * - low: Standard rate limits for free models
 	 * - high: More generous rate limits for free models
@@ -1018,6 +1053,8 @@ export interface ModelDefinition {
 	 * Date when the model was released by the provider
 	 */
 	releasedAt?: Date;
+	/** Aliases whose served model version may change. */
+	aliasesAreVirtual?: boolean;
 }
 
 export const models = [
@@ -1040,6 +1077,7 @@ export const models = [
 	...atriaModels,
 	...baaiModels,
 	...baiduModels,
+	...blackForestLabsModels,
 	...bytedanceModels,
 	...nousresearchModels,
 	...reveModels,
@@ -1050,6 +1088,7 @@ export const models = [
 	...openbmbModels,
 	...zaiModels,
 	...elevenlabsModels,
+	...canopylabsModels,
 	...typesafeModels,
 	...thinkingmachinesModels,
 	...stepfunModels,

@@ -11,10 +11,10 @@ import {
 } from "@/lib/airside-branding.js";
 import {
 	assertProviderKeyIsSeparate,
-	assertProviderKeyServes,
 	discardPendingProviderKey,
 	fileProviderKey,
-	latestListing,
+	smokeTestListing,
+	fileVerifiedProviderKey,
 } from "@/lib/airside-carrier-keys.js";
 import {
 	materializeAirsideModel,
@@ -53,6 +53,11 @@ import {
 	webSearchFormatValue,
 } from "@/lib/airside-metadata.js";
 import {
+	carrierNames,
+	payoutStatementSchema,
+	serializePayoutStatement,
+} from "@/lib/airside-payouts.js";
+import {
 	assertNoRequiredCleared,
 	effectiveClaimKind,
 	assertEditableProfile,
@@ -88,13 +93,11 @@ import {
 	buildVerificationTarget,
 	declaresPromptCaching,
 	listingDeclaresPromptCaching,
-	clearClaimVerificationKey,
 	enqueueModelVerification,
 	modelVerificationSchema,
 	pendingFiledCapabilities,
 	pickCapabilities,
 	resolveVerificationCredential,
-	saveClaimVerificationKey,
 	serializeVerification,
 	serializeVerificationHistoryEntry,
 	verificationActors,
@@ -103,17 +106,25 @@ import {
 	verificationTargetsMatch,
 	type CapabilityOverrides,
 	type ModelVerificationRow,
+	assertVerificationCredentialCurrent,
 } from "@/lib/model-verification.js";
 import { createRoute } from "@/utils/create-route.js";
-import { notifyAirsideCrewInvite } from "@/utils/discord.js";
+import {
+	notifyAirsideCrewInvite,
+	notifyAirsideFiling,
+} from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
-import { readProviderKey } from "@llmgateway/actions";
+import {
+	hasMessageContentVerification,
+	DAILY_MODEL_VERIFICATION_PREFIX,
+} from "@llmgateway/actions";
 import {
 	AIRSIDE_BASELINE_MARGIN,
 	AIRSIDE_DISCOUNT_MAX,
 	AIRSIDE_MARGIN_MAX,
 	AIRSIDE_MARGIN_MIN,
+	airsideCarrierTrafficByModel,
 	and,
 	catalogueMetadataFromMapping,
 	cdb,
@@ -136,6 +147,7 @@ import {
 	providers as catalogueProviders,
 } from "@llmgateway/models";
 import {
+	buildCsv,
 	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
 	providerBaseUrlHasEndpointPath,
 } from "@llmgateway/shared";
@@ -287,9 +299,12 @@ const proposedCapabilitiesSchema = z.object({
 	maxOutput: z.number().int().positive().nullish(),
 });
 
-const queueVerificationSchema = verificationMappingSchema.extend({
-	apiKey: z.string().min(1).max(20_000).optional(),
-});
+const queueVerificationSchema = verificationMappingSchema
+	.extend({
+		providerApiKey: z.string().trim().min(1).max(20_000).optional(),
+		pricing: pricingSchema,
+	})
+	.strict();
 
 const carrierKeySchema = z.object({
 	masked: z.string(),
@@ -318,10 +333,7 @@ const claimSchema = z.object({
 	// gateway has nothing to authenticate with, so an approved listing still
 	// serves no traffic — the portal says so instead of looking healthy.
 	hasManagedCredential: z.boolean(),
-	// The carrier's saved verification key, masked. Every preflight on this
-	// provider runs on it unless the carrier pastes another one.
-	verificationKeyMasked: z.string().nullable(),
-	verificationKeySetAt: z.string().nullable(),
+
 	// Custom carriers only: the provider key we serve traffic with, and a
 	// replacement awaiting admin approval. Resolved on the companies listing.
 	providerKey: carrierKeySchema.nullable(),
@@ -549,8 +561,7 @@ function serializeClaim(
 		// Unknown on the single-claim responses (nothing renders the warning
 		// off those); the companies listing the portal polls resolves it.
 		hasManagedCredential: credentialedProviders?.has(row.providerId) ?? true,
-		verificationKeyMasked: row.verificationKeyMasked,
-		verificationKeySetAt: row.verificationKeyUpdatedAt?.toISOString() ?? null,
+
 		providerKey: row.providerKeyId
 			? (carrierKeys?.get(row.providerKeyId) ?? null)
 			: null,
@@ -1037,10 +1048,8 @@ const createCompany = createRoute({
 						// Accepts the Airside Terms of Use (/legal/terms) and Privacy
 						// Notice (/legal/privacy).
 						acceptTerms: z.literal(true, {
-							errorMap: () => ({
-								message:
-									"Accept the Airside Terms of Use and Privacy Notice to create a company.",
-							}),
+							error:
+								"Accept the Airside Terms of Use and Privacy Notice to create a company.",
 						}),
 					}),
 				},
@@ -1435,20 +1444,46 @@ const requestCrewInvite = createRoute({
 	},
 });
 
-function describeListingFee(company: {
-	paymentStatus: "unpaid" | "paid";
-	paidAt: Date | null;
-	listingInviteCode: string | null;
-}): string {
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// "2026-10-20 (21 days ago)", so an old event never reads as a fresh one.
+function describeDay(date: Date, now: Date): string {
+	const days = Math.floor((now.getTime() - date.getTime()) / DAY_MS);
+	const ago =
+		days <= 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`;
+	return `${date.toISOString().slice(0, 10)} (${ago})`;
+}
+
+function describeListingFee(
+	company: {
+		paymentStatus: "unpaid" | "paid";
+		paidAt: Date | null;
+		listingInviteCode: string | null;
+	},
+	now: Date,
+): string {
 	if (company.paymentStatus === "unpaid") {
 		return airsideListingFeeRequired() ? "❌ Not paid" : "Not required";
 	}
-	if (company.listingInviteCode) {
-		return "✅ Waived (invite code)";
-	}
-	return company.paidAt
-		? `✅ Paid on ${company.paidAt.toISOString().slice(0, 10)}`
-		: "✅ Paid";
+	const when = company.paidAt ? ` on ${describeDay(company.paidAt, now)}` : "";
+	return company.listingInviteCode
+		? `✅ Waived with invite code${when}`
+		: `✅ Paid via Stripe${when}`;
+}
+
+function describeCarrier(
+	claim: {
+		providerId: string;
+		kind: string;
+		status: string;
+		createdAt: Date;
+		reviewedAt: Date | null;
+	},
+	now: Date,
+): string {
+	const since = claim.status === "pending" ? claim.createdAt : claim.reviewedAt;
+	const label = `${claim.providerId} (${claim.kind}): ${claim.status}`;
+	return since ? `${label} since ${describeDay(since, now)}` : label;
 }
 
 /**
@@ -1467,14 +1502,16 @@ airside.openapi(requestCrewInvite, async (c) => {
 	if (!company) {
 		throw new HTTPException(404, { message: "Provider company not found" });
 	}
+	const now = new Date();
 	await notifyAirsideCrewInvite({
 		companyName: company.name,
 		email: user.email,
 		website: company.website,
+		registered: describeDay(company.createdAt, now),
 		carriers: company.claims
 			.filter((claim) => claim.status !== "revoked")
-			.map((claim) => `${claim.providerId} (${claim.kind}, ${claim.status})`),
-		listingFee: describeListingFee(company),
+			.map((claim) => describeCarrier(claim, now)),
+		listingFee: describeListingFee(company, now),
 	});
 	return c.json({ email: user.email });
 });
@@ -2182,6 +2219,7 @@ airside.openapi(createClaim, async (c) => {
 		match.matchedDomain,
 		user.email,
 	);
+	await notifyAirsideFiling({ kind: "claim", id: claim.id, providerId });
 	const providerNames = providerNamesById;
 	return c.json({ claim: serializeClaim(claim, providerNames) }, 201);
 });
@@ -2364,6 +2402,7 @@ airside.openapi(registerCarrier, async (c) => {
 		matchedDomain,
 		user.email,
 	);
+	await notifyAirsideFiling({ kind: "claim", id: claim.id, providerId });
 	return c.json({ claim: serializeClaim(claim, providerNamesById) }, 201);
 });
 
@@ -2447,6 +2486,11 @@ airside.openapi(updateClaimBranding, async (c) => {
 	if (!updated) {
 		throw new HTTPException(404, { message: "Claim not found" });
 	}
+	await notifyAirsideFiling({
+		kind: "branding",
+		id: claim.id,
+		providerId: claim.providerId,
+	});
 	return c.json({ claim: serializeClaim(updated, providerNamesById) });
 });
 
@@ -2511,80 +2555,6 @@ airside.openapi(updateClaimProfile, async (c) => {
 	return c.json({ claim: serializeClaim(updated, providerNamesById) });
 });
 
-const verificationKeySchema = z.object({
-	verificationKeyMasked: z.string().nullable(),
-	verificationKeySetAt: z.string().nullable(),
-});
-
-async function requireOwnedActiveClaim(userId: string, claimId: string) {
-	const claim = await db.query.providerClaim.findFirst({
-		where: { id: { eq: claimId } },
-	});
-	if (!claim) {
-		throw new HTTPException(404, { message: "Claim not found" });
-	}
-	await requireCompanyMembership(userId, claim.providerCompanyId);
-	if (claim.status !== "active") {
-		throw new HTTPException(409, {
-			message: "Only an active claim can hold a verification key.",
-		});
-	}
-	return claim;
-}
-
-const setVerificationKey = createRoute({
-	method: "put",
-	path: "/claims/{id}/verification-key",
-	request: {
-		params: z.object({ id: z.string() }),
-		body: {
-			content: {
-				"application/json": {
-					schema: z.object({ apiKey: z.string().min(1).max(20_000) }),
-				},
-			},
-		},
-	},
-	responses: {
-		200: {
-			content: {
-				"application/json": { schema: verificationKeySchema },
-			},
-			description: "The saved verification key, masked.",
-		},
-	},
-});
-
-airside.openapi(setVerificationKey, async (c) => {
-	const user = requireVerifiedUser(c.get("user"));
-	const { id } = c.req.valid("param");
-	const { apiKey } = c.req.valid("json");
-	const claim = await requireOwnedActiveClaim(user.id, id);
-	return c.json(await saveClaimVerificationKey(claim, apiKey));
-});
-
-const deleteVerificationKey = createRoute({
-	method: "delete",
-	path: "/claims/{id}/verification-key",
-	request: { params: z.object({ id: z.string() }) },
-	responses: {
-		200: {
-			content: {
-				"application/json": { schema: verificationKeySchema },
-			},
-			description: "The cleared verification key.",
-		},
-	},
-});
-
-airside.openapi(deleteVerificationKey, async (c) => {
-	const user = requireVerifiedUser(c.get("user"));
-	const { id } = c.req.valid("param");
-	await requireOwnedActiveClaim(user.id, id);
-	await clearClaimVerificationKey(id);
-	return c.json({ verificationKeyMasked: null, verificationKeySetAt: null });
-});
-
 // A custom carrier's provider key serves live traffic, so a replacement only
 // takes over once an admin approves it (admin-airside provider-key/approve).
 const pendingProviderKeySchema = z.object({
@@ -2643,14 +2613,14 @@ airside.openapi(submitProviderKey, async (c) => {
 	await assertProviderKeyIsSeparate(claim, apiKey);
 	// Only a key smoke-tested against one of the carrier's listings reaches
 	// review; before the first listing, the key is filed with that model.
-	const listing = await latestListing(claim);
+	const listing = await smokeTestListing(claim);
 	if (!listing) {
 		throw new HTTPException(409, {
 			message:
 				"Submit your provider key with your first model — we smoke-test it against that model.",
 		});
 	}
-	await assertProviderKeyServes(
+	const pendingProviderKey = await fileVerifiedProviderKey(
 		claim,
 		apiKey,
 		buildVerificationTarget({
@@ -2660,10 +2630,13 @@ airside.openapi(submitProviderKey, async (c) => {
 			apiFormat: listing.apiFormat,
 			decisions: listing.decisions,
 		}),
+		c.req.raw.headers,
 	);
-	const pendingProviderKey = await cdb.transaction(
-		async (tx) => await fileProviderKey(tx, claim, apiKey),
-	);
+	await notifyAirsideFiling({
+		kind: "provider-key",
+		id: claim.id,
+		providerId: claim.providerId,
+	});
 	return c.json({ pendingProviderKey });
 });
 
@@ -2823,15 +2796,23 @@ airside.openapi(queueNewModelVerification, async (c) => {
 	}
 	assertDecisionProvider(body.providerId, body.decisions ?? false);
 	await assertListingKind(body.modelName, body.decisions ?? false);
-	const target = verificationTarget(body);
-	const credential = await resolveVerificationCredential(
-		target,
-		body.apiKey,
-		claim,
-	);
-	if (body.apiKey) {
-		await saveClaimVerificationKey(claim, body.apiKey);
+	const target = { ...verificationTarget(body), pricing: body.pricing };
+	if (body.providerApiKey) {
+		if (effectiveClaimKind(claim) !== "custom" || claim.providerKeyId) {
+			throw new HTTPException(400, {
+				message:
+					"A provider key is already configured — replace it under Settings.",
+			});
+		}
+		await cdb.transaction(async (tx) => {
+			await fileProviderKey(tx, claim, body.providerApiKey!);
+		});
+		const refreshed = await db.query.providerClaim.findFirst({
+			where: { id: { eq: claim.id } },
+		});
+		claim.pendingProviderKeyId = refreshed!.pendingProviderKeyId;
 	}
+	const credential = await resolveVerificationCredential(target, claim);
 	let verification: ModelVerificationRow;
 	try {
 		verification = await db.transaction(async (tx) => {
@@ -2863,7 +2844,7 @@ airside.openapi(queueNewModelVerification, async (c) => {
 				{
 					providerCompanyId: body.providerCompanyId,
 					target,
-					apiKey: credential.apiKey,
+
 					requestedBy: user.id,
 					credentialSource: credential.credentialSource,
 				},
@@ -2921,13 +2902,14 @@ const queueExistingModelVerification = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						apiKey: z.string().min(1).max(20_000).optional(),
-						// Capabilities to verify instead of the ones on the saved
-						// row, so a carrier can preflight an edit before filing it.
-						// The pair itself is immutable and always comes from the row.
-						proposed: proposedCapabilitiesSchema.optional(),
-					}),
+					schema: z
+						.object({
+							// Capabilities to verify instead of the ones on the saved
+							// row, so a carrier can preflight an edit before filing it.
+							// The pair itself is immutable and always comes from the row.
+							proposed: proposedCapabilitiesSchema.optional(),
+						})
+						.strict(),
 				},
 			},
 		},
@@ -2947,7 +2929,7 @@ const queueExistingModelVerification = createRoute({
 airside.openapi(queueExistingModelVerification, async (c) => {
 	const user = requireVerifiedUser(c.get("user"));
 	const { id } = c.req.valid("param");
-	const { apiKey, proposed } = c.req.valid("json");
+	const { proposed } = c.req.valid("json");
 	const model = await db.query.providerDraftModel.findFirst({
 		where: { id: { eq: id } },
 	});
@@ -2983,17 +2965,14 @@ airside.openapi(queueExistingModelVerification, async (c) => {
 		},
 		await listingDeclaresPromptCaching(model.id),
 	);
-	const credential = await resolveVerificationCredential(target, apiKey, claim);
-	if (apiKey) {
-		await saveClaimVerificationKey(claim, apiKey);
-	}
+	const credential = await resolveVerificationCredential(target, claim);
 	let verification: ModelVerificationRow;
 	try {
 		verification = await enqueueModelVerification({
 			providerCompanyId: model.providerCompanyId,
 			draftModelId: model.id,
 			target,
-			apiKey: credential.apiKey,
+
 			requestedBy: user.id,
 			credentialSource: credential.credentialSource,
 		});
@@ -3102,44 +3081,44 @@ const createModel = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						verificationId: z.string(),
-						// A registered carrier's first model carries the key we
-						// serve its traffic with, reviewed alongside the model.
-						providerKey: z.string().trim().min(1).max(20_000).optional(),
-						providerCompanyId: z.string(),
-						providerId: z.string(),
-						modelName: z.string().min(1).max(200),
-						// Defaults to modelName. Immutable once listed.
-						externalId: z.string().min(1).max(200).optional(),
-						apiFormat: providerApiFormatValue.optional(),
-						// Serves typed decisions on `POST /v1/decisions`.
-						decisions: z.boolean().optional(),
-						displayName: z.string().max(200).optional(),
-						description: z.string().max(2000).optional(),
-						quantization: quantizationValue.nullish(),
-						family: z.string().min(1).max(100),
-						contextSize: z.number().int().positive().optional(),
-						maxOutput: z.number().int().positive().optional(),
-						streaming: z.boolean().optional(),
-						vision: z.boolean().optional(),
-						audio: z.boolean().optional(),
-						tools: z.boolean().optional(),
-						supportedToolChoices: supportedToolChoicesValue.nullish(),
-						jsonOutput: z.boolean().optional(),
-						jsonOutputSchema: z.boolean().optional(),
-						reasoning: z.boolean().optional(),
-						reasoningMaxTokens: z.boolean().optional(),
-						reasoningEfforts: reasoningEffortsValue.nullish(),
-						webSearch: z.boolean().optional(),
-						webSearchFormat: webSearchFormatValue.nullish(),
-						maxRpm: z.number().int().positive().optional(),
-						maxRpd: z.number().int().positive().optional(),
-						rateLimitScope: z.enum(["global", "per_org"]).optional(),
-						rateLimitMode: z.enum(["strict", "soft"]).optional(),
-						pricing: pricingSchema,
-						note: z.string().max(1000).optional(),
-					}),
+					schema: z
+						.object({
+							verificationId: z.string(),
+
+							providerCompanyId: z.string(),
+							providerId: z.string(),
+							modelName: z.string().min(1).max(200),
+							// Defaults to modelName. Immutable once listed.
+							externalId: z.string().min(1).max(200).optional(),
+							apiFormat: providerApiFormatValue.optional(),
+							// Serves typed decisions on `POST /v1/decisions`.
+							decisions: z.boolean().optional(),
+							displayName: z.string().max(200).optional(),
+							description: z.string().max(2000).optional(),
+							quantization: quantizationValue.nullish(),
+							family: z.string().min(1).max(100),
+							contextSize: z.number().int().positive().optional(),
+							maxOutput: z.number().int().positive().optional(),
+							streaming: z.boolean().optional(),
+							vision: z.boolean().optional(),
+							audio: z.boolean().optional(),
+							tools: z.boolean().optional(),
+							supportedToolChoices: supportedToolChoicesValue.nullish(),
+							jsonOutput: z.boolean().optional(),
+							jsonOutputSchema: z.boolean().optional(),
+							reasoning: z.boolean().optional(),
+							reasoningMaxTokens: z.boolean().optional(),
+							reasoningEfforts: reasoningEffortsValue.nullish(),
+							webSearch: z.boolean().optional(),
+							webSearchFormat: webSearchFormatValue.nullish(),
+							maxRpm: z.number().int().positive().optional(),
+							maxRpd: z.number().int().positive().optional(),
+							rateLimitScope: z.enum(["global", "per_org"]).optional(),
+							rateLimitMode: z.enum(["strict", "soft"]).optional(),
+							pricing: pricingSchema,
+							note: z.string().max(1000).optional(),
+						})
+						.strict(),
 				},
 			},
 		},
@@ -3236,49 +3215,16 @@ airside.openapi(createModel, async (c) => {
 		...body,
 		promptCaching: declaresPromptCaching(body.pricing),
 	});
-	if (!verificationTargetsMatch(verification.target, target)) {
+	if (
+		!verificationTargetsMatch(verification.target, target) ||
+		!hasMessageContentVerification(target, verification.checks)
+	) {
 		throw new HTTPException(409, {
 			message:
 				"The mapping changed after verification. Run verification again.",
 		});
 	}
-	// Preflight ran on the testing key; the key we serve traffic with must
-	// reach this model too before the listing goes to review. A registered
-	// carrier's first model brings that key along.
-	const keyOnFile = claim.providerKeyId ?? claim.pendingProviderKeyId;
-	const firstProviderKey =
-		effectiveClaimKind(claim) === "custom" && !keyOnFile
-			? body.providerKey
-			: undefined;
-	if (
-		effectiveClaimKind(claim) === "custom" &&
-		!keyOnFile &&
-		!firstProviderKey
-	) {
-		throw new HTTPException(400, {
-			message:
-				"Add your provider key — the key we serve your traffic with. It is smoke-tested against this model and reviewed with it.",
-		});
-	}
-	if (body.providerKey && !firstProviderKey) {
-		throw new HTTPException(400, {
-			message:
-				effectiveClaimKind(claim) === "custom"
-					? "A provider key is already on file — replace it under Settings."
-					: "Catalogue carriers are served with platform keys.",
-		});
-	}
-	if (firstProviderKey) {
-		await assertProviderKeyIsSeparate(claim, firstProviderKey);
-		await assertProviderKeyServes(claim, firstProviderKey, target);
-	} else if (effectiveClaimKind(claim) === "custom" && keyOnFile) {
-		const servingKey = await db.query.providerKey.findFirst({
-			where: { id: { eq: keyOnFile } },
-		});
-		if (servingKey) {
-			await assertProviderKeyServes(claim, readProviderKey(servingKey), target);
-		}
-	}
+	await assertVerificationCredentialCurrent(verification.target);
 
 	// cdb: the gateway caches airside model lookups; writes must invalidate.
 	const created = await cdb
@@ -3340,9 +3286,6 @@ airside.openapi(createModel, async (c) => {
 					note: body.note ?? null,
 				})
 				.returning();
-			if (firstProviderKey) {
-				await fileProviderKey(tx, claim, firstProviderKey);
-			}
 			const submittedAt = new Date();
 			const consumed = await tx
 				.update(tables.providerModelVerification)
@@ -3379,6 +3322,14 @@ airside.openapi(createModel, async (c) => {
 			throw err;
 		});
 
+	await Promise.all([
+		notifyAirsideFiling({
+			kind: "initial",
+			id: created.priceFilings[0].id,
+			providerId: created.providerId,
+			modelName: created.modelName,
+		}),
+	]);
 	return c.json({ model: serializeModel(created) }, 201);
 });
 
@@ -3680,6 +3631,12 @@ airside.openapi(updateModel, async (c) => {
 						"The pending change was reviewed in the meantime — reload and edit again.",
 				});
 			}
+			await notifyAirsideFiling({
+				kind: "metadata",
+				id: replaced.id,
+				providerId: model.providerId,
+				modelName: model.modelName,
+			});
 			return c.json({
 				model: serializeModel({
 					...model,
@@ -3712,6 +3669,12 @@ airside.openapi(updateModel, async (c) => {
 				}
 				throw err;
 			});
+		await notifyAirsideFiling({
+			kind: "metadata",
+			id: filing[0].id,
+			providerId: model.providerId,
+			modelName: model.modelName,
+		});
 		return c.json({
 			model: serializeModel({
 				...model,
@@ -3800,6 +3763,8 @@ airside.openapi(deleteModel, async (c) => {
  * Gate for anything that puts claims about a model in front of us: the
  * model's latest preflight must have passed and prove `required`. Only claims
  * beyond what the listing already proved need this; narrowing never does.
+ * A daily re-check tests the live listing, so it only counts when it covers
+ * `required`; otherwise it would shadow the carrier's preflight of an edit.
  */
 async function requirePassingPreflight(
 	model: DraftModelRow,
@@ -3807,13 +3772,36 @@ async function requirePassingPreflight(
 	since: Date | null,
 	action: string,
 ) {
-	const latest = await db.query.providerModelVerification.findFirst({
+	const dailyIds = `${DAILY_MODEL_VERIFICATION_PREFIX}%`;
+	const carrierRun = await db.query.providerModelVerification.findFirst({
 		where: {
 			draftModelId: { eq: model.id },
+			id: { notLike: dailyIds },
 			...(since ? { createdAt: { gte: since } } : {}),
 		},
 		orderBy: { createdAt: "desc" },
 	});
+	const dailyRuns = await db.query.providerModelVerification.findMany({
+		columns: { id: true, target: true },
+		where: {
+			draftModelId: { eq: model.id },
+			id: { like: dailyIds },
+			...(carrierRun
+				? { createdAt: { gt: carrierRun.createdAt } }
+				: since
+					? { createdAt: { gte: since } }
+					: {}),
+		},
+		orderBy: { createdAt: "desc" },
+	});
+	const coveringDaily = dailyRuns.find((run) =>
+		verificationTargetCovers(run.target, required),
+	);
+	const latest = coveringDaily
+		? await db.query.providerModelVerification.findFirst({
+				where: { id: { eq: coveringDaily.id } },
+			})
+		: carrierRun;
 	if (latest?.status === "queued" || latest?.status === "running") {
 		throw new HTTPException(409, {
 			message: `Preflight is still running — ${action} once it passes.`,
@@ -3821,12 +3809,14 @@ async function requirePassingPreflight(
 	}
 	if (
 		latest?.status !== "passed" ||
-		!verificationTargetCovers(latest.target, required)
+		!verificationTargetCovers(latest.target, required) ||
+		!hasMessageContentVerification(required, latest.checks)
 	) {
 		throw new HTTPException(409, {
 			message: `Run preflight on this model as you are submitting it, and let it pass, before you ${action}.`,
 		});
 	}
+	await assertVerificationCredentialCurrent(latest.target);
 }
 
 const relistModel = createRoute({
@@ -3884,6 +3874,12 @@ airside.openapi(relistModel, async (c) => {
 			.where(eq(tables.providerDraftModel.id, id))
 			.returning();
 		return requested;
+	});
+	await notifyAirsideFiling({
+		kind: "relist",
+		id: row.id,
+		providerId: row.providerId,
+		modelName: row.modelName,
 	});
 	return c.json({ model: await serializeModelById(row) });
 });
@@ -4214,6 +4210,12 @@ airside.openapi(createPriceFiling, async (c) => {
 			.returning();
 		return created;
 	});
+	await notifyAirsideFiling({
+		kind: filing.kind,
+		id: filing.id,
+		providerId: model.providerId,
+		modelName: model.modelName,
+	});
 	return c.json({ filing: serializeFiling(filing) }, 201);
 });
 
@@ -4455,6 +4457,120 @@ airside.openapi(statsRoute, async (c) => {
 			...row,
 			day: new Date(row.day).toISOString(),
 		})),
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Payouts (monthly statements of payout-mode carriers)
+// ---------------------------------------------------------------------------
+
+const listPayouts = createRoute({
+	method: "get",
+	path: "/payouts",
+	request: {
+		query: z.object({ providerCompanyId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ statements: z.array(payoutStatementSchema) }),
+				},
+			},
+			description:
+				"The company's monthly payout statements, newest first. Drafts are previews subject to manual adjustment.",
+		},
+	},
+});
+
+airside.openapi(listPayouts, async (c) => {
+	const user = requireUser(c.get("user"));
+	const { providerCompanyId } = c.req.valid("query");
+	await requireCompanyMembership(user.id, providerCompanyId);
+	const rows = await db
+		.select()
+		.from(tables.airsidePayoutStatement)
+		.where(
+			eq(tables.airsidePayoutStatement.providerCompanyId, providerCompanyId),
+		)
+		.orderBy(
+			desc(tables.airsidePayoutStatement.periodStart),
+			tables.airsidePayoutStatement.providerId,
+		);
+	const names = await carrierNames(rows);
+	return c.json({
+		statements: rows.map((row) => serializePayoutStatement(row, names)),
+	});
+});
+
+const PAYOUT_REPORT_CSV_HEADERS = [
+	"period",
+	"provider",
+	"model",
+	"requests",
+	"cache_hits",
+	"input_tokens",
+	"cached_input_tokens",
+	"cache_write_tokens",
+	"output_tokens",
+	"reasoning_tokens",
+	"billed_usd",
+	"gateway_fee_usd",
+] as const;
+
+const payoutReport = createRoute({
+	method: "get",
+	path: "/payouts/{id}/report",
+	request: {
+		params: z.object({ id: z.string() }),
+		query: z.object({ providerCompanyId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: { "text/csv": { schema: z.string() } },
+			description:
+				"Per-model breakdown of the statement's traffic as CSV: requests and tokens served on gateway credentials, with billed amount and gateway fee. Recomputed from the current rollups.",
+		},
+	},
+});
+
+airside.openapi(payoutReport, async (c) => {
+	const user = requireUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const { providerCompanyId } = c.req.valid("query");
+	await requireCompanyMembership(user.id, providerCompanyId);
+	const row = await db.query.airsidePayoutStatement.findFirst({
+		where: { id: { eq: id }, providerCompanyId: { eq: providerCompanyId } },
+	});
+	if (!row) {
+		throw new HTTPException(404, { message: "Statement not found" });
+	}
+	const models = await airsideCarrierTrafficByModel(
+		row.providerId,
+		row.periodStart,
+		row.periodEnd,
+	);
+	const period = row.periodStart.toISOString().slice(0, 7);
+	const body = buildCsv(
+		PAYOUT_REPORT_CSV_HEADERS,
+		models.map((model) => [
+			period,
+			row.providerId,
+			model.model,
+			model.requestCount,
+			model.cacheHitCount,
+			model.inputTokens,
+			model.cachedInputTokens,
+			model.cacheWriteTokens,
+			model.outputTokens,
+			model.reasoningTokens,
+			model.grossAmount,
+			model.gatewayFeeAmount,
+		]),
+	);
+	return c.body(`${body}\n`, 200, {
+		"Content-Type": "text/csv; charset=utf-8",
+		"Content-Disposition": `attachment; filename="airside-payout-${row.providerId}-${period}.csv"`,
 	});
 });
 
@@ -4881,6 +4997,12 @@ airside.openapi(updateRoutingSettings, async (c) => {
 				requestedBy: user.id,
 			})
 			.returning();
+		await notifyAirsideFiling({
+			kind: "routing",
+			id: filing.id,
+			providerId,
+			modelName: modelId,
+		});
 		return c.json({ filing: serializeRoutingFiling(filing) }, 201);
 	} catch (err) {
 		if (isUniqueViolation(err)) {

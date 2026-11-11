@@ -113,34 +113,43 @@ describe("realtime client secrets route", () => {
 		);
 	});
 
-	it("rejects pinned instructions while ZDR is active", async () => {
-		mocks.runRealtimePreflight.mockResolvedValueOnce({
-			sessionType: "realtime",
-			match: {
-				modelId: "gpt-realtime-2.1-mini",
-				mapping: {
-					providerId: "openai",
-					supportedVoices: ["marin", "cedar"],
+	it.each(["organization", "apiKey"])(
+		"rejects pinned instructions while %s ZDR is active",
+		async (scope) => {
+			mocks.runRealtimePreflight.mockResolvedValueOnce({
+				sessionType: "realtime",
+				match: {
+					modelId: "gpt-realtime-2.1-mini",
+					mapping: {
+						providerId: "openai",
+						supportedVoices: ["marin", "cedar"],
+					},
 				},
-			},
-			allowedTranscriptionModelIds: [],
-			project: { organizationId: "org_test" },
-			organization: {
-				id: "org_test",
-				plan: "enterprise",
-				providerCompliancePolicy: {
-					enabled: true,
-					zeroDataRetention: true,
+				allowedTranscriptionModelIds: [],
+				project: { organizationId: "org_test" },
+				organization: {
+					id: "org_test",
+					plan: "enterprise",
+					providerCompliancePolicy:
+						scope === "organization"
+							? { enabled: true, zeroDataRetention: true }
+							: null,
 				},
-			},
-		});
+				apiKey: {
+					providerCompliancePolicy:
+						scope === "apiKey"
+							? { enabled: true, zeroDataRetention: true }
+							: null,
+				},
+			});
 
-		const response = await mint({ instructions: "secret prompt" });
+			const response = await mint({ instructions: "secret prompt" });
 
-		expect(response.status).toBe(400);
-		expect((await response.json()).error.code).toBe("zdr_storage_conflict");
-		expect(mocks.createClientSecret).not.toHaveBeenCalled();
-	});
+			expect(response.status).toBe(400);
+			expect((await response.json()).error.code).toBe("zdr_storage_conflict");
+			expect(mocks.createClientSecret).not.toHaveBeenCalled();
+		},
+	);
 
 	it("defaults instructions and voice to null when not pinned", async () => {
 		await mint({});

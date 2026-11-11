@@ -5,7 +5,7 @@ import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harne
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const QUESTIONS = [
@@ -119,15 +119,52 @@ describe("decisions", () => {
 		// Image data never lands in the stored request summary.
 		expect(JSON.stringify(log?.messages)).toContain("[image]");
 		expect(JSON.stringify(log?.messages)).not.toContain("iVBORw0KGgo");
-		// The client's safety_identifier is replaced by the API key's.
+		// BYOK requests retain client attribution locally, but send none upstream.
 		const [apiKey] = await db
 			.select({ safetyIdentifier: tables.apiKey.safetyIdentifier })
 			.from(tables.apiKey)
 			.where(eq(tables.apiKey.id, "token-id-decisions-openai"));
 		expect(apiKey?.safetyIdentifier).toMatch(/^key_[0-9a-f]{32}$/);
-		expect(log?.upstreamRequest).toMatchObject({
-			safety_identifier: apiKey?.safetyIdentifier,
+		expect(log?.upstreamRequest).not.toHaveProperty("safety_identifier");
+		expect(log?.params).toMatchObject({
+			safety_identifier: "client-controlled",
 		});
+	});
+
+	test("/v1/decisions omits safety_identifier when the managed credential turns forwarding off", async () => {
+		await seedApiKey("decisions-safety-off");
+		await harness.setProjectMode("credits");
+		await cdb.insert(tables.providerKey).values({
+			id: "managed-decisions-safety-off",
+			provider: "openai",
+			...encryptProviderKeyForStorage(
+				"openai-token",
+				"managed-decisions-safety-off",
+				null,
+			),
+			managed: true,
+			organizationId: null,
+			config: { baseUrl: harness.mockServerUrl },
+			forwardSafetyIdentifier: false,
+		});
+
+		const res = await postDecision("decisions-safety-off", {
+			model: "gpt-6-luna-decisions",
+			input: [
+				{
+					role: "user",
+					content: [{ type: "input_text", text: "Billing question." }],
+				},
+			],
+			questions: QUESTIONS,
+			safety_identifier: "client-controlled",
+		});
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "openai/gpt-6-luna-decisions");
+		expect(log?.upstreamRequest).toBeDefined();
+		expect(log?.upstreamRequest).not.toHaveProperty("safety_identifier");
 	});
 
 	test("/v1/decisions serves Jev by translating to TypeSafe System One", async () => {
@@ -246,12 +283,76 @@ describe("decisions", () => {
 		);
 	});
 
-	test("/v1/decisions rejects image input for a text-only decision model", async () => {
+	test("/v1/decisions sends Jev image input as System One assets", async () => {
 		await seedApiKey("decisions-jev-image");
 		await seedProviderKey("decisions-jev-image", "typesafe");
 
 		const res = await postDecision("decisions-jev-image", {
-			model: "jev-1.13.0",
+			model: "jev-1.14.0",
+			input: [
+				{
+					role: "user",
+					content: [
+						{ type: "input_text", text: "Inspect this photo." },
+						{
+							type: "input_image",
+							image_url: "data:image/png;base64,iVBORw0KGgo=",
+						},
+					],
+				},
+			],
+			questions: [QUESTIONS[1]],
+		});
+
+		const json = await res.json();
+		expect(res.status, JSON.stringify(json)).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "typesafe/jev-1.14.0");
+		expect(log?.hasError).toBe(false);
+		const upstream = log?.upstreamRequest as {
+			state: string;
+			assets: Record<string, unknown>;
+		};
+		const [ref] = Object.keys(upstream.assets);
+		expect(upstream.assets[ref]).toEqual({
+			type: "image",
+			format: "png",
+			data_base64: "iVBORw0KGgo=",
+		});
+		expect(upstream.state).toBe(`Inspect this photo.\n${ref}`);
+	});
+
+	test("/v1/decisions rejects Jev image input that is not PNG or JPEG", async () => {
+		await seedApiKey("decisions-jev-webp");
+		await seedProviderKey("decisions-jev-webp", "typesafe");
+
+		const res = await postDecision("decisions-jev-webp", {
+			model: "jev-1.14.0",
+			input: [
+				{
+					role: "user",
+					content: [
+						{
+							type: "input_image",
+							image_url: "data:image/webp;base64,UklGRg==",
+						},
+					],
+				},
+			],
+			questions: [QUESTIONS[1]],
+		});
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).error.message).toContain("PNG and JPEG");
+	});
+
+	test("/v1/decisions rejects image input for a text-only decision model", async () => {
+		await seedApiKey("decisions-azure-image");
+		await seedProviderKey("decisions-azure-image", "azure");
+
+		const res = await postDecision("decisions-azure-image", {
+			model: "azure/microsoft-decision-1",
 			input: [
 				{
 					role: "user",
@@ -267,6 +368,9 @@ describe("decisions", () => {
 		});
 
 		expect(res.status).toBe(400);
+		expect((await res.json()).error.message).toContain(
+			"accepts text input only",
+		);
 	});
 
 	test("/v1/decisions rejects a chat model", async () => {

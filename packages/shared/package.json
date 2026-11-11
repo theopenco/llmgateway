@@ -26,6 +26,10 @@
 			"import": "./dist/airside-billing.js",
 			"default": "./dist/airside-billing.js"
 		},
+		"./batch": {
+			"types": "./dist/batch.d.ts",
+			"import": "./dist/batch.js"
+		},
 		"./gcs": {
 			"types": "./dist/gcs.d.ts",
 			"import": "./dist/gcs.js",
@@ -90,6 +94,11 @@
 			"types": "./dist/email-unsubscribe.d.ts",
 			"import": "./dist/email-unsubscribe.js",
 			"default": "./dist/email-unsubscribe.js"
+		},
+		"./resend-api": {
+			"types": "./dist/resend-api.d.ts",
+			"import": "./dist/resend-api.js",
+			"default": "./dist/resend-api.js"
 		},
 		"./security-txt": {
 			"types": "./dist/security-txt.d.ts",
@@ -200,6 +209,11 @@
 			"import": "./dist/lounge-connectors.js",
 			"default": "./dist/lounge-connectors.js"
 		},
+		"./video-token-pricing": {
+			"types": "./dist/video-token-pricing.d.ts",
+			"import": "./dist/video-token-pricing.js",
+			"default": "./dist/video-token-pricing.js"
+		},
 		"./video-generation-config": {
 			"types": "./dist/video-generation-config.d.ts",
 			"import": "./dist/video-generation-config.js",
@@ -209,6 +223,11 @@
 			"types": "./dist/audio-generation-config.d.ts",
 			"import": "./dist/audio-generation-config.js",
 			"default": "./dist/audio-generation-config.js"
+		},
+		"./decision-studio": {
+			"types": "./dist/decision-studio.d.ts",
+			"import": "./dist/decision-studio.js",
+			"default": "./dist/decision-studio.js"
 		},
 		"./realtime-pcm": {
 			"types": "./dist/realtime-pcm.d.ts",
@@ -234,6 +253,16 @@
 			"types": "./dist/cost-breakdown.d.ts",
 			"import": "./dist/cost-breakdown.js",
 			"default": "./dist/cost-breakdown.js"
+		},
+		"./seo-title": {
+			"types": "./dist/seo-title.d.ts",
+			"import": "./dist/seo-title.js",
+			"default": "./dist/seo-title.js"
+		},
+		"./working-days": {
+			"types": "./dist/working-days.d.ts",
+			"import": "./dist/working-days.js",
+			"default": "./dist/working-days.js"
 		},
 		"./number-format": {
 			"types": "./dist/number-format.d.ts",
@@ -309,12 +338,12 @@
 		"ipaddr.js": "2.2.0",
 		"lucide-react": "0.561.0",
 		"motion": "12.23.24",
-		"next": "16.4.3",
+		"next": "16.4.4",
 		"next-themes": "^0.4.6",
 		"pretty-bytes": "7.1.0",
 		"prism-react-renderer": "2.4.1",
-		"react": "19.3.0",
-		"react-dom": "19.3.0",
+		"react": "19.3.1",
+		"react-dom": "19.3.1",
 		"react-hook-form": "7.65.0",
 		"react-medium-image-zoom": "5.4.0",
 		"recharts": "^2.15.4",
@@ -323,7 +352,7 @@
 		"tailwind-merge": "3.4.0",
 		"three": "0.185.1",
 		"undici": "8.12.3",
-		"zod": "3.25.76"
+		"zod": "4.6.7"
 	},
 	"devDependencies": {
 		"@types/react": "^19.3.0",

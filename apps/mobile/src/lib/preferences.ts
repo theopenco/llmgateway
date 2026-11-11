@@ -22,7 +22,7 @@ const chatSettingsSchema = z.object({
 	webSearch: z.boolean().default(false),
 });
 export type ChatSettings = z.infer<typeof chatSettingsSchema>;
-const preferencesSchema = z.object({ chat: chatSettingsSchema.default({}) });
+const preferencesSchema = z.object({ chat: chatSettingsSchema.prefault({}) });
 const service = "io.llmgateway.lounge.preferences";
 const queryKey = ["preferences"];
 export const defaultChatSettings = chatSettingsSchema.parse({});

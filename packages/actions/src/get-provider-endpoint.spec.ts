@@ -1,12 +1,12 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
 	getProviderDefaultBaseUrl,
 	getProviderEndpoint,
+	resolveAzureBaseUrl,
 } from "./get-provider-endpoint.js";
 
 const originalAiStudioBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
-const originalGlacierBaseUrl = process.env.LLM_GLACIER_BASE_URL;
 const originalVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
 const originalVertexProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 const originalVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
@@ -29,12 +29,6 @@ afterEach(() => {
 		delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
 	} else {
 		process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = originalAiStudioBaseUrl;
-	}
-
-	if (originalGlacierBaseUrl === undefined) {
-		delete process.env.LLM_GLACIER_BASE_URL;
-	} else {
-		process.env.LLM_GLACIER_BASE_URL = originalGlacierBaseUrl;
 	}
 
 	if (originalVertexBaseUrl === undefined) {
@@ -225,30 +219,6 @@ describe("getProviderEndpoint", () => {
 			}),
 		).toBe(
 			"https://carrier.example/api/v1/publishers/google/models/gpt-5.6-luna:streamGenerateContent?key=provider-key&alt=sse",
-		);
-	});
-
-	it("builds Glacier endpoints from env base URL", () => {
-		process.env.LLM_GLACIER_BASE_URL = "https://glacier.example.com";
-
-		const endpoint = getProviderEndpoint(
-			"glacier",
-			undefined,
-			"gemini-2.5-pro",
-			"glacier-key",
-			true,
-		);
-
-		expect(endpoint).toBe(
-			"https://glacier.example.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?key=glacier-key&alt=sse",
-		);
-	});
-
-	it("requires Glacier base URL when no override is provided", () => {
-		delete process.env.LLM_GLACIER_BASE_URL;
-
-		expect(() => getProviderEndpoint("glacier")).toThrow(
-			"Glacier provider requires LLM_GLACIER_BASE_URL environment variable",
 		);
 	});
 
@@ -543,6 +513,50 @@ describe("getProviderEndpoint", () => {
 			expect(endpoint).toContain("https://my-resource.openai.azure.com/");
 		});
 
+		it("prefers a credential's base URL over its resource and trims trailing slashes", () => {
+			expect(
+				resolveAzureBaseUrl({
+					providerKeyOptions: {
+						azure_resource: "byok-resource",
+						env_config: {
+							baseUrl: "https://proxy.example.com/azure/",
+							resource: "managed-resource",
+						},
+					},
+					skipEnvVars: true,
+				}),
+			).toBe("https://proxy.example.com/azure");
+		});
+
+		it("prefers LLM_AZURE_BASE_URL over LLM_AZURE_RESOURCE on the env path", () => {
+			vi.stubEnv("LLM_AZURE_BASE_URL", "https://proxy.example.com");
+			vi.stubEnv("LLM_AZURE_RESOURCE", "env-resource");
+			try {
+				expect(resolveAzureBaseUrl({})).toBe("https://proxy.example.com");
+				expect(resolveAzureBaseUrl({ skipEnvVars: true })).toBeUndefined();
+			} finally {
+				vi.unstubAllEnvs();
+			}
+		});
+
+		it("builds the chat URL on a configured base URL", () => {
+			const chat = getProviderEndpoint(
+				"azure",
+				undefined,
+				"gpt-4o-mini",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ env_config: { baseUrl: "https://proxy.example.com/" } },
+				undefined,
+				undefined,
+				undefined,
+				true,
+			);
+			expect(chat.startsWith("https://proxy.example.com/openai/")).toBe(true);
+		});
+
 		it.each([
 			"evil.com/path",
 			"resource.evil.com",
@@ -645,6 +659,69 @@ describe("getProviderEndpoint", () => {
 					"grok-4-1-fast-non-reasoning",
 				),
 			).toThrow(/Azure AI Foundry resource (is invalid|is required)/);
+		});
+	});
+
+	describe("cloudflare", () => {
+		const accountId = "0123456789abcdef0123456789abcdef";
+		const endpointFor = (cloudflare_account_id?: string) =>
+			getProviderEndpoint(
+				"cloudflare",
+				undefined,
+				"glm-5.3-flash",
+				undefined,
+				false,
+				true,
+				false,
+				cloudflare_account_id ? { cloudflare_account_id } : undefined,
+				undefined,
+				false,
+				undefined,
+				true,
+			);
+
+		it("builds the account-scoped Workers AI endpoint from key options", () => {
+			expect(endpointFor(accountId)).toBe(
+				`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
+			);
+		});
+
+		it("throws when no account id is configured", () => {
+			expect(() => endpointFor()).toThrow(/Cloudflare requires an account ID/);
+		});
+
+		it.each(["../evil", "0123456789ABCDEF0123456789ABCDEF", "abc", "a/b"])(
+			"rejects an invalid account id (%s)",
+			(id) => {
+				expect(() => endpointFor(id)).toThrow(
+					/Cloudflare account ID is invalid/,
+				);
+			},
+		);
+	});
+
+	describe("anthropic-messages api format", () => {
+		it("targets DeepSeek's Anthropic-compatible API", () => {
+			const endpoint = getProviderEndpoint(
+				"deepseek",
+				undefined,
+				"deepseek-flash",
+				undefined,
+				false,
+				false,
+				false,
+				undefined,
+				undefined,
+				false,
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				"anthropic-messages",
+			);
+
+			expect(endpoint).toBe("https://api.deepseek.com/anthropic/v1/messages");
 		});
 	});
 
@@ -1707,3 +1784,39 @@ it("routes GPT-6 Astra chat requests through Responses for tool support", () => 
 		getProviderEndpoint("openai", "https://example.com", "gpt-6-astra"),
 	).toBe("https://example.com/v1/responses");
 });
+
+it.each([
+	["kimi-k3.1-pro", "moonshot-kimi"],
+	["kimi-k3.1-pro-highspeed", "moonshot-kimi"],
+	["glm-5.3", "b1dd8hy2hqo1nb"],
+])("routes Runpod %s to its public endpoint", (model, endpoint) => {
+	delete process.env.LLM_RUNPOD_BASE_URL;
+	expect(getProviderEndpoint("runpod", undefined, model)).toBe(
+		`https://api.runpod.ai/v2/${endpoint}/openai/v1/chat/completions`,
+	);
+	process.env.LLM_RUNPOD_BASE_URL = "https://runpod-override.example";
+	expect(getProviderEndpoint("runpod", undefined, model)).toBe(
+		`https://runpod-override.example/v2/${endpoint}/openai/v1/chat/completions`,
+	);
+	expect(
+		getProviderEndpoint("runpod", "https://proxy.example.com/runpod/", model),
+	).toBe(
+		`https://proxy.example.com/runpod/v2/${endpoint}/openai/v1/chat/completions`,
+	);
+});
+function azureSlashRuns() {
+	const path = "https://proxy.example.com/" + "/".repeat(20_000) + "path";
+	for (const baseUrl of [path, path + "/".repeat(20_000)]) {
+		expect(
+			resolveAzureBaseUrl({
+				providerKeyOptions: { env_config: { baseUrl } },
+				skipEnvVars: true,
+			}),
+		).toBe(path);
+	}
+}
+
+it(
+	"preserves embedded slash runs while trimming only the Azure URL suffix",
+	azureSlashRuns,
+);

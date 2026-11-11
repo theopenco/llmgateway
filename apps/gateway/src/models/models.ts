@@ -12,11 +12,15 @@ import {
 	getModelsAccess,
 } from "@/models/model-access.js";
 
-import { getEffectiveProviders } from "@llmgateway/db";
+import { getEffectiveProviders, loadDiscountResolver } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import {
+	expandProviderRegions,
+	getProviderDefinition,
 	models as modelsList,
 	providers,
+	type PeakPricing,
+	type PricingTier,
 	type ProviderModelMapping,
 	type ModelDefinition,
 } from "@llmgateway/models";
@@ -25,6 +29,121 @@ import type { ServerTypes } from "@/vars.js";
 import type { RouteConfig } from "@hono/zod-openapi";
 
 export const modelsApi = new OpenAPIHono<ServerTypes>();
+
+const tokenRatesSchema = z.object({
+	prompt: z.string(),
+	completion: z.string(),
+	input_cache_read: z.string().optional(),
+});
+
+const pricingTierSchema = z.object({
+	name: z.string(),
+	up_to_tokens: z.number().nullable().openapi({
+		description:
+			"Largest prompt size, in tokens, billed at this tier's rates. null for the open-ended top tier.",
+	}),
+	prompt: z.string(),
+	completion: z.string(),
+	input_cache_read: z.string().optional(),
+	input_cache_read_explicit: z.string().optional(),
+	input_cache_write: z.string().optional(),
+	input_cache_write_1h: z.string().optional(),
+	peak: z
+		.object({ peak: tokenRatesSchema, off_peak: tokenRatesSchema })
+		.optional()
+		.openapi({
+			description:
+				"Peak and off-peak rates for this tier, on the schedule in the enclosing `peak` object.",
+		}),
+});
+
+const peakPricingSchema = z.object({
+	peak: tokenRatesSchema,
+	off_peak: tokenRatesSchema,
+	hours_utc: z.array(z.tuple([z.number(), z.number()])).openapi({
+		description:
+			"Peak hours as half-open [start, end) UTC hour ranges; every other hour is off-peak.",
+	}),
+	off_peak_days_utc: z.array(z.number()).optional().openapi({
+		description: "UTC weekdays billed off-peak all day (Sunday = 0).",
+	}),
+});
+
+const pricingSchema = z.object({
+	prompt: z.string(),
+	completion: z.string(),
+	image: z.string().optional(),
+	image_output: z.string().optional(),
+	image_input_cache_read: z.string().optional(),
+	image_input_tokens_by_resolution: z.record(z.string(), z.number()).optional(),
+	image_output_tokens_by_resolution: z
+		.record(z.string(), z.number())
+		.optional()
+		.openapi({
+			description:
+				"Output tokens billed per generated image by resolution; multiply by `image_output` for the per-image price.",
+		}),
+	input_audio: z.string().optional(),
+	input_audio_cache_read: z.string().optional(),
+	output_audio: z.string().optional(),
+	input_character: z.string().optional(),
+	input_text_item: z.string().optional(),
+	video_output: z.string().optional(),
+	per_second: z.record(z.string(), z.string()).optional(),
+	per_image: z.record(z.string(), z.string()).optional(),
+	request: z.string().optional(),
+	input_cache_read: z.string().optional(),
+	input_cache_read_explicit: z.string().optional().openapi({
+		description:
+			"Cache read rate when the request marked content with `cache_control`; otherwise `input_cache_read` applies.",
+	}),
+	input_cache_write: z.string().optional(),
+	input_cache_write_1h: z.string().optional(),
+	web_search: z.string().optional(),
+	content_filter: z.string().optional(),
+	ocr_page: z.string().optional(),
+	input_audio_hour: z.string().optional(),
+	tiers: z.array(pricingTierSchema).optional().openapi({
+		description:
+			"Context-length pricing tiers in ascending order. The request's prompt size selects the tier, whose rates replace the base rates.",
+	}),
+	peak: peakPricingSchema.optional().openapi({
+		description: "Time-of-day rates that replace the base token rates.",
+	}),
+	discount: z.string().optional().openapi({
+		description:
+			"Active discount as a fraction of the listed prices (0.3 = 30% off). The listed prices are before discount. With an API key, includes the organization's own discounts.",
+	}),
+});
+
+const regionSchema = z.object({
+	id: z.string(),
+	pricing: pricingSchema.optional(),
+	context_length: z.number().optional(),
+	max_output: z.number().optional(),
+	streaming: z.union([z.boolean(), z.literal("only")]),
+});
+
+const serviceTierSchema = z.object({
+	id: z.string().openapi({ description: "Value to pass as `service_tier`." }),
+	name: z.string(),
+	multiplier: z.number().openapi({
+		description: "Multiplier applied to the standard token prices.",
+	}),
+	description: z.string().optional(),
+});
+
+const reasoningEffortSchema = z.enum([
+	"none",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max",
+]);
+
+const stabilitySchema = z.enum(["stable", "beta", "unstable", "experimental"]);
 
 const modelSchema = z.object({
 	id: z.string(),
@@ -67,26 +186,25 @@ const modelSchema = z.object({
 			supportedVideoSizes: z.array(z.string()).optional(),
 			supportsVideoAudio: z.boolean().optional(),
 			supportsVideoWithoutAudio: z.boolean().optional(),
-			pricing: z
-				.object({
-					prompt: z.string(),
-					completion: z.string(),
-					image: z.string().optional(),
-					input_audio: z.string().optional(),
-					input_audio_cache_read: z.string().optional(),
-					output_audio: z.string().optional(),
-					per_second: z.record(z.string()).optional(),
-					per_image: z.record(z.string()).optional(),
-					request: z.string().optional(),
-					input_cache_read: z.string().optional(),
-					input_cache_write: z.string().optional(),
-					input_cache_write_1h: z.string().optional(),
-					ocr_page: z.string().optional(),
-					input_audio_hour: z.string().optional(),
-				})
+			supported_video_durations_seconds: z.array(z.number()).optional(),
+			supported_video_durations_seconds_image_to_video: z
+				.array(z.number())
 				.optional(),
+			pricing: pricingSchema.optional(),
+			regions: z.array(regionSchema).optional().openapi({
+				description:
+					"Regional deployments with their effective pricing and limits, which replace the base values on this entry when that region serves the request.",
+			}),
+			service_tiers: z.array(serviceTierSchema).optional(),
+			service_tier_regions: z.array(z.string()).optional().openapi({
+				description:
+					"Regions where `service_tiers` apply. Omitted when they apply in every region.",
+			}),
+			context_length: z.number().optional(),
 			streaming: z.union([z.boolean(), z.literal("only")]),
 			vision: z.boolean(),
+			audio: z.boolean().optional(),
+			document: z.boolean().optional(),
 			realtime: z.boolean().optional().openapi({
 				description:
 					"Whether this mapping is served via the /v1/realtime WebSocket endpoint instead of /v1/chat/completions.",
@@ -94,6 +212,12 @@ const modelSchema = z.object({
 			cancellation: z.boolean(),
 			tools: z.boolean(),
 			parallelToolCalls: z.boolean(),
+			supported_tool_choices: z
+				.array(z.enum(["auto", "none", "required", "function"]))
+				.optional(),
+			json_output: z.boolean().optional(),
+			structured_outputs: z.boolean().optional(),
+			verbosity: z.boolean().optional(),
 			reasoning: z.boolean(),
 			web_search: z.boolean().openapi({
 				description:
@@ -103,15 +227,10 @@ const modelSchema = z.object({
 				description:
 					'Whether this mapping only searches when the request forces it with tool_choice: {"type": "web_search"}. A web_search tool that is merely offered is not routed to it, and is dropped when no other mapping can choose to search on its own.',
 			}),
-			reasoning_efforts: z
-				.array(
-					z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]),
-				)
-				.optional()
-				.openapi({
-					description:
-						"Exact reasoning_effort values this provider mapping accepts, in ascending order of effort. Omitted when the supported values are not declared for the mapping.",
-				}),
+			reasoning_efforts: z.array(reasoningEffortSchema).optional().openapi({
+				description:
+					"Exact reasoning_effort values this provider mapping accepts, in ascending order of effort. Omitted when the supported values are not declared for the mapping.",
+			}),
 			reasoning_modes: z
 				.array(z.enum(["standard", "pro"]))
 				.optional()
@@ -119,6 +238,9 @@ const modelSchema = z.object({
 					description:
 						"Exact reasoning.mode values this provider mapping accepts. Omitted when the mapping accepts no explicit mode.",
 				}),
+			reasoning_max_tokens: z.boolean().optional().openapi({
+				description: "Whether reasoning.max_tokens sets an explicit budget.",
+			}),
 			min_cacheable_tokens: z.number().optional().openapi({
 				description:
 					"Minimum prompt length (in tokens) the provider requires before a prompt-cache write can occur. cache_control markers on shorter prompts are accepted but silently not cached by the provider.",
@@ -127,35 +249,29 @@ const modelSchema = z.object({
 				description:
 					"Maximum output tokens this provider mapping accepts as max_tokens; larger requests are rejected with HTTP 400. Omitted when the mapping declares no limit (any max_tokens is accepted).",
 			}),
-			stability: z
-				.enum(["stable", "beta", "unstable", "experimental"])
+			max_temperature: z.number().optional(),
+			supports_n: z.boolean().optional(),
+			max_n: z.number().optional(),
+			quantization: z
+				.enum(["int4", "int8", "fp4", "fp6", "fp8", "fp16", "bf16", "fp32"])
 				.optional(),
+			supported_voices: z.array(z.string()).optional(),
+			supported_parameters: z.array(z.string()).optional(),
+			stability: stabilitySchema.optional(),
+			deprecated_at: z.string().optional(),
+			deactivated_at: z.string().optional(),
 		}),
 	),
-	pricing: z.object({
-		prompt: z.string(),
-		completion: z.string(),
-		image: z.string().optional(),
-		input_audio: z.string().optional(),
-		input_audio_cache_read: z.string().optional(),
-		output_audio: z.string().optional(),
-		per_second: z.record(z.string()).optional(),
-		per_image: z.record(z.string()).optional(),
-		request: z.string().optional(),
-		input_cache_read: z.string().optional(),
-		input_cache_write: z.string().optional(),
-		input_cache_write_1h: z.string().optional(),
-		web_search: z.string().optional(),
-		internal_reasoning: z.string().optional(),
-		ocr_page: z.string().optional(),
-		input_audio_hour: z.string().optional(),
+	pricing: pricingSchema.extend({
+		web_search: z.string(),
+		internal_reasoning: z.string(),
 	}),
 	context_length: z.number().optional(),
 	max_output: z.number().optional().openapi({
 		description:
 			"Largest max_tokens value guaranteed to be accepted regardless of which provider mapping serves the request (the minimum across still-servable mappings that declare a limit; deactivated mappings are excluded). Omitted when no such mapping declares one.",
 	}),
-	per_request_limits: z.record(z.string()).optional(),
+	per_request_limits: z.record(z.string(), z.string()).optional(),
 	supported_parameters: z.array(z.string()).optional(),
 	json_output: z.boolean(),
 	structured_outputs: z.boolean(),
@@ -164,14 +280,17 @@ const modelSchema = z.object({
 			"Whether at least one still-servable provider mapping supports native web search through the web_search tool (deactivated mappings are excluded).",
 	}),
 	free: z.boolean().optional(),
+	image_input_required: z.boolean().optional(),
 	deprecated_at: z.string().optional(),
 	deactivated_at: z.string().optional(),
-	stability: z.enum(["stable", "beta", "unstable", "experimental"]).optional(),
+	stability: stabilitySchema.optional(),
 });
 
 const listModelsResponseSchema = z.object({
 	data: z.array(modelSchema),
 });
+
+export type ListModelsResponse = z.infer<typeof listModelsResponseSchema>;
 
 const modelsSecurity: RouteConfig["security"] = [{}, { bearerAuth: [] }];
 
@@ -247,6 +366,9 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 		const noTraining = query.no_training || false;
 		const mapped = query.mapped || false;
 		const currentDate = new Date();
+		const discountResolverPromise = loadDiscountResolver(
+			access?.organization.id ?? null,
+		);
 
 		// Set of provider ids that do not train on API data
 		const noTrainingProviderIds = new Set(
@@ -364,6 +486,18 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 			});
 		}
 
+		// Deactivated mappings can no longer be billed, so they carry no discount.
+		const discountResolver = await discountResolverPromise;
+		const discountOf =
+			(model: ModelDefinition) =>
+			(provider: ProviderModelMapping): string | undefined => {
+				if (provider.deactivatedAt && currentDate > provider.deactivatedAt) {
+					return undefined;
+				}
+				const { discount } = discountResolver(provider.providerId, model.id);
+				return Number(discount) > 0 ? discount : undefined;
+			};
+
 		// Mapped view: one entry per provider mapping, addressed the way the
 		// gateway accepts provider-pinned requests (`provider/model-id`). The
 		// deactivation/deprecation filters apply per mapping here — a mapping
@@ -392,6 +526,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 						const providerDef = providers.find(
 							(p) => p.id === provider.providerId,
 						);
+						const discount = discountOf(model)(provider);
 						const name = `${model.name ?? model.id} (${providerDef?.name ?? provider.providerId})`;
 
 						const inputModalities: (
@@ -430,7 +565,9 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 							created: model.releasedAt
 								? Math.floor(model.releasedAt.getTime() / 1000)
 								: undefined,
-							description: `${model.id} served by ${provider.providerId}`,
+							description:
+								model.description ??
+								`${model.id} served by ${provider.providerId}`,
 							family: model.family,
 							architecture: {
 								input_modalities: inputModalities,
@@ -440,14 +577,11 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 							top_provider: {
 								is_moderated: true,
 							},
-							providers: [serializeProviderMapping(provider, model)],
-							pricing: {
-								...buildPricingFields(
-									hasPricing(provider) ? provider : undefined,
-								),
-								web_search: "0",
-								internal_reasoning: "0",
-							},
+							providers: [serializeProviderMapping(provider, model, discount)],
+							pricing: modelLevelPricing(
+								hasPricing(provider) ? provider : undefined,
+								discount,
+							),
 							context_length: provider.contextSize,
 							max_output: provider.maxOutput,
 							per_request_limits: getPerRequestLimits(model),
@@ -459,6 +593,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 							structured_outputs: provider.jsonOutputSchema === true,
 							web_search: provider.webSearch === true,
 							free: model.free ?? false,
+							image_input_required: model.imageInputRequired,
 							deprecated_at: provider.deprecatedAt?.toISOString(),
 							deactivated_at: provider.deactivatedAt?.toISOString(),
 							stability: provider.stability ?? model.stability,
@@ -502,9 +637,15 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 			)[] = model.output ?? ["text"];
 
 			// Source the model-level pricing from the cheapest provider mapping
-			// that is actually serving the model (not deactivated/deprecated), so
-			// the root pricing reflects the best price a caller can get.
-			const pricingProvider = pickPricingProvider(model.providers, currentDate);
+			// that is actually serving the model (not deactivated/deprecated),
+			// after discounts, so the root pricing reflects the best price a
+			// caller can get.
+			const modelDiscountOf = discountOf(model);
+			const pricingProvider = pickPricingProvider(
+				model.providers,
+				currentDate,
+				modelDiscountOf,
+			);
 
 			return {
 				id: model.id,
@@ -514,7 +655,9 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 				created: model.releasedAt
 					? Math.floor(model.releasedAt.getTime() / 1000)
 					: undefined,
-				description: `${model.id} provided by ${model.providers.map((p) => p.providerId).join(", ")}`,
+				description:
+					model.description ??
+					`${model.id} provided by ${model.providers.map((p) => p.providerId).join(", ")}`,
 				family: model.family,
 				architecture: {
 					input_modalities: inputModalities,
@@ -525,13 +668,12 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 					is_moderated: true,
 				},
 				providers: model.providers.map((provider: ProviderModelMapping) =>
-					serializeProviderMapping(provider, model),
+					serializeProviderMapping(provider, model, modelDiscountOf(provider)),
 				),
-				pricing: {
-					...buildPricingFields(pricingProvider),
-					web_search: "0", // Not defined in model definitions yet
-					internal_reasoning: "0", // Not defined in model definitions yet
-				},
+				pricing: modelLevelPricing(
+					pricingProvider,
+					pricingProvider ? modelDiscountOf(pricingProvider) : undefined,
+				),
 				// Use context length from model definition (take the largest from all providers)
 				context_length:
 					Math.max(...model.providers.map((p) => p.contextSize ?? 0)) ??
@@ -555,6 +697,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 					.filter((p) => !(p.deactivatedAt && currentDate > p.deactivatedAt))
 					.some((p) => p.webSearch === true),
 				free: model.free ?? false,
+				image_input_required: model.imageInputRequired,
 				// A model is only deprecated/deactivated once EVERY provider mapping
 				// is — the same `.every()` semantics used for filtering above. Report
 				// the date the model fully deprecates/deactivates (when its last
@@ -585,9 +728,19 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 function serializeProviderMapping(
 	provider: ProviderModelMapping,
 	model: ModelDefinition,
+	discount: string | undefined,
 ) {
-	// Find the provider definition to get cancellation support
-	const providerDef = providers.find((p) => p.id === provider.providerId);
+	const providerDef = getProviderDefinition(provider.providerId);
+	const supportedTierIds = new Set(provider.serviceTiers ?? []);
+	const serviceTiers = (providerDef?.serviceTiers ?? [])
+		.filter((tier) => supportedTierIds.has(tier.id))
+		.map((tier) => ({
+			id: tier.id,
+			name: tier.name,
+			multiplier: provider.serviceTierMultipliers?.[tier.id] ?? tier.multiplier,
+			description: tier.description,
+		}));
+	const regions = expandProviderRegions(provider).slice(1);
 
 	return {
 		providerId: provider.providerId,
@@ -595,22 +748,62 @@ function serializeProviderMapping(
 		supportedVideoSizes: provider.supportedVideoSizes,
 		supportsVideoAudio: provider.supportsVideoAudio,
 		supportsVideoWithoutAudio: provider.supportsVideoWithoutAudio,
-		pricing: hasPricing(provider) ? buildPricingFields(provider) : undefined,
+		supported_video_durations_seconds: provider.supportedVideoDurationsSeconds,
+		supported_video_durations_seconds_image_to_video:
+			provider.supportedVideoDurationsSecondsImageToVideo,
+		pricing: hasPricing(provider)
+			? buildPricingFields(provider, discount)
+			: undefined,
+		regions:
+			regions.length > 0
+				? regions.map((region) => ({
+						id: region.region!,
+						pricing: hasPricing(region)
+							? buildPricingFields(region, discount)
+							: undefined,
+						context_length: region.contextSize,
+						max_output: region.maxOutput,
+						streaming: region.streaming,
+					}))
+				: undefined,
+		service_tiers: serviceTiers.length > 0 ? serviceTiers : undefined,
+		service_tier_regions:
+			serviceTiers.length > 0 && provider.serviceTierRegions?.length
+				? provider.serviceTierRegions
+				: undefined,
+		context_length: provider.contextSize,
 		streaming: provider.streaming,
 		vision: provider.vision ?? false,
+		audio: provider.audio,
+		document: provider.document,
 		realtime: provider.realtime === true ? true : undefined,
 		cancellation: providerDef?.cancellation ?? false,
 		tools: provider.tools ?? false,
 		parallelToolCalls: provider.parallelToolCalls ?? false,
+		supported_tool_choices: provider.supportedToolChoices?.length
+			? provider.supportedToolChoices
+			: undefined,
+		json_output: provider.jsonOutput,
+		structured_outputs: provider.jsonOutputSchema,
+		verbosity: provider.verbosity,
 		reasoning: provider.reasoning ?? false,
 		web_search: provider.webSearch === true,
 		web_search_forced_only:
 			provider.webSearch === true && provider.webSearchForcedOnly === true,
 		reasoning_efforts: provider.reasoningEfforts,
 		reasoning_modes: provider.reasoningModes,
+		reasoning_max_tokens: provider.reasoningMaxTokens,
 		min_cacheable_tokens: provider.minCacheableTokens,
 		max_output: provider.maxOutput,
+		max_temperature: provider.maxTemperature,
+		supports_n: provider.supportsN,
+		max_n: provider.maxN,
+		quantization: provider.quantization,
+		supported_voices: provider.supportedVoices,
+		supported_parameters: provider.supportedParameters,
 		stability: provider.stability ?? model.stability,
+		deprecated_at: provider.deprecatedAt?.toISOString(),
+		deactivated_at: provider.deactivatedAt?.toISOString(),
 	};
 }
 
@@ -653,10 +846,16 @@ function hasPricing(p: ProviderModelMapping): boolean {
 		p.inputPrice !== undefined ||
 		p.outputPrice !== undefined ||
 		p.imageInputPrice !== undefined ||
+		p.imageOutputPrice !== undefined ||
+		p.inputCharacterPrice !== undefined ||
+		p.videoOutputPrice !== undefined ||
 		p.perSecondPrice !== undefined ||
 		p.perImagePrice !== undefined ||
+		p.requestPrice !== undefined ||
 		p.ocrPagePrice !== undefined ||
-		p.inputAudioHourPrice !== undefined
+		p.inputAudioHourPrice !== undefined ||
+		p.pricingTiers !== undefined ||
+		p.peakPricing !== undefined
 	);
 }
 
@@ -664,36 +863,103 @@ function hasPricing(p: ProviderModelMapping): boolean {
 // per-provider pricing and (with a representative mapping) the model-level
 // pricing, so the two expose the same level of detail. A missing mapping or
 // missing field defaults to "0".
-function buildPricingFields(p: ProviderModelMapping | undefined) {
+function buildPricingFields(
+	p: ProviderModelMapping | undefined,
+	discount?: string,
+) {
 	return {
 		prompt: p?.inputPrice?.toString() ?? "0",
 		completion: p?.outputPrice?.toString() ?? "0",
 		image: p?.imageInputPrice?.toString() ?? "0",
+		image_output: p?.imageOutputPrice?.toString(),
+		image_input_cache_read: p?.cachedImageInputPrice?.toString(),
+		image_input_tokens_by_resolution: p?.imageInputTokensByResolution,
+		image_output_tokens_by_resolution: p?.imageOutputTokensByResolution,
 		input_audio: p?.inputAudioPrice?.toString(),
 		input_audio_cache_read: p?.cachedInputAudioPrice?.toString(),
 		output_audio: p?.outputAudioPrice?.toString(),
-		per_second: p?.perSecondPrice
-			? Object.fromEntries(
-					Object.entries(p.perSecondPrice).map(([resolution, price]) => [
-						resolution,
-						price.toString(),
-					]),
-				)
-			: undefined,
-		per_image: p?.perImagePrice
-			? Object.fromEntries(
-					Object.entries(p.perImagePrice).map(([resolution, price]) => [
-						resolution,
-						price.toString(),
-					]),
-				)
-			: undefined,
+		input_character: p?.inputCharacterPrice?.toString(),
+		input_text_item: p?.inputTextItemPrice?.toString(),
+		video_output: p?.videoOutputPrice?.toString(),
+		per_second: stringifyPrices(p?.perSecondPrice),
+		per_image: stringifyPrices(p?.perImagePrice),
 		request: p?.requestPrice?.toString() ?? "0",
 		input_cache_read: p?.cachedInputPrice?.toString() ?? "0",
+		input_cache_read_explicit: p?.cacheReadInputPrice?.toString(),
 		input_cache_write: p?.cacheWriteInputPrice?.toString() ?? "0",
 		input_cache_write_1h: p?.cacheWriteInputPrice1h?.toString() ?? "0",
+		web_search: p?.webSearchPrice?.toString(),
+		content_filter: p?.contentFilterPrice?.toString(),
 		ocr_page: p?.ocrPagePrice?.toString(),
 		input_audio_hour: p?.inputAudioHourPrice?.toString(),
+		tiers: p?.pricingTiers?.map(serializePricingTier),
+		peak: p?.peakPricing ? serializePeakPricing(p.peakPricing) : undefined,
+		discount,
+	};
+}
+
+function stringifyPrices(
+	prices: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+	return prices
+		? Object.fromEntries(
+				Object.entries(prices).map(([key, price]) => [key, price.toString()]),
+			)
+		: undefined;
+}
+
+function serializeTokenRates(rates: PeakPricing["peak"]) {
+	return {
+		prompt: rates.inputPrice.toString(),
+		completion: rates.outputPrice.toString(),
+		input_cache_read: rates.cachedInputPrice?.toString(),
+	};
+}
+
+function serializePricingTier(tier: PricingTier) {
+	return {
+		name: tier.name,
+		// JSON has no Infinity; the open-ended top tier serializes as null.
+		up_to_tokens: Number.isFinite(tier.upToTokens) ? tier.upToTokens : null,
+		prompt: tier.inputPrice.toString(),
+		completion: tier.outputPrice.toString(),
+		input_cache_read: tier.cachedInputPrice?.toString(),
+		input_cache_read_explicit: tier.cacheReadInputPrice?.toString(),
+		input_cache_write: tier.cacheWriteInputPrice?.toString(),
+		input_cache_write_1h: tier.cacheWriteInputPrice1h?.toString(),
+		peak: tier.peakPricing
+			? {
+					peak: serializeTokenRates(tier.peakPricing.peak),
+					off_peak: serializeTokenRates(tier.peakPricing.offPeak),
+				}
+			: undefined,
+	};
+}
+
+function serializePeakPricing(peakPricing: PeakPricing) {
+	return {
+		peak: serializeTokenRates(peakPricing.peak),
+		off_peak: serializeTokenRates(peakPricing.offPeak),
+		hours_utc: peakPricing.hoursUtc.map(([start, end]): [number, number] => [
+			start,
+			end,
+		]),
+		off_peak_days_utc: peakPricing.offPeakDaysUtc
+			? [...peakPricing.offPeakDaysUtc]
+			: undefined,
+	};
+}
+
+// Model-level pricing always carries web_search and internal_reasoning.
+function modelLevelPricing(
+	p: ProviderModelMapping | undefined,
+	discount: string | undefined,
+) {
+	const fields = buildPricingFields(p, discount);
+	return {
+		...fields,
+		web_search: fields.web_search ?? "0",
+		internal_reasoning: "0",
 	};
 }
 
@@ -721,6 +987,9 @@ function pricingScore(p: ProviderModelMapping): number {
 	if (p.inputAudioHourPrice !== undefined) {
 		return Number(p.inputAudioHourPrice);
 	}
+	if (p.inputCharacterPrice !== undefined) {
+		return Number(p.inputCharacterPrice);
+	}
 	if (p.perSecondPrice) {
 		const values = Object.values(p.perSecondPrice).map(Number);
 		return values.length > 0 ? Math.min(...values) : Infinity;
@@ -739,22 +1008,25 @@ function pricingScore(p: ProviderModelMapping): number {
 }
 
 // Pick the provider mapping that represents the model-level pricing: the
-// cheapest mapping that is neither deactivated nor deprecated as of
-// `currentDate`, so the reported pricing reflects the best price a caller can
+// cheapest mapping after discounts that is neither deactivated nor deprecated
+// as of `currentDate`, so the reported pricing reflects the best price a caller can
 // actually get. Only fall back to deactivated/deprecated mappings when no
 // active mapping has pricing. Ties keep the earlier mapping in definition order.
 function pickPricingProvider(
 	providerMappings: ProviderModelMapping[],
 	currentDate: Date,
+	discountOf: (p: ProviderModelMapping) => string | undefined,
 ): ProviderModelMapping | undefined {
 	const isActive = (p: ProviderModelMapping) =>
 		!(p.deactivatedAt && currentDate > p.deactivatedAt) &&
 		!(p.deprecatedAt && currentDate > p.deprecatedAt);
 
+	const score = (p: ProviderModelMapping) =>
+		pricingScore(p) * (1 - Number(discountOf(p) ?? 0));
+
 	const cheapest = (candidates: ProviderModelMapping[]) =>
 		candidates.reduce<ProviderModelMapping | undefined>(
-			(best, p) =>
-				best === undefined || pricingScore(p) < pricingScore(best) ? p : best,
+			(best, p) => (best === undefined || score(p) < score(best) ? p : best),
 			undefined,
 		);
 

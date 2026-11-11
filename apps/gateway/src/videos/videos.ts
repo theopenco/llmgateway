@@ -43,6 +43,7 @@ import {
 	isProviderIdCompliant,
 	isZeroDataRetentionEnabled,
 	logComplianceBlock,
+	assertProviderCompliant,
 } from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
@@ -52,6 +53,7 @@ import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { fetchProvider, fetchProviderIssuedUrl } from "@/lib/fetch-provider.js";
+import { getAuthenticatedReadAccess } from "@/lib/gateway-read-access.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { trackPendingWork } from "@/lib/pending-work.js";
@@ -99,6 +101,7 @@ import {
 	UnifiedFinishReason,
 	type GatewayContentFilterEvaluation,
 	type InferSelectModel,
+	or,
 } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import {
@@ -134,11 +137,13 @@ import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 import {
 	buildSignedGatewayVideoLogContentUrl,
 	verifyVideoContentAccessToken,
+	verifyVideoJobContentAccessToken,
 } from "@llmgateway/shared/video-access";
 import {
 	estimateVideoCostUsd,
 	isMinimaxV2VideoModel,
 	getGoogleAiStudioVideoFileName,
+	estimateVideoInputDurationSeconds,
 } from "@llmgateway/shared/video-generation-config";
 
 import type { ServerTypes } from "@/vars.js";
@@ -206,6 +211,20 @@ const SUPPORTED_VIDEO_SIZES = {
 		resolution: "480p",
 		orientation: "portrait",
 	},
+	"960x540": {
+		size: "960x540",
+		width: 960,
+		height: 540,
+		resolution: "540p",
+		orientation: "landscape",
+	},
+	"540x960": {
+		size: "540x960",
+		width: 540,
+		height: 960,
+		resolution: "540p",
+		orientation: "portrait",
+	},
 	"1280x720": {
 		size: "1280x720",
 		width: 1280,
@@ -253,6 +272,20 @@ const SUPPORTED_VIDEO_SIZES = {
 		width: 1080,
 		height: 1920,
 		resolution: "1080p",
+		orientation: "portrait",
+	},
+	"2560x1440": {
+		size: "2560x1440",
+		width: 2560,
+		height: 1440,
+		resolution: "2k",
+		orientation: "landscape",
+	},
+	"1440x2560": {
+		size: "1440x2560",
+		width: 1440,
+		height: 2560,
+		resolution: "2k",
 		orientation: "portrait",
 	},
 	"3840x2160": {
@@ -305,12 +338,18 @@ const videoImageInputSchema = z
 
 const SEEDANCE_2_MAX_REFERENCE_IMAGES = 9;
 const DEFAULT_MAX_REFERENCE_IMAGES = 3;
+const ALIBABA_WAN3_MAX_REFERENCE_IMAGES = 10;
+// Per-provider checks enforce lower limits.
+const MAX_REFERENCE_IMAGES = Math.max(
+	SEEDANCE_2_MAX_REFERENCE_IMAGES,
+	ALIBABA_WAN3_MAX_REFERENCE_IMAGES,
+);
 const GEMINI_OMNI_MAX_SOURCE_VIDEO_SECONDS = 10;
 
 const videoReferenceImagesSchema = z
 	.array(videoImageInputSchema)
 	.min(1)
-	.max(SEEDANCE_2_MAX_REFERENCE_IMAGES);
+	.max(MAX_REFERENCE_IMAGES);
 
 const referenceVideoUrlSchema = z
 	.string()
@@ -382,7 +421,7 @@ const videoSourceVideoInputSchema = z
 	])
 	.openapi({
 		description:
-			"LLMGateway extension. Source video (up to 10 seconds) to edit or extend, see video_task. Must be a publicly reachable HTTPS URL. Currently only supported on google-ai-studio/gemini-omni-1.1-flash.",
+			"LLMGateway extension. Source video (up to 10 seconds) to edit or extend, see video_task. Must be a publicly reachable HTTPS URL. Currently only supported on google-ai-studio Gemini Omni models.",
 		example: {
 			video_url: "https://example.com/source.mp4",
 		},
@@ -439,11 +478,14 @@ const createVideoRequestSchema = z
 				"Whether the generated video should include audio. Support depends on the selected model and provider mapping.",
 			example: true,
 		}),
+		reasoning_effort: z.enum(["low", "high"]).optional().openapi({
+			description: "FLUX 3 Max reasoning effort. Defaults to high.",
+		}),
 		n: z.number().int().optional(),
 		image: videoImageInputSchema.optional(),
 		reference_images: videoReferenceImagesSchema.optional().openapi({
 			description:
-				"Reference images for provider-specific asset or material-guided video generation. ByteDance Seedance 2.x models accept up to 9; other providers accept up to 3.",
+				"Reference images for provider-specific asset or material-guided video generation. ByteDance Seedance 2.x models accept up to 9 and Alibaba Wan 3.0 up to 10; other providers accept up to 3.",
 			example: [
 				{
 					image_url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
@@ -924,12 +966,14 @@ function estimateVideoSpendUsd(
 	resolution: string,
 	durationSeconds: number,
 	inputImageCount: number,
+	inputVideoDurationSeconds = 0,
 ): number {
 	return estimateVideoCostUsd(
 		mapping,
 		resolution,
 		durationSeconds,
 		inputImageCount,
+		inputVideoDurationSeconds,
 	);
 }
 
@@ -953,9 +997,19 @@ async function getPendingVideoReservationUsd(
 				eq(tables.videoJob.usedMode, "credits"),
 				isNull(tables.videoJob.logId),
 				isNull(tables.videoJob.endCustomerWalletId),
-				gt(
-					tables.videoJob.createdAt,
-					new Date(Date.now() - PENDING_VIDEO_RESERVATION_WINDOW_MS),
+				or(
+					gt(
+						tables.videoJob.createdAt,
+						new Date(Date.now() - PENDING_VIDEO_RESERVATION_WINDOW_MS),
+					),
+					and(
+						eq(tables.videoJob.usedProvider, "bytedance"),
+						or(
+							sql`${tables.videoJob.upstreamStatusResponse} ->> 'llmgateway_billing_pending' = 'true'`,
+							sql`${tables.videoJob.upstreamStatusResponse} ->> 'llmgateway_billing_quarantined' = 'true'`,
+							sql`${tables.videoJob.upstreamStatusResponse} ->> 'llmgateway_billing_fallback' = 'true'`,
+						),
+					),
 				),
 			),
 		);
@@ -1046,6 +1100,10 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 			message:
 				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
 		});
+	}
+
+	if (!apiKey.endUserSession) {
+		await getAuthenticatedReadAccess(c);
 	}
 
 	const baseProject = await findProjectById(apiKey.projectId);
@@ -1219,6 +1277,22 @@ function isAtlasCloudCollapsedKlingModel(externalId: string): boolean {
 	);
 }
 
+function isAtlasCloudKlingOmniModel(externalId: string): boolean {
+	return externalId === "kwaivgi/kling-video-o3";
+}
+
+function isAtlasCloudLumaRayModel(externalId: string): boolean {
+	return externalId === "luma/ray-3.2";
+}
+
+// AtlasCloud Kling 3.0 Omni reference-to-video image limits.
+const KLING_OMNI_MAX_REFERENCE_IMAGES = 7;
+const KLING_OMNI_MAX_REFERENCE_IMAGES_WITH_VIDEO = 4;
+
+function isAlibabaWan3VideoModel(externalId: string): boolean {
+	return externalId === "wan3.0-video" || externalId === "wan3.0-video-prime";
+}
+
 function isAtlasCloudFabricModel(externalId: string): boolean {
 	return (
 		externalId === "veed/fabric-1.0" || externalId === "veed/fabric-1.0/fast"
@@ -1294,6 +1368,42 @@ function getVideoProviderConstraintReasons(
 		return reasons;
 	}
 
+	if (provider.providerId === "fal-ai") {
+		if (provider.externalId !== "blackforestlabs/flux-3-max") {
+			reasons.push("unsupported fal video model");
+		}
+		if (
+			referenceVideoCount > 0 ||
+			referenceAudioCount > 0 ||
+			(inputMode === "reference" && inputImageCount !== 1)
+		) {
+			reasons.push(
+				"FLUX 3 Max supports only a single reference image or first/last frames",
+			);
+		}
+		return reasons;
+	}
+
+	if (provider.providerId === "alibaba") {
+		if (inputMode !== "none" && !isAlibabaWan3VideoModel(provider.externalId)) {
+			reasons.push(
+				"image inputs are only supported on Alibaba Wan 3.0 video models (wan-3-0-video, wan-3-0-video-prime)",
+			);
+		}
+		if (referenceVideoCount > 0 || referenceAudioCount > 0) {
+			reasons.push("reference videos and audio are unsupported on alibaba");
+		}
+		if (
+			inputMode === "reference" &&
+			inputImageCount > ALIBABA_WAN3_MAX_REFERENCE_IMAGES
+		) {
+			reasons.push(
+				`Wan 3.0 supports at most ${ALIBABA_WAN3_MAX_REFERENCE_IMAGES} reference images`,
+			);
+		}
+		return reasons;
+	}
+
 	if (isGoogleAiStudioVideoProvider(provider.providerId)) {
 		if (referenceAudioCount > 0) {
 			reasons.push("reference audio is unsupported on google-ai-studio");
@@ -1320,12 +1430,26 @@ function getVideoProviderConstraintReasons(
 				);
 			}
 		} else if (isAtlasCloudVideoProvider(provider.providerId)) {
-			if (!isAtlasCloudCollapsedKlingModel(provider.externalId)) {
+			// Kling 3.0 Omni takes every catalogued duration with frames.
+			const isLumaRay = isAtlasCloudLumaRayModel(provider.externalId);
+			const framesFollowCatalog =
+				isAtlasCloudKlingOmniModel(provider.externalId) || isLumaRay;
+			if (isLumaRay && videoDurationSeconds !== 5) {
+				reasons.push("Luma Ray only supports 5s outputs with frame inputs");
+			}
+			if (
+				!framesFollowCatalog &&
+				!isAtlasCloudCollapsedKlingModel(provider.externalId)
+			) {
 				reasons.push(
-					"frame inputs are only supported on AtlasCloud KLING video models",
+					"frame inputs are only supported on AtlasCloud KLING and Luma Ray video models",
 				);
 			}
-			if (videoDurationSeconds !== 5 && videoDurationSeconds !== 10) {
+			if (
+				!framesFollowCatalog &&
+				videoDurationSeconds !== 5 &&
+				videoDurationSeconds !== 10
+			) {
 				reasons.push(
 					"duration is unsupported because AtlasCloud KLING v3.0 only supports 5s and 10s outputs",
 				);
@@ -1363,9 +1487,37 @@ function getVideoProviderConstraintReasons(
 		}
 
 		if (isAtlasCloudVideoProvider(provider.providerId)) {
-			reasons.push(
-				"reference inputs are unsupported on AtlasCloud KLING v3.0 models",
-			);
+			if (!isAtlasCloudKlingOmniModel(provider.externalId)) {
+				reasons.push(
+					"reference inputs are only supported on AtlasCloud Kling 3.0 Omni",
+				);
+				return reasons;
+			}
+			if (videoSize.resolution === "4k") {
+				reasons.push(
+					"reference inputs are unsupported at 4k on Kling 3.0 Omni",
+				);
+			}
+			if (referenceAudioCount > 0) {
+				reasons.push("reference audio is unsupported on Kling 3.0 Omni");
+			}
+			if (referenceVideoCount > 1) {
+				reasons.push("Kling 3.0 Omni supports at most 1 reference video");
+			}
+			if (referenceVideoCount > 0 && includeAudio) {
+				reasons.push(
+					"Kling 3.0 Omni generates no audio with a reference video; set audio to false",
+				);
+			}
+			const maxReferenceImages =
+				referenceVideoCount > 0
+					? KLING_OMNI_MAX_REFERENCE_IMAGES_WITH_VIDEO
+					: KLING_OMNI_MAX_REFERENCE_IMAGES;
+			if (inputImageCount > maxReferenceImages) {
+				reasons.push(
+					`Kling 3.0 Omni supports at most ${maxReferenceImages} reference images${referenceVideoCount > 0 ? " with a reference video" : ""}`,
+				);
+			}
 
 			return reasons;
 		}
@@ -1540,6 +1692,23 @@ function getAtlasCloudVideoModelName(
 	}
 
 	const taskName = getAtlasCloudTaskName(inputMode);
+	if (isAtlasCloudLumaRayModel(baseModelName)) {
+		return `${baseModelName}/${taskName}`;
+	}
+
+	if (isAtlasCloudKlingOmniModel(baseModelName)) {
+		// Omni splits into 720p (std), 1080p (pro), and 4k upstream models.
+		const tier =
+			videoSize.resolution === "4k"
+				? "4k"
+				: videoSize.resolution === "1080p"
+					? "pro"
+					: "std";
+		const omniTask =
+			inputMode === "reference" ? "reference-to-video" : taskName;
+		return `${baseModelName}-${tier}/${omniTask}`;
+	}
+
 	if (
 		baseModelName === "kwaivgi/kling-v3.0-turbo" ||
 		baseModelName === "kwaivgi/kling-v3.0-pro"
@@ -1590,6 +1759,8 @@ function getVertexResolution(
 
 function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	switch (providerId) {
+		case "fal-ai":
+			return "https://queue.fal.run";
 		case "openai":
 			return "https://api.openai.com";
 		case "xai":
@@ -1686,6 +1857,7 @@ async function hasManagedVideoCredential(
 	const managedKey = await findManagedProviderKey(providerId, {
 		variant,
 		filter: getManagedVideoCredentialFilter(providerId),
+		advanceRoundRobin: false,
 	});
 	if (!managedKey) {
 		return false;
@@ -2122,7 +2294,10 @@ async function resolveVideoExecution(
 									? "360p"
 									: videoSize.resolution === "hd"
 										? "hd"
-										: "default",
+										: videoSize.resolution === "2k" ||
+											  videoSize.resolution === "540p"
+											? videoSize.resolution
+											: "default",
 	};
 	const eligibleMappings = getEligibleVideoProviderMappings(
 		modelInfo,
@@ -2856,16 +3031,16 @@ async function findVideoJobCached(
 }
 
 async function requireVideoJobForProject(
-	projectId: string,
+	context: RequestContext,
 	videoId: string,
-	sessionWalletId: string | null = null,
 ): Promise<VideoJobRecord> {
+	const { project, organization, apiKey } = context;
 	const job = await findVideoJobCached(
-		`videoJob:${projectId}:${videoId}`,
-		`video-job:${projectId}:${videoId}`,
+		`videoJob:${project.id}:${videoId}`,
+		`video-job:${project.id}:${videoId}`,
 		and(
 			eq(tables.videoJob.id, videoId),
-			eq(tables.videoJob.projectId, projectId),
+			eq(tables.videoJob.projectId, project.id),
 		),
 	);
 
@@ -2875,14 +3050,26 @@ async function requireVideoJobForProject(
 		});
 	}
 
-	// LLM SDK: an ephemeral end-user session may only read jobs owned by
-	// its own wallet. End-users share a project, so a project-only scope would
-	// leak other end-users' jobs. (Normal developer keys pass null and see all
-	// project jobs, as before.)
+	const sessionWalletId = apiKey.endCustomerWalletId;
 	if (sessionWalletId && job.endCustomerWalletId !== sessionWalletId) {
 		throw new HTTPException(404, {
 			message: "Video not found",
 		});
+	}
+
+	// Preserve historical org-only video access; the added read guard is opt-in.
+	if (apiKey.providerCompliancePolicy?.enabled) {
+		await assertProviderCompliant(
+			organization,
+			job.usedProvider,
+			{
+				organizationId: organization.id,
+				modelId: job.model,
+				apiKeyId: apiKey.id,
+				model: getFormattedUsedVideoModel(job.usedProvider, job.usedModel),
+			},
+			apiKey,
+		);
 	}
 
 	return job;
@@ -3768,6 +3955,31 @@ async function buildAtlasCloudKlingVideoRequest(
 					),
 				)
 			: [];
+	if (upstreamModelName.endsWith("/reference-to-video")) {
+		const [referenceVideoUrl] = referenceVideoUrls;
+		if (referenceVideoUrl) {
+			// AtlasCloud fetches the video itself; still refuse internal targets.
+			try {
+				await assertSafeUserContentUrl(referenceVideoUrl);
+			} catch (error) {
+				throw new HTTPException(400, {
+					message: `Invalid reference video URL: ${toError(error).message}`,
+				});
+			}
+		}
+		return {
+			model: upstreamModelName,
+			prompt,
+			duration: durationSeconds,
+			aspect_ratio: getAtlasCloudVideoAspectRatio(videoSize),
+			// Upstream ignores sound when a reference video is set.
+			sound: includeAudio && !referenceVideoUrl,
+			...(referenceImageUrls.length > 0 ? { images: referenceImageUrls } : {}),
+			...(referenceVideoUrl
+				? { video: referenceVideoUrl, keep_original_sound: false }
+				: {}),
+		};
+	}
 	return {
 		model: upstreamModelName,
 		prompt,
@@ -3784,6 +3996,39 @@ async function buildAtlasCloudKlingVideoRequest(
 		...(referenceVideoUrls.length > 0
 			? { reference_video_urls: referenceVideoUrls }
 			: {}),
+	};
+}
+
+async function buildAtlasCloudLumaVideoRequest(
+	providerContext: ProviderContext,
+	upstreamModelName: string,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	firstFrameInput: VideoImageInput | undefined,
+	lastFrameInput: VideoImageInput | undefined,
+): Promise<Record<string, unknown>> {
+	if (lastFrameInput && !firstFrameInput) {
+		throw new HTTPException(400, {
+			message: "Luma Ray requires image when last_frame is provided",
+		});
+	}
+	const imageUrl = firstFrameInput
+		? await getAtlasCloudImageUrl(providerContext, firstFrameInput)
+		: null;
+	const lastImageUrl = lastFrameInput
+		? await getAtlasCloudImageUrl(providerContext, lastFrameInput)
+		: null;
+	return {
+		model: upstreamModelName,
+		prompt,
+		duration: durationSeconds,
+		resolution: videoSize.resolution,
+		// Image-to-video follows the first frame's aspect ratio.
+		...(imageUrl
+			? { image: imageUrl }
+			: { aspect_ratio: getAtlasCloudVideoAspectRatio(videoSize) }),
+		...(lastImageUrl ? { last_image: lastImageUrl } : {}),
 	};
 }
 
@@ -3854,18 +4099,28 @@ async function createAtlasCloudVideoJob(
 				referenceImageInputs,
 				referenceAudioUrls,
 			)
-		: await buildAtlasCloudKlingVideoRequest(
-				providerContext,
-				upstreamModelName,
-				videoSize,
-				prompt,
-				durationSeconds,
-				includeAudio,
-				firstFrameInput,
-				lastFrameInput,
-				referenceImageInputs,
-				referenceVideoUrls,
-			);
+		: isAtlasCloudLumaRayModel(providerMapping.externalId)
+			? await buildAtlasCloudLumaVideoRequest(
+					providerContext,
+					upstreamModelName,
+					videoSize,
+					prompt,
+					durationSeconds,
+					firstFrameInput,
+					lastFrameInput,
+				)
+			: await buildAtlasCloudKlingVideoRequest(
+					providerContext,
+					upstreamModelName,
+					videoSize,
+					prompt,
+					durationSeconds,
+					includeAudio,
+					firstFrameInput,
+					lastFrameInput,
+					referenceImageInputs,
+					referenceVideoUrls,
+				);
 
 	const upstreamUrl = joinUrl(
 		providerContext.baseUrl,
@@ -3986,8 +4241,6 @@ async function createBytedanceVideoJob(
 		});
 	}
 
-	const isDreaminaModel = upstreamModelName.startsWith("dreamina-");
-
 	const videoRatio = getBytedanceVideoAspectRatio(videoSize);
 	const upstreamRequest: Record<string, unknown> = {
 		model: upstreamModelName,
@@ -3995,16 +4248,8 @@ async function createBytedanceVideoJob(
 		duration: durationSeconds,
 		ratio: videoRatio,
 		generate_audio: includeAudio,
+		resolution: videoSize.resolution,
 	};
-
-	if (isDreaminaModel) {
-		upstreamRequest.resolution =
-			videoSize.resolution === "1080p"
-				? "1080p"
-				: videoSize.resolution === "480p"
-					? "480p"
-					: "720p";
-	}
 
 	const upstreamUrl = joinUrl(
 		providerContext.baseUrl,
@@ -4031,6 +4276,11 @@ async function createBytedanceVideoJob(
 			status: rawResponse.status ?? "queued",
 			duration: durationSeconds,
 			aspect_ratio: videoRatio,
+			llmgateway_video_token_pricing: {
+				resolution: upstreamRequest.resolution,
+				includeAudio: upstreamRequest.generate_audio,
+				hasVideoInput: content.some((entry) => entry.type === "video_url"),
+			},
 		},
 		videoSize,
 	);
@@ -4088,7 +4338,12 @@ async function createMinimaxV2VideoJob(
 	const upstreamRequest: Record<string, unknown> = {
 		model: upstreamModelName,
 		content,
-		resolution: videoSize.resolution === "480p" ? "480P" : "768P",
+		resolution:
+			videoSize.resolution === "480p"
+				? "480P"
+				: videoSize.resolution === "2k"
+					? "2K"
+					: "768P",
 		duration: durationSeconds,
 		ratio: hasFrames
 			? "adaptive"
@@ -4281,28 +4536,87 @@ async function createXaiVideoJob(
 	return { upstreamId, upstreamRequest, upstreamResponse };
 }
 
+function toDataUrl(image: ProcessedVideoImageInput): string {
+	return `data:${image.mimeType};base64,${image.bytesBase64Encoded}`;
+}
+
+function buildAlibabaWan3VideoRequest(
+	upstreamModelName: string,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	includeAudio: boolean,
+	processedFirstFrame: ProcessedVideoImageInput | null,
+	processedLastFrame: ProcessedVideoImageInput | null,
+	processedReferenceImages: ProcessedVideoImageInput[],
+): Record<string, unknown> {
+	const media = [
+		...(processedFirstFrame
+			? [{ type: "first_frame", url: toDataUrl(processedFirstFrame) }]
+			: []),
+		...(processedLastFrame
+			? [{ type: "last_frame", url: toDataUrl(processedLastFrame) }]
+			: []),
+		...processedReferenceImages.map((image) => ({
+			type: "reference_image",
+			url: toDataUrl(image),
+		})),
+	];
+	return {
+		model: upstreamModelName,
+		input: {
+			prompt,
+			...(media.length > 0 && { media }),
+		},
+		parameters: {
+			resolution: videoSize.resolution.toUpperCase(),
+			ratio: videoSize.orientation === "portrait" ? "9:16" : "16:9",
+			duration: durationSeconds,
+			audio: includeAudio,
+		},
+	};
+}
+
 async function createAlibabaVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
 	videoSize: VideoSizeConfig,
 	prompt: string,
 	durationSeconds: number,
+	includeAudio: boolean,
+	processedFirstFrame: ProcessedVideoImageInput | null,
+	processedLastFrame: ProcessedVideoImageInput | null,
+	processedReferenceImages: ProcessedVideoImageInput[],
 ): Promise<{
 	upstreamId: string;
 	upstreamRequest: Record<string, unknown>;
 	upstreamResponse: Record<string, unknown>;
 }> {
 	const upstreamModelName = providerMapping.externalId;
-	const upstreamRequest: Record<string, unknown> = {
-		model: upstreamModelName,
-		input: {
-			prompt,
-		},
-		parameters: {
-			size: `${videoSize.width}*${videoSize.height}`,
-			duration: durationSeconds,
-		},
-	};
+	// Wan 3.0 takes a resolution tier and ratio; older Wan models take a pixel size.
+	const upstreamRequest: Record<string, unknown> = isAlibabaWan3VideoModel(
+		upstreamModelName,
+	)
+		? buildAlibabaWan3VideoRequest(
+				upstreamModelName,
+				videoSize,
+				prompt,
+				durationSeconds,
+				includeAudio,
+				processedFirstFrame,
+				processedLastFrame,
+				processedReferenceImages,
+			)
+		: {
+				model: upstreamModelName,
+				input: {
+					prompt,
+				},
+				parameters: {
+					size: `${videoSize.width}*${videoSize.height}`,
+					duration: durationSeconds,
+				},
+			};
 
 	const upstreamUrl = joinUrl(
 		providerContext.baseUrl,
@@ -4358,6 +4672,62 @@ async function createAlibabaVideoJob(
 	return { upstreamId: taskId, upstreamRequest, upstreamResponse };
 }
 
+async function createFalVideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	includeAudio: boolean,
+	firstFrame: ProcessedVideoImageInput | null,
+	lastFrame: ProcessedVideoImageInput | null,
+	reasoningEffort: "low" | "high" = "high",
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const imageUrl = (image: ProcessedVideoImageInput) =>
+		`data:${image.mimeType};base64,${image.bytesBase64Encoded}`;
+	const upstreamRequest = {
+		prompt,
+		duration: durationSeconds,
+		resolution: videoSize.resolution,
+		aspect_ratio: getVertexAspectRatio(videoSize),
+		generate_audio: includeAudio,
+		reasoning_level: reasoningEffort,
+		...(firstFrame ? { image_url: imageUrl(firstFrame) } : {}),
+		...(lastFrame ? { end_image_url: imageUrl(lastFrame) } : {}),
+	};
+	const rawResponse = await fetchUpstreamJson(
+		joinUrl(
+			providerContext.baseUrl,
+			`/${providerMapping.externalId}/${firstFrame ? "image-to-video" : "text-to-video"}`,
+		),
+		{
+			method: "POST",
+			headers: {
+				Authorization: `Key ${providerContext.token}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(upstreamRequest),
+		},
+		providerContext,
+	);
+	const upstreamId = extractUpstreamVideoId(rawResponse);
+	if (!upstreamId) {
+		throw new HTTPException(502, {
+			message: "fal video response did not include a request_id",
+		});
+	}
+	// Queue completion is not generation success: the worker retrieves the result.
+	const upstreamResponse = addRequestedVideoMetadata(
+		{ ...rawResponse, status: "queued", seconds: durationSeconds },
+		videoSize,
+	);
+	return { upstreamId, upstreamRequest, upstreamResponse };
+}
+
 async function createUpstreamVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
@@ -4378,12 +4748,25 @@ async function createUpstreamVideoJob(
 	organizationId: string,
 	projectId: string,
 	sourceVideo: VideoSourceInput | null,
+	reasoningEffort?: "low" | "high",
 ): Promise<{
 	upstreamId: string;
 	upstreamRequest: Record<string, unknown>;
 	upstreamResponse: Record<string, unknown>;
 }> {
 	switch (providerContext.providerId) {
+		case "fal-ai":
+			return await createFalVideoJob(
+				providerContext,
+				providerMapping,
+				videoSize,
+				prompt,
+				durationSeconds,
+				includeAudio,
+				processedFirstFrame ?? processedReferenceImages[0] ?? null,
+				processedLastFrame,
+				reasoningEffort,
+			);
 		case "atlascloud":
 			return await createAtlasCloudVideoJob(
 				providerContext,
@@ -4463,6 +4846,10 @@ async function createUpstreamVideoJob(
 				videoSize,
 				prompt,
 				durationSeconds,
+				includeAudio,
+				processedFirstFrame,
+				processedLastFrame,
+				processedReferenceImages,
 			);
 		case "google-ai-studio":
 			return await createGoogleAiStudioVideoJob(
@@ -4798,7 +5185,8 @@ async function insertVideoClientErrorLog(options: {
 		cachedTokens: null,
 		cacheWriteTokens: null,
 		messages:
-			getEffectiveRetentionLevel(options.organization) === "retain"
+			getEffectiveRetentionLevel(options.organization, options.apiKey) ===
+			"retain"
 				? [
 						{
 							role: "user",
@@ -4855,6 +5243,24 @@ async function insertVideoClientErrorLog(options: {
 	markRequestLogged();
 }
 
+export const videoAssets = new OpenAPIHono<ServerTypes>();
+videoAssets.get("/jobs/:video_id/content", async (c) => {
+	const videoId = c.req.param("video_id");
+	const token = c.req.query("token");
+	if (!token || !verifyVideoJobContentAccessToken(token, videoId)) {
+		throw new HTTPException(401, {
+			message: "Unauthorized: Invalid or expired video access token.",
+		});
+	}
+	const job = await db.query.videoJob.findFirst({
+		where: { id: { eq: videoId } },
+	});
+	if (!job) {
+		throw new HTTPException(404, { message: "Video content is not available" });
+	}
+	return await streamVideoJobContent(job, c.req.raw.headers);
+});
+
 videos.openapi(createVideo, async (c): Promise<any> => {
 	const startedAt = Date.now();
 	const { rawBody, request } = await parseJsonBody(c);
@@ -4867,7 +5273,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				"Video generation is not available for coding plans. Coding plans only include text-based inference.",
 		});
 	}
-	if (isZeroDataRetentionEnabled(organization)) {
+	if (isZeroDataRetentionEnabled(organization, apiKey)) {
 		throw new HTTPException(400, {
 			message:
 				"Video generation is unavailable while zero data retention is active because video jobs require temporary output storage.",
@@ -4969,9 +5375,9 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 
 	// Enterprise provider compliance policy: restrict video routing to providers
 	// that meet the org's policy, and block before dispatch if none qualify.
-	const videoCompliancePolicy = getActiveCompliancePolicy(organization);
+	const videoCompliancePolicy = getActiveCompliancePolicy(organization, apiKey);
 	const retainVideoPayloads =
-		getEffectiveRetentionLevel(organization) === "retain";
+		getEffectiveRetentionLevel(organization, apiKey) === "retain";
 	let complianceModelInfo: ModelDefinition = accessModelInfo;
 	if (videoCompliancePolicy) {
 		// A pinned provider is dispatched directly, so block it explicitly even
@@ -4998,6 +5404,22 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 			});
 		}
 		complianceModelInfo = { ...accessModelInfo, providers: compliantProviders };
+	}
+
+	if (request.reasoning_effort !== undefined) {
+		const providers = complianceModelInfo.providers.filter(
+			(provider) =>
+				provider.providerId === "fal-ai" &&
+				provider.externalId === "blackforestlabs/flux-3-max" &&
+				(!requestedProvider || requestedProvider === provider.providerId),
+		);
+		if (providers.length === 0) {
+			throw new HTTPException(400, {
+				message:
+					"reasoning_effort is only supported for fal-ai/flux-3-max video generation",
+			});
+		}
+		complianceModelInfo = { ...complianceModelInfo, providers };
 	}
 
 	const {
@@ -5155,6 +5577,11 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 			videoSize.resolution,
 			estimatedDurationSeconds,
 			inputImageCount,
+			getVideoInputDurationUpperBound(
+				mapping,
+				modelInfo,
+				referenceVideoInputs.length,
+			),
 		);
 		await releaseInFlightVideoReservation();
 		const inFlightTotalUsd = await reserveVideoSubmission(
@@ -5250,7 +5677,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 			if (
 				isGoogleVertexVideoProvider(selectedProviderContext.providerId) &&
 				!getGoogleVertexVideoOutputBucket() &&
-				getEffectiveRetentionLevel(organization) === "none"
+				getEffectiveRetentionLevel(organization, apiKey) === "none"
 			) {
 				const statusCode = 400;
 				routingAttempts.push({
@@ -5332,6 +5759,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					organization.id,
 					project.id,
 					sourceVideoInput,
+					request.reasoning_effort,
 				);
 				upstreamId = upstreamJob.upstreamId;
 				upstreamRequest = upstreamJob.upstreamRequest;
@@ -5386,6 +5814,8 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					.map((score) => score.providerId)
 					.filter((providerId) => !failedProviders.has(providerId)).length;
 				if (
+					// A failed/ambiguous submission may already have been charged.
+					selectedProviderContext.providerId === "fal-ai" ||
 					!shouldRetryRequest({
 						requestedProvider,
 						noFallback,
@@ -5485,6 +5915,11 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 						videoSize.resolution,
 						estimatedDurationSeconds,
 						inputImageCount,
+						getVideoInputDurationUpperBound(
+							selectedProviderMapping,
+							modelInfo,
+							referenceVideoInputs.length,
+						),
 					)
 				: 0;
 		const airsideRoutingSnapshot = await getAirsideRoutingSnapshot(
@@ -5545,6 +5980,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					llmgateway_requested_resolution: videoSize.resolution,
 					llmgateway_requested_duration_seconds: videoDurationSeconds,
 					llmgateway_input_image_count: inputImageCount,
+					llmgateway_reference_video_count: referenceVideoInputs.length,
 					llmgateway_reserved_spend_usd: reservedSpendUsd,
 					// Carried onto the job's log row by the worker at finalization.
 					...(storedContentFilterEvaluation
@@ -5612,13 +6048,9 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 });
 
 videos.openapi(getVideo, async (c): Promise<any> => {
-	const { project, apiKey } = await requireRequestContext(c);
+	const context = await requireRequestContext(c);
 	const { video_id: videoId } = c.req.valid("param");
-	const job = await requireVideoJobForProject(
-		project.id,
-		videoId,
-		apiKey.endCustomerWalletId ?? null,
-	);
+	const job = await requireVideoJobForProject(context, videoId);
 	return c.json(await serializeVideoJob(job));
 });
 
@@ -5706,75 +6138,10 @@ videos.openapi(getVideoLogContent, async (c) => {
 });
 
 videos.openapi(getVideoContent, async (c) => {
-	const { project, apiKey } = await requireRequestContext(c);
+	const context = await requireRequestContext(c);
 	const { video_id: videoId } = c.req.valid("param");
-	const job = await requireVideoJobForProject(
-		project.id,
-		videoId,
-		apiKey.endCustomerWalletId ?? null,
-	);
-
-	if (job.status !== "completed") {
-		throw new HTTPException(409, {
-			message: `Video is not ready yet. Current status: ${job.status}`,
-		});
-	}
-
-	if (!job.contentUrl && !job.storageUri) {
-		if (shouldProxyDirectUpstreamVideoContent(job)) {
-			const logId = job.logId;
-			const response = await streamDirectUpstreamVideoContent(
-				job,
-				c.req.raw.headers,
-			);
-			if (logId && response.ok) {
-				await markVideoDownloaded(logId);
-			}
-			return response;
-		}
-
-		const inlineVideo = getGoogleVertexInlineVideo(job);
-		if (!inlineVideo) {
-			throw new HTTPException(404, {
-				message: "Video content is not available",
-			});
-		}
-
-		const bytes = Uint8Array.from(
-			Buffer.from(inlineVideo.bytesBase64Encoded, "base64"),
-		);
-		return inlineVideoResponse(bytes, inlineVideo.mimeType, c.req.raw.headers);
-	}
-
-	const contentUrl = job.contentUrl ?? (await getExternalVideoContentUrl(job));
-	if (!contentUrl) {
-		const inlineVideo = getGoogleVertexInlineVideo(job);
-		if (inlineVideo) {
-			const bytes = Uint8Array.from(
-				Buffer.from(inlineVideo.bytesBase64Encoded, "base64"),
-			);
-			return inlineVideoResponse(
-				bytes,
-				inlineVideo.mimeType,
-				c.req.raw.headers,
-			);
-		}
-
-		throw new HTTPException(404, {
-			message: "Video content is not available",
-		});
-	}
-
-	const logId = job.logId;
-	const response = await streamVideoFromUrl(
-		contentUrl,
-		c.req.raw.headers,
-		job.contentType,
-	);
-	if (logId && response.ok) {
-		await markVideoDownloaded(logId);
-	}
-	return response;
+	const job = await requireVideoJobForProject(context, videoId);
+	return await streamVideoJobContent(job, c.req.raw.headers);
 });
 function getGoogleAiStudioVideoResolution(
 	videoSize: VideoSizeConfig,
@@ -5953,4 +6320,74 @@ function getVideoSourceInput(
 }
 function isGoogleAiStudioVideoProvider(providerId: string): boolean {
 	return providerId === "google-ai-studio";
+}
+function getVideoInputDurationUpperBound(
+	mapping: ProviderModelMapping,
+	modelInfo: ModelDefinition,
+	referenceVideoCount: number,
+): number {
+	return estimateVideoInputDurationSeconds(
+		mapping,
+		referenceVideoCount > 0,
+		modelInfo.maxVideoDurationSeconds,
+	);
+}
+async function streamVideoJobContent(
+	job: VideoJobRecord,
+	headers: Headers,
+): Promise<Response> {
+	if (job.status !== "completed") {
+		throw new HTTPException(409, {
+			message: `Video is not ready yet. Current status: ${job.status}`,
+		});
+	}
+
+	if (!job.contentUrl && !job.storageUri) {
+		if (shouldProxyDirectUpstreamVideoContent(job)) {
+			const logId = job.logId;
+			const response = await streamDirectUpstreamVideoContent(job, headers);
+			if (logId && response.ok) {
+				await markVideoDownloaded(logId);
+			}
+			return response;
+		}
+
+		const inlineVideo = getGoogleVertexInlineVideo(job);
+		if (!inlineVideo) {
+			throw new HTTPException(404, {
+				message: "Video content is not available",
+			});
+		}
+
+		const bytes = Uint8Array.from(
+			Buffer.from(inlineVideo.bytesBase64Encoded, "base64"),
+		);
+		return inlineVideoResponse(bytes, inlineVideo.mimeType, headers);
+	}
+
+	const contentUrl = job.contentUrl ?? (await getExternalVideoContentUrl(job));
+	if (!contentUrl) {
+		const inlineVideo = getGoogleVertexInlineVideo(job);
+		if (inlineVideo) {
+			const bytes = Uint8Array.from(
+				Buffer.from(inlineVideo.bytesBase64Encoded, "base64"),
+			);
+			return inlineVideoResponse(bytes, inlineVideo.mimeType, headers);
+		}
+
+		throw new HTTPException(404, {
+			message: "Video content is not available",
+		});
+	}
+
+	const logId = job.logId;
+	const response = await streamVideoFromUrl(
+		contentUrl,
+		headers,
+		job.contentType,
+	);
+	if (logId && response.ok) {
+		await markVideoDownloaded(logId);
+	}
+	return response;
 }

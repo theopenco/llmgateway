@@ -55,6 +55,7 @@ import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
 
 import {
 	getProviderDefaultBaseUrl,
@@ -131,7 +132,8 @@ const transcriptionResponseSchema = z
 		language: z.string().optional(),
 		duration: z.number().optional(),
 		words: z.array(transcriptionWordSchema).optional(),
-		channels: z.array(z.record(z.unknown())).optional(),
+		channels: z.array(z.record(z.string(), z.unknown())).optional(),
+		usage: usageWithCostSchema.optional(),
 	})
 	.passthrough()
 	.openapi({
@@ -258,6 +260,31 @@ const createTranscription = createRoute({
 		"Transcribes audio into text (speech-to-text) with word-level timestamps. The request body is multipart/form-data carrying the audio file (or a URL to it).",
 	method: "post",
 	path: "/",
+	middleware: async (c, next) => {
+		const mediaType = (c.req.header("Content-Type") ?? "")
+			.split(";")[0]
+			?.trim()
+			.toLowerCase();
+		if (mediaType !== "multipart/form-data") {
+			c.header(
+				"x-request-id",
+				c.req.header("x-request-id")?.trim() || shortid(40),
+			);
+			return c.json(
+				{
+					error: {
+						message:
+							"Content-Type must be multipart/form-data for transcription requests",
+						type: "invalid_request_error",
+						param: null,
+						code: "invalid_content_type",
+					},
+				} satisfies TranscriptionErrorBody,
+				400,
+			);
+		}
+		return await next();
+	},
 	security: [
 		{
 			bearerAuth: [],
@@ -292,22 +319,6 @@ const createTranscription = createRoute({
 transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
 	c.header("x-request-id", requestId);
-
-	const contentType = c.req.header("Content-Type") ?? "";
-	if (!contentType.includes("multipart/form-data")) {
-		return c.json(
-			{
-				error: {
-					message:
-						"Content-Type must be multipart/form-data for transcription requests",
-					type: "invalid_request_error",
-					param: null,
-					code: "invalid_content_type",
-				},
-			} satisfies TranscriptionErrorBody,
-			400,
-		);
-	}
 
 	let formBody: Record<string, string | File | (string | File)[]>;
 	try {
@@ -501,7 +512,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 		});
 	}
 
-	const retentionLevel = getEffectiveRetentionLevel(organization);
+	const retentionLevel = getEffectiveRetentionLevel(organization, apiKey);
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
@@ -518,12 +529,17 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 	// Enterprise provider compliance policy: transcription resolves to a single
 	// provider, so block the request before any data is sent if that provider
 	// doesn't meet the org's required certifications/data policies.
-	await assertProviderCompliant(organization, providerId, {
-		organizationId: project.organizationId,
-		modelId: modelDefId,
-		apiKeyId: apiKey.id,
-		model: requestedModel,
-	});
+	await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: modelDefId,
+			apiKeyId: apiKey.id,
+			model: requestedModel,
+		},
+		apiKey,
+	);
 
 	const finalLogId = shortid();
 	const failedKeys = createFailedKeyTracker();
@@ -1241,9 +1257,19 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			);
 
 			return c.json(
-				(responseObject && typeof responseObject.model === "string"
-					? { ...responseObject, model: responseModel }
-					: upstreamJson) as z.infer<typeof transcriptionResponseSchema>,
+				withUsageCost(
+					(responseObject && typeof responseObject.model === "string"
+						? { ...responseObject, model: responseModel }
+						: (responseObject ?? {})) as z.infer<
+						typeof transcriptionResponseSchema
+					>,
+					cost,
+					{ audio_input_cost: audioCost, request_cost: requestCost },
+					// OpenAI's usage shape for audio billed by duration.
+					audioDurationSeconds !== null
+						? { type: "duration", seconds: audioDurationSeconds }
+						: {},
+				),
 			);
 		}
 	} finally {

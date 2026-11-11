@@ -20,12 +20,14 @@ import {
 } from "./billing.js";
 import { findRealtimeTranscriptionMapping } from "./catalog.js";
 import { RealtimeDurationMeter } from "./duration-meter.js";
+import { prepareRealtimeImageInput } from "./image-input.js";
 import {
 	LEASE_HEARTBEAT_INTERVAL_MS,
 	releaseRealtimeLease,
 	renewRealtimeLease,
 	type RealtimeLease,
 } from "./leases.js";
+import { validateRealtimeTools } from "./mcp.js";
 import {
 	applyRealtimeDiscount,
 	buildRealtimePriceSnapshot,
@@ -43,6 +45,7 @@ import {
 	priceTranscriptionUsage,
 } from "./transcription.js";
 import { logRealtimeTurnDenial } from "./turn-denial-log.js";
+import { getRealtimeUpstreamModel } from "./upstream-model.js";
 
 import type { RealtimeMappingMatch } from "./catalog.js";
 import type { RealtimePreflightResult } from "./preflight.js";
@@ -91,12 +94,7 @@ const AUTO_RESPONSE_CONTROL_EVENT_ID = "event_lmg_disable_auto_response";
  */
 const TRANSCRIPTION_CONTROL_EVENT_ID = "event_lmg_pin_transcription_model";
 
-/**
- * Stored prompt references are rejected: a prompt can carry its own tool
- * definitions, so honoring one would let hosted tools (MCP, connectors) past
- * the function-tools-only check and incur provider fees this gateway does not
- * meter.
- */
+/** Stored prompts can hide instructions, ASR models and remote tool URLs that cannot be validated before provider egress. Require inline configuration. */
 const PROMPT_NOT_SUPPORTED = [
 	"prompt_not_supported",
 	"Stored prompt references are not supported for realtime sessions on LLMGateway. Inline the instructions and tools instead.",
@@ -389,6 +387,9 @@ export class RealtimeProxySession {
 		data: RawData,
 		isBinary: boolean,
 	): Promise<void> {
+		if (this.finalized || this.draining) {
+			return;
+		}
 		const size = Buffer.isBuffer(data)
 			? data.length
 			: Array.isArray(data)
@@ -428,7 +429,7 @@ export class RealtimeProxySession {
 		const type = typeof message.type === "string" ? message.type : "";
 		switch (type) {
 			case "session.update":
-				this.handleSessionUpdate(message);
+				await this.handleSessionUpdate(message);
 				return;
 			case "response.create":
 				if (this.transcriptionOnly) {
@@ -443,15 +444,6 @@ export class RealtimeProxySession {
 				await this.handleResponseCreate(message);
 				return;
 			case "conversation.item.create":
-				if (containsImageContent(message)) {
-					this.sendToClientRaw(
-						buildErrorEvent(
-							"image_input_not_supported",
-							"Image input is not yet supported for realtime sessions on LLMGateway.",
-						),
-					);
-					return;
-				}
 				if (isForceMessage(message.item)) {
 					// Scripted TTS lines are synthesized outside any response, so no
 					// usage event would ever price them.
@@ -463,16 +455,37 @@ export class RealtimeProxySession {
 					);
 					return;
 				}
+				if (!(await this.authorizeInputContent())) {
+					return;
+				}
+				if (!(await this.validateInputImages([message.item]))) {
+					return;
+				}
 				if (isUserTextItem(message.item)) {
 					this.pendingTextInputItems += 1;
 				}
 				this.forwardToUpstream(JSON.stringify(message));
 				return;
 			case "input_audio_buffer.append":
+				if (!(await this.authorizeInputAudio())) {
+					return;
+				}
 				if (this.durationMeter && typeof message.audio === "string") {
 					this.durationMeter.addInputAudio(message.audio, Date.now());
 				}
 				this.forwardToUpstream(text);
+				return;
+			case "input_audio_buffer.commit":
+				if (
+					this.inputAudioCommitBlocked ||
+					!(await this.authorizeInputAudio())
+				) {
+					this.resetInputAudioTurn();
+					return;
+				}
+				this.forwardToUpstream(text);
+				this.pendingInputAudioCommits += 1;
+				this.resetInputAudioTurn();
 				return;
 			case "input_audio_buffer.clear":
 				// Clearing audio the provider has already transcribed live would
@@ -483,15 +496,39 @@ export class RealtimeProxySession {
 					this.forwardToUpstream(
 						JSON.stringify({ type: "input_audio_buffer.commit" }),
 					);
+					this.pendingInputAudioCommits += 1;
+				}
+				this.forwardToUpstream(text);
+				this.pendingInputAudioClears += 1;
+				this.resetInputAudioTurn();
+				return;
+			case "conversation.item.retrieve":
+				if (!(await this.authorizeInputContent())) {
+					return;
 				}
 				this.forwardToUpstream(text);
 				return;
-			default:
+			case "response.cancel":
+			case "output_audio_buffer.clear":
+			case "conversation.item.delete":
+			case "conversation.item.truncate":
 				this.forwardToUpstream(text);
+				return;
+			default:
+				this.sendToClientRaw(
+					buildErrorEvent(
+						"unsupported_client_event",
+						type === "transcription_session.update"
+							? "transcription_session.update is not supported; configure transcription with session.update."
+							: `Unsupported client event type: ${type}`,
+					),
+				);
 		}
 	}
 
-	private handleSessionUpdate(message: Record<string, unknown>): void {
+	private async handleSessionUpdate(
+		message: Record<string, unknown>,
+	): Promise<void> {
 		const session =
 			message.session && typeof message.session === "object"
 				? (message.session as Record<string, unknown>)
@@ -680,24 +717,28 @@ export class RealtimeProxySession {
 			return;
 		}
 
-		// Hosted tools (MCP, web search, etc.) carry separate fees that are not
-		// metered here; only plain function tools are allowed.
-		if (containsUnsupportedTools(session.tools)) {
-			this.sendToClientRaw(
-				buildErrorEvent(
-					"tool_type_not_supported",
-					"Only function tools are supported for realtime sessions on LLMGateway. Hosted tools (MCP, web search, etc.) are not yet available.",
-				),
-			);
-			return;
-		}
-		// A stored prompt reference can carry its own tool definitions, which would
-		// slip hosted tools past the check above.
+		// An opaque prompt could bypass inline configuration validation.
 		if (session.prompt !== undefined && session.prompt !== null) {
 			this.sendToClientRaw(buildErrorEvent(...PROMPT_NOT_SUPPORTED));
 			return;
 		}
 
+		// Updates can carry instructions as well as ASR configuration: authorize
+		// both billable mappings before any user content leaves the gateway.
+		const transcriptionMatch =
+			nextTranscriptionEnabled === false
+				? null
+				: (nextTranscription?.match ??
+					(this.transcriptionEnabled
+						? (this.transcription?.match ?? null)
+						: null));
+		if (!(await this.authorizeInputContent(transcriptionMatch))) {
+			return;
+		}
+
+		if (!(await this.validateTools(session.tools))) {
+			return;
+		}
 		// Every validation passed, so the update will be forwarded: commit the
 		// transcription state it asked for.
 		if (nextTranscription) {
@@ -705,6 +746,7 @@ export class RealtimeProxySession {
 		}
 		if (nextTranscriptionEnabled !== null) {
 			this.transcriptionEnabled = nextTranscriptionEnabled;
+			this.resetInputAudioTurn();
 		}
 
 		// Remember the caller's desired auto-response behavior, then force it off
@@ -724,7 +766,7 @@ export class RealtimeProxySession {
 		};
 		if (requestedSessionModel !== undefined) {
 			const fwdSession = cloneForwarded().session as Record<string, unknown>;
-			fwdSession.model = this.preflight.match.mapping.externalId;
+			fwdSession.model = getRealtimeUpstreamModel(this.preflight);
 		}
 		// A transcription session never generates, so its VAD config is forwarded
 		// untouched: there is no auto-response to take over.
@@ -788,33 +830,6 @@ export class RealtimeProxySession {
 				? (message.response as Record<string, unknown>)
 				: undefined;
 		if (response) {
-			const input = response.input;
-			if (
-				Array.isArray(input) &&
-				input.some(
-					(item) =>
-						item &&
-						typeof item === "object" &&
-						itemContainsImageContent(item as Record<string, unknown>),
-				)
-			) {
-				this.sendToClientRaw(
-					buildErrorEvent(
-						"image_input_not_supported",
-						"Image input is not yet supported for realtime sessions on LLMGateway.",
-					),
-				);
-				return;
-			}
-			if (containsUnsupportedTools(response.tools)) {
-				this.sendToClientRaw(
-					buildErrorEvent(
-						"tool_type_not_supported",
-						"Only function tools are supported for realtime sessions on LLMGateway. Hosted tools (MCP, web search, etc.) are not yet available.",
-					),
-				);
-				return;
-			}
 			if (response.prompt !== undefined && response.prompt !== null) {
 				this.sendToClientRaw(buildErrorEvent(...PROMPT_NOT_SUPPORTED));
 				return;
@@ -835,6 +850,21 @@ export class RealtimeProxySession {
 			}
 		}
 
+		if (
+			response?.tools !== undefined &&
+			(!(await this.authorizeInputContent()) ||
+				!(await this.validateTools(response.tools)))
+		) {
+			return;
+		}
+		if (response?.input !== undefined) {
+			if (
+				!(await this.authorizeInputContent()) ||
+				!(await this.validateInputImages(response.input))
+			) {
+				return;
+			}
+		}
 		const allowed = await this.runGenerationGates();
 		if (!allowed) {
 			return;
@@ -863,7 +893,7 @@ export class RealtimeProxySession {
 		if (!this.turnDetectionEnabled || !this.desiredAutoRespond) {
 			return;
 		}
-		if (this.responseInFlight) {
+		if (this.responseInFlight || this.pendingMcpCalls.size > 0) {
 			return;
 		}
 		const allowed = await this.runGenerationGates();
@@ -894,7 +924,11 @@ export class RealtimeProxySession {
 	 * rule, and the org's provider/model rate-limit slot.
 	 */
 	private async runGenerationGates(): Promise<boolean> {
-		if (this.responseInFlight || this.gateInProgress) {
+		if (
+			this.responseInFlight ||
+			this.pendingMcpCalls.size > 0 ||
+			this.gateInProgress
+		) {
 			this.sendToClientRaw(
 				buildErrorEvent(
 					"response_in_flight",
@@ -1000,9 +1034,8 @@ export class RealtimeProxySession {
 	}
 
 	/**
-	 * Transcription is billed off the provider's own commit-driven events, so it
-	 * cannot be authorized up front the way response.create is. Re-run the same
-	 * authorization gates right after each transcription is billed instead — the
+	 * Audio is authorized before its first chunk; recheck after transcription
+	 * billing as a backstop for work already in flight. This enforces the
 	 * session spend cap, account state for the pinned ASR model, and the
 	 * organization's credits. A session that no longer clears them is closed, so
 	 * a revoked key or exhausted account can overrun by at most one turn rather
@@ -1146,6 +1179,7 @@ export class RealtimeProxySession {
 		}
 
 		const type = typeof event.type === "string" ? event.type : "";
+		this.trackMcpCall(event);
 		switch (type) {
 			case "session.created": {
 				const session =
@@ -1180,7 +1214,7 @@ export class RealtimeProxySession {
 								audio: {
 									input: {
 										transcription: {
-											model: this.preflight.match.mapping.externalId,
+											model: getRealtimeUpstreamModel(this.preflight),
 										},
 									},
 								},
@@ -1271,7 +1305,16 @@ export class RealtimeProxySession {
 				this.sendToClientRaw(text);
 				return;
 			}
+			case "input_audio_buffer.speech_stopped":
+				this.resetInputAudioTurn();
+				this.sendToClientRaw(text);
+				return;
 			case "input_audio_buffer.cleared": {
+				if (this.pendingInputAudioClears > 0) {
+					this.pendingInputAudioClears -= 1;
+				} else {
+					this.resetInputAudioTurn();
+				}
 				if (this.liveTranscriptionItem !== null) {
 					// The gateway commits live audio ahead of every clear, so the
 					// provider dropped it on its own: nothing carries its duration.
@@ -1287,6 +1330,12 @@ export class RealtimeProxySession {
 				return;
 			}
 			case "input_audio_buffer.committed": {
+				// A delayed acknowledgement must not invalidate a newer buffer.
+				if (this.pendingInputAudioCommits > 0) {
+					this.pendingInputAudioCommits -= 1;
+				} else {
+					this.resetInputAudioTurn();
+				}
 				const itemId =
 					typeof event.item_id === "string" ? event.item_id : undefined;
 				if (itemId === this.liveTranscriptionItem) {
@@ -1296,7 +1345,7 @@ export class RealtimeProxySession {
 					this.pendingTranscriptionItems.add(itemId);
 				}
 				this.sendToClientRaw(text);
-				if (this.responseInFlight) {
+				if (this.responseInFlight || this.pendingMcpCalls.size > 0) {
 					// A commit during an in-flight response (barge-in) must still get
 					// its automatic turn: remember it and start it after the cancelled
 					// response's terminal event has been billed.
@@ -1312,6 +1361,10 @@ export class RealtimeProxySession {
 				await this.handleTranscriptionCompleted(event, text);
 				return;
 			case "conversation.item.input_audio_transcription.failed": {
+				if (event.item_id === this.liveTranscriptionItem) {
+					this.liveTranscriptionItem = null;
+					this.resetInputAudioTurn();
+				}
 				const itemId =
 					typeof event.item_id === "string" ? event.item_id : undefined;
 				if (itemId) {
@@ -1322,6 +1375,11 @@ export class RealtimeProxySession {
 				return;
 			}
 			case "error": {
+				// Rejected commits/clears have no acknowledgement; fail closed on
+				// the next input instead of carrying their boundary state forward.
+				this.pendingInputAudioCommits = 0;
+				this.pendingInputAudioClears = 0;
+				this.resetInputAudioTurn();
 				const errorPayload =
 					event.error && typeof event.error === "object"
 						? (event.error as Record<string, unknown>)
@@ -1392,6 +1450,13 @@ export class RealtimeProxySession {
 			return;
 		}
 
+		if (Array.isArray(response.output)) {
+			for (const item of response.output as unknown[]) {
+				if (responseStatus === "completed" || isTerminalMcpCall(item)) {
+					this.trackMcpCall({ type: "response.done", item });
+				}
+			}
+		}
 		const durationBilled = this.durationMeter !== null;
 		// Duration-billed providers (xAI) report usage on the event itself.
 		const rawUsage = durationBilled ? event.usage : response.usage;
@@ -1504,7 +1569,7 @@ export class RealtimeProxySession {
 			return;
 		}
 
-		if (this.pendingAutoResponse) {
+		if (this.pendingAutoResponse && this.pendingMcpCalls.size === 0) {
 			// A turn was committed while this response was still in flight; now
 			// that the terminal event is billed, run the normal generation gates
 			// and start the pending response.
@@ -1525,6 +1590,10 @@ export class RealtimeProxySession {
 	): Promise<void> {
 		const itemId =
 			typeof event.item_id === "string" ? event.item_id : undefined;
+		if (itemId === this.liveTranscriptionItem) {
+			this.liveTranscriptionItem = null;
+			this.resetInputAudioTurn();
+		}
 		const contentIndex =
 			typeof event.content_index === "number" &&
 			Number.isInteger(event.content_index) &&
@@ -1644,6 +1713,7 @@ export class RealtimeProxySession {
 		if (
 			this.draining &&
 			!this.responseInFlight &&
+			this.pendingMcpCalls.size === 0 &&
 			this.pendingTranscriptionItems.size === 0
 		) {
 			this.shutdown(
@@ -1661,11 +1731,13 @@ export class RealtimeProxySession {
 	 * immediately so nothing new can start during the drain.
 	 */
 	private drainOrShutdown(code: number, reason: string): void {
+		this.contentAbortController.abort();
 		if (this.finalized || this.draining) {
 			return;
 		}
 		if (
 			(this.responseInFlight ||
+				this.pendingMcpCalls.size > 0 ||
 				this.pendingTranscriptionItems.size > 0 ||
 				this.liveTranscriptionItem !== null) &&
 			this.upstream.readyState === WebSocket.OPEN
@@ -1724,6 +1796,7 @@ export class RealtimeProxySession {
 	 * Close both sockets and finalize the session record. Idempotent.
 	 */
 	public shutdown(code: number, reason: string): void {
+		this.contentAbortController.abort();
 		if (this.finalized) {
 			return;
 		}
@@ -1920,43 +1993,152 @@ export class RealtimeProxySession {
 			userAgent: this.userAgent,
 		});
 	}
-}
 
-function itemContainsImageContent(item: Record<string, unknown>): boolean {
-	const content = item.content;
-	if (!Array.isArray(content)) {
-		return false;
+	private inputAudioAuthorized = false;
+	private inputAudioDenied = false;
+	private pendingInputAudioCommits = 0;
+	private pendingInputAudioClears = 0;
+
+	private async authorizeInputContent(
+		transcriptionMatch: RealtimeMappingMatch | null = this.transcriptionEnabled
+			? (this.transcription?.match ?? null)
+			: null,
+		onDenied?: (
+			failure: Extract<AuthorizeAccountResult, { ok: false }>,
+		) => void,
+	): Promise<boolean> {
+		const matches =
+			transcriptionMatch &&
+			(transcriptionMatch.modelId !== this.preflight.match.modelId ||
+				transcriptionMatch.mapping.providerId !==
+					this.preflight.match.mapping.providerId)
+				? [transcriptionMatch, this.preflight.match]
+				: [this.preflight.match];
+		for (const match of matches) {
+			if (this.finalized || this.draining) {
+				return false;
+			}
+			const authorization = await this.authorizeAccount(match);
+			if (this.finalized || this.draining) {
+				return false;
+			}
+			if (!authorization.ok) {
+				onDenied?.(authorization);
+				this.refuseTurn(authorization.code, authorization.message);
+				if (authorization.severity === "close") {
+					this.drainOrShutdown(1008, authorization.code);
+				}
+				return false;
+			}
+		}
+		return true;
 	}
-	return content.some(
-		(part) =>
-			part &&
-			typeof part === "object" &&
-			(part as Record<string, unknown>).type === "input_image",
-	);
-}
 
-function containsImageContent(message: Record<string, unknown>): boolean {
-	const item =
-		message.item && typeof message.item === "object"
-			? (message.item as Record<string, unknown>)
-			: undefined;
-	return item ? itemContainsImageContent(item) : false;
-}
-
-/**
- * Only plain function tools are allowed; hosted tool types (mcp, web search,
- * image generation, etc.) carry separate provider fees that are not metered.
- */
-function containsUnsupportedTools(tools: unknown): boolean {
-	if (!Array.isArray(tools)) {
-		return false;
+	private async authorizeInputAudio(): Promise<boolean> {
+		if (this.inputAudioDenied) {
+			return false;
+		}
+		if (this.inputAudioAuthorized) {
+			return true;
+		}
+		if (
+			!(await this.authorizeInputContent(undefined, ({ severity }) => {
+				this.inputAudioDenied = severity !== "transient";
+			}))
+		) {
+			// Do not commit audio that was dropped, even if lookup recovers next.
+			this.inputAudioCommitBlocked = true;
+			return false;
+		}
+		this.inputAudioAuthorized = true;
+		this.inputAudioCommitBlocked = false;
+		return true;
 	}
-	return tools.some(
-		(tool) =>
-			!tool ||
-			typeof tool !== "object" ||
-			(tool as Record<string, unknown>).type !== "function",
-	);
+
+	private resetInputAudioTurn(): void {
+		this.inputAudioAuthorized = false;
+		this.inputAudioDenied = false;
+		this.inputAudioCommitBlocked = false;
+	}
+
+	private inputAudioCommitBlocked = false;
+
+	private async validateInputImages(input: unknown): Promise<boolean> {
+		const invalid = await prepareRealtimeImageInput(
+			input,
+			this.preflight.match.mapping,
+			this.contentAbortController.signal,
+		);
+		if (invalid) {
+			this.sendToClientRaw(buildErrorEvent(invalid.code, invalid.message));
+			return false;
+		}
+		return !this.clientGone();
+	}
+
+	private readonly contentAbortController = new AbortController();
+	private readonly pendingMcpCalls = new Set<string>();
+
+	private async validateTools(tools: unknown): Promise<boolean> {
+		const invalid = await validateRealtimeTools(
+			tools,
+			this.preflight.match.mapping.providerId,
+			this.contentAbortController.signal,
+		);
+		if (invalid) {
+			this.sendToClientRaw(buildErrorEvent(invalid.code, invalid.message));
+			return false;
+		}
+		return !this.clientGone();
+	}
+
+	private trackMcpCall(event: Record<string, unknown>): void {
+		const type = event.type;
+		const item =
+			event.item && typeof event.item === "object"
+				? (event.item as Record<string, unknown>)
+				: undefined;
+		if (
+			type === "response.done" &&
+			item?.type === "mcp_call" &&
+			typeof item.id === "string"
+		) {
+			if (isTerminalMcpCall(item)) {
+				this.pendingMcpCalls.delete(item.id);
+				this.completedMcpCalls.add(item.id);
+			} else {
+				if (!this.completedMcpCalls.has(item.id)) {
+					this.pendingMcpCalls.add(item.id);
+				}
+			}
+		}
+		if (
+			(type === "response.mcp_call.in_progress" ||
+				type === "response.mcp_call.completed" ||
+				type === "response.mcp_call.failed") &&
+			typeof event.item_id === "string"
+		) {
+			if (type === "response.mcp_call.in_progress") {
+				if (!this.completedMcpCalls.has(event.item_id)) {
+					this.pendingMcpCalls.add(event.item_id);
+				}
+			} else {
+				this.pendingMcpCalls.delete(event.item_id);
+				this.completedMcpCalls.add(event.item_id);
+				this.maybeFinishDrain();
+				if (
+					this.pendingAutoResponse &&
+					this.pendingMcpCalls.size === 0 &&
+					!this.responseInFlight
+				) {
+					this.pendingAutoResponse = false;
+					void this.maybeAutoRespond();
+				}
+			}
+		}
+	}
+
+	private readonly completedMcpCalls = new Set<string>();
 }
 
 function isForceMessage(item: unknown): boolean {
@@ -2000,5 +2182,17 @@ function hasIdleTimeout(session: Record<string, unknown>): boolean {
 			typeof td === "object" &&
 			(td as Record<string, unknown>).idle_timeout_ms !== undefined &&
 			(td as Record<string, unknown>).idle_timeout_ms !== null,
+	);
+}
+function isTerminalMcpCall(item: unknown): boolean {
+	if (!item || typeof item !== "object") {
+		return false;
+	}
+	const call = item as Record<string, unknown>;
+	return (
+		call.type === "mcp_call" &&
+		(call.status === "completed" ||
+			call.status === "failed" ||
+			call.status === "cancelled")
 	);
 }

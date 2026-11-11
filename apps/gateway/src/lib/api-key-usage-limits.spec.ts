@@ -37,6 +37,7 @@ const baseApiKey = {
 	projectId: "project-1",
 	createdBy: "user-1",
 	safetyIdentifier: "key_test",
+	providerCompliancePolicy: null,
 };
 
 beforeEach(() => {

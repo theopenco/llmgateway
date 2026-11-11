@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
 	Activity,
 	AlertTriangle,
+	Banknote,
 	BarChart3,
 	Building2,
 	Cpu,
@@ -55,7 +56,7 @@ import {
 } from "@/components/ui/sidebar";
 import { WhiteLabelSeatWarning } from "@/components/white-label-seat-warning";
 import { useUser } from "@/hooks/useUser";
-import { isStaffHiddenPage } from "@/lib/admin-role";
+import { isStaffHiddenPage, canReadFinancials } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
 import { useAuth } from "@/lib/auth-client";
 
@@ -173,6 +174,12 @@ const navItems: NavItem[] = [
 		match: "prefix",
 	},
 	{
+		href: "/airside-payouts",
+		label: "Airside Payouts",
+		icon: Banknote,
+		match: "prefix",
+	},
+	{
 		href: "/airside-certification",
 		label: "Airworthy Certification",
 		icon: Stamp,
@@ -278,10 +285,9 @@ export function AdminShell({ children, signedIn }: AdminShellProps) {
 	const queryClient = useQueryClient();
 	const { user, isLoading, error, sessionRejected, data } = useUser();
 	const adminRole = useAdminRole();
-	const visibleNavItems =
-		adminRole === "admin"
-			? navItems
-			: navItems.filter((item) => !isStaffHiddenPage(item.href));
+	const visibleNavItems = canReadFinancials(adminRole)
+		? navItems
+		: navItems.filter((item) => !isStaffHiddenPage(item.href));
 
 	// Visitors without an admin session never see the navigation: the section
 	// list would suggest there is something reachable behind it, and a sign out
@@ -396,7 +402,7 @@ export function AdminShell({ children, signedIn }: AdminShellProps) {
 						</AlertTitle>
 						<AlertDescription className="text-current/90">
 							{adminRole === "support"
-								? "You can view everything and issue refunds. Other changes need an administrator."
+								? "You can issue refunds and view non-financial admin data. Other changes need an administrator."
 								: "You can view everything. Changes need an administrator."}
 						</AlertDescription>
 					</Alert>

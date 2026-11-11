@@ -131,12 +131,22 @@ curl -X POST "https://api.llmgateway.io/v1/ocr" \
 	"usage_info": {
 		"pages_processed": 1,
 		"doc_size_bytes": 125344
+	},
+	"usage": {
+		"pages_processed": 1,
+		"cost": 0.004,
+		"cost_details": {
+			"page_cost": 0.004,
+			"request_cost": 0,
+			"total_cost": 0.004
+		}
 	}
 }
 ```
 
 Each entry in `pages` carries the markdown for one page. `usage_info.pages_processed`
-reflects exactly how many pages were billed for the request.
+reflects exactly how many pages were billed for the request, and `usage.cost` what
+they were billed in USD (see [Cost Breakdown](/features/cost-breakdown)).
 
 ## Billing
 

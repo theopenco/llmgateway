@@ -19,8 +19,10 @@ describe("speech", () => {
 			| "google-ai-studio"
 			| "google-vertex"
 			| "openai"
+			| "azure"
 			| "elevenlabs"
-			| "alibaba" = "google-ai-studio",
+			| "alibaba"
+			| "groq" = "google-ai-studio",
 	) {
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
@@ -30,8 +32,8 @@ describe("speech", () => {
 			createdBy: "user-id",
 		});
 		const providerToken =
-			provider === "openai"
-				? "openai-test-key"
+			provider === "openai" || provider === "azure"
+				? `${provider}-test-key`
 				: provider === "elevenlabs"
 					? "elevenlabs-test-key"
 					: provider === "alibaba"
@@ -503,6 +505,63 @@ describe("speech", () => {
 		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 110e-6, 12);
 	});
 
+	test("/v1/audio/speech proxies Groq Orpheus as WAV and bills by characters", async () => {
+		await seedKeys("real-token-speech-groq", "token-id-speech-groq", "groq");
+
+		const input = "مرحبا، كيف حالك؟";
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-groq",
+			},
+			body: JSON.stringify({
+				model: "groq/orpheus-arabic-saudi",
+				input,
+				voice: "noura",
+				speed: 1.5,
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		// Orpheus only emits WAV, so it is the default format.
+		expect(res.headers.get("Content-Type")).toBe("audio/wav");
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.length).toBeGreaterThan(0);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "groq/orpheus-arabic-saudi");
+		expect(log).toBeDefined();
+		expect(log?.hasError).toBe(false);
+		// Orpheus Arabic Saudi bills $40 / 1M input characters.
+		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 40e-6, 12);
+	});
+
+	test("/v1/audio/speech rejects non-WAV formats on Groq Orpheus", async () => {
+		await seedKeys(
+			"real-token-speech-groq-mp3",
+			"token-id-speech-groq-mp3",
+			"groq",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-groq-mp3",
+			},
+			body: JSON.stringify({
+				model: "groq/orpheus-arabic-saudi",
+				input: "مرحبا",
+				response_format: "mp3",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.code).toBe("unsupported_response_format");
+	});
+
 	test("/v1/audio/speech proxies Qwen TTS via DashScope and bills by characters", async () => {
 		await seedKeys("real-token-speech-qwen", "token-id-speech-qwen", "alibaba");
 
@@ -737,6 +796,35 @@ describe("speech", () => {
 		expect(log?.completionTokens).toBe("42");
 		// $0.60/1M input text tokens + $12/1M output audio tokens.
 		expect(Number(log?.inputCost)).toBeCloseTo(7 * 0.6e-6, 12);
+		expect(Number(log?.outputCost)).toBeCloseTo(42 * 12e-6, 12);
+	});
+
+	test("/v1/audio/speech serves gpt-4o-mini-tts on Azure's v1 API", async () => {
+		await seedKeys("real-token-speech-azure", "token-id-speech-azure", "azure");
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-azure",
+			},
+			body: JSON.stringify({
+				model: "azure/gpt-4o-mini-tts",
+				input: "Hello there",
+				response_format: "wav",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("audio/wav");
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.toString("ascii")).toBe("MOCK_OPENAI_AUDIO");
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "azure/gpt-4o-mini-tts");
+		expect(log?.hasError).toBe(false);
+		expect(log?.promptTokens).toBe("7");
+		expect(log?.completionTokens).toBe("42");
 		expect(Number(log?.outputCost)).toBeCloseTo(42 * 12e-6, 12);
 	});
 

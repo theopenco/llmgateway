@@ -4,6 +4,7 @@ import {
 	LEGACY_LOUNGE_SOURCE,
 	LOUNGE_SOURCE,
 } from "@llmgateway/shared";
+import { BATCH_SOURCE } from "@llmgateway/shared/batch";
 
 const logSources = new Set([
 	...CODING_AGENTS.flatMap((agent) => [agent.id, ...agent.xSourceValues]),
@@ -18,6 +19,7 @@ const logSources = new Set([
 	"bolt.new",
 	"v0.dev",
 	"lovable.dev",
+	BATCH_SOURCE,
 ]);
 
 export function normalizeLogSource(

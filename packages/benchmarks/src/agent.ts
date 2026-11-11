@@ -155,6 +155,12 @@ export async function executeAgentRequest({
 			role: "assistant",
 			content: response.content,
 			toolCalls: response.toolCalls,
+			reasoning: response.reasoning || undefined,
+			reasoning_details: response.reasoning_details,
+			anthropic_native_blocks: response.anthropic_native_blocks,
+			extra_content: response.extra_content,
+			provider_extra: response.provider_extra,
+			phase: response.phase,
 		});
 		for (const call of response.toolCalls) {
 			const name = call.function.name;

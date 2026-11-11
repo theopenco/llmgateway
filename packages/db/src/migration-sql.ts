@@ -1,7 +1,8 @@
 /**
  * Static analysis of Drizzle migration SQL: the index operations the
  * prebuilt-index guard checks, the tables a migration locks, and the lint rules
- * that keep a migration from taking long ACCESS EXCLUSIVE locks on live tables.
+ * that keep a migration from taking long ACCESS EXCLUSIVE locks on live tables
+ * or breaking the previous release, which runs on the migrated schema.
  */
 
 export const STATEMENT_BREAKPOINT = "--> statement-breakpoint";
@@ -14,6 +15,17 @@ export const ALLOW_BLOCKING_INDEX_MARKER = "-- migrate:allow-blocking-index";
  * `-- migrate:reviewed table has < 1k rows` or the manual step to run first.
  */
 export const REVIEWED_MARKER = "-- migrate:reviewed";
+
+/**
+ * Acknowledges a change the previous release cannot run against, e.g.
+ * `-- migrate:contract #1234 removed it from schema.ts and is deployed`.
+ * Migrations run before rollout and a rollback never reverts them, so the
+ * previous release runs on this schema during every rollout and after any
+ * rollback. Drizzle names every schema column in SELECT and INSERT.
+ */
+export const CONTRACT_MARKER = "-- migrate:contract";
+
+const CONTRACT_HINT = `Ship the code and schema.ts removal in an earlier deployed PR, then acknowledge with ${CONTRACT_MARKER} <that PR>.`;
 
 const IDENT = String.raw`(?:"(?:[^"]|"")+"|[A-Za-z_][\w$]*)`;
 const QUALIFIED = String.raw`${IDENT}(?:\s*\.\s*${IDENT})?`;
@@ -34,12 +46,15 @@ const ALTER_TABLE_RE = new RegExp(
 	String.raw`^\s*alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?(${QUALIFIED})`,
 	"i",
 );
+const DROP_TABLE_RE = new RegExp(
+	String.raw`^\s*drop\s+table\s+(?:if\s+exists\s+)?(${QUALIFIED})`,
+	"i",
+);
+const DROP_TABLE_LIST_RE =
+	/^\s*drop\s+table\s+(?:if\s+exists\s+)?([\s\S]+?)(?:\s+(?:cascade|restrict))?\s*;?\s*$/i;
 const LOCKING_TABLE_RES = [
 	ALTER_TABLE_RE,
-	new RegExp(
-		String.raw`^\s*drop\s+table\s+(?:if\s+exists\s+)?(${QUALIFIED})`,
-		"i",
-	),
+	DROP_TABLE_RE,
 	new RegExp(
 		String.raw`^\s*truncate\s+(?:table\s+)?(?:only\s+)?(${QUALIFIED})`,
 		"i",
@@ -48,6 +63,85 @@ const LOCKING_TABLE_RES = [
 	new RegExp(String.raw`^\s*delete\s+from\s+(?:only\s+)?(${QUALIFIED})`, "i"),
 	new RegExp(String.raw`^\s*insert\s+into\s+(${QUALIFIED})`, "i"),
 	CREATE_INDEX_RE,
+];
+/** Blanks string literals and quoted identifiers so keywords in names don't match. */
+function bareSql(sql: string): string {
+	return sql.replace(/'(?:[^']|'')*'/g, "''").replace(/"(?:[^"]|"")*"/g, '""');
+}
+
+/** The comma-separated actions of an ALTER TABLE statement, from bareSql output. */
+function alterActions(bare: string): string[] {
+	const body = bare.replace(
+		/^\s*alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?\S+\s+/i,
+		"",
+	);
+	const actions: string[] = [];
+	let depth = 0;
+	let start = 0;
+	for (let i = 0; i < body.length; i++) {
+		if (body[i] === "(") {
+			depth++;
+		} else if (body[i] === ")") {
+			depth--;
+		} else if (body[i] === "," && depth === 0) {
+			actions.push(body.slice(start, i).trim());
+			start = i + 1;
+		}
+	}
+	actions.push(body.slice(start).trim());
+	return actions;
+}
+
+/**
+ * Changes the previous release cannot run against; see CONTRACT_MARKER. Tests
+ * receive the statement with names blanked (bareSql) and as written.
+ */
+const CONTRACT_RULES: {
+	rule: LintFinding["rule"];
+	test: (bare: string, sql: string) => boolean;
+	message: string;
+}[] = [
+	{
+		rule: "drop-column",
+		test: (bare) => /\bdrop\s+column\b/i.test(bare),
+		message:
+			"DROP COLUMN breaks the previous release, which still selects and inserts the column.",
+	},
+	{
+		rule: "rename",
+		test: (bare) => /\brename\b/i.test(bare),
+		message:
+			"RENAME breaks the previous release, which still uses the old name. Add the new column, dual-write, backfill, then drop the old one.",
+	},
+	{
+		rule: "drop-constraint",
+		// Foreign key drops (Drizzle names them *_fk) only relax the schema.
+		test: (bare, sql) =>
+			/\bdrop\s+constraint\b/i.test(bare) &&
+			!/\bdrop\s+constraint\s+(?:if\s+exists\s+)?"?[\w$]*_fk"?\s*;?\s*$/i.test(
+				sql,
+			),
+		message:
+			"DROP CONSTRAINT can break the previous release's ON CONFLICT targets. Add the new constraint or index first and drop the old one once nothing targets it; a CHECK drop is safe to mark.",
+	},
+	{
+		rule: "add-not-null-without-default",
+		test: (bare) =>
+			alterActions(bare).some(
+				(action) =>
+					/^add\s+column\b/i.test(action) &&
+					/\bnot\s+null\b/i.test(action) &&
+					!/\b(?:default|generated)\b/i.test(action),
+			),
+		message:
+			"ADD COLUMN ... NOT NULL without a DEFAULT fails the previous release's inserts, which do not set it. Add a DEFAULT or make it nullable.",
+	},
+	{
+		rule: "drop-default",
+		test: (bare) => /\balter\s+column\s+\S+\s+drop\s+default\b/i.test(bare),
+		message:
+			"DROP DEFAULT can fail the previous release's inserts, which rely on the default.",
+	},
 ];
 const REFERENCES_RE = new RegExp(String.raw`references\s+(${QUALIFIED})`, "gi");
 const VOLATILE_DEFAULT_RE =
@@ -79,7 +173,14 @@ export interface LintFinding {
 		| "set-not-null"
 		| "foreign-key-not-valid"
 		| "volatile-default"
-		| "multi-table-lock";
+		| "multi-table-lock"
+		| "drop-table"
+		| "drop-column"
+		| "rename"
+		| "drop-constraint"
+		| "add-not-null-without-default"
+		| "drop-default"
+		| "drop-index";
 	message: string;
 	statement?: string;
 }
@@ -173,16 +274,25 @@ export function hasMarker(
 		.some((line) => line.trim().toLowerCase().startsWith(marker));
 }
 
-function hasReviewedReason(statements: MigrationStatement[]): boolean {
+function hasMarkerReason(
+	statements: MigrationStatement[],
+	marker: string,
+): boolean {
 	return statements.some((statement) =>
 		statement.raw.split("\n").some((line) => {
 			const trimmed = line.trim();
+			const rest = trimmed.slice(marker.length);
 			return (
-				trimmed.toLowerCase().startsWith(REVIEWED_MARKER) &&
-				trimmed.slice(REVIEWED_MARKER.length).replace(/^[:\s]+/, "").length > 0
+				trimmed.toLowerCase().startsWith(marker) &&
+				/^[:\s]/.test(rest) &&
+				rest.replace(/^[:\s]+/, "").length > 0
 			);
 		}),
 	);
+}
+
+function hasReviewedReason(statements: MigrationStatement[]): boolean {
+	return hasMarkerReason(statements, REVIEWED_MARKER);
 }
 
 export function parseIndexOperations(migrationSql: string): IndexOperation[] {
@@ -274,17 +384,28 @@ export function toConcurrentDropIndex(name: string): string {
  * tables for longer than a catalog update. Statements on tables the migration
  * creates itself are exempt. Findings other than the IF [NOT] EXISTS rules are
  * acknowledged with a `-- migrate:reviewed <reason>` comment on the statement
- * (or, for multi-table-lock, anywhere in the migration).
+ * (or, for multi-table-lock, anywhere in the migration). Changes the previous
+ * release cannot run against need `-- migrate:contract <reason>` instead.
  */
 export function lintMigrationSql(migrationSql: string): LintFinding[] {
 	const statements = splitStatements(migrationSql);
-	const created = createdTables(migrationSql);
+	// Filled in statement order, so a table dropped before it is recreated still
+	// counts as existing.
+	const created = new Set<string>();
 	const findings: LintFinding[] = [];
 	const lockedExisting = new Set<string>();
 	const isNew = (identifier: string) => created.has(relationName(identifier));
 
 	for (const statement of statements) {
 		const { sql } = statement;
+		const createTable = CREATE_TABLE_RE.exec(sql);
+		if (createTable) {
+			// IF NOT EXISTS creates nothing when the table already exists.
+			if (!/\bif\s+not\s+exists\b/i.test(sql.slice(0, createTable[0].length))) {
+				created.add(relationName(createTable[1]));
+			}
+			continue;
+		}
 		const reviewed = hasReviewedReason([statement]);
 
 		const create = CREATE_INDEX_RE.exec(sql);
@@ -300,6 +421,7 @@ export function lintMigrationSql(migrationSql: string): LintFinding[] {
 			continue;
 		}
 
+		const contracted = hasMarkerReason([statement], CONTRACT_MARKER);
 		const drop = DROP_INDEX_RE.exec(sql);
 		if (drop) {
 			if (!drop[2]) {
@@ -307,6 +429,28 @@ export function lintMigrationSql(migrationSql: string): LintFinding[] {
 					rule: "drop-index-if-exists",
 					message:
 						"DROP INDEX must use IF EXISTS so it can be dropped CONCURRENTLY before deploy.",
+					statement: sql,
+				});
+			}
+			if (!contracted) {
+				findings.push({
+					rule: "drop-index",
+					message: `Dropping a unique index breaks the previous release's ON CONFLICT targets. Create the replacement first and drop the old one once nothing targets it, or mark a non-unique index. ${CONTRACT_HINT}`,
+					statement: sql,
+				});
+			}
+			continue;
+		}
+
+		const dropTable = DROP_TABLE_LIST_RE.exec(sql);
+		if (dropTable) {
+			const existing = splitIdentifierList(dropTable[1]).some(
+				(table) => !isNew(table),
+			);
+			if (existing && !contracted) {
+				findings.push({
+					rule: "drop-table",
+					message: `DROP TABLE breaks the previous release if it still uses the table. ${CONTRACT_HINT}`,
 					statement: sql,
 				});
 			}
@@ -318,6 +462,18 @@ export function lintMigrationSql(migrationSql: string): LintFinding[] {
 			continue;
 		}
 		lockedExisting.add(relationName(alter[1]));
+		if (!contracted) {
+			const bare = bareSql(sql);
+			for (const { rule, test, message } of CONTRACT_RULES) {
+				if (test(bare, sql)) {
+					findings.push({
+						rule,
+						message: `${message} ${CONTRACT_HINT}`,
+						statement: sql,
+					});
+				}
+			}
+		}
 		if (reviewed) {
 			continue;
 		}

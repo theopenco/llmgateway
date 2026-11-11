@@ -9,6 +9,7 @@ import { getEffectiveRetentionLevel } from "@/lib/compliance.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { insertLog } from "@/lib/logs.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
+import { getClientSafetyIdentifierParams } from "@/lib/safety-identifier.js";
 
 import { shortid } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
@@ -51,6 +52,7 @@ interface ClientErrorRequest {
 	source: string | undefined;
 	customHeaders: Record<string, string>;
 	userAgent: string | undefined;
+	clientSafetyParams?: ReturnType<typeof getClientSafetyIdentifierParams>;
 }
 
 async function resolveLogContext(
@@ -75,7 +77,7 @@ async function resolveLogContext(
 	return {
 		apiKey,
 		project,
-		retentionLevel: getEffectiveRetentionLevel(organization),
+		retentionLevel: getEffectiveRetentionLevel(organization, apiKey),
 		organization,
 	};
 }
@@ -151,6 +153,7 @@ async function writeClientErrorLog(
 				apiOrigin: options.apiOrigin,
 				customHeaders: request.customHeaders,
 				debugMode: false,
+				rawRequest: request.clientSafetyParams,
 				userAgent: request.userAgent,
 			}),
 			duration: 0,
@@ -232,6 +235,16 @@ export async function logGatewayClientError(
 				requestedModel:
 					readRequestedModel(options.rawBody, options.apiOrigin) ?? "unknown",
 				messages: readMessages(options.rawBody, options.apiOrigin),
+				clientSafetyParams: getClientSafetyIdentifierParams(
+					options.apiOrigin === "messages"
+						? {
+								user: readString(
+									readField(options.rawBody, "metadata"),
+									"user_id",
+								),
+							}
+						: options.rawBody,
+				),
 				source: c.req.header("x-source") ?? undefined,
 				customHeaders: extractCustomHeaders(c),
 				userAgent: c.req.header("user-agent"),

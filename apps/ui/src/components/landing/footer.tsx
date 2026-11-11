@@ -142,6 +142,15 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/status"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Provider status
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/rankings"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}

@@ -2,6 +2,7 @@
 id: autohand
 slug: autohand
 title: Autohand Code Integration
+seoTitle: Use Autohand Code with LLM Gateway
 description: Connect Autohand Code’s built-in LLM Gateway provider with an API key, choose a model, and verify a coding task.
 date: 2026-09-23
 ---

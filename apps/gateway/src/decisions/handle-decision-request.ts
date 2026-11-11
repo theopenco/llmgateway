@@ -59,6 +59,7 @@ import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
 import { providerRateLimitWindows } from "@/lib/rate-limit-windows.js";
+import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
@@ -66,6 +67,7 @@ import {
 	shouldRedactProviderError,
 } from "@/lib/stealth-provider-errors.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { withUsageCost } from "@/lib/usage-cost.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
 import {
@@ -76,7 +78,11 @@ import {
 	readProviderKey,
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
-import { models as modelDefinitions, type Provider } from "@llmgateway/models";
+import {
+	getRequestedModelAlias,
+	models as modelDefinitions,
+	type Provider,
+} from "@llmgateway/models";
 import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
@@ -86,6 +92,9 @@ import type { ApiOrigin, InferSelectModel, tables } from "@llmgateway/db";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
 import type { Context } from "hono";
+
+/** Deadline for loading remote request input, such as image downloads. */
+const LOAD_BODY_TIMEOUT_MS = 30_000;
 
 /**
  * The wire format a decision mapping speaks upstream. OpenAI and every Airside
@@ -253,7 +262,11 @@ const ESTIMATED_TOKENS_PER_IMAGE = 765;
 export function estimateInputTokens(body: Record<string, unknown>): number {
 	let images = 0;
 	const text = JSON.stringify(body, (key, value: unknown) => {
-		if (key === "image_url" && typeof value === "string") {
+		// `image_url` on the OpenAI shape, `data_base64` on a System One asset.
+		if (
+			(key === "image_url" || key === "data_base64") &&
+			typeof value === "string"
+		) {
 			images++;
 			return "";
 		}
@@ -295,6 +308,14 @@ export interface DecisionUpstreamRequest {
 	/** Path appended to the provider base URL, e.g. `/v1/decisions`. */
 	path: string;
 	body: Record<string, unknown>;
+	/** Extra request headers, e.g. TypeSafe's image opt-in. */
+	headers?: Record<string, string>;
+	/**
+	 * Loads remote input, such as image downloads, merged into `body`. Runs only
+	 * once the request passed the rate-limit, credit and credential gates, and
+	 * must stop when `signal` aborts (client disconnect or load deadline).
+	 */
+	loadBody?: (signal: AbortSignal) => Promise<Record<string, unknown>>;
 }
 
 export interface NormalizedDecisionResponse {
@@ -413,7 +434,7 @@ export async function handleDecisionRequest(
 		baseOrganization,
 	);
 
-	const retentionLevel = getEffectiveRetentionLevel(organization);
+	const retentionLevel = getEffectiveRetentionLevel(organization, apiKey);
 
 	const { match, unsupported } = await resolveDecisionMapping(
 		requestedModel,
@@ -473,6 +494,7 @@ export async function handleDecisionRequest(
 		providerAccessRestriction: organization.providerAccessRestriction,
 		requestedModel: modelDefId,
 		requestedProvider: providerId,
+		requestedModelAlias: getRequestedModelAlias(requestedModel, modelDefId),
 		activeModelInfo: modelDef,
 		clientIp: getClientIpFromRequest(c),
 	});
@@ -480,31 +502,34 @@ export async function handleDecisionRequest(
 		throwIamException(iamValidation.reason ?? "Model access denied");
 	}
 
-	await assertProviderCompliant(organization, providerId, {
-		organizationId: project.organizationId,
-		modelId: modelDefId,
-		apiKeyId: apiKey.id,
-		model: requestedModel,
-	});
+	await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: modelDefId,
+			apiKeyId: apiKey.id,
+			model: requestedModel,
+		},
+		apiKey,
+	);
 
-	if (
-		endpoint.hasImageInput &&
-		wireFormat === "openai" &&
-		!decisionMapping.vision
-	) {
+	if (endpoint.hasImageInput && !decisionMapping.vision) {
 		throw new HTTPException(400, {
 			message: `Model ${requestedModel} accepts text input only; remove the input_image parts.`,
 		});
 	}
 
 	// Translate only once the caller is allowed to use the model, so a denied
-	// caller sees the access error rather than an input error.
+	// caller sees the access error rather than an input error. Translation runs
+	// before the rate-limit check, so an invalid request uses no slot.
 	const upstreamRequest = endpoint.buildUpstreamRequest(
 		providerId,
 		upstreamModel,
 		apiKey.safetyIdentifier,
 		wireFormat,
 	);
+	let upstreamBody = upstreamRequest.body;
 
 	// Carrier-set and admin caps for the pair apply as they do on chat.
 	const rateLimit = await checkProviderRateLimit(
@@ -567,6 +592,21 @@ export async function handleDecisionRequest(
 		providerScores: [],
 		...(routingAttempts.length > 0 ? { routing: routingAttempts } : {}),
 	});
+
+	// The body carries the API key's safety identifier; a managed credential
+	// with forwarding turned off gets it without one.
+	const keySafetyIdentifier = apiKey.safetyIdentifier;
+	function bodyForCredential(
+		managedKey: InferSelectModel<typeof tables.providerKey> | undefined,
+	): Record<string, unknown> {
+		if (
+			forwardedSafetyIdentifier(managedKey, keySafetyIdentifier) !== undefined
+		) {
+			return upstreamBody;
+		}
+		const { safety_identifier: _safetyIdentifier, ...body } = upstreamBody;
+		return body;
+	}
 
 	interface DecisionAttempt {
 		providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
@@ -710,7 +750,7 @@ export async function handleDecisionRequest(
 			envVarName,
 			upstreamUrl: `${resolvedBaseUrl.replace(/\/+$/, "")}${upstreamRequest.path}`,
 			tenantBaseUrl: providerKeyInner?.baseUrl ?? airsideBaseUrl ?? null,
-			requestBody: upstreamRequest.body,
+			requestBody: bodyForCredential(managedKeyInner),
 		};
 	}
 
@@ -742,6 +782,23 @@ export async function handleDecisionRequest(
 
 	let attempt: DecisionAttempt = await resolveAttempt();
 
+	// Remote input (image downloads) loads only after the first attempt passed
+	// the credit and credential gates; retries reuse the loaded body.
+	if (upstreamRequest.loadBody) {
+		const loadSignal = AbortSignal.any([
+			c.req.raw.signal,
+			AbortSignal.timeout(LOAD_BODY_TIMEOUT_MS),
+		]);
+		upstreamBody = {
+			...upstreamBody,
+			...(await upstreamRequest.loadBody(loadSignal)),
+		};
+		attempt = {
+			...attempt,
+			requestBody: bodyForCredential(attempt.managedKey),
+		};
+	}
+
 	const controller = new AbortController();
 	const onAbort = () => {
 		controller.abort();
@@ -750,6 +807,10 @@ export async function handleDecisionRequest(
 
 	try {
 		while (true) {
+			attempt.requestBody = { ...attempt.requestBody };
+			if (attempt.providerKey) {
+				delete attempt.requestBody.safety_identifier;
+			}
 			const attemptLogId = shortid();
 			const usedApiKeyHash = getApiKeyFingerprint(attempt.usedToken);
 			const credentialSource: RoutingCredentialSource = attempt.providerKey
@@ -797,6 +858,7 @@ export async function handleDecisionRequest(
 						redirect: "error",
 						headers: {
 							"Content-Type": "application/json",
+							...upstreamRequest.headers,
 							...getProviderHeaders(providerId, attempt.usedToken, {
 								requestId,
 							}),
@@ -1249,7 +1311,12 @@ export async function handleDecisionRequest(
 				{ retentionLevel },
 			);
 
-			return c.json(normalized.body);
+			return c.json(
+				withUsageCost(normalized.body, cost, {
+					input_cost: inputCost,
+					request_cost: requestCostNum,
+				}),
+			);
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

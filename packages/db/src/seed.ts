@@ -1936,7 +1936,6 @@ async function seed() {
 		0,
 	);
 	const devpassLogs: Array<Record<string, any>> = [];
-	let devpassRunningCost = 0;
 	for (let i = 0; i < DEVPASS_LOG_COUNT; i++) {
 		const r = secureRandom() * DEVPASS_WEIGHT_TOTAL;
 		let acc = 0;
@@ -1970,12 +1969,14 @@ async function seed() {
 		const inputCost = (promptTokens / 1000) * modelDef.inputPrice;
 		const outputCost = (completionTokens / 1000) * modelDef.outputPrice;
 		const cost = Number((inputCost + outputCost).toFixed(6));
-		devpassRunningCost += cost;
 		devpassLogs.push({
 			id: `devpass-log-${i}`,
 			requestId: `devpass-req-${i}`,
 			createdAt,
 			updatedAt: createdAt,
+			// Already counted in the workspace's used credits below; left
+			// unprocessed, the worker would bill this spend a second time.
+			processedAt: createdAt,
 			organizationId: "test-personal-org-id",
 			projectId: "test-personal-project-id",
 			apiKeyId: "test-devpass-api-key-id",
@@ -2235,12 +2236,10 @@ async function seed() {
 	}
 	await bulkInsert(tables.projectHourlySourceStats, devpassHourlySourceStats);
 
-	// Sync the personal org's used-credits to roughly match the seeded spend
-	// so the usage bar in the dashboard reflects this activity.
-	const usedCredits = Math.min(
-		devpassRunningCost,
-		getDevPlanCreditsLimit("pro") * 0.65,
-	);
+	// A fixed share of the allowance, close to the seeded spend (which is
+	// random), so the usage bar reflects this activity and browser tests see the
+	// same state on every seed.
+	const usedCredits = getDevPlanCreditsLimit("pro") * 0.64;
 	await upsert(tables.organization, {
 		id: "test-personal-org-id",
 		name: "Test User's Workspace",
@@ -3360,9 +3359,47 @@ async function seedAirside() {
 		matchedDomain: "mistral.ai",
 		claimedBy: "airside-user-mistral",
 		status: "active",
+		billingMode: "payout",
 		reviewedBy: "test-user-id",
 		reviewedAt: daysAgo(20),
 		createdAt: daysAgo(21),
+	});
+
+	// Payout statements: last month's preview and a paid one before it.
+	const monthStart = (monthsAgo: number) => {
+		const now = new Date();
+		return new Date(
+			Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsAgo, 1),
+		);
+	};
+	await upsert(tables.airsidePayoutStatement, {
+		id: "airside-payout-mistral-previous",
+		providerCompanyId: "airside-company-mistral",
+		providerId: "mistral",
+		periodStart: monthStart(1),
+		periodEnd: monthStart(0),
+		requestCount: 18240,
+		grossAmount: "1284.50",
+		gatewayFeeAmount: "385.35",
+		status: "draft",
+	});
+	await upsert(tables.airsidePayoutStatement, {
+		id: "airside-payout-mistral-older",
+		providerCompanyId: "airside-company-mistral",
+		providerId: "mistral",
+		periodStart: monthStart(2),
+		periodEnd: monthStart(1),
+		requestCount: 9120,
+		grossAmount: "642.10",
+		gatewayFeeAmount: "192.63",
+		adjustmentAmount: "-12.00",
+		adjustmentNote: "Credit for a degraded-capacity window",
+		status: "paid",
+		approvedAt: daysAgo(8),
+		approvedBy: "test-user-id",
+		paidAt: daysAgo(6),
+		paidBy: "test-user-id",
+		paymentReference: "WIRE-0001",
 	});
 
 	// A second carrier whose claim is still pending review, so the admin

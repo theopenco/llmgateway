@@ -1,3 +1,5 @@
+import Decimal from "decimal.js";
+
 export interface VideoPricing {
 	perSecondPrice?: Record<string, string> | null;
 	requestPrice?: string | null;
@@ -30,8 +32,9 @@ export function estimateVideoCostUsd(
 	resolution: string,
 	durationSeconds: number,
 	inputImageCount: number,
+	inputVideoDurationSeconds = 0,
 ): number {
-	let outputCost = 0;
+	let outputCost = new Decimal(0);
 	const perSecondPrice = pricing.perSecondPrice;
 	if (perSecondPrice) {
 		const candidates = [
@@ -42,28 +45,37 @@ export function estimateVideoCostUsd(
 			"default_video",
 			"default",
 		];
-		let perSecond = candidates
-			.map((key) => Number(perSecondPrice[key]))
-			.find((value) => Number.isFinite(value));
-		if (perSecond === undefined) {
-			perSecond = Math.max(
-				0,
-				...Object.values(perSecondPrice)
-					.map(Number)
-					.filter((value) => Number.isFinite(value)),
-			);
-		}
-		outputCost = durationSeconds * perSecond;
+		const rate = candidates
+			.map((key) => perSecondPrice[key])
+			.find((value) => value !== undefined && Number.isFinite(Number(value)));
+		const perSecond =
+			rate !== undefined
+				? new Decimal(rate)
+				: Decimal.max(
+						0,
+						...Object.values(perSecondPrice)
+							.filter((value) => Number.isFinite(Number(value)))
+							.map((value) => new Decimal(value)),
+					);
+		outputCost = new Decimal(durationSeconds)
+			.plus(Math.max(0, inputVideoDurationSeconds))
+			.mul(perSecond);
 	} else if (
 		pricing.requestPrice !== undefined &&
 		pricing.requestPrice !== null
 	) {
-		const requestPrice = Number(pricing.requestPrice);
-		outputCost = Number.isFinite(requestPrice) ? requestPrice : 0;
+		outputCost = new Decimal(
+			Number.isFinite(Number(pricing.requestPrice)) ? pricing.requestPrice : 0,
+		);
 	}
-	const perImage = Number(pricing.imageInputPrice ?? 0);
-	const imageCost = Number.isFinite(perImage) ? inputImageCount * perImage : 0;
-	return Number((outputCost + imageCost).toFixed(6));
+	const perImage = pricing.imageInputPrice ?? "0";
+	const imageCost = Number.isFinite(Number(perImage))
+		? new Decimal(inputImageCount).mul(perImage)
+		: new Decimal(0);
+	return outputCost
+		.plus(imageCost)
+		.toDecimalPlaces(6, Decimal.ROUND_CEIL)
+		.toNumber();
 }
 
 export interface VideoCatalogModel {
@@ -81,7 +93,7 @@ function parseVideoModel(modelId: string) {
 
 // MiniMax H3 models use the v2 video API (content array, task object status).
 export function isMinimaxV2VideoModel(externalId: string): boolean {
-	return externalId === "MiniMax-H3-Max";
+	return externalId === "MiniMax-H3" || externalId === "MiniMax-H3-Max";
 }
 
 export type VideoSize =
@@ -90,6 +102,8 @@ export type VideoSize =
 	| "848x480"
 	| "854x480"
 	| "480x854"
+	| "960x540"
+	| "540x960"
 	| "1280x720"
 	| "720x1280"
 	| "1366x768"
@@ -99,11 +113,22 @@ export type VideoSize =
 	| "1024x1792"
 	| "1920x1080"
 	| "1080x1920"
+	| "2560x1440"
+	| "1440x2560"
 	| "3840x2160"
 	| "2160x3840";
 
 export type VideoResolution =
-	"360p" | "480p" | "720p" | "768p" | "960p" | "hd" | "1080p" | "4k";
+	| "360p"
+	| "480p"
+	| "540p"
+	| "720p"
+	| "768p"
+	| "960p"
+	| "hd"
+	| "1080p"
+	| "2k"
+	| "4k";
 
 export type VideoOrientation = "landscape" | "portrait";
 
@@ -235,6 +260,18 @@ const VIDEO_SIZE_SPECS: Record<VideoSize, VideoSizeSpec> = {
 		width: 480,
 		height: 854,
 	},
+	"960x540": {
+		resolution: "540p",
+		orientation: "landscape",
+		width: 960,
+		height: 540,
+	},
+	"540x960": {
+		resolution: "540p",
+		orientation: "portrait",
+		width: 540,
+		height: 960,
+	},
 	"1280x720": {
 		resolution: "720p",
 		orientation: "landscape",
@@ -289,6 +326,18 @@ const VIDEO_SIZE_SPECS: Record<VideoSize, VideoSizeSpec> = {
 		width: 1080,
 		height: 1920,
 	},
+	"2560x1440": {
+		resolution: "2k",
+		orientation: "landscape",
+		width: 2560,
+		height: 1440,
+	},
+	"1440x2560": {
+		resolution: "2k",
+		orientation: "portrait",
+		width: 1440,
+		height: 2560,
+	},
 	"3840x2160": {
 		resolution: "4k",
 		orientation: "landscape",
@@ -306,22 +355,26 @@ const VIDEO_SIZE_SPECS: Record<VideoSize, VideoSizeSpec> = {
 const VIDEO_RESOLUTIONS: VideoResolution[] = [
 	"360p",
 	"480p",
+	"540p",
 	"720p",
 	"768p",
 	"960p",
 	"hd",
 	"1080p",
+	"2k",
 	"4k",
 ];
 
 const VIDEO_RESOLUTION_LABELS: Record<VideoResolution, string> = {
 	"360p": "360p",
 	"480p": "480p",
+	"540p": "540p",
 	"720p": "720p",
 	"768p": "768p",
 	"960p": "960p",
 	hd: "HD",
 	"1080p": "1080p",
+	"2k": "2K",
 	"4k": "4K",
 };
 
@@ -406,11 +459,28 @@ export function getVideoDurations(): VideoDuration[] {
 }
 
 function isGeminiOmniVideoModel(canonicalModelId: string): boolean {
-	return canonicalModelId === "gemini-omni-1.1-flash";
+	return (
+		canonicalModelId === "gemini-omni-1.1-flash" ||
+		canonicalModelId === "gemini-omni-1.2-flash"
+	);
+}
+
+export type VideoReasoningEffort = "low" | "high";
+
+export function supportsVideoReasoningEffort(modelId: string): boolean {
+	const { providerId, canonicalModelId } = parseVideoModel(modelId);
+	return (
+		canonicalModelId === "flux-3-max" &&
+		(providerId === undefined || providerId === "fal-ai")
+	);
 }
 
 export function supportsVideoFrameInput(modelId: string): boolean {
 	const { providerId, canonicalModelId } = parseVideoModel(modelId);
+
+	if (canonicalModelId === "flux-3-max") {
+		return providerId === undefined || providerId === "fal-ai";
+	}
 
 	if (isGeminiOmniVideoModel(canonicalModelId)) {
 		return providerId === undefined || providerId === "google-ai-studio";
@@ -422,6 +492,7 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 
 	if (
 		canonicalModelId === "minimax-hailuo-2-3" ||
+		canonicalModelId === "minimax-h3" ||
 		canonicalModelId === "minimax-h3-max"
 	) {
 		return providerId === undefined || providerId === "minimax";
@@ -431,8 +502,15 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 		return providerId === undefined || providerId === "xai";
 	}
 
-	if (isAtlasCloudKlingVideoModel(canonicalModelId)) {
+	if (
+		isAtlasCloudKlingVideoModel(canonicalModelId) ||
+		isLumaRayVideoModel(canonicalModelId)
+	) {
 		return providerId === undefined || providerId === "atlascloud";
+	}
+
+	if (isAlibabaWan3VideoModel(canonicalModelId)) {
+		return providerId === undefined || providerId === "alibaba";
 	}
 
 	if (
@@ -471,12 +549,28 @@ function isGrokImagineVideoModel(canonicalModelId: string): boolean {
 	);
 }
 
+function isAlibabaWan3VideoModel(canonicalModelId: string): boolean {
+	return (
+		canonicalModelId === "wan-3-0-video" ||
+		canonicalModelId === "wan-3-0-video-prime"
+	);
+}
+
 function isAtlasCloudKlingVideoModel(canonicalModelId: string): boolean {
 	return (
 		canonicalModelId === "kling-v3-0" ||
 		canonicalModelId === "kling-v3-0-pro" ||
-		canonicalModelId === "kling-v3-0-turbo"
+		canonicalModelId === "kling-v3-0-turbo" ||
+		isKlingOmniVideoModel(canonicalModelId)
 	);
+}
+
+function isKlingOmniVideoModel(canonicalModelId: string): boolean {
+	return canonicalModelId === "kling-v3-0-omni";
+}
+
+function isLumaRayVideoModel(canonicalModelId: string): boolean {
+	return canonicalModelId === "luma-ray-3-2";
 }
 
 function isVeedFabricVideoModel(canonicalModelId: string): boolean {
@@ -498,8 +592,15 @@ export function supportsVideoReferenceInput(modelId: string): boolean {
 		return providerId === undefined || providerId === "google-ai-studio";
 	}
 
-	if (isVeedFabricVideoModel(canonicalModelId)) {
+	if (
+		isVeedFabricVideoModel(canonicalModelId) ||
+		isKlingOmniVideoModel(canonicalModelId)
+	) {
 		return providerId === undefined || providerId === "atlascloud";
+	}
+
+	if (isAlibabaWan3VideoModel(canonicalModelId)) {
+		return providerId === undefined || providerId === "alibaba";
 	}
 
 	if (providerId === "bytedance") {
@@ -521,6 +622,10 @@ export function supportsVideoReferenceVideoInput(modelId: string): boolean {
 
 	if (isGeminiOmniVideoModel(canonicalModelId)) {
 		return providerId === undefined || providerId === "google-ai-studio";
+	}
+
+	if (isKlingOmniVideoModel(canonicalModelId)) {
+		return providerId === undefined || providerId === "atlascloud";
 	}
 
 	if (providerId !== undefined && providerId !== "bytedance") {
@@ -598,8 +703,18 @@ function mappingSupportsVideoRequest(
 			return false;
 		}
 
+		if (mapping.providerId === "fal-ai" || mapping.modelId === "flux-3-max") {
+			return (
+				mapping.providerId === "fal-ai" && mapping.modelId === "flux-3-max"
+			);
+		}
+
 		if (mapping.providerId === "bytedance") {
 			return isSeedance2ReferenceModel(mapping.modelId);
+		}
+
+		if (mapping.providerId === "alibaba") {
+			return isAlibabaWan3VideoModel(mapping.modelId);
 		}
 
 		if (
@@ -624,7 +739,14 @@ function mappingSupportsVideoRequest(
 		}
 
 		if (mapping.providerId === "atlascloud") {
-			return isVeedFabricVideoModel(mapping.modelId);
+			return (
+				isVeedFabricVideoModel(mapping.modelId) ||
+				isKlingOmniVideoModel(mapping.modelId)
+			);
+		}
+
+		if (mapping.providerId === "alibaba") {
+			return isAlibabaWan3VideoModel(mapping.modelId);
 		}
 
 		// Veo reference images are only supported on the veo-3.1 family.
@@ -784,12 +906,13 @@ export function estimateVideoSelectionCostUsd(
 	size: VideoSize,
 	duration: VideoDuration,
 	inputImageCount: number,
+	inputVideoCount = 0,
 ): number | null {
 	if (selectedModels.length === 0) {
 		return null;
 	}
 	const resolution = getVideoResolution(size);
-	let total = 0;
+	let total = new Decimal(0);
 	for (const modelId of selectedModels) {
 		const estimates = getSelectedVideoMappings(models, modelId)
 			.filter((mapping) =>
@@ -801,14 +924,20 @@ export function estimateVideoSelectionCostUsd(
 					(mapping.requestPrice !== undefined && mapping.requestPrice !== null),
 			)
 			.map((mapping) =>
-				estimateVideoCostUsd(mapping, resolution, duration, inputImageCount),
+				estimateVideoCostUsd(
+					mapping,
+					resolution,
+					duration,
+					inputImageCount,
+					estimateVideoInputDurationSeconds(mapping, inputVideoCount > 0),
+				),
 			);
 		if (estimates.length === 0) {
 			return null;
 		}
-		total += Math.max(...estimates);
+		total = total.plus(Decimal.max(...estimates));
 	}
-	return Number(total.toFixed(6));
+	return total.toDecimalPlaces(6, Decimal.ROUND_CEIL).toNumber();
 }
 
 export interface VideoModelResultSnapshot {
@@ -879,4 +1008,21 @@ export function getGoogleAiStudioVideoFileName(
 export function parseGoogleAiStudioFileName(uri: string): string | null {
 	const match = /\/(files\/[A-Za-z0-9_-]+)(?::download)?(?:[?#]|$)/.exec(uri);
 	return match ? match[1] : null;
+}
+export function estimateVideoInputDurationSeconds(
+	mapping: {
+		providerId: string;
+		supportedVideoDurationsSeconds?: readonly number[] | null;
+	},
+	hasVideoInput: boolean,
+	maxVideoDurationSeconds = 0,
+): number {
+	if (mapping.providerId !== "bytedance" || !hasVideoInput) {
+		return 0;
+	}
+	const durations = [
+		maxVideoDurationSeconds,
+		...(mapping.supportedVideoDurationsSeconds ?? []),
+	].filter((duration) => Number.isFinite(duration) && duration > 0);
+	return durations.length > 0 ? Math.max(...durations) : 30;
 }
