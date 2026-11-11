@@ -19,6 +19,7 @@ import {
 	Testimonials,
 	TestimonialsFallback,
 } from "@/components/landing/testimonials";
+import { CommittedUse } from "@/components/pricing/committed-use";
 import { pageTitle } from "@/lib/page-title";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -101,6 +102,7 @@ export default function EnterprisePage() {
 				<Testimonials />
 			</Suspense>
 			<PricingEnterprise />
+			<CommittedUse location="enterprise_committed_use" />
 			<InfrastructureAsCodeEnterprise />
 			<OpenSourceEnterprise />
 			<ProcurementEnterprise />

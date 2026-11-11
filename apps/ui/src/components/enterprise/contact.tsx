@@ -30,6 +30,8 @@ import { countries } from "@/lib/countries";
 import { useApi } from "@/lib/fetch-client";
 import { usePostHog } from "@/lib/posthog";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 import { CalendlyInline } from "./calendly-inline";
 import { AirsideRedirect, ContactAudiencePicker } from "./contact-audience";
 
@@ -355,8 +357,10 @@ export function ContactFormEnterprise() {
 														<p className="text-muted-foreground">
 															You can use LLM Gateway for free — no need to go
 															through Enterprise. Enterprise is usually priced
-															from $3,000 a year for small teams, and from
-															$10,000 a year for bigger teams.
+															from {MARKETING_STATS.enterpriseSmallTeamPrice} a
+															year for small teams, and from{" "}
+															{MARKETING_STATS.enterpriseTeamPrice} a year for
+															bigger teams.
 														</p>
 														<Button asChild size="sm">
 															<AuthLink href="/signup">
