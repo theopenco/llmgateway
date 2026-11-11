@@ -5,8 +5,9 @@
  * had a segment are in none, and a broadcast only reaches contacts in its
  * segment. Addresses that turned marketing email off in the app are left out.
  *
- * It makes about one Resend call per contact, at most five a second, so a
- * large list takes a while; it prints its counts every 500 contacts.
+ * It makes about one Resend call per contact, and one more for each contact
+ * it adds, at most five a second, so a large list takes a while; it prints
+ * its counts every 500 contacts.
  *
  * Usage:
  *   # count who would be added
@@ -34,8 +35,8 @@ import { resendFetch } from "@llmgateway/shared/resend-api";
 import {
 	assertSafeToApply,
 	backfillSegment,
-	paced,
-	withRetry,
+	pacedWithRetry,
+	progressLine,
 } from "./newsletter-segment-backfill-lib.js";
 
 function requireEnv(name: string): string {
@@ -72,21 +73,15 @@ async function main() {
 		await sleep(ms);
 	};
 	const result = await backfillSegment({
-		request: withRetry(
-			paced(
-				async (method, path) => await resendFetch({ apiKey, method, path }),
-				pause,
-			),
+		request: pacedWithRetry(
+			async (method, path) => await resendFetch({ apiKey, method, path }),
 			pause,
 		),
 		isSuppressed: async (email) => await isEmailSuppressed(email, "marketing"),
 		topicId,
 		segmentId,
 		apply,
-		onProgress: (counts) =>
-			console.log(
-				`Scanned ${counts.scanned}: ${counts.toAdd} opted in and not in the segment so far`,
-			),
+		onProgress: (counts) => console.log(progressLine(counts, apply)),
 	});
 
 	console.log(`Contacts scanned:             ${result.scanned}`);

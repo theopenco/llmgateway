@@ -4,8 +4,9 @@ import {
 	assertSafeToApply,
 	backfillSegment,
 	PACE_MS,
-	paced,
+	pacedWithRetry,
 	PROGRESS_EVERY,
+	progressLine,
 	withRetry,
 	type BackfillResult,
 	type ResendRequest,
@@ -17,9 +18,10 @@ import {
 // write run reads unsubscribes from the wrong database, or a rate limit, a 5xx
 // or a dropped connection ends the run halfway. It can also run flat out and
 // take the rate limit from production mail, pace only its first call or skip
-// the pause on a retry, and a long scan can stay silent until it ends, report
-// on every contact, or miss a report because the contact at that count was
-// skipped.
+// the pause on a retry or pause only after a call, and a long scan can stay
+// silent until it ends, report on every contact, report one contact early,
+// miss a report because the contact at that count was skipped, or never show
+// a write run that its writes are landing.
 
 const TOPIC = "topic-newsletter";
 const SEGMENT = "segment-newsletter";
@@ -248,16 +250,29 @@ test("every call waits its turn first, a retry included", async () => {
 		json({ ok: true }),
 		json({ ok: true }),
 	];
-	const sleep = vi.fn(async () => {});
-	const request = withRetry(
-		paced(async () => responses.shift()!, sleep),
-		sleep,
+	const order: string[] = [];
+	const request = pacedWithRetry(
+		async () => {
+			order.push("send");
+			return responses.shift()!;
+		},
+		async (ms) => {
+			order.push(`sleep ${ms}`);
+		},
 	);
 
 	await request("GET", "/contacts");
 	await request("GET", "/contacts");
 
-	expect(sleep.mock.calls).toEqual([[PACE_MS], [3000], [PACE_MS], [PACE_MS]]);
+	expect(order).toEqual([
+		`sleep ${PACE_MS}`,
+		"send",
+		"sleep 3000",
+		`sleep ${PACE_MS}`,
+		"send",
+		`sleep ${PACE_MS}`,
+		"send",
+	]);
 });
 
 test("a long scan reports its counts at every interval, skipped contacts included", async () => {
@@ -283,10 +298,46 @@ test("a long scan reports its counts at every interval, skipped contacts include
 		onProgress: (counts) => reports.push(counts),
 	});
 
-	// Read after the run: each report keeps the counts of its own moment.
-	expect(reports.map(({ scanned, toAdd }) => ({ scanned, toAdd }))).toEqual([
-		{ scanned: PROGRESS_EVERY, toAdd: PROGRESS_EVERY - 2 },
-		{ scanned: PROGRESS_EVERY * 2, toAdd: (PROGRESS_EVERY - 2) * 2 },
+	// Read after the run: each report keeps the counts of its own moment, the
+	// contact at the interval counted in.
+	expect(reports).toEqual([
+		{
+			scanned: PROGRESS_EVERY,
+			alreadyInSegment: 1,
+			unsubscribed: 1,
+			notOptedIn: 0,
+			suppressed: 0,
+			toAdd: PROGRESS_EVERY - 2,
+			added: 0,
+		},
+		{
+			scanned: PROGRESS_EVERY * 2,
+			alreadyInSegment: 2,
+			unsubscribed: 2,
+			notOptedIn: 0,
+			suppressed: 0,
+			toAdd: (PROGRESS_EVERY - 2) * 2,
+			added: 0,
+		},
 	]);
 	expect(result.scanned).toBe(PROGRESS_EVERY * 2 + 1);
+});
+
+test("a progress line shows a write run its writes and a dry run its candidates", () => {
+	const counts: BackfillResult = {
+		scanned: 500,
+		alreadyInSegment: 1,
+		unsubscribed: 1,
+		notOptedIn: 0,
+		suppressed: 0,
+		toAdd: 498,
+		added: 497,
+	};
+
+	expect(progressLine(counts, true)).toBe(
+		"Scanned 500: 497 added to the segment so far",
+	);
+	expect(progressLine(counts, false)).toBe(
+		"Scanned 500: 498 opted in and not in the segment so far",
+	);
 });

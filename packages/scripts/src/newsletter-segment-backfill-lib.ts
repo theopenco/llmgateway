@@ -108,8 +108,7 @@ export function withRetry(
 	};
 }
 
-/** Waits before every call, retries included, so a scan never runs flat out. */
-export function paced(
+function paced(
 	send: ResendRequest,
 	sleep: (ms: number) => Promise<void>,
 ): ResendRequest {
@@ -117,6 +116,21 @@ export function paced(
 		await sleep(PACE_MS);
 		return await send(method, path);
 	};
+}
+
+/** Every attempt, a retry included, waits its turn before it is sent. */
+export function pacedWithRetry(
+	send: ResendRequest,
+	sleep: (ms: number) => Promise<void>,
+): ResendRequest {
+	return withRetry(paced(send, sleep), sleep);
+}
+
+/** The counts of a scan in progress; a write run reports what it has added. */
+export function progressLine(counts: BackfillResult, apply: boolean): string {
+	return apply
+		? `Scanned ${counts.scanned}: ${counts.added} added to the segment so far`
+		: `Scanned ${counts.scanned}: ${counts.toAdd} opted in and not in the segment so far`;
 }
 
 async function* list<T extends Listed>(
