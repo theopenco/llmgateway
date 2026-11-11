@@ -161,6 +161,15 @@ describe("resolveTieredContentFilterPlan", () => {
 				enabled: false,
 			}),
 		).toBeNull();
+		// Settings cached by the previous release lack the field.
+		const { enforceProviderIds: _omitted, ...legacy } = perProvider;
+		expect(
+			await resolveTieredContentFilterPlan(
+				org(),
+				"openai",
+				legacy as typeof perProvider,
+			),
+		).toMatchObject({ enforce: false, exemptReason: "global_log_only" });
 	});
 
 	test("honours the content filter pin and the trust tier pin", async () => {

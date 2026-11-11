@@ -125,7 +125,9 @@ export async function resolveTieredContentFilterPlan(
 	settings: ContentFilterSettings,
 	random: () => number = randomFloat,
 ): Promise<TieredContentFilterPlan | null> {
-	const providerEnforced = settings.enforceProviderIds.includes(providerId);
+	// Optional: settings cached by the previous release lack this field.
+	const providerEnforced =
+		settings.enforceProviderIds?.includes(providerId) ?? false;
 	if (
 		!settings.enabled ||
 		(!providerEnforced && !settings.providerIds.includes(providerId))
