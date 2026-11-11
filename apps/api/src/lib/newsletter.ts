@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import { expectResendOk, resendContactPath } from "@/lib/resend-contacts.js";
+
 import {
 	getApiKeyHashSecret,
 	getApiKeyHashSecrets,
@@ -116,20 +118,12 @@ LLM Gateway. ${escapeHtml(POSTAL_ADDRESS)}
 </html>`;
 }
 
-async function expectOk(response: Response): Promise<Response> {
-	if (!response.ok) {
-		const body = (await response.json()) as { message?: string };
-		throw new Error(body.message ?? `Resend API error: ${response.status}`);
-	}
-	return response;
-}
-
 async function isInSegment(
 	target: NewsletterTarget,
 	contactPath: string,
 	segmentId: string,
 ): Promise<boolean> {
-	const response = await expectOk(
+	const response = await expectResendOk(
 		await resendFetch({
 			apiKey: target.apiKey,
 			method: "GET",
@@ -150,7 +144,7 @@ async function resubscribe(
 	unsubscribed: boolean,
 ): Promise<void> {
 	if (unsubscribed) {
-		await expectOk(
+		await expectResendOk(
 			await resendFetch({
 				apiKey: target.apiKey,
 				method: "PATCH",
@@ -159,7 +153,7 @@ async function resubscribe(
 			}),
 		);
 	}
-	await expectOk(
+	await expectResendOk(
 		await resendFetch({
 			apiKey: target.apiKey,
 			method: "PATCH",
@@ -171,7 +165,7 @@ async function resubscribe(
 		target.segmentId &&
 		!(await isInSegment(target, contactPath, target.segmentId))
 	) {
-		await expectOk(
+		await expectResendOk(
 			await resendFetch({
 				apiKey: target.apiKey,
 				method: "POST",
@@ -186,7 +180,7 @@ export async function subscribeToNewsletter(
 	target: NewsletterTarget,
 	email: string,
 ): Promise<void> {
-	const contactPath = `/contacts/${encodeURIComponent(email)}`;
+	const contactPath = resendContactPath(email);
 	const lookup = await resendFetch({
 		apiKey: target.apiKey,
 		method: "GET",
@@ -198,7 +192,7 @@ export async function subscribeToNewsletter(
 		return;
 	}
 	if (lookup.status !== 404) {
-		await expectOk(lookup);
+		await expectResendOk(lookup);
 	}
 
 	const created = await resendFetch({
@@ -217,5 +211,5 @@ export async function subscribeToNewsletter(
 		await resubscribe(target, contactPath, true);
 		return;
 	}
-	await expectOk(created);
+	await expectResendOk(created);
 }

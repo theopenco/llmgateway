@@ -3,7 +3,6 @@ import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { deleteResendContact } from "@/auth/config.js";
 import {
 	cancelOrganizationSubscriptions,
 	getCancelledOrganizationPlanState,
@@ -71,6 +70,7 @@ import {
 import { managedProviderKeyName } from "@/lib/provider-key-label.js";
 import { PG_INTEGER_MAX } from "@/lib/provider-key-rate-limits.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
+import { deleteResendContact } from "@/lib/resend-contacts.js";
 import {
 	getBucketUnitForWindow,
 	getTokenWindowStartDate,
@@ -10094,12 +10094,10 @@ async function blockOrganizationById(
 	if (memberUserIds.length > 0) {
 		const members = await db.query.user.findMany({
 			where: { id: { in: memberUserIds } },
-			columns: { email: true },
+			columns: { email: true, emailVerified: true },
 		});
 
-		await Promise.all(
-			members.map((member) => deleteResendContact(member.email)),
-		);
+		await Promise.all(members.map((member) => deleteResendContact(member)));
 	}
 
 	await logAuditEvent({

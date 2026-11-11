@@ -82,4 +82,5 @@ provider integration. Never `/e2e` for model-mapping PRs; run those locally with
 - Build credential-shaped fixtures at runtime (`["sk", "live", "..."].join("_")`) so push protection accepts the branch. Assert on booleans, never equality with a credential: CI test artifacts are public and unmasked.
 - Delete cascade-linked tables sequentially, children before parents. `deleteAll()` keeps the catalogue tables, so a spec that seeds `model`/`model_provider_mapping` rows removes them itself, with ids distinct from the real catalogue.
 - Source-loading Node subprocesses using `--import tsx` set `TSX_TSCONFIG_PATH` to the owning app's `tsconfig.json`; the root config does not resolve app `@/` aliases.
+- Fake Resend's contact endpoints in `apps/api` specs with `fakeResendContacts` (`apps/api/src/testing-resend.ts`) on `globalThis.fetch`, rather than a new stand-in.
 - Keep logs and scratch files under `.context/`; `/tmp` is shared with other agents.
