@@ -182,6 +182,9 @@ describe("dev plan finalize", () => {
 		const response = await finalize("cs_test_missing");
 
 		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			message: "Invalid checkout session: not_found",
+		});
 	});
 
 	it("rejects a session that belongs to another org", async () => {
@@ -199,6 +202,9 @@ describe("dev plan finalize", () => {
 		const response = await finalize("cs_test_other");
 
 		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			message: "Invalid checkout session: org_mismatch",
+		});
 		expect(stripeMock.customers.update).not.toHaveBeenCalled();
 	});
 });
