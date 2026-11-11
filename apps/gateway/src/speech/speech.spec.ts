@@ -21,7 +21,8 @@ describe("speech", () => {
 			| "openai"
 			| "azure"
 			| "elevenlabs"
-			| "alibaba" = "google-ai-studio",
+			| "alibaba"
+			| "groq" = "google-ai-studio",
 	) {
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
@@ -502,6 +503,63 @@ describe("speech", () => {
 		expect(log?.finishReason).toBe("stop");
 		// eleven-multilingual-v2 bills $110 / 1M input characters.
 		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 110e-6, 12);
+	});
+
+	test("/v1/audio/speech proxies Groq Orpheus as WAV and bills by characters", async () => {
+		await seedKeys("real-token-speech-groq", "token-id-speech-groq", "groq");
+
+		const input = "مرحبا، كيف حالك؟";
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-groq",
+			},
+			body: JSON.stringify({
+				model: "groq/orpheus-arabic-saudi",
+				input,
+				voice: "noura",
+				speed: 1.5,
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		// Orpheus only emits WAV, so it is the default format.
+		expect(res.headers.get("Content-Type")).toBe("audio/wav");
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.length).toBeGreaterThan(0);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "groq/orpheus-arabic-saudi");
+		expect(log).toBeDefined();
+		expect(log?.hasError).toBe(false);
+		// Orpheus Arabic Saudi bills $40 / 1M input characters.
+		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 40e-6, 12);
+	});
+
+	test("/v1/audio/speech rejects non-WAV formats on Groq Orpheus", async () => {
+		await seedKeys(
+			"real-token-speech-groq-mp3",
+			"token-id-speech-groq-mp3",
+			"groq",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-groq-mp3",
+			},
+			body: JSON.stringify({
+				model: "groq/orpheus-arabic-saudi",
+				input: "مرحبا",
+				response_format: "mp3",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.code).toBe("unsupported_response_format");
 	});
 
 	test("/v1/audio/speech proxies Qwen TTS via DashScope and bills by characters", async () => {

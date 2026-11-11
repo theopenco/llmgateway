@@ -213,6 +213,7 @@ const PROVIDER_BASE_URL_DEFAULTS: Partial<Record<string, string>> = {
 	"google-vertex": "https://aiplatform.googleapis.com",
 	openai: "https://api.openai.com",
 	elevenlabs: "https://api.elevenlabs.io",
+	groq: "https://api.groq.com/openai",
 	alibaba: "https://dashscope-intl.aliyuncs.com",
 };
 
@@ -223,6 +224,7 @@ const SUPPORTED_PROVIDERS = new Set([
 	"azure",
 	"elevenlabs",
 	"alibaba",
+	"groq",
 ]);
 
 // Response formats Gemini can satisfy. Gemini emits raw PCM, so the gateway can
@@ -268,6 +270,9 @@ const ELEVENLABS_OUTPUT_FORMATS: Record<string, string> = {
 // Alibaba's non-streaming DashScope TTS endpoint returns a URL to a WAV file,
 // so the gateway can only serve WAV for Qwen TTS models.
 const ALIBABA_RESPONSE_FORMATS = new Set(["wav"]);
+
+// Groq serves OpenAI's speech API, but its Orpheus models only emit WAV.
+const GROQ_RESPONSE_FORMATS = new Set(["wav"]);
 
 /**
  * Wrap raw signed 16-bit little-endian PCM samples in a minimal WAV container
@@ -565,8 +570,9 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 	const { mapping, modelDef, modelDefId, explicitProvider } = match;
 	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
-	// Azure serves OpenAI's speech API unchanged.
-	const isOpenAI = providerId === "openai" || providerId === "azure";
+	// Azure and Groq serve OpenAI's speech API.
+	const isGroq = providerId === "groq";
+	const isOpenAI = providerId === "openai" || providerId === "azure" || isGroq;
 	const isElevenLabs = providerId === "elevenlabs";
 	const isAlibaba = providerId === "alibaba";
 	const isGoogleVertex = providerId === "google-vertex";
@@ -599,25 +605,30 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 	}
 
 	const responseFormat =
-		request.response_format ?? (isEncodedPassthrough ? "mp3" : "wav");
-	const allowedFormats = isOpenAI
-		? OPENAI_RESPONSE_FORMATS
-		: isElevenLabs
-			? ELEVENLABS_RESPONSE_FORMATS
-			: isAlibaba
-				? ALIBABA_RESPONSE_FORMATS
-				: GOOGLE_RESPONSE_FORMATS;
+		request.response_format ??
+		(isEncodedPassthrough && !isGroq ? "mp3" : "wav");
+	const allowedFormats = isGroq
+		? GROQ_RESPONSE_FORMATS
+		: isOpenAI
+			? OPENAI_RESPONSE_FORMATS
+			: isElevenLabs
+				? ELEVENLABS_RESPONSE_FORMATS
+				: isAlibaba
+					? ALIBABA_RESPONSE_FORMATS
+					: GOOGLE_RESPONSE_FORMATS;
 	if (!allowedFormats.has(responseFormat)) {
 		return c.json(
 			{
 				error: {
-					message: isOpenAI
-						? `Unsupported response_format '${responseFormat}'.`
-						: isElevenLabs
-							? `Unsupported response_format '${responseFormat}'. ElevenLabs supports 'mp3', 'wav', 'pcm' and 'opus'.`
-							: isAlibaba
-								? `Unsupported response_format '${responseFormat}'. Qwen TTS models only support 'wav'.`
-								: `Unsupported response_format '${responseFormat}'. Gemini speech models only support 'wav' and 'pcm'.`,
+					message: isGroq
+						? `Unsupported response_format '${responseFormat}'. Groq speech models only support 'wav'.`
+						: isOpenAI
+							? `Unsupported response_format '${responseFormat}'.`
+							: isElevenLabs
+								? `Unsupported response_format '${responseFormat}'. ElevenLabs supports 'mp3', 'wav', 'pcm' and 'opus'.`
+								: isAlibaba
+									? `Unsupported response_format '${responseFormat}'. Qwen TTS models only support 'wav'.`
+									: `Unsupported response_format '${responseFormat}'. Gemini speech models only support 'wav' and 'pcm'.`,
 					type: "invalid_request_error",
 					param: "response_format",
 					code: "unsupported_response_format",
@@ -780,7 +791,9 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 				input: request.input,
 				voice,
 				response_format: responseFormat,
-				...(request.speed !== undefined ? { speed: request.speed } : {}),
+				...(request.speed !== undefined && !isGroq
+					? { speed: request.speed }
+					: {}),
 				// `instructions` and SSE streaming only apply to gpt-4o-mini-tts;
 				// tts-1/tts-1-hd reject both.
 				...(useSse && request.instructions

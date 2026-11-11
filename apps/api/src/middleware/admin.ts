@@ -68,6 +68,7 @@ const STAFF_HIDDEN_ROUTES: RegExp[] = [
 	/^\/chat-plans\/(timeseries|usage)$/,
 	/^\/sdk$/,
 	/^\/provider-credentials\/spend$/,
+	/^\/airside\/payouts(\/.*)?$/,
 ];
 
 // Response keys stripped for support. `routingAdjustment` is derived

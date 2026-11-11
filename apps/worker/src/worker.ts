@@ -62,6 +62,7 @@ import {
 import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
 
 import { posthog } from "./posthog.js";
+import { refreshAirsidePayoutStatements } from "./services/airside-payouts.js";
 import { deliverAirsideVerificationEmails } from "./services/airside-verification-emails.js";
 import { backfillPauseMs } from "./services/backfill-pacing.js";
 import {
@@ -163,6 +164,9 @@ const STALE_TOPUP_PI_LOCK_KEY = "stale_topup_pi_cancel";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
 const MODEL_ERROR_RATE_ALERTS_LOCK_KEY = "model_error_rate_alerts";
+const AIRSIDE_PAYOUTS_LOCK_KEY = "airside_payout_statements";
+const AIRSIDE_PAYOUTS_INTERVAL_SECONDS =
+	Number(process.env.AIRSIDE_PAYOUTS_INTERVAL_SECONDS) || 3600;
 const ROUTING_BASELINE_BACKFILL_LOCK_KEY = "routing_baseline_backfill";
 const SOURCE_MODEL_STATS_BACKFILL_LOCK_KEY = "source_model_stats_backfill";
 const MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY =
@@ -3502,6 +3506,38 @@ async function runModelErrorRateAlertsLoop() {
 	}
 }
 
+async function runAirsidePayoutsLoop() {
+	activeLoops++;
+	const interval = AIRSIDE_PAYOUTS_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting Airside payout statements loop (interval: ${AIRSIDE_PAYOUTS_INTERVAL_SECONDS} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock(AIRSIDE_PAYOUTS_LOCK_KEY)) {
+					try {
+						await refreshAirsidePayoutStatements();
+					} finally {
+						await releaseLock(AIRSIDE_PAYOUTS_LOCK_KEY);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in Airside payout statements loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(60_000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Airside payout statements loop stopped");
+	}
+}
+
 const DATA_STREAMS_LOCK_KEY = "data_streams";
 
 class DataStreamLeaseLost extends Error {}
@@ -3774,6 +3810,9 @@ export async function startWorker() {
 	logger.info(
 		"- API key expiration: runs every 5 minutes to disable keys whose TTL passed",
 	);
+	logger.info(
+		`- Airside payout statements: runs every ${AIRSIDE_PAYOUTS_INTERVAL_SECONDS} seconds to open and refresh last month's previews`,
+	);
 
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
@@ -3824,6 +3863,7 @@ export async function startWorker() {
 	void runMarginPayoutLoop();
 	void runNotificationsLoop();
 	void runModelErrorRateAlertsLoop();
+	void runAirsidePayoutsLoop();
 	void runDataStreamsLoop();
 	void runProviderKeyModelSyncLoop();
 	void runFollowUpEmailsLoop({

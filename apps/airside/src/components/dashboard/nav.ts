@@ -1,5 +1,6 @@
 import {
 	Activity,
+	Banknote,
 	BookOpen,
 	ClipboardList,
 	Gauge,
@@ -50,6 +51,7 @@ export function getNavGroups(uiUrl: string): NavGroup[] {
 			items: [
 				{ href: "/dashboard/fares", label: "Fares", icon: Tag },
 				{ href: "/dashboard/filings", label: "Filings", icon: ClipboardList },
+				{ href: "/dashboard/payouts", label: "Payouts", icon: Banknote },
 			],
 		},
 		{
