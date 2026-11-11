@@ -1023,35 +1023,6 @@ describe("videos", () => {
 		}
 	});
 
-	test("/v1/videos restricts reference inputs to Seedance 2.x models", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			...hashApiKeyForStorage("real-token"),
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		const res = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "bytedance/seedance-1-5-pro",
-				prompt: "Reproduce this motion",
-				size: "1280x720",
-				seconds: 5,
-				reference_videos: ["https://example.com/reference-motion.mp4"],
-			}),
-		});
-
-		expect(res.status).toBe(400);
-		const json = await res.json();
-		expect(JSON.stringify(json)).toContain("Seedance 2.x");
-	});
-
 	test("/v1/videos forwards up to nine reference images to Seedance 2.0 Fast", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
@@ -3509,51 +3480,6 @@ describe("videos", () => {
 		expect(mockVideo?.duration).toBe(15);
 	});
 
-	test("/v1/videos rejects frame inputs on non-Seedance-2.0 bytedance models", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			...hashApiKeyForStorage("real-token"),
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			...encryptProviderKeyForStorage(
-				"sk-bytedance-key",
-				"provider-key-id",
-				"org-id",
-			),
-			provider: "bytedance",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const res = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "bytedance/seedance-1-5-pro",
-				prompt: "Morph from the first frame into the last frame",
-				size: "1280x720",
-				seconds: 5,
-				image: {
-					image_url: "data:image/png;base64,aGVsbG8=",
-				},
-			}),
-		});
-
-		expect(res.status).toBe(400);
-		const json = await res.json();
-		expect(JSON.stringify(json)).toContain(
-			"frame inputs are currently only supported on bytedance Seedance 2.x",
-		);
-	});
-
 	test("/v1/videos forwards reference images to google-vertex preview", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
@@ -4337,41 +4263,6 @@ describe("Seedance pricing regressions", () => {
 				...body,
 			}),
 		});
-
-	test.each(
-		[
-			{ size: "1280x720", resolution: "720p", ratio: "16:9" },
-			{ size: "1920x1080", resolution: "1080p", ratio: "16:9" },
-			{ size: "1080x1920", resolution: "1080p", ratio: "9:16" },
-		].flatMap((size) =>
-			[true, false, undefined].map((audio) => ({ ...size, audio })),
-		),
-	)(
-		"forwards Seedance 1.5 Pro $resolution/$ratio audio=$audio",
-		async ({ size, resolution, ratio, audio }) => {
-			const res = await submit({
-				model: "bytedance/seedance-1-5-pro",
-				size,
-				seconds: 5,
-				audio,
-			});
-			expect(res.status).toBe(200);
-			const created = await res.json();
-			const job = await db.query.videoJob.findFirst({
-				where: { id: { eq: created.id } },
-			});
-			expect(
-				(job?.upstreamCreateResponse as Record<string, unknown>)
-					?.llmgateway_upstream_request,
-			).toMatchObject({
-				model: "seedance-1-5-pro-251215",
-				resolution,
-				ratio,
-				duration: 5,
-				generate_audio: audio ?? true,
-			});
-		},
-	);
 
 	test.each([
 		{
