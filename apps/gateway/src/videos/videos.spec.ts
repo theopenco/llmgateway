@@ -47,6 +47,23 @@ import { getVideoOutputTokenPrice } from "@llmgateway/shared/video-token-pricing
 import type { ProviderModelMapping } from "@llmgateway/models";
 import type { AddressInfo } from "node:net";
 
+// Seedance 1.5 Pro is retired; pin Date just before its deactivation to keep covering the non-2.x paths.
+function pinClockBeforeSeedance15ProRetirement() {
+	const deactivatedAt = models
+		.find((model) => model.id === "seedance-1-5-pro")
+		?.providers.find(
+			(mapping) => mapping.providerId === "bytedance",
+		)?.deactivatedAt;
+	if (!deactivatedAt) {
+		throw new Error("seedance-1-5-pro bytedance mapping has no deactivatedAt");
+	}
+	vi.useFakeTimers({ toFake: ["Date"], now: deactivatedAt.getTime() - 60_000 });
+}
+
+afterEach(() => {
+	vi.useRealTimers();
+});
+
 describe("videos", () => {
 	const harness = createGatewayApiTestHarness();
 	let mockServerUrl: string;
@@ -1024,6 +1041,7 @@ describe("videos", () => {
 	});
 
 	test("/v1/videos restricts reference inputs to Seedance 2.x models", async () => {
+		pinClockBeforeSeedance15ProRetirement();
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			...hashApiKeyForStorage("real-token"),
@@ -3510,6 +3528,7 @@ describe("videos", () => {
 	});
 
 	test("/v1/videos rejects frame inputs on non-Seedance-2.0 bytedance models", async () => {
+		pinClockBeforeSeedance15ProRetirement();
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			...hashApiKeyForStorage("real-token"),
@@ -4349,6 +4368,7 @@ describe("Seedance pricing regressions", () => {
 	)(
 		"forwards Seedance 1.5 Pro $resolution/$ratio audio=$audio",
 		async ({ size, resolution, ratio, audio }) => {
+			pinClockBeforeSeedance15ProRetirement();
 			const res = await submit({
 				model: "bytedance/seedance-1-5-pro",
 				size,
