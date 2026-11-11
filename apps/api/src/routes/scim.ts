@@ -533,7 +533,7 @@ scim.post("/Users", async (c) => {
 		user = created;
 
 		// No `account` row is created here: SCIM has no way to know the id the
-		// IdP will assert at SAML login (e.g. Entra's objectidentifier claim vs
+		// IdP will assert at SAML login (the signed NameID, e.g. Entra's UPN, vs
 		// SCIM's externalId), so a pre-created link can never match. The SSO
 		// provider's domain is verified (see routes/sso.ts), which lets Better
 		// Auth implicitly link the correct account on the user's first SAML
