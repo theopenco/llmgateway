@@ -16,6 +16,7 @@
 		"model-release-dates": "tsx src/model-release-dates.ts",
 		"new-models-digest": "tsx src/new-models-digest.ts",
 		"newsletter-segment-backfill": "tsx src/newsletter-segment-backfill.ts",
+		"resend-contacts-trim": "tsx src/resend-contacts-trim.ts",
 		"repair-chat-plan-transactions": "tsx src/repair-chat-plan-transactions.ts",
 		"poc-end-user-bonus": "tsx --env-file=../../.env src/poc-end-user-bonus.ts",
 		"send": "tsx src/send.ts",

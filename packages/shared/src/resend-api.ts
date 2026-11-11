@@ -3,7 +3,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 
 export interface ResendCall {
 	apiKey: string;
-	method: "GET" | "POST" | "PATCH";
+	method: "GET" | "POST" | "PATCH" | "DELETE";
 	path: string;
 	body?: unknown;
 	timeoutMs?: number;

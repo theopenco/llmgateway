@@ -12,7 +12,7 @@ const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 /** One Resend call that resolves with the response of a successful request. */
 export type ResendRequest = (
-	method: "GET" | "POST",
+	method: "GET" | "POST" | "DELETE",
 	path: string,
 ) => Promise<Response>;
 
@@ -50,6 +50,18 @@ interface ListedTopic extends Listed {
 	subscription: string;
 }
 
+/** A write run decides from the app database, so it must be the real one. */
+export function assertProductionDatabase(
+	databaseHost: string,
+	allowLocalDatabase: boolean,
+): void {
+	if (LOCAL_HOSTS.has(databaseHost) && !allowLocalDatabase) {
+		throw new Error(
+			`DATABASE_URL points at ${databaseHost}; --apply needs the production database (pass --allow-local-database if this is a tunnel to it)`,
+		);
+	}
+}
+
 /**
  * A write run reads marketing unsubscribes from the app database. Pointed at a
  * local or empty one it would find none and add addresses it should leave out.
@@ -60,15 +72,29 @@ export function assertSafeToApply(input: {
 	suppressionsOnFile: number;
 	allowLocalDatabase: boolean;
 }): void {
-	if (LOCAL_HOSTS.has(input.databaseHost) && !input.allowLocalDatabase) {
-		throw new Error(
-			`DATABASE_URL points at ${input.databaseHost}; --apply needs the production database (pass --allow-local-database if this is a tunnel to it)`,
-		);
-	}
+	assertProductionDatabase(input.databaseHost, input.allowLocalDatabase);
 	if (input.suppressionsOnFile === 0) {
 		throw new Error(
 			"The database has no marketing unsubscribes on file, which looks like the wrong database; refusing --apply",
 		);
+	}
+}
+
+export function requireEnv(name: string): string {
+	const value = process.env[name];
+	if (!value) {
+		throw new Error(`${name} is required`);
+	}
+	return value;
+}
+
+/** A response Resend did not mean as a success, with its status. */
+export class ResendError extends Error {
+	constructor(
+		message: string,
+		readonly status: number,
+	) {
+		super(message);
 	}
 }
 
@@ -98,8 +124,9 @@ export function withRetry(
 			}
 			const passing = response.status === 429 || response.status >= 500;
 			if (!passing || lastAttempt) {
-				throw new Error(
+				throw new ResendError(
 					`Resend error on ${method} ${path}: ${response.status} - ${await response.text()}`,
+					response.status,
 				);
 			}
 			const seconds = Number(response.headers.get("retry-after")) || 1;
@@ -133,9 +160,19 @@ export function progressLine(counts: BackfillResult, apply: boolean): string {
 		: `Scanned ${counts.scanned}: ${counts.toAdd} opted in and not in the segment so far`;
 }
 
-async function* list<T extends Listed>(
+interface Page<T> {
+	data: T[];
+	has_more: boolean;
+}
+
+/**
+ * Every row of a paged Resend list. `read` checks the shape of a page; without
+ * it the page is taken as it comes.
+ */
+export async function* list<T extends Listed>(
 	request: ResendRequest,
 	path: string,
+	read: (body: unknown) => Page<T> = (body) => body as Page<T>,
 ): AsyncGenerator<T> {
 	const separator = path.includes("?") ? "&" : "?";
 	let after: string | undefined;
@@ -145,7 +182,7 @@ async function* list<T extends Listed>(
 			"GET",
 			`${path}${separator}limit=${PAGE_SIZE}${cursor}`,
 		);
-		const page = (await response.json()) as { data: T[]; has_more: boolean };
+		const page = read(await response.json());
 		yield* page.data;
 		const last = page.data.at(-1);
 		if (!page.has_more || !last) {

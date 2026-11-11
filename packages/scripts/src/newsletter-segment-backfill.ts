@@ -37,15 +37,8 @@ import {
 	backfillSegment,
 	pacedWithRetry,
 	progressLine,
+	requireEnv,
 } from "./newsletter-segment-backfill-lib.js";
-
-function requireEnv(name: string): string {
-	const value = process.env[name];
-	if (!value) {
-		throw new Error(`${name} is required`);
-	}
-	return value;
-}
 
 async function main() {
 	const apiKey = requireEnv("RESEND_API_KEY");
