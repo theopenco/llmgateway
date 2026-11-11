@@ -1633,17 +1633,6 @@ describe("fallback and error status code handling", () => {
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
-				{
-					id: "provider-key-novita",
-					...encryptProviderKeyForStorage(
-						"sk-novita-key",
-						"provider-key-novita",
-						"org-id",
-					),
-					provider: "novita",
-					organizationId: "org-id",
-					baseUrl: mockServerUrl,
-				},
 			]);
 
 			await db
@@ -1857,17 +1846,6 @@ describe("fallback and error status code handling", () => {
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
-				{
-					id: "provider-key-novita",
-					...encryptProviderKeyForStorage(
-						"sk-novita-key",
-						"provider-key-novita",
-						"org-id",
-					),
-					provider: "novita",
-					organizationId: "org-id",
-					baseUrl: mockServerUrl,
-				},
 			]);
 
 			await db
@@ -1989,17 +1967,6 @@ describe("fallback and error status code handling", () => {
 						"org-id",
 					),
 					provider: "alibaba",
-					organizationId: "org-id",
-					baseUrl: mockServerUrl,
-				},
-				{
-					id: "provider-key-novita",
-					...encryptProviderKeyForStorage(
-						"sk-novita-key",
-						"provider-key-novita",
-						"org-id",
-					),
-					provider: "novita",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
