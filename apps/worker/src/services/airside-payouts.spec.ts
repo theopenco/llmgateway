@@ -171,6 +171,24 @@ describe("refreshAirsidePayoutStatements", () => {
 		expect(await statementsFor(payoutProvider)).toHaveLength(1);
 	});
 
+	test("settles a carrier revoked after the period began", async () => {
+		// Revoking overwrites reviewedAt with the revocation time.
+		await db
+			.update(tables.providerClaim)
+			.set({
+				status: "revoked",
+				revokedAt: new Date("2001-04-03T00:00:00Z"),
+				reviewedAt: new Date("2001-04-03T00:00:00Z"),
+				createdAt: new Date("2001-01-01T00:00:00Z"),
+			})
+			.where(eq(tables.providerClaim.providerId, payoutProvider));
+
+		await refreshAirsidePayoutStatements(NOW);
+
+		const [statement] = await statementsFor(payoutProvider);
+		expect(statement?.grossAmount).toBe("150.00");
+	});
+
 	test("skips carriers that went live after the period", async () => {
 		await db
 			.update(tables.providerClaim)

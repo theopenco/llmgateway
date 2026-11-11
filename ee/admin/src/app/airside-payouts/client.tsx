@@ -43,6 +43,7 @@ import {
 	AIRSIDE_PAYOUT_STATUS_LABELS,
 	AIRSIDE_PAYOUT_STATUSES,
 	type AirsidePayoutStatus,
+	isAirsidePayoutSettled,
 } from "@llmgateway/shared/airside-billing";
 
 import type { paths } from "@/lib/api/v1";
@@ -243,6 +244,11 @@ export function AirsidePayoutsClient() {
 											{Number(statement.adjustmentAmount) === 0
 												? "—"
 												: usd(statement.adjustmentAmount)}
+											{statement.adjustmentNote ? (
+												<span className="text-muted-foreground block max-w-56 font-sans text-xs whitespace-normal">
+													{statement.adjustmentNote}
+												</span>
+											) : null}
 										</TableCell>
 										<TableCell className="text-right font-mono font-semibold">
 											{usd(statement.payoutAmount)}
@@ -282,7 +288,14 @@ export function AirsidePayoutsClient() {
 														</Button>
 														<Button
 															size="sm"
-															disabled={pending}
+															disabled={
+																pending || !isAirsidePayoutSettled(statement)
+															}
+															title={
+																isAirsidePayoutSettled(statement)
+																	? undefined
+																	: "Approvable once recomputed a day after the period closed"
+															}
 															onClick={() =>
 																approve.mutate({
 																	params: { path: { id: statement.id } },
@@ -411,7 +424,10 @@ export function AirsidePayoutsClient() {
 								paying &&
 								markPaid.mutate({
 									params: { path: { id: paying.id } },
-									body: { paymentReference: reference.trim() || null },
+									body: {
+										payoutAmount: paying.payoutAmount,
+										paymentReference: reference.trim() || null,
+									},
 								})
 							}
 						>

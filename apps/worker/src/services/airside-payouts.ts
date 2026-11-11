@@ -63,14 +63,17 @@ export async function refreshAirsidePayoutStatements(
 			revokedAt: true,
 		},
 	});
-	// Live during the month: approved before it ended, not revoked before it
-	// began. Active claims first, so they win a provider that was re-claimed.
+	// Live during the month: an active claim approved before it ended, or a
+	// revoked one still live when it began (revocation overwrites reviewedAt,
+	// so that is not the approval time there). Active claims first, so they
+	// win a provider that was re-claimed.
 	const eligible = claims
-		.filter(
-			(claim) =>
-				(claim.reviewedAt ?? claim.createdAt) < end &&
-				(claim.status === "active" ||
-					(claim.revokedAt !== null && claim.revokedAt >= start)),
+		.filter((claim) =>
+			claim.status === "active"
+				? (claim.reviewedAt ?? claim.createdAt) < end
+				: claim.createdAt < end &&
+					claim.revokedAt !== null &&
+					claim.revokedAt >= start,
 		)
 		.sort(
 			(a, b) => Number(b.status === "active") - Number(a.status === "active"),

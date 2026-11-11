@@ -138,6 +138,7 @@ describe("Airside payout statements", () => {
 		expect(
 			(
 				await call(`/admin/airside/payouts/${STATEMENT_ID}/mark-paid`, "POST", {
+					payoutAmount: "114.50",
 					paymentReference: null,
 				})
 			).status,
@@ -168,10 +169,20 @@ describe("Airside payout statements", () => {
 			(await call(`/admin/airside/payouts/${STATEMENT_ID}/approve`)).status,
 		).toBe(200);
 
+		// An amount the statement no longer shows is refused.
+		expect(
+			(
+				await call(`/admin/airside/payouts/${STATEMENT_ID}/mark-paid`, "POST", {
+					payoutAmount: "120.00",
+					paymentReference: null,
+				})
+			).status,
+		).toBe(409);
+
 		const paid = await call(
 			`/admin/airside/payouts/${STATEMENT_ID}/mark-paid`,
 			"POST",
-			{ paymentReference: "WIRE-123" },
+			{ payoutAmount: "114.5", paymentReference: "WIRE-123" },
 		);
 		expect(paid.status).toBe(200);
 		expect((await paid.json()).statement).toMatchObject({
@@ -208,6 +219,16 @@ describe("Airside payout statements", () => {
 			headers: { Cookie: cookie },
 		});
 		expect(response.status).toBe(403);
+	});
+
+	test("approval waits for a recompute a day after the period", async () => {
+		await db
+			.update(tables.airsidePayoutStatement)
+			.set({ computedAt: new Date("2026-11-01T06:00:00Z") })
+			.where(eq(tables.airsidePayoutStatement.id, STATEMENT_ID));
+		expect(
+			(await call(`/admin/airside/payouts/${STATEMENT_ID}/approve`)).status,
+		).toBe(409);
 	});
 
 	test("unknown statement is a 404", async () => {

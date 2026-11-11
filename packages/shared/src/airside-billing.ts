@@ -49,6 +49,22 @@ export function airsidePayoutAmount(statement: {
 		.plus(statement.adjustmentAmount);
 }
 
+// Daily rollups trail traffic, so a statement is approvable only once the
+// worker has refreshed it this long after the period closed.
+const AIRSIDE_PAYOUT_SETTLE_HOURS = 24;
+const HOUR_MS = 60 * 60 * 1000;
+export const AIRSIDE_PAYOUT_SETTLE_MS = AIRSIDE_PAYOUT_SETTLE_HOURS * HOUR_MS;
+
+export function isAirsidePayoutSettled(statement: {
+	periodEnd: string | Date;
+	computedAt: string | Date;
+}): boolean {
+	return (
+		new Date(statement.computedAt).getTime() >=
+		new Date(statement.periodEnd).getTime() + AIRSIDE_PAYOUT_SETTLE_MS
+	);
+}
+
 /** The UTC calendar month before `now`: [start, end). */
 export function previousUtcMonth(now: Date): { start: Date; end: Date } {
 	const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));

@@ -11,13 +11,25 @@ import {
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
 
-import { and, db, desc, eq, inArray, tables } from "@llmgateway/db";
 import {
+	and,
+	db,
+	desc,
+	eq,
+	inArray,
+	sql,
+	tables,
+	type SQL,
+} from "@llmgateway/db";
+import {
+	AIRSIDE_PAYOUT_SETTLE_MS,
 	AIRSIDE_PAYOUT_STATUSES,
 	type AirsidePayoutStatus,
 } from "@llmgateway/shared/airside-billing";
 
 import type { ServerTypes } from "@/vars.js";
+
+const SETTLE_HOURS = AIRSIDE_PAYOUT_SETTLE_MS / (60 * 60 * 1000);
 
 /**
  * Payout statements of payout-mode Airside carriers. The worker opens and
@@ -100,11 +112,12 @@ async function transition(
 	from: AirsidePayoutStatus,
 	changes: Partial<typeof statement.$inferInsert>,
 	conflictMessage: string,
+	guard?: SQL,
 ) {
 	const [row] = await db
 		.update(statement)
 		.set(changes)
-		.where(and(eq(statement.id, id), eq(statement.status, from)))
+		.where(and(eq(statement.id, id), eq(statement.status, from), guard))
 		.returning();
 	if (!row) {
 		const exists = await db.query.airsidePayoutStatement.findFirst({
@@ -207,7 +220,8 @@ adminAirsidePayouts.openapi(approvePayout, async (c) => {
 			id,
 			"draft",
 			{ status: "approved", approvedAt: new Date(), approvedBy: user?.id },
-			"Only a draft statement can be approved.",
+			`Only a draft statement can be approved, once it was recomputed ${SETTLE_HOURS} hours after its period closed.`,
+			sql`${statement.computedAt} >= ${statement.periodEnd} + make_interval(hours => ${SETTLE_HOURS}::int)`,
 		),
 	});
 });
@@ -241,6 +255,9 @@ const markPayoutPaid = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
+						// The payout the admin wired; a statement reopened and
+						// re-approved since then no longer matches.
+						payoutAmount: z.string().regex(/^-?\d{1,9}(\.\d{1,2})?$/),
 						paymentReference: z.string().trim().max(200).nullable(),
 					}),
 				},
@@ -252,7 +269,7 @@ const markPayoutPaid = createRoute({
 
 adminAirsidePayouts.openapi(markPayoutPaid, async (c) => {
 	const { id } = c.req.valid("param");
-	const { paymentReference } = c.req.valid("json");
+	const { payoutAmount, paymentReference } = c.req.valid("json");
 	const user = c.get("user");
 	return c.json({
 		statement: await transition(
@@ -264,7 +281,8 @@ adminAirsidePayouts.openapi(markPayoutPaid, async (c) => {
 				paidBy: user?.id,
 				paymentReference: paymentReference || null,
 			},
-			"Only an approved statement can be marked paid.",
+			"Only an approved statement can be marked paid, for the amount it shows. Reload and check the amount.",
+			sql`${statement.grossAmount} - ${statement.gatewayFeeAmount} + ${statement.adjustmentAmount} = ${new Decimal(payoutAmount).toFixed(2)}::numeric`,
 		),
 	});
 });
