@@ -68,6 +68,14 @@ import { logger } from "@llmgateway/logger";
 import { models as modelDefinitions } from "@llmgateway/models";
 import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 
+import {
+	buildTranscriptionForm,
+	getTranscriptionUpstreamPath,
+	getUnsupportedTranscriptionParam,
+	normalizeTranscriptionResponse,
+} from "./providers.js";
+
+import type { TranscriptionOptions } from "./providers.js";
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { ServerTypes } from "@/vars.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
@@ -425,6 +433,31 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 	const { mapping, modelDef, modelDefId, explicitProvider } = match;
 	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
+	const transcriptionOptions: TranscriptionOptions = {
+		language,
+		diarize,
+		fillerWords,
+		keyterms,
+		url,
+		file,
+	};
+	const unsupportedParam = getUnsupportedTranscriptionParam(
+		providerId,
+		transcriptionOptions,
+	);
+	if (unsupportedParam) {
+		return c.json(
+			{
+				error: {
+					message: `Parameter \`${unsupportedParam}\` is not supported by ${requestedModel}`,
+					type: "invalid_request_error",
+					param: unsupportedParam,
+					code: "unsupported_parameter",
+				},
+			} satisfies TranscriptionErrorBody,
+			400,
+		);
+	}
 	const responseModel = formatUsedModelForDisplay(
 		providerId,
 		modelDefId,
@@ -578,31 +611,6 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 	// this org's env-credential reads. Undefined = base vars only.
 	const envVariant = getLicensedOrganizationEnvVariant(retryOrganization);
 
-	// Option fields must precede the file in the multipart body — the upstream
-	// xAI /v1/stt endpoint ignores fields sent after `file` on streamed uploads.
-	function buildUpstreamForm(): FormData {
-		const upstreamForm = new FormData();
-		if (language) {
-			upstreamForm.append("format", "true");
-			upstreamForm.append("language", language);
-		}
-		if (diarize) {
-			upstreamForm.append("diarize", "true");
-		}
-		if (fillerWords) {
-			upstreamForm.append("filler_words", "true");
-		}
-		for (const term of keyterms) {
-			upstreamForm.append("keyterm", term);
-		}
-		if (url) {
-			upstreamForm.append("url", url);
-		} else if (file) {
-			upstreamForm.append("file", file, file.name || "audio");
-		}
-		return upstreamForm;
-	}
-
 	interface TranscriptionAttempt {
 		providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 		/** Platform-managed credential when one served this attempt. */
@@ -740,7 +748,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			usedToken,
 			configIndex,
 			envVarName,
-			upstreamUrl: `${resolvedBaseUrl}/v1/stt`,
+			upstreamUrl: `${resolvedBaseUrl}${getTranscriptionUpstreamPath(providerId)}`,
 			tenantBaseUrl: providerKey?.baseUrl ?? null,
 		};
 	}
@@ -832,7 +840,11 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 						headers: getProviderHeaders(providerId, attempt.usedToken, {
 							requestId,
 						}),
-						body: buildUpstreamForm(),
+						body: buildTranscriptionForm(
+							providerId,
+							upstreamModel,
+							transcriptionOptions,
+						),
 						signal: fetchSignal,
 					},
 					attempt.tenantBaseUrl,
@@ -1157,7 +1169,10 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 
 			const responseObject =
 				upstreamJson && typeof upstreamJson === "object"
-					? (upstreamJson as Record<string, unknown>)
+					? normalizeTranscriptionResponse(
+							providerId,
+							upstreamJson as Record<string, unknown>,
+						)
 					: undefined;
 			const transcriptText =
 				typeof responseObject?.text === "string" ? responseObject.text : null;

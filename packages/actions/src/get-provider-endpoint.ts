@@ -227,6 +227,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	"together-ai": "https://api.together.ai",
 	mistral: "https://api.mistral.ai",
 	xai: "https://api.x.ai",
+	elevenlabs: "https://api.elevenlabs.io",
 	groq: "https://api.groq.com/openai",
 	cerebras: "https://api.cerebras.ai",
 	deepseek: "https://api.deepseek.com",

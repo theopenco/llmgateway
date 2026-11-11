@@ -1894,6 +1894,72 @@ mockOpenAIServer.post("/v1/stt", async (c) => {
 	});
 });
 
+// ElevenLabs speech-to-text: POST /v1/speech-to-text takes model_id plus a file
+// (or source_url) and returns Scribe's chunk shape. The response echoes the
+// option fields so specs can assert what the gateway forwarded.
+mockOpenAIServer.post("/v1/speech-to-text", async (c) => {
+	if (!c.req.header("xi-api-key")) {
+		c.status(401);
+		return c.json({ detail: { status: "invalid_api_key" } });
+	}
+	const form = await c.req.formData();
+	const file = form.get("file");
+	const sourceUrl = form.get("source_url");
+	const modelId = form.get("model_id");
+	if (
+		typeof modelId !== "string" ||
+		(!(file instanceof File) && typeof sourceUrl !== "string")
+	) {
+		c.status(422);
+		return c.json({
+			detail: [{ msg: "model_id and file or source_url are required" }],
+		});
+	}
+	const field = (name: string) => {
+		const value = form.get(name);
+		return typeof value === "string" ? value : null;
+	};
+	return c.json({
+		language_code: "eng",
+		language_probability: 0.99,
+		text: "Hello world.",
+		words: [
+			{
+				text: "Hello",
+				start: 0.1,
+				end: 0.5,
+				type: "word",
+				speaker_id: "speaker_0",
+				logprob: 0,
+			},
+			{
+				text: " ",
+				start: 0.5,
+				end: 0.6,
+				type: "spacing",
+				speaker_id: "speaker_0",
+				logprob: 0,
+			},
+			{
+				text: "world.",
+				start: 0.6,
+				end: 1.2,
+				type: "word",
+				speaker_id: "speaker_1",
+				logprob: 0,
+			},
+		],
+		audio_duration_secs: 7.2,
+		transcription_id: "mock-transcription-id",
+		mock_received: {
+			model_id: modelId,
+			language_code: field("language_code"),
+			diarize: field("diarize"),
+			no_verbatim: field("no_verbatim"),
+		},
+	});
+});
+
 // ElevenLabs text-to-speech: POST /v1/text-to-speech/{voice_id}?output_format=…
 // Returns the audio already encoded; the content type is derived from the
 // requested output_format query param.
