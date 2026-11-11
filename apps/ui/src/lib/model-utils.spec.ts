@@ -7,6 +7,13 @@ const streams = { providerId: "one", streaming: true };
 const streamOnly = { providerId: "two", streaming: "only" as const };
 const noStream = { providerId: "three", streaming: false };
 
+const realtime = { providerId: "four", streaming: true, realtime: true };
+const transcribes = {
+	providerId: "five",
+	streaming: true,
+	realtimeTranscription: true,
+};
+
 // Lounge chat always streams, and the gateway only checks the provider it picks.
 describe("isLoungeChatModel streaming rule", () => {
 	it("accepts a model whose live mappings all stream", () => {
@@ -35,5 +42,35 @@ describe("isLoungeChatModel streaming rule", () => {
 		const providers = [streams, { ...noStream, deactivatedAt: past }];
 
 		expect(isLoungeChatModel({ id: "moved", providers }, providers)).toBe(true);
+	});
+});
+
+describe("isLoungeChatModel realtime rule", () => {
+	it("rejects a model with a live realtime mapping", () => {
+		const providers = [streams, realtime];
+
+		expect(isLoungeChatModel({ id: "voice", providers }, [streams])).toBe(
+			false,
+		);
+	});
+
+	it("rejects a model with a live realtime transcription mapping", () => {
+		const providers = [streams, transcribes];
+
+		expect(isLoungeChatModel({ id: "scribe", providers }, [streams])).toBe(
+			false,
+		);
+	});
+
+	it("ignores deactivated realtime mappings", () => {
+		const providers = [
+			streams,
+			{ ...realtime, deactivatedAt: past },
+			{ ...transcribes, deactivatedAt: past },
+		];
+
+		expect(isLoungeChatModel({ id: "retired", providers }, providers)).toBe(
+			true,
+		);
 	});
 });

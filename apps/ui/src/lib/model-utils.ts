@@ -61,7 +61,7 @@ interface LoungeMapping {
 /**
  * Whether a new Lounge account can chat with the model through `routes`, the
  * mappings a page offers. Lounge chat streams text and routes the bare model
- * id, so every live mapping has to stream.
+ * id, so every live mapping has to stream and stay off the realtime socket.
  */
 export function isLoungeChatModel(
 	model: {
@@ -82,12 +82,15 @@ export function isLoungeChatModel(
 	) {
 		return false;
 	}
+	const live = model.providers.filter(
+		(mapping) => !isMappingDeactivated(mapping),
+	);
 	if (
-		model.providers.some(
+		live.some(
 			(mapping) =>
 				mapping.realtime ||
 				mapping.realtimeTranscription ||
-				(mapping.streaming === false && !isMappingDeactivated(mapping)),
+				mapping.streaming === false,
 		)
 	) {
 		return false;
