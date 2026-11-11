@@ -44,6 +44,7 @@ import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
 import { findEffectiveProviderDiscount, applyDiscount } from "@/lib/discount";
 import { fetchProviders } from "@/lib/fetch-models";
+import { isLoungeChatModel } from "@/lib/model-utils";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -328,13 +329,16 @@ export default async function ModelProviderPage({ params }: PageProps) {
 								size="sm"
 								className="gap-2"
 								iconClassName="h-3 w-3"
+								location="model_provider_page"
 							/>
 
-							<TryInLoungeLink
-								modelId={decodedName}
-								output={modelDef.output}
-								className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1 text-xs md:text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-							/>
+							{isLoungeChatModel(modelDef, providerMappings) && (
+								<TryInLoungeLink
+									modelId={decodedName}
+									location="model_provider_page"
+									className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1 text-xs md:text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+								/>
+							)}
 						</div>
 
 						{/* Capabilities */}

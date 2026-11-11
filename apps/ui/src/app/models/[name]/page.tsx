@@ -54,6 +54,7 @@ import {
 import { fetchModelDiscounts, fetchProviders } from "@/lib/fetch-models";
 import { buildFaqSchema, buildModelFaqs } from "@/lib/model-faq";
 import { getCheapestOgMapping } from "@/lib/model-og";
+import { isLoungeChatModel } from "@/lib/model-utils";
 import { pageTitle } from "@/lib/page-title";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
@@ -355,7 +356,16 @@ export default async function ModelPage({ params }: PageProps) {
 								size="sm"
 								className="gap-2"
 								iconClassName="h-3 w-3"
+								location="model_page"
 							/>
+
+							{isLoungeChatModel(modelDef, activeProviders) && (
+								<TryInLoungeLink
+									modelId={decodedName}
+									location="model_page"
+									className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1 text-xs md:text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+								/>
+							)}
 
 							<Link
 								href={`/models/${encodeURIComponent(decodedName)}/uptime`}
@@ -366,12 +376,6 @@ export default async function ModelPage({ params }: PageProps) {
 							</Link>
 
 							<ModelUsageStats modelId={canonicalName} />
-
-							<TryInLoungeLink
-								modelId={decodedName}
-								output={modelDef.output}
-								className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1 text-xs md:text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-							/>
 						</div>
 
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">

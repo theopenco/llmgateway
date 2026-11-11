@@ -10,50 +10,49 @@ import { usePostHog } from "@/lib/posthog";
 
 // Endpoint-only models have no Lounge studio, so logged-in users get their docs.
 const ENDPOINT_DOCS_PATHS: Record<string, string> = {
+	embedding: "/features/embeddings",
 	rerank: "/features/rerank",
 	decision: "/features/system-one",
 	search: "/features/search",
 };
 
-// Lounge has no studio for these; its model picker leaves them out.
-const NO_LOUNGE_OUTPUTS = ["embedding", "rerank", "decision", "search"];
+function useIsLoggedIn() {
+	const { isAuthenticated } = useSessionStatus();
+	const { user, isLoading } = useUser({ enabled: isAuthenticated });
+	return !!user && !isLoading;
+}
 
 /**
- * A second way in for a signed-out visitor: the model open in Lounge, before
- * any API setup. Signed-in users already get that as the main button.
+ * A second way in for a signed-out visitor: the model open in Lounge chat,
+ * before any API setup. Once logged in, the main button does this instead.
+ * Render it only for models that pass `isLoungeChatModel`.
  */
 export function TryInLoungeLink({
 	modelId,
-	output,
+	location,
 	className,
 }: {
 	modelId: string;
-	output?: readonly string[] | null;
+	location: string;
 	className?: string;
 }) {
 	const config = useAppConfig();
 	const posthog = usePostHog();
-	const { isAuthenticated } = useSessionStatus();
+	const isLoggedIn = useIsLoggedIn();
 
-	if (
-		isAuthenticated ||
-		output?.some((kind) => NO_LOUNGE_OUTPUTS.includes(kind))
-	) {
+	if (isLoggedIn) {
 		return null;
 	}
 
 	return (
 		<a
-			href={`${config.playgroundUrl}${getLoungeStudioPath(output)}?model=${encodeURIComponent(modelId)}`}
+			href={`${config.playgroundUrl}?model=${encodeURIComponent(modelId)}`}
 			target="_blank"
 			rel="noopener noreferrer"
 			data-testid="try-in-lounge"
 			className={className}
 			onClick={() =>
-				posthog.capture("cta_clicked", {
-					location: "model_page_try_lounge",
-					cta: "try_in_lounge",
-				})
+				posthog.capture("cta_clicked", { location, cta: "try_in_lounge" })
 			}
 		>
 			<Play className="h-3.5 w-3.5" />
@@ -68,6 +67,7 @@ export function ModelCtaButton({
 	size = "default",
 	className = "w-full gap-2 font-semibold group/cta",
 	iconClassName = "h-4 w-4 transition-transform group-hover/cta:translate-x-0.5",
+	location,
 	onClick,
 }: {
 	modelId: string;
@@ -75,12 +75,19 @@ export function ModelCtaButton({
 	size?: "default" | "sm";
 	className?: string;
 	iconClassName?: string;
+	/** Where the button sits; clicks are tracked when set. */
+	location?: string;
 	onClick?: (e: React.MouseEvent) => void;
 }) {
 	const config = useAppConfig();
-	const { isAuthenticated } = useSessionStatus();
-	const { user, isLoading } = useUser({ enabled: isAuthenticated });
-	const isLoggedIn = !!user && !isLoading;
+	const posthog = usePostHog();
+	const isLoggedIn = useIsLoggedIn();
+	const track = (cta: string) => (event: React.MouseEvent) => {
+		if (location) {
+			posthog.capture("cta_clicked", { location, cta });
+		}
+		onClick?.(event);
+	};
 
 	const docsPath = output
 		?.map((kind) => ENDPOINT_DOCS_PATHS[kind])
@@ -92,7 +99,7 @@ export function ModelCtaButton({
 				variant="default"
 				size={size}
 				className={className}
-				onClick={onClick}
+				onClick={track("read_docs")}
 				asChild
 			>
 				<a href={`${config.docsUrl}${docsPath}`}>
@@ -110,7 +117,7 @@ export function ModelCtaButton({
 				variant="default"
 				size={size}
 				className={className}
-				onClick={onClick}
+				onClick={track("try_in_lounge")}
 				asChild
 			>
 				<a
@@ -130,7 +137,7 @@ export function ModelCtaButton({
 			variant="default"
 			size={size}
 			className={className}
-			onClick={onClick}
+			onClick={track("get_started")}
 			asChild
 		>
 			<a href={`${config.appUrl}/signup`}>

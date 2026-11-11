@@ -1,6 +1,19 @@
 import { expect, test } from "@playwright/test";
 
+import type { Page } from "@playwright/test";
+
 const apiUrl = process.env.PW_API_URL ?? "http://localhost:4002";
+
+async function signIn(page: Page) {
+	const response = await page.request.post(`${apiUrl}/auth/sign-in/email`, {
+		data: { email: "admin@example.com", password: "admin@example.com" },
+	});
+	expect(response.ok()).toBe(true);
+}
+
+// gpt-4o-mini: live chat model. gpt-4: every mapping deactivated.
+// gemini-3-pro-image, bge-m3: not text-only. gpt-4o-transcribe: realtime socket.
+const CHAT_HREF = /^https?:\/\/[^/]+\?model=gpt-4o-mini$/;
 
 test("a signed-out visitor can open a chat model in Lounge", async ({
 	page,
@@ -10,40 +23,57 @@ test("a signed-out visitor can open a chat model in Lounge", async ({
 	const link = page.getByTestId("try-in-lounge");
 	await expect(link).toHaveCount(1);
 	await expect(link).toHaveText("Try in Lounge");
-	await expect(link).toHaveAttribute("href", /[^/]\?model=gpt-4o-mini$/);
+	await expect(link).toHaveAttribute("href", CHAT_HREF);
 	await expect(link).toHaveAttribute("target", "_blank");
 });
 
-test("an image model opens in the image studio", async ({ page }) => {
-	await page.goto("/models/gemini-3-pro-image");
+test("the provider page links to the same chat", async ({ page }) => {
+	await page.goto("/models/gpt-4o-mini/openai");
 
 	await expect(page.getByTestId("try-in-lounge")).toHaveAttribute(
 		"href",
-		/\/image\?model=gemini-3-pro-image$/,
+		CHAT_HREF,
 	);
 });
 
-test("a model Lounge cannot run gets no Lounge link", async ({ page }) => {
-	await page.goto("/models/bge-m3");
+for (const model of [
+	"gpt-4",
+	"gemini-3-pro-image",
+	"bge-m3",
+	"gpt-4o-transcribe",
+]) {
+	test(`${model} is not a live chat model and gets no Lounge link`, async ({
+		page,
+	}) => {
+		await page.goto(`/models/${model}`);
 
-	await expect(
-		page.getByRole("link", { name: "Get Started", exact: true }).first(),
-	).toBeVisible();
-	await expect(page.getByTestId("try-in-lounge")).toHaveCount(0);
-});
+		await expect(
+			page.getByRole("link", { name: "Get Started", exact: true }).first(),
+		).toBeVisible();
+		await expect(page.getByTestId("try-in-lounge")).toHaveCount(0);
+	});
+}
 
 test("a signed-in user gets Lounge as the main button only", async ({
 	page,
 }) => {
-	const signIn = await page.request.post(`${apiUrl}/auth/sign-in/email`, {
-		data: { email: "admin@example.com", password: "admin@example.com" },
-	});
-	expect(signIn.ok()).toBe(true);
-
+	await signIn(page);
 	await page.goto("/models/gpt-4o-mini");
 
+	// The server renders the signed-out link; it leaves once the session loads.
+	await expect(page.getByTestId("try-in-lounge")).toHaveCount(0);
 	await expect(
 		page.getByRole("link", { name: "Try in Lounge", exact: true }).first(),
-	).toBeVisible();
-	await expect(page.getByTestId("try-in-lounge")).toHaveCount(0);
+	).toHaveAttribute("href", CHAT_HREF);
+});
+
+test("a signed-in user is sent to the docs for an embedding model", async ({
+	page,
+}) => {
+	await signIn(page);
+	await page.goto("/models/bge-m3");
+
+	await expect(
+		page.getByRole("link", { name: "View API docs", exact: true }).first(),
+	).toHaveAttribute("href", /\/features\/embeddings$/);
 });

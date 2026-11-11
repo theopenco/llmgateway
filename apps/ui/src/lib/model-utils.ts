@@ -1,3 +1,4 @@
+import { isMappingDeactivated } from "@llmgateway/shared/deactivation";
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
 import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
@@ -47,6 +48,36 @@ export function getLoungeStudioPath(
 		return "/audio";
 	}
 	return "";
+}
+
+interface LoungeMapping {
+	deactivatedAt?: Date | string | null;
+	realtime?: boolean | null;
+	realtimeTranscription?: boolean | null;
+}
+
+/**
+ * Whether Lounge chat can run the model through `routes`, the mappings a page
+ * offers: text out only, no realtime socket, and at least one live route.
+ */
+export function isLoungeChatModel(
+	model: {
+		output?: readonly string[] | null;
+		providers: readonly LoungeMapping[];
+	},
+	routes: readonly LoungeMapping[],
+): boolean {
+	if (model.output?.some((kind) => kind !== "text")) {
+		return false;
+	}
+	if (
+		model.providers.some(
+			(mapping) => mapping.realtime || mapping.realtimeTranscription,
+		)
+	) {
+		return false;
+	}
+	return routes.some((mapping) => !isMappingDeactivated(mapping));
 }
 
 export function getModelCapabilities(model: ModelDefinition): string[] {
