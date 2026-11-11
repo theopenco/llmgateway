@@ -27,6 +27,15 @@ export interface RekeyInput {
 	scimExternalIdByUser: Map<string, string>;
 	/** Derive `<externalId>@<domain>` when the IdP mapping has no entry. */
 	nameIdDomain?: string;
+	/** The stored config still has `mapping.id`, so object-id rows are legacy. */
+	legacyMappingActive: boolean;
+}
+
+/** Strip `mapping.id` only once no legacy row is left to resolve. */
+export function canDropLegacyMapping(actions: RekeyAction[]): boolean {
+	return actions.every(
+		(a) => a.kind === "delete-redundant" || a.kind === "rewrite",
+	);
 }
 
 interface Base {
@@ -42,10 +51,17 @@ export type RekeyAction =
 	| (Base & { kind: "unmapped" });
 
 export function planRekey(input: RekeyInput): RekeyAction[] {
+	// Without the legacy mapping, an object-id-shaped account id is a NameID the
+	// IdP asserts today, not a stale key.
+	if (!input.legacyMappingActive) {
+		return [];
+	}
+
+	// Exact match, like Better Auth's account lookup at sign-in.
 	const holders = new Map<string, string>();
 	for (const account of input.accounts) {
 		if (!isLegacyObjectId(account.accountId)) {
-			holders.set(account.accountId.toLowerCase(), account.userId);
+			holders.set(account.accountId, account.userId);
 		}
 	}
 
@@ -60,19 +76,6 @@ export function planRekey(input: RekeyInput): RekeyAction[] {
 			objectId: account.accountId,
 		};
 
-		const existing = input.accounts.find(
-			(other) =>
-				other.userId === account.userId && !isLegacyObjectId(other.accountId),
-		);
-		if (existing) {
-			actions.push({
-				...base,
-				kind: "delete-redundant",
-				nameId: existing.accountId,
-			});
-			continue;
-		}
-
 		const fromIdp = input.nameIdByObjectId.get(account.accountId.toLowerCase());
 		const externalId = input.scimExternalIdByUser.get(account.userId);
 		const fromScim =
@@ -80,17 +83,30 @@ export function planRekey(input: RekeyInput): RekeyAction[] {
 				? `${externalId}@${input.nameIdDomain}`
 				: undefined;
 		const nameId = fromIdp ?? fromScim;
+
 		if (!nameId) {
-			actions.push({ ...base, kind: "unmapped" });
+			const existing = input.accounts.find(
+				(other) =>
+					other.userId === account.userId && !isLegacyObjectId(other.accountId),
+			);
+			actions.push(
+				existing
+					? { ...base, kind: "delete-redundant", nameId: existing.accountId }
+					: { ...base, kind: "unmapped" },
+			);
 			continue;
 		}
 
-		const heldBy = holders.get(nameId.toLowerCase());
-		if (heldBy && heldBy !== account.userId) {
+		const heldBy = holders.get(nameId);
+		if (heldBy === account.userId) {
+			actions.push({ ...base, kind: "delete-redundant", nameId });
+			continue;
+		}
+		if (heldBy) {
 			actions.push({ ...base, kind: "conflict", nameId, heldByUserId: heldBy });
 			continue;
 		}
-		holders.set(nameId.toLowerCase(), account.userId);
+		holders.set(nameId, account.userId);
 		actions.push({
 			...base,
 			kind: "rewrite",
@@ -124,6 +140,13 @@ export function parseNameIdMap(text: string): Map<string, string> {
 }
 
 /** Returns the stored SAML config without `mapping.id`, or null when unchanged. */
+export function hasLegacyMappingId(samlConfig: string): boolean {
+	const config = JSON.parse(samlConfig) as {
+		mapping?: Record<string, unknown>;
+	};
+	return !!config.mapping && "id" in config.mapping;
+}
+
 export function withoutLegacyMappingId(samlConfig: string): string | null {
 	const config = JSON.parse(samlConfig) as {
 		mapping?: Record<string, unknown>;

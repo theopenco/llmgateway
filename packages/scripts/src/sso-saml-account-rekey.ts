@@ -14,6 +14,10 @@
  *                     the regression); left alone, merge by hand
  *   unmapped          no NameID known; left alone, still links by email
  *
+ * Object-id rows count as legacy only while the stored config still has
+ * `mapping.id`; it is removed once no conflict or unmapped row is left, so
+ * rerun after resolving those. NameIDs are compared exactly, like sign-in.
+ *
  * Usage:
  *   DATABASE_URL=... pnpm --filter @llmgateway/scripts sso-saml-account-rekey \
  *     --provider <providerId> [--map <file.csv>] [--name-id-domain <domain>] [--apply]
@@ -29,13 +33,17 @@
 
 import { readFileSync } from "node:fs";
 
-import { and, db, eq, inArray, isNotNull, tables } from "@llmgateway/db";
+import { and, db, eq, inArray, isNotNull, sql, tables } from "@llmgateway/db";
 
 import {
+	canDropLegacyMapping,
+	hasLegacyMappingId,
 	parseNameIdMap,
 	planRekey,
 	withoutLegacyMappingId,
 } from "./sso-saml-account-rekey-lib.js";
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 function flag(name: string): string | undefined {
 	const index = process.argv.indexOf(name);
@@ -58,6 +66,10 @@ async function main() {
 	const nameIdDomain = flag("--name-id-domain")?.toLowerCase();
 	const apply = process.argv.includes("--apply");
 
+	const nameIdByObjectId = mapFile
+		? parseNameIdMap(readFileSync(mapFile, "utf8"))
+		: new Map<string, string>();
+
 	const provider = await db.query.ssoProvider.findFirst({
 		where: { providerId: { eq: providerId } },
 	});
@@ -65,71 +77,94 @@ async function main() {
 		throw new Error(`No SAML provider ${providerId}`);
 	}
 
-	const accounts = await db
-		.select({
-			id: tables.account.id,
-			userId: tables.account.userId,
-			accountId: tables.account.accountId,
-		})
-		.from(tables.account)
-		.where(eq(tables.account.providerId, providerId));
-
-	const memberships = provider.organizationId
-		? await db
-				.select({
-					userId: tables.userOrganization.userId,
-					externalId: tables.userOrganization.scimExternalId,
-				})
-				.from(tables.userOrganization)
-				.where(
-					and(
-						eq(tables.userOrganization.organizationId, provider.organizationId),
-						isNotNull(tables.userOrganization.scimExternalId),
-					),
-				)
-		: [];
-
-	const actions = planRekey({
-		accounts,
-		nameIdByObjectId: mapFile
-			? parseNameIdMap(readFileSync(mapFile, "utf8"))
-			: new Map(),
-		scimExternalIdByUser: new Map(
-			memberships.flatMap((m) =>
-				m.externalId ? [[m.userId, m.externalId] as const] : [],
+	async function plan(tx: Tx) {
+		const current = await tx.query.ssoProvider.findFirst({
+			where: { providerId: { eq: providerId } },
+		});
+		if (!current?.samlConfig) {
+			throw new Error(`No SAML provider ${providerId}`);
+		}
+		const accounts = await tx
+			.select({
+				id: tables.account.id,
+				userId: tables.account.userId,
+				accountId: tables.account.accountId,
+			})
+			.from(tables.account)
+			.where(eq(tables.account.providerId, providerId!));
+		const memberships = current.organizationId
+			? await tx
+					.select({
+						userId: tables.userOrganization.userId,
+						externalId: tables.userOrganization.scimExternalId,
+					})
+					.from(tables.userOrganization)
+					.where(
+						and(
+							eq(
+								tables.userOrganization.organizationId,
+								current.organizationId,
+							),
+							isNotNull(tables.userOrganization.scimExternalId),
+						),
+					)
+			: [];
+		const actions = planRekey({
+			accounts,
+			nameIdByObjectId,
+			scimExternalIdByUser: new Map(
+				memberships.flatMap((m) =>
+					m.externalId ? [[m.userId, m.externalId] as const] : [],
+				),
 			),
-		),
-		nameIdDomain,
-	});
-	const strippedConfig = withoutLegacyMappingId(provider.samlConfig);
+			nameIdDomain,
+			legacyMappingActive: hasLegacyMappingId(current.samlConfig),
+		});
+		const strippedConfig = canDropLegacyMapping(actions)
+			? withoutLegacyMappingId(current.samlConfig)
+			: null;
+		return { provider: current, accounts, actions, strippedConfig };
+	}
 
-	for (const action of actions) {
-		const target = "nameId" in action ? ` -> ${action.nameId}` : "";
-		const held =
-			action.kind === "conflict"
-				? ` (held by user ${action.heldByUserId})`
-				: "";
+	function report(result: Awaited<ReturnType<typeof plan>>) {
+		const { accounts, actions, strippedConfig } = result;
+		for (const action of actions) {
+			const target = "nameId" in action ? ` -> ${action.nameId}` : "";
+			const held =
+				action.kind === "conflict"
+					? ` (held by user ${action.heldByUserId})`
+					: "";
+			console.log(
+				`${action.kind.padEnd(16)} user ${action.userId} ${action.objectId}${target}${held}`,
+			);
+		}
+		const count = (kind: string) =>
+			actions.filter((a) => a.kind === kind).length;
+		console.log(`\nProvider ${providerId}: ${accounts.length} accounts`);
+		console.log(`delete-redundant: ${count("delete-redundant")}`);
+		console.log(`rewrite:          ${count("rewrite")}`);
+		console.log(`conflict:         ${count("conflict")}`);
+		console.log(`unmapped:         ${count("unmapped")}`);
+		const legacy = hasLegacyMappingId(result.provider.samlConfig ?? "{}");
 		console.log(
-			`${action.kind.padEnd(16)} user ${action.userId} ${action.objectId}${target}${held}`,
+			`mapping.id:       ${strippedConfig ? "remove" : legacy ? "keep until conflicts and unmapped rows are resolved" : "already absent"}`,
 		);
 	}
-	const count = (kind: string) => actions.filter((a) => a.kind === kind).length;
-	console.log(`\nProvider ${providerId}: ${accounts.length} accounts`);
-	console.log(`delete-redundant: ${count("delete-redundant")}`);
-	console.log(`rewrite:          ${count("rewrite")}`);
-	console.log(`conflict:         ${count("conflict")}`);
-	console.log(`unmapped:         ${count("unmapped")}`);
-	console.log(
-		`mapping.id:       ${strippedConfig ? "remove" : "already absent"}`,
-	);
 
 	if (!apply) {
+		report(await db.transaction(plan));
 		console.log("\nDry run: pass --apply to write.");
 		return;
 	}
 
 	await db.transaction(async (tx) => {
-		const redundant = actions.flatMap((a) =>
+		// Block concurrent sign-in account writes (reads still pass) while the
+		// plan is re-read and applied, so no NameID is linked in between. Held
+		// for the few statements below.
+		await tx.execute(sql`LOCK TABLE account IN SHARE ROW EXCLUSIVE MODE`);
+		const result = await plan(tx);
+		report(result);
+		const redundant = result.actions.flatMap((a) =>
 			a.kind === "delete-redundant" ? [a.accountRowId] : [],
 		);
 		if (redundant.length > 0) {
@@ -137,7 +172,7 @@ async function main() {
 				.delete(tables.account)
 				.where(inArray(tables.account.id, redundant));
 		}
-		for (const action of actions) {
+		for (const action of result.actions) {
 			if (action.kind === "rewrite") {
 				await tx
 					.update(tables.account)
@@ -150,11 +185,11 @@ async function main() {
 					);
 			}
 		}
-		if (strippedConfig) {
+		if (result.strippedConfig) {
 			await tx
 				.update(tables.ssoProvider)
-				.set({ samlConfig: strippedConfig })
-				.where(eq(tables.ssoProvider.id, provider.id));
+				.set({ samlConfig: result.strippedConfig })
+				.where(eq(tables.ssoProvider.id, result.provider.id));
 		}
 	});
 	console.log("\nApplied.");
