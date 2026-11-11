@@ -12,7 +12,7 @@ image:
   height: 1024
 ---
 
-A DevPass plan used to start every cycle from zero: whatever you had not used by renewal day was gone. A quiet month, a holiday, or a week on another project cost you allowance you had paid for. Now **unused allowance carries over**: what is left when your plan renews is added on top of the next cycle's full allowance.
+A DevPass plan used to start every cycle from zero: whatever you had not used by renewal day was gone. A quiet month, a holiday, or a week on another project cost you allowance you had paid for. Now **unused allowance carries over**: what is left when your plan renews, up to a cap, is added on top of the next cycle's full allowance.
 
 ## How Much Carries Over
 
@@ -24,14 +24,14 @@ Up to half of your plan's monthly allowance carries into the next cycle. Anythin
 | Pro  | $79 of usage          |
 | Max  | $179 of usage         |
 
-There is nothing to enable. It applies at your next renewal, on every tier.
+There is nothing to enable. It applies at your next renewal.
 
 ## The Rules
 
 - **It is worked out again at every renewal** from what is left then, so the carried amount never builds up past the cap.
 - **A plan change at renewal uses the cap of the plan you move to.**
-- **Carried-over allowance is paced like the rest.** It counts toward the daily and weekly shares of the cycle it lands in.
-- **It ends when the plan ends.** A cancelled plan does not keep a balance.
+- **Carried-over allowance is paced like the rest.** The daily usage cap and the weekly premium cap are percentages of the cycle's whole allowance, carry-over included, so both rise with it.
+- **It ends when the plan ends.** A cancelled plan keeps its allowance until the period ends; nothing is kept after that.
 - **Immediate upgrades are unchanged.** Everything left of the cycle being replaced still moves to the new plan in full.
 
 ## See It Before Renewal
