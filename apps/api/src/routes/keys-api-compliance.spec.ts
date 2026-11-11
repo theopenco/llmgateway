@@ -247,8 +247,8 @@ describe("API key compliance policies", () => {
 
 	test.each([
 		{ enabled: true, allowedCountries: ["de"] },
-		{ enabled: true, allowedProviders: ["unknown-provider"] },
-		{ enabled: true, blockedModels: ["unknown-model"] },
+		{ enabled: true, allowedProviders: [" "] },
+		{ enabled: true, blockedModels: ["m".repeat(257)] },
 		{
 			enabled: true,
 			blockedProviders: Array.from({ length: 501 }, () => "openai"),
@@ -265,6 +265,17 @@ describe("API key compliance policies", () => {
 				})
 			).status,
 		).toBe(400);
+	});
+
+	test("keeps provider and model refs outside the catalogue", async () => {
+		const next = {
+			enabled: true,
+			blockedProviders: ["retired-provider"],
+			blockedModels: ["gpt-4o-mini", "retired-model"],
+		};
+		const res = await update(next);
+		expect(res.status).toBe(200);
+		expect((await res.json()).apiKey.providerCompliancePolicy).toEqual(next);
 	});
 
 	test("supports custom provider/model refs and key-only zero data retention", async () => {

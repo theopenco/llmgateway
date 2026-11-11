@@ -46,6 +46,31 @@ const HY_IMAGE_SIZES = [
 	"1024x1536",
 ] as const;
 
+// fal bills these models by megapixel, so the catalogue prices each preset
+// and the gateway rejects any other size.
+export const FAL_IMAGE_SIZES = [
+	"1024x1024",
+	"1536x1024",
+	"1024x1536",
+	"1344x768",
+	"768x1344",
+	"2048x2048",
+] as const;
+
+const FAL_IMAGE_MODELS = [
+	"flux-2-klein-4b",
+	"flux-3-klein",
+	"z-image-turbo",
+	"recraft-v4.1-flash",
+];
+
+export function isFalImageModel(model: string): boolean {
+	const lower = model.toLowerCase();
+	return FAL_IMAGE_MODELS.some(
+		(id) => lower === id || lower.endsWith(`/${id}`),
+	);
+}
+
 const REVE_ASPECT_RATIOS: AspectRatio[] = [
 	"auto",
 	"1:1",
@@ -66,9 +91,11 @@ export function getModelImageConfig(model: string) {
 	const isHyImage = lower.includes("hy-image");
 	const isWanImagePro = lower.includes("wan-2-7-image-pro");
 	const isWanImage = lower.includes("wan-2-7-image");
+	const isFalImage = isFalImageModel(lower);
 
 	const usesPixelDimensions =
 		isGptImage ||
+		isFalImage ||
 		isMuseImage ||
 		isHyImage ||
 		(lower.includes("alibaba") && !isWanImage) ||
@@ -92,37 +119,39 @@ export function getModelImageConfig(model: string) {
 
 	const availableSizes = isGptImage
 		? GPT_IMAGE_SIZES
-		: isMuseImage
-			? (["1024x1024", "1024x1536", "1536x1024"] as const)
-			: isHyImage
-				? HY_IMAGE_SIZES
-				: isWanImagePro
-					? (["1K", "2K", "4K"] as const)
-					: isWanImage
-						? (["1K", "2K"] as const)
-						: usesPixelDimensions
-							? ([
-									"1024x1024",
-									"720x1280",
-									"1280x720",
-									"1024x1536",
-									"1536x1024",
-									"2048x1024",
-									"1024x2048",
-								] as const)
-							: isReve
-								? (["2K"] as const)
-								: isSeedreamPro || isGrokImagine20
-									? (["1K", "2K"] as const)
-									: isSeedreamFlash
-										? (["1K", "1.5K", "2K"] as const)
-										: isSeedream
-											? (["2K", "4K"] as const)
-											: isGemini31FlashLiteImage || isGemini25FlashImage
-												? (["1K"] as const)
-												: isGemini31FlashImage
-													? (["0.5K", "1K", "2K", "4K"] as const)
-													: (["1K", "2K", "4K"] as const);
+		: isFalImage
+			? FAL_IMAGE_SIZES
+			: isMuseImage
+				? (["1024x1024", "1024x1536", "1536x1024"] as const)
+				: isHyImage
+					? HY_IMAGE_SIZES
+					: isWanImagePro
+						? (["1K", "2K", "4K"] as const)
+						: isWanImage
+							? (["1K", "2K"] as const)
+							: usesPixelDimensions
+								? ([
+										"1024x1024",
+										"720x1280",
+										"1280x720",
+										"1024x1536",
+										"1536x1024",
+										"2048x1024",
+										"1024x2048",
+									] as const)
+								: isReve
+									? (["2K"] as const)
+									: isSeedreamPro || isGrokImagine20
+										? (["1K", "2K"] as const)
+										: isSeedreamFlash
+											? (["1K", "1.5K", "2K"] as const)
+											: isSeedream
+												? (["2K", "4K"] as const)
+												: isGemini31FlashLiteImage || isGemini25FlashImage
+													? (["1K"] as const)
+													: isGemini31FlashImage
+														? (["0.5K", "1K", "2K", "4K"] as const)
+														: (["1K", "2K", "4K"] as const);
 
 	const defaultSize = usesPixelDimensions
 		? "1024x1024"

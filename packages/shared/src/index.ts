@@ -210,8 +210,10 @@ export {
 } from "./provider-model-ids.js";
 
 export {
+	FAL_IMAGE_SIZES,
 	getModelImageConfig,
 	GPT_IMAGE_SIZES,
+	isFalImageModel,
 	type AspectRatio,
 } from "./image-generation-config.js";
 

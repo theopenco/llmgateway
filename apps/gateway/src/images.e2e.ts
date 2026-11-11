@@ -343,7 +343,8 @@ describe("e2e image generation", getConcurrentTestOptions(), () => {
 			},
 		);
 
-		test.each(imageTestCases)(
+		// Text-to-image mappings reject input images by design.
+		test.each(imageTestCases.filter(({ provider }) => provider.vision))(
 			"/v1/images/edits returns image for $model",
 			{ ...getTestOptions(), timeout: 300_000 },
 			async ({ model, provider }) => {
