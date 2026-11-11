@@ -42,6 +42,25 @@ export interface AirsideResolution {
 export async function resolveAirsideModel(
 	modelInput: string,
 ): Promise<AirsideResolution | null> {
+	const resolution = await resolveExactAirsideModel(modelInput);
+	// Lowercase only the model id; a `:region` suffix keeps its own validation.
+	const slash = modelInput.indexOf("/");
+	const colon = slash > 0 ? modelInput.indexOf(":", slash + 1) : -1;
+	const lowercased =
+		colon === -1
+			? modelInput.toLowerCase()
+			: modelInput.slice(0, colon).toLowerCase() + modelInput.slice(colon);
+	if (resolution || lowercased === modelInput) {
+		return resolution;
+	}
+	// Listing ids are lowercase; listings once filed with capitals were renamed,
+	// so their old ids keep routing.
+	return await resolveExactAirsideModel(lowercased);
+}
+
+async function resolveExactAirsideModel(
+	modelInput: string,
+): Promise<AirsideResolution | null> {
 	const slash = modelInput.indexOf("/");
 	if (slash <= 0) {
 		if (modelInput.includes(":")) {

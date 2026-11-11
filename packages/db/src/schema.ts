@@ -6092,6 +6092,12 @@ export const providerDraftModel = snakeCase.table(
 			.where(sql`status <> 'delisted'`),
 		index("provider_draft_model_company_idx").on(table.providerCompanyId),
 		index("provider_draft_model_status_idx").on(table.status),
+		// The listing's model name becomes a public model id: keep it in sync
+		// with MODEL_ID_PATTERN in packages/models/src/model-id.ts.
+		check(
+			"provider_draft_model_model_name_check",
+			sql`${table.modelName} ~ '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$'`,
+		),
 	],
 );
 
