@@ -174,8 +174,8 @@ const ko: PricingCopy = {
 			같은 모델을{" "}
 			<span className="font-semibold text-foreground">LLM Gateway</span>에서
 			요금제 없이 쓸 수 있습니다. 크레딧을 충전해 제공사 요금에 플랫폼 수수료{" "}
-			{fee}를 더해 토큰 단위로 결제하거나, 직접 가진 제공사 키를 무료로
-			연결하세요. DevPass는 같은 금액으로 두 배를 쓰게 해 줍니다.
+			{fee}를 더해 토큰 단위로 결제하거나, 보유한 제공사 키를 무료로 연결하세요.
+			DevPass는 같은 금액으로 두 배를 쓰게 해 줍니다.
 		</>
 	),
 	paygoCta: "종량제로 쓰기",

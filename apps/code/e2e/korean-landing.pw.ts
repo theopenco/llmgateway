@@ -133,7 +133,8 @@ test("the popular plan keeps its moving border", async ({ page }) => {
 	await page.goto("/ko");
 	const card = page.getByTestId("plan-pro");
 	await card.scrollIntoViewIfNeeded();
-	await page.waitForTimeout(1500);
+	// The card fades in after hydration; wait so only the beam can differ.
+	await expect(card).toHaveCSS("opacity", "1");
 
 	const first = await card.screenshot();
 	await page.waitForTimeout(2000);

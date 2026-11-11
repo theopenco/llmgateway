@@ -63,7 +63,11 @@ function koreanCount(stat: string): string {
 		return stat;
 	}
 	const value = Number(match[1]) * (match[2] ? UNITS[match[2]] : 1);
-	return new Intl.NumberFormat("ko", { notation: "compact" }).format(value);
+	// Rounded down, because the figure is followed by "or more".
+	return new Intl.NumberFormat("ko", {
+		notation: "compact",
+		roundingMode: "floor",
+	}).format(value);
 }
 
 const cta = { signedOut: "DevPass 시작하기", signedIn: "대시보드로 이동" };
