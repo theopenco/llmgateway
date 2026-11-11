@@ -21,8 +21,9 @@ import {
 // a model nobody can call or that the site hides gets in; a price or context
 // reads wrong; markup in a name breaks the email; an empty week or a failed
 // catalogue read still produces an issue; a database placeholder is printed as
-// a description; the subject mangles the count; or the broadcast is created as
-// anything but a draft.
+// a description; the subject mangles the count; text outside ASCII arrives
+// garbled because the email never declares its encoding; or the broadcast is
+// created as anything but a draft.
 
 // A Tuesday. The issue covers the seven UTC days before it: Nov 3 to Nov 9.
 const now = new Date("2026-11-10T12:00:00Z");
@@ -475,6 +476,16 @@ describe("the issue", () => {
 			expect(body).toContain("{{{RESEND_UNSUBSCRIBE_URL}}}");
 			expect(body).toContain("1 Example Street");
 		}
+	});
+
+	test("declares UTF-8 at the top of the head, inside the first 1024 bytes", () => {
+		const html = buildDigest({ ...input, models: [model({})] })?.html;
+
+		expect(
+			Buffer.from(html ?? "")
+				.subarray(0, 1024)
+				.toString("latin1"),
+		).toMatch(/<head>\s*<meta charset="utf-8">/i);
 	});
 
 	test("is saved as a draft for one segment and topic", () => {

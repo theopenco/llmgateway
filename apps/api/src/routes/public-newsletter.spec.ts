@@ -23,8 +23,8 @@ import { signUnsubscribeToken } from "@llmgateway/shared/email-unsubscribe";
 // subscribes someone, a rotated secret breaks links already sent, a confirmed
 // reader is left outside the segment a broadcast is addressed to or not opted
 // in to the topic, a global unsubscribe is left in place, a contact already in
-// the segment makes the confirmation fail, or the contact appears between the
-// lookup and the create.
+// the segment makes the confirmation fail, the contact appears between the
+// lookup and the create, or the email never declares its encoding.
 
 const TOPIC = "topic-newsletter";
 const SEGMENT = "segment-newsletter";
@@ -219,6 +219,11 @@ describe("signing up", () => {
 		);
 		const token = new URL(link?.[1] ?? "").searchParams.get("token") ?? "";
 		expect(verifyNewsletterToken(token)).toBe(address);
+		expect(
+			Buffer.from(sent.html ?? "")
+				.subarray(0, 1024)
+				.toString("latin1"),
+		).toMatch(/<head>\s*<meta charset="utf-8">/i);
 	});
 
 	test("answers the same for an address that is already a contact", async () => {
