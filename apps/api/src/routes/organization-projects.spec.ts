@@ -195,6 +195,58 @@ describe("GET /orgs/{id}/projects/usage", () => {
 		expect(body.projects[0].cost).toBeCloseTo(0.5);
 	});
 
+	test("scopes usage to an explicit from/to window", async () => {
+		const day = hoursAgo(72).toISOString().slice(0, 10);
+		const res = await usage(`?from=${day}&to=${day}&timezone=UTC`);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+
+		expect(body).toMatchObject({ days: 1, from: day, to: day });
+		const busy = body.projects.find(
+			(p: { projectId: string }) => p.projectId === "busy-project",
+		);
+		expect(busy).toMatchObject({
+			requestCount: 3,
+			lastActiveAt: hoursAgo(1).toISOString(),
+			daily: [{ date: day, requestCount: 3 }],
+		});
+	});
+
+	test("folds long ranges into a bounded trend", async () => {
+		const today = new Date().toISOString().slice(0, 10);
+		const res = await usage(`?from=2020-01-01&to=${today}&timezone=UTC`);
+		expect(res.status).toBe(200);
+		const body = await res.json();
+
+		expect(body.days).toBeGreaterThan(2000);
+		for (const project of body.projects) {
+			expect(project.daily.length).toBeLessThanOrEqual(90);
+			expect(project.daily[0].date).toBe("2020-01-01");
+			expect(
+				project.daily.reduce(
+					(sum: number, day: { requestCount: number }) =>
+						sum + day.requestCount,
+					0,
+				),
+			).toBe(project.requestCount);
+		}
+		const totals = Object.fromEntries(
+			body.projects.map((p: { projectId: string; requestCount: number }) => [
+				p.projectId,
+				p.requestCount,
+			]),
+		);
+		expect(totals).toEqual({ "busy-project": 8, "idle-project": 2 });
+	});
+
+	test("rejects incomplete or inverted ranges", async () => {
+		expect((await usage("?from=2024-01-01")).status).toBe(400);
+		expect((await usage("?from=2024-02-01&to=2024-01-01")).status).toBe(400);
+		expect((await usage("?from=yesterday&to=today")).status).toBe(400);
+		expect((await usage("?from=0001-01-01&to=2024-01-01")).status).toBe(400);
+		expect((await usage("?from=2026-02-30&to=2026-02-30")).status).toBe(400);
+	});
+
 	test("rejects organizations the user does not belong to", async () => {
 		await db.insert(tables.organization).values({
 			id: "other-org-id",

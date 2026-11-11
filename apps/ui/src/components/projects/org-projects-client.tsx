@@ -15,12 +15,14 @@ import {
 	XIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
 import { Sparkline } from "@/components/dashboard/metric-card";
 import { NewProjectDialog } from "@/components/dashboard/new-project-dialog";
+import { DateRangePicker } from "@/components/date-range-picker";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
 import { getApiErrorMessage } from "@/lib/api-error";
 import {
 	AlertDialog,
@@ -64,7 +66,6 @@ import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
-import { useDisplayTimeZone } from "@llmgateway/shared";
 import {
 	formatCompactNumber,
 	formatNumber,
@@ -77,8 +78,33 @@ import {
 import type { Project } from "@/lib/types";
 import type { Route } from "next";
 
-const RANGES = ["7", "30", "90"] as const;
-type Range = (typeof RANGES)[number];
+/** Day offset of the default window's start: today plus the 29 days before. */
+const DEFAULT_RANGE_OFFSET = 29;
+
+const DAY_MS = 86_400_000;
+
+/** Longer windows (e.g. "All time") read better as "in period" than "2000d". */
+const MAX_RELATIVE_LABEL_DAYS = 366;
+
+function isDayKey(value: string | null): value is string {
+	if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+		return false;
+	}
+	const parsed = new Date(`${value}T00:00:00Z`);
+	return (
+		!Number.isNaN(parsed.getTime()) &&
+		parsed.toISOString().slice(0, 10) === value
+	);
+}
+
+function dayCount(from: string, to: string) {
+	return (
+		Math.round(
+			(Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) /
+				DAY_MS,
+		) + 1
+	);
+}
 
 const STATUS_FILTERS = ["all", "active", "idle", "never"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
@@ -201,16 +227,61 @@ export function OrgProjectsClient() {
 	const params = useParams();
 	const orgId = params.orgId as string;
 	const router = useRouter();
+	const searchParams = useSearchParams();
 	const api = useApi();
 	const queryClient = useQueryClient();
-	const { selectedOrganization } = useDashboardNavigation();
-	const { timeZone } = useDisplayTimeZone();
+	const { selectedOrganization, buildOrgUrl } = useDashboardNavigation();
+	const {
+		from: defaultFrom,
+		to: defaultTo,
+		timeZone,
+		markGenerated,
+		shouldApplyDefaults,
+	} = useZonedRangeDefaults(DEFAULT_RANGE_OFFSET);
 
 	const role = selectedOrganization?.role as OrganizationRole | undefined;
 	const canEdit = canManageProject(role);
 	const canArchive = role === "owner";
 
-	const [range, setRange] = useState<Range>("30");
+	const fromParam = searchParams.get("from");
+	const toParam = searchParams.get("to");
+	const validRange =
+		isDayKey(fromParam) && isDayKey(toParam) && fromParam <= toParam;
+	const malformedRange =
+		(fromParam !== null || toParam !== null) && !validRange;
+
+	// The date picker reads its range from the URL, so seed it with the default
+	// and replace a malformed one.
+	useEffect(() => {
+		if (!malformedRange && !shouldApplyDefaults(searchParams)) {
+			return;
+		}
+		const next = new URLSearchParams(searchParams.toString());
+		next.set("from", defaultFrom);
+		next.set("to", defaultTo);
+		markGenerated(next);
+		router.replace(
+			`${buildOrgUrl("org/projects")}?${next.toString()}` as Route,
+		);
+	}, [
+		searchParams,
+		malformedRange,
+		router,
+		buildOrgUrl,
+		defaultFrom,
+		defaultTo,
+		markGenerated,
+		shouldApplyDefaults,
+	]);
+
+	const from = validRange ? fromParam : defaultFrom;
+	const to = validRange ? toParam : defaultTo;
+	// Relative labels ("Active in 30d") only fit a window ending today.
+	const trailingDays =
+		to === defaultTo && dayCount(from, to) <= MAX_RELATIVE_LABEL_DAYS
+			? dayCount(from, to)
+			: null;
+
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 	const [sort, setSort] = useState<Sort>("requests");
 	const [search, setSearch] = useState("");
@@ -229,7 +300,7 @@ export function OrgProjectsClient() {
 		{
 			params: {
 				path: { id: orgId },
-				query: { days: range, timezone: timeZone },
+				query: { from, to, timezone: timeZone },
 			},
 		},
 		{ staleTime: 60 * 1000, placeholderData: keepPreviousData },
@@ -443,29 +514,10 @@ export function OrgProjectsClient() {
 						</p>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
-						<div
-							role="radiogroup"
-							aria-label="Usage period"
-							className="bg-muted inline-flex rounded-md p-0.5"
-						>
-							{RANGES.map((value) => (
-								<button
-									key={value}
-									type="button"
-									role="radio"
-									aria-checked={range === value}
-									onClick={() => setRange(value)}
-									className={cn(
-										"rounded px-3 py-1 text-sm font-medium transition-colors",
-										range === value
-											? "bg-background text-foreground shadow-sm"
-											: "text-muted-foreground hover:text-foreground",
-									)}
-								>
-									{value}d
-								</button>
-							))}
-						</div>
+						{/* The picker throws on unparseable dates; wait for the URL fix. */}
+						{!malformedRange && (
+							<DateRangePicker buildUrl={buildOrgUrl} path="org/projects" />
+						)}
 						<Button onClick={() => setNewProjectOpen(true)}>
 							<FolderPlus className="h-4 w-4" />
 							New project
@@ -480,7 +532,9 @@ export function OrgProjectsClient() {
 						isLoading={isLoading}
 					/>
 					<SummaryTile
-						label={`Active in ${range}d`}
+						label={
+							trailingDays ? `Active in ${trailingDays}d` : "Active in period"
+						}
 						value={formatNumber(counts.active)}
 						hint={
 							counts.all
@@ -522,7 +576,9 @@ export function OrgProjectsClient() {
 									: filter === "active"
 										? "Active"
 										: filter === "idle"
-											? `Idle ${range}d+`
+											? trailingDays
+												? `Idle ${trailingDays}d+`
+												: "Idle"
 											: "Never used"}
 								{filter === "all" || usageReady ? (
 									<span className="tabular-nums opacity-70">
@@ -656,7 +712,7 @@ export function OrgProjectsClient() {
 								key={row.project.id}
 								row={row}
 								orgId={orgId}
-								range={range}
+								trailingDays={trailingDays}
 								usageLoading={usageQuery.isLoading}
 								selectable={canEdit}
 								selected={selected.has(row.project.id)}
@@ -808,7 +864,7 @@ function SummaryTile({
 function ProjectCard({
 	row,
 	orgId,
-	range,
+	trailingDays,
 	usageLoading,
 	selectable,
 	selected,
@@ -818,7 +874,7 @@ function ProjectCard({
 }: {
 	row: ProjectRow;
 	orgId: string;
-	range: Range;
+	trailingDays: number | null;
 	usageLoading: boolean;
 	selectable: boolean;
 	selected: boolean;
@@ -936,7 +992,9 @@ function ProjectCard({
 				) : (
 					<div className="text-muted-foreground flex h-full items-center justify-center gap-1.5 text-xs">
 						<Moon className="h-3.5 w-3.5" />
-						No requests in the last {range} days
+						{trailingDays
+							? `No requests in the last ${trailingDays} days`
+							: "No requests in this period"}
 					</div>
 				)}
 			</div>

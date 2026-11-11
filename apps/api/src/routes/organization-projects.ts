@@ -4,17 +4,18 @@ import { z } from "zod";
 
 import { apiKeyScopeFilter } from "@/lib/api-key-scope-filter.js";
 import {
+	eachDay,
+	rangeDaysInclusive,
+	resolveDateRange,
+} from "@/lib/date-range.js";
+import {
 	getApiKeyScope,
 	getUserProjectIds,
 	isKeyScoped,
 	userHasOrganizationAccess,
 } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
-import {
-	bucketDate,
-	generateTimeSlots,
-	timezoneQueryField,
-} from "@/utils/timezone.js";
+import { bucketDate, timezoneQueryField } from "@/utils/timezone.js";
 import {
 	isZeroDataRetentionEnabled,
 	zdrCachingConflictMessage,
@@ -29,10 +30,12 @@ import {
 	gt,
 	gte,
 	inArray,
+	lte,
 	projectHourlyStats,
 	sql,
 	tables,
 } from "@llmgateway/db";
+import { formatDayKey, shiftDayKey } from "@llmgateway/shared";
 import { canManageProject } from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
@@ -278,6 +281,27 @@ const projectUsageSchema = z.object({
 	),
 });
 
+const dayKeyField = z
+	.string()
+	.regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Expected YYYY-MM-DD" })
+	.refine(
+		(day) => {
+			const parsed = new Date(`${day}T00:00:00Z`);
+			return (
+				!Number.isNaN(parsed.getTime()) &&
+				parsed.toISOString().slice(0, 10) === day
+			);
+		},
+		{ message: "Not a calendar date" },
+	);
+
+// Long ranges fold consecutive days into one trend point so the payload stays
+// bounded however wide the picked range is.
+const MAX_TREND_POINTS = 90;
+
+// Generous enough for the picker's "All time" preset; only bounds the day loop.
+const MAX_RANGE_DAYS = 20 * 366;
+
 const getProjectsUsage = createRoute({
 	method: "get",
 	path: "/{id}/projects/usage",
@@ -287,6 +311,8 @@ const getProjectsUsage = createRoute({
 		}),
 		query: z.object({
 			days: z.enum(["7", "30", "90"]).optional(),
+			from: dayKeyField.optional(),
+			to: dayKeyField.optional(),
 			timezone: timezoneQueryField,
 		}),
 	},
@@ -296,6 +322,8 @@ const getProjectsUsage = createRoute({
 				"application/json": {
 					schema: z.object({
 						days: z.number(),
+						from: z.string(),
+						to: z.string(),
 						projects: z.array(projectUsageSchema),
 					}),
 				},
@@ -316,8 +344,26 @@ organizationProjects.openapi(getProjectsUsage, async (c) => {
 
 	const { id } = c.req.param();
 	const query = c.req.valid("query");
-	const days = Number(query.days ?? "30");
 	const timeZone = query.timezone ?? "UTC";
+	if (Boolean(query.from) !== Boolean(query.to)) {
+		throw new HTTPException(400, {
+			message: "from and to must be provided together",
+		});
+	}
+	const toKey = query.to ?? formatDayKey(new Date(), timeZone);
+	const fromKey =
+		query.from ?? shiftDayKey(toKey, 1 - Number(query.days ?? "30"));
+	if (fromKey > toKey) {
+		throw new HTTPException(400, { message: "from must not be after to" });
+	}
+	const { startDate, endDate } = resolveDateRange(fromKey, toKey, timeZone);
+	if (rangeDaysInclusive(fromKey, toKey) > MAX_RANGE_DAYS) {
+		throw new HTTPException(400, {
+			message: `Date range too large (max ${MAX_RANGE_DAYS} days)`,
+		});
+	}
+	const slots = eachDay(fromKey, toKey);
+	const days = slots.length;
 
 	if (!(await userHasOrganizationAccess(user.id, id))) {
 		throw new HTTPException(403, {
@@ -338,16 +384,11 @@ organizationProjects.openapi(getProjectsUsage, async (c) => {
 		.filter((projectId) => accessibleProjectIds.has(projectId));
 
 	if (!projectIds.length) {
-		return c.json({ days, projects: [] });
+		return c.json({ days, from: fromKey, to: toKey, projects: [] });
 	}
 
 	const scope = await getApiKeyScope(user.id, projectIds);
 	const keyScoped = isKeyScoped(scope);
-
-	const endDate = new Date();
-	const startDate = new Date(endDate);
-	startDate.setUTCDate(startDate.getUTCDate() - (days - 1));
-	startDate.setUTCHours(0, 0, 0, 0);
 
 	const stats = keyScoped ? apiKeyHourlyStats : projectHourlyStats;
 	const projectFilter = and(
@@ -381,7 +422,13 @@ organizationProjects.openapi(getProjectsUsage, async (c) => {
 				),
 			})
 			.from(stats)
-			.where(and(projectFilter, gte(stats.hourTimestamp, startDate)))
+			.where(
+				and(
+					projectFilter,
+					gte(stats.hourTimestamp, startDate),
+					lte(stats.hourTimestamp, endDate),
+				),
+			)
 			.groupBy(sql`1, 2`),
 		db
 			.select({
@@ -417,7 +464,12 @@ organizationProjects.openapi(getProjectsUsage, async (c) => {
 		lastActiveRows.map((row) => [row.projectId, row.lastActiveAt]),
 	);
 
-	const slots = generateTimeSlots(startDate, endDate, false, timeZone);
+	const bucketSize = Math.ceil(days / MAX_TREND_POINTS);
+	const trendBuckets: string[][] = [];
+	for (let index = 0; index < days; index += bucketSize) {
+		trendBuckets.push(slots.slice(index, index + bucketSize));
+	}
+
 	const daily = new Map<
 		string,
 		Map<string, { requestCount: number; cost: number }>
@@ -457,6 +509,8 @@ organizationProjects.openapi(getProjectsUsage, async (c) => {
 
 	return c.json({
 		days,
+		from: fromKey,
+		to: toKey,
 		projects: projectIds.map((projectId) => {
 			const total = totals.get(projectId);
 			const byDate = daily.get(projectId);
@@ -468,11 +522,15 @@ organizationProjects.openapi(getProjectsUsage, async (c) => {
 				cost: total?.cost ?? 0,
 				lastActiveAt: lastActive.get(projectId) ?? null,
 				apiKeyCount: apiKeyCounts.get(projectId) ?? 0,
-				daily: slots.map((date) => ({
-					date,
-					requestCount: byDate?.get(date)?.requestCount ?? 0,
-					cost: byDate?.get(date)?.cost ?? 0,
-				})),
+				daily: trendBuckets.map((bucket) => {
+					let requestCount = 0;
+					let cost = 0;
+					for (const date of bucket) {
+						requestCount += byDate?.get(date)?.requestCount ?? 0;
+						cost += byDate?.get(date)?.cost ?? 0;
+					}
+					return { date: bucket[0], requestCount, cost };
+				}),
 			};
 		}),
 	});
