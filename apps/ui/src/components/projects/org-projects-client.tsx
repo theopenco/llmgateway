@@ -86,6 +86,17 @@ const DAY_MS = 86_400_000;
 /** Longer windows (e.g. "All time") read better as "in period" than "2000d". */
 const MAX_RELATIVE_LABEL_DAYS = 366;
 
+function isDayKey(value: string | null): value is string {
+	if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+		return false;
+	}
+	const parsed = new Date(`${value}T00:00:00Z`);
+	return (
+		!Number.isNaN(parsed.getTime()) &&
+		parsed.toISOString().slice(0, 10) === value
+	);
+}
+
 function dayCount(from: string, to: string) {
 	return (
 		Math.round(
@@ -232,9 +243,17 @@ export function OrgProjectsClient() {
 	const canEdit = canManageProject(role);
 	const canArchive = role === "owner";
 
-	// The date picker reads its range from the URL, so seed it with the default.
+	const fromParam = searchParams.get("from");
+	const toParam = searchParams.get("to");
+	const validRange =
+		isDayKey(fromParam) && isDayKey(toParam) && fromParam <= toParam;
+	const malformedRange =
+		(fromParam !== null || toParam !== null) && !validRange;
+
+	// The date picker reads its range from the URL, so seed it with the default
+	// and replace a malformed one.
 	useEffect(() => {
-		if (!shouldApplyDefaults(searchParams)) {
+		if (!malformedRange && !shouldApplyDefaults(searchParams)) {
 			return;
 		}
 		const next = new URLSearchParams(searchParams.toString());
@@ -246,6 +265,7 @@ export function OrgProjectsClient() {
 		);
 	}, [
 		searchParams,
+		malformedRange,
 		router,
 		buildOrgUrl,
 		defaultFrom,
@@ -254,8 +274,8 @@ export function OrgProjectsClient() {
 		shouldApplyDefaults,
 	]);
 
-	const from = searchParams.get("from") ?? defaultFrom;
-	const to = searchParams.get("to") ?? defaultTo;
+	const from = validRange ? fromParam : defaultFrom;
+	const to = validRange ? toParam : defaultTo;
 	// Relative labels ("Active in 30d") only fit a window ending today.
 	const trailingDays =
 		to === defaultTo && dayCount(from, to) <= MAX_RELATIVE_LABEL_DAYS
@@ -494,7 +514,10 @@ export function OrgProjectsClient() {
 						</p>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
-						<DateRangePicker buildUrl={buildOrgUrl} path="org/projects" />
+						{/* The picker throws on unparseable dates; wait for the URL fix. */}
+						{!malformedRange && (
+							<DateRangePicker buildUrl={buildOrgUrl} path="org/projects" />
+						)}
 						<Button onClick={() => setNewProjectOpen(true)}>
 							<FolderPlus className="h-4 w-4" />
 							New project

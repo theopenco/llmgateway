@@ -283,7 +283,17 @@ const projectUsageSchema = z.object({
 
 const dayKeyField = z
 	.string()
-	.regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Expected YYYY-MM-DD" });
+	.regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Expected YYYY-MM-DD" })
+	.refine(
+		(day) => {
+			const parsed = new Date(`${day}T00:00:00Z`);
+			return (
+				!Number.isNaN(parsed.getTime()) &&
+				parsed.toISOString().slice(0, 10) === day
+			);
+		},
+		{ message: "Not a calendar date" },
+	);
 
 // Long ranges fold consecutive days into one trend point so the payload stays
 // bounded however wide the picked range is.

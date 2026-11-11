@@ -244,6 +244,7 @@ describe("GET /orgs/{id}/projects/usage", () => {
 		expect((await usage("?from=2024-02-01&to=2024-01-01")).status).toBe(400);
 		expect((await usage("?from=yesterday&to=today")).status).toBe(400);
 		expect((await usage("?from=0001-01-01&to=2024-01-01")).status).toBe(400);
+		expect((await usage("?from=2026-02-30&to=2026-02-30")).status).toBe(400);
 	});
 
 	test("rejects organizations the user does not belong to", async () => {
