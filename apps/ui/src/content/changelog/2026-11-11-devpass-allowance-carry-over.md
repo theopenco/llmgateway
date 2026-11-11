@@ -36,7 +36,7 @@ There is nothing to enable. It applies at your next renewal.
 
 ## See It Before Renewal
 
-The Usage page shows what would carry over if your plan renewed now, so you can tell before renewal day how much of this cycle moves forward.
+While you have allowance left, the Usage page shows what would carry over if your plan renewed now, so you can tell before renewal day how much of this cycle moves forward.
 
 Available on **every DevPass tier**: Lite, Pro, and Max.
 
