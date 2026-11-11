@@ -11,9 +11,9 @@ const paidTypes = sql.join(
 );
 
 /**
- * Every reachable member of a DevPass organization. Blocked, disabled or
- * unverified accounts are left out, and a plan charge that was refunded does
- * not count as having paid.
+ * Every reachable member of a DevPass organization. Blocked, disabled,
+ * unverified and risk-flagged accounts are left out, and a plan charge that
+ * was refunded does not count as having paid.
  */
 export async function loadDevPassMemberships(): Promise<DevPassMembership[]> {
 	const organization = tables.organization;
@@ -33,7 +33,8 @@ export async function loadDevPassMemberships(): Promise<DevPassMembership[]> {
 					and paid.status = 'completed'
 					and not exists (
 						select 1 from "transaction" refund
-						where refund.related_transaction_id = paid.id
+						where refund.organization_id = paid.organization_id
+							and refund.related_transaction_id = paid.id
 							and refund.type = 'credit_refund'
 					)
 			)`,
@@ -48,6 +49,7 @@ export async function loadDevPassMemberships(): Promise<DevPassMembership[]> {
 			and(
 				eq(organization.kind, "devpass"),
 				or(isNull(organization.status), eq(organization.status, "active")),
+				eq(organization.riskFlagged, false),
 				eq(tables.user.status, "active"),
 				eq(tables.user.emailVerified, true),
 			),

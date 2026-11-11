@@ -17,7 +17,7 @@ description: Organizations, plans, credits, and billing in LLM Gateway — org k
 - Every Stripe webhook that sets `plan: "pro"` or stamps `stripeSubscriptionId` first returns for non-default kinds, as `checkout.session.completed`, `customer.subscription.created`, and `invoice.payment_succeeded` in `apps/api/src/stripe.ts` do. A `devpass` or `chat` org with `plan: "pro"` is corrupt state; gate product behavior for those orgs on their own entitlement columns.
 - End-user wallet organizations are regular PAYG `default` orgs. `withWalletCredits` affects only downstream credit gating, never kind- or plan-gated gateway logic.
 - For "has this org ever paid for DevPass", use `hasBillingHistory` from `GET /dev-plans/status`; plan end clears every `devPlan*` column.
-- A win-back campaign uses a stricter test than `hasBillingHistory`: a completed plan charge with no refund (`PAID_PLAN_TRANSACTION_TYPES`, `loadDevPassMemberships` in `packages/scripts`), on an active organization with a verified, active owner.
+- A win-back campaign uses a stricter test than `hasBillingHistory`: a completed plan charge with no refund (`PAID_PLAN_TRANSACTION_TYPES`, `loadDevPassMemberships` in `packages/scripts`), on an active organization that is not risk-flagged, with a verified, active owner.
 
 ## Audit log, emails, notifications
 

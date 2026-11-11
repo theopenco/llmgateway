@@ -7,8 +7,10 @@
  *   past       People who paid for a plan once and have none now (win-back).
  *   past-due   Running plans whose last renewal payment failed.
  *
- * Recipients are de-duplicated by email, and addresses that unsubscribed from
- * marketing email are skipped.
+ * Every audience leaves out deactivated users, unverified addresses, and
+ * organizations that are disabled, deleted or flagged as high risk. Recipients
+ * are de-duplicated by email, and addresses that unsubscribed from marketing
+ * email are skipped.
  *
  * Usage:
  *   # dry run: print the resolved recipient list and exit without sending

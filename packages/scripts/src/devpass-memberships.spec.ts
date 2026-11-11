@@ -6,8 +6,9 @@ import { selectDevPassAudience } from "./devpass-audiences.js";
 import { loadDevPassMemberships } from "./devpass-memberships.js";
 
 // Ways the win-back reaches someone it must not: an account an admin blocked
-// or disabled, an address that was never verified, a plan charge that was
-// refunded, failed or is still pending, or a payment for another product.
+// or disabled or that is flagged as high risk, an address that was never
+// verified, a plan charge that was refunded, failed or is still pending, or a
+// payment for another product.
 
 const PREFIX = "winback-spec";
 const ids = (name: string) => `${PREFIX}-${name}`;
@@ -23,6 +24,11 @@ const paid = { type: "dev_plan_start", status: "completed", amount: "79" } as co
 
 const fixtures: Fixture[] = [
 	{ name: "left", transactions: [paid] },
+	{
+		name: "risk-flagged",
+		organization: { riskFlagged: true },
+		transactions: [paid],
+	},
 	{
 		name: "deactivated-user",
 		user: { status: "deactivated" },
