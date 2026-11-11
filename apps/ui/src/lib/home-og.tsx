@@ -14,14 +14,17 @@ const MUTED = "rgba(244,241,232,0.64)";
 const FAINT = "rgba(244,241,232,0.42)";
 
 const fontDir = join(process.cwd(), "src/assets/og-fonts");
-const fontFiles = Promise.all([
-	readFile(join(fontDir, "PlusJakartaSans-Medium.ttf")),
-	readFile(join(fontDir, "PlusJakartaSans-ExtraBold.ttf")),
-	readFile(join(fontDir, "InstrumentSerif-Italic.ttf")),
-	readFile(join(fontDir, "GeistMono-Medium.ttf")),
-]);
+// Read on first render, not at import: page metadata imports the OG modules
+// for their exports, and runtimes without fs (Workers) fail at import.
+let fontFiles: Promise<Buffer[]> | undefined;
 
 async function loadFonts() {
+	fontFiles ??= Promise.all([
+		readFile(join(fontDir, "PlusJakartaSans-Medium.ttf")),
+		readFile(join(fontDir, "PlusJakartaSans-ExtraBold.ttf")),
+		readFile(join(fontDir, "InstrumentSerif-Italic.ttf")),
+		readFile(join(fontDir, "GeistMono-Medium.ttf")),
+	]);
 	const [jakartaMedium, jakartaExtraBold, serifItalic, monoMedium] =
 		await fontFiles;
 	return [
