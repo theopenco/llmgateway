@@ -129,6 +129,12 @@ describe("fal image generation", () => {
 		);
 	});
 
+	it("maps the default queue URL with a trailing slash to fal.run", () => {
+		expect(endpoint("https://queue.fal.run/", "z-image-turbo")).toBe(
+			"https://fal.run/fal-ai/z-image/turbo",
+		);
+	});
+
 	it("keeps an explicit base URL", () => {
 		expect(endpoint("https://proxy.example/", "flux-3-klein")).toBe(
 			"https://proxy.example/blackforestlabs/flux-3/klein/text-to-image",

@@ -773,8 +773,12 @@ export function getProviderEndpoint(
 		case "fal-ai":
 			// Images use fal's synchronous host; video keeps the queue root.
 			if (imageGenerations && externalId) {
+				const trimSlash = (value: string | undefined) =>
+					value?.replace(/\/+$/, "");
 				const syncUrl =
-					url === getProviderDefaultBaseUrl("fal-ai") ? "https://fal.run" : url;
+					trimSlash(url) === trimSlash(getProviderDefaultBaseUrl("fal-ai"))
+						? "https://fal.run"
+						: url;
 				return appendPath(syncUrl, `/${externalId}`);
 			}
 			return url;
