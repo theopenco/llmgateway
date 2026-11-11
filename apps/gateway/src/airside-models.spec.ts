@@ -387,6 +387,25 @@ describe("airside-listed models", () => {
 		});
 	});
 
+	test("resolves a listing id case-insensitively", async () => {
+		await materializeTestMapping({
+			providerId: "quartz",
+			modelId: "solo-carrier-model",
+			externalId: "Solo-Carrier-Model",
+			inputPrice: "1e-6",
+			outputPrice: "2e-6",
+		});
+
+		for (const input of ["quartz/Solo-Carrier-Model", "Solo-Carrier-Model"]) {
+			const resolution = await resolveAirsideModel(input);
+			expect(resolution?.parseResult.requestedModel).toBe("solo-carrier-model");
+			expect(resolution?.pricingMappings[0]).toMatchObject({
+				providerId: "quartz",
+				externalId: "Solo-Carrier-Model",
+			});
+		}
+	});
+
 	test("rejects a pin to a deactivated listing instead of rerouting", async () => {
 		await materializeTestMapping({
 			providerId: "quartz",
