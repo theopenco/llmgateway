@@ -1317,13 +1317,12 @@ function is4kVideo(job: VideoJobRecord): boolean {
 }
 
 function videoHasReferenceVideoInput(job: VideoJobRecord): boolean {
-	const rawRequest = getStoredVideoDebugPayload(job, "llmgateway_raw_request");
-	if (!rawRequest || typeof rawRequest !== "object") {
-		return false;
-	}
-	const referenceVideos = (rawRequest as Record<string, unknown>)
-		.reference_videos;
-	return Array.isArray(referenceVideos) && referenceVideos.length > 0;
+	const createResponse = job.upstreamCreateResponse as Record<
+		string,
+		unknown
+	> | null;
+	const count = createResponse?.llmgateway_reference_video_count;
+	return typeof count === "number" && count > 0;
 }
 
 function videoIncludesAudio(job: VideoJobRecord): boolean | null {

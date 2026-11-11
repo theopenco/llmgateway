@@ -18,7 +18,7 @@ Currently available models:
 - **Seedance 2.0 Mini** through `bytedance` (480p, 720p)
 - **KLING v3.0** and **KLING v3.0 Turbo** through `atlascloud` (720p, 1080p; KLING v3.0 also 4k), **KLING v3.0 Pro** through `atlascloud` (1080p only)
 - **KLING 3.0 Omni** through `atlascloud` (720p, 1080p, 4k; 3–15 seconds; optional audio; first/last frames, reference images, and a reference video)
-- **Luma Ray 3.2** through `atlascloud` (540p, 720p, 1080p; 5 or 10 seconds, 5 with frames; no audio; first/last frames)
+- **Luma Ray 3.2** through `atlascloud` (540p, 720p, 1080p; 5 or 10 seconds, 5 with frames; no audio, so send `audio: false`; first/last frames)
 - **MiniMax H3** through `minimax` (768p, 2K; 4–15 seconds, always with audio) and **MiniMax H3 Max** through `minimax` (480p, 768p; 5–15 seconds, always with audio)
 - **Wan 3.0 Video** and **Wan 3.0 Video Prime** through `alibaba` (480p, 720p, 1080p; 2–30 seconds; optional audio; first/last frames and reference images), **Wan 2.6 Text-to-Video** through `alibaba` (720p, 1080p; text only, always with audio)
 - **VEED Fabric 1.0** and **VEED Fabric 1.0 Fast** through `atlascloud` (480p, 720p; lip-synced talking video from one image and one speech track, as long as the audio)
@@ -89,7 +89,7 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 | Wan 2.6 Text-to-Video | `alibaba`          | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                                                 | `2`–`15`            |
 | VEED Fabric 1.0, Fast | `atlascloud`       | `854x480`, `480x854`, `1280x720`, `720x1280`                                                     | audio length, ≤ 300 |
 
-Requests return `400` when the selected provider cannot serve the requested `size` or `seconds`. Gemini Omni 1.2 Flash accepts `3`–`10` seconds with first/last frames. Seedance, KLING, Luma Ray, MiniMax H3, and Wan 3.0 derive the aspect ratio from the requested `size` (16:9 for landscape, 9:16 for portrait).
+Requests return `400` when the selected provider cannot serve the requested `size` or `seconds`. Gemini Omni 1.2 Flash accepts `3`–`10` seconds with first/last frames. Seedance, KLING, Luma Ray, MiniMax H3, and Wan 3.0 derive the aspect ratio from the requested `size` (16:9 for landscape, 9:16 for portrait); Luma Ray frame requests instead follow the first frame's aspect ratio.
 
 **KLING v3.0 Turbo**, **MiniMax H3**, **MiniMax H3 Max**, **Wan 2.6 Text-to-Video**, and **Gemini Omni** always generate audio and do not support `audio: false`; silent requests return a `400`. Use **KLING v3.0** (`kling-v3-0`) when you need silent output.
 
@@ -187,7 +187,7 @@ You can mix all three reference types in one request. The `prompt` can be a ligh
 - **HTTPS only for video and audio.** `reference_videos` and `reference_audios` must be publicly reachable HTTPS URLs (the provider fetches them). base64 data URLs are rejected for video/audio; images may be HTTPS URLs or base64 data URLs.
 - **Reference video resolution.** Seedance requires reference video frames to be at least ~409,600 pixels (roughly 480p or larger). Low-resolution clips such as 360p are rejected with a `400`.
 - **Not combinable with frames.** Reference inputs (`reference_images`, `reference_videos`, `reference_audios`) cannot be combined with the first/last frame inputs (`image`, `last_frame`).
-- **Provider scope.** Reference videos are only supported on Seedance 2.x and Gemini Omni, and reference audio only on Seedance 2.x and VEED Fabric; sending them to other models returns a `400`. **KLING v3.0**, **Pro**, and **Turbo** and **Luma Ray 3.2** do not support any reference inputs; use first/last frame inputs instead.
+- **Provider scope.** Reference videos are only supported on Seedance 2.x, Gemini Omni, and KLING 3.0 Omni (one video), and reference audio only on Seedance 2.x and VEED Fabric; sending them to other models returns a `400`. **KLING v3.0**, **Pro**, and **Turbo** and **Luma Ray 3.2** do not support any reference inputs; use first/last frame inputs instead.
 - **KLING 3.0 Omni references.** Up to 7 reference images, or one reference video plus up to 4 images; no reference audio and no references at 4k. Omni generates no audio with a reference video, so send `audio: false`.
 - **Wan 3.0 references.** Wan 3.0 Video and Prime accept up to 10 reference images and no reference video or audio. Refer to them in the prompt as "Image 1", "Image 2", and so on, in the order sent.
 - **Gemini Omni references.** Use up to 3 reference video clips of about 3 seconds each; their audio is ignored. Refer to references in the prompt as `<IMAGE_REF_0>` or `<VIDEO_REF_0>` to say how each one is used.

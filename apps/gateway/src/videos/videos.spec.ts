@@ -1769,6 +1769,7 @@ describe("videos", () => {
 			aspect_ratio: "16:9",
 			sound: false,
 			video: "https://example.com/reference.mp4",
+			keep_original_sound: false,
 		});
 		expect(mockVideo?.requestBody).toHaveProperty("images.length", 2);
 
