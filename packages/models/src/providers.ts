@@ -1870,7 +1870,7 @@ export const providers: ProviderDefinition[] = [
 		name: "ElevenLabs",
 		forwardsSafetyIdentifier: false,
 		description:
-			"ElevenLabs provides lifelike, low-latency text-to-speech models in 70+ languages.",
+			"ElevenLabs provides lifelike, low-latency text-to-speech and speech-to-text models in 70+ languages.",
 		env: {
 			required: {
 				apiKey: "LLM_ELEVENLABS_API_KEY",
