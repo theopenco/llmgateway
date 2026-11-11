@@ -3563,6 +3563,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "openai",
 				externalId: "gpt-image-2",
+				deactivatedAt: new Date("2027-02-10"),
 				inputPrice: "5e-6",
 				outputPrice: "0",
 				cachedInputPrice: "1.25e-6",
