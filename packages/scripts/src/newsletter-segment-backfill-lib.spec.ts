@@ -20,8 +20,8 @@ import {
 // take the rate limit from production mail, pace only its first call or skip
 // the pause on a retry or pause only after a call, and a long scan can stay
 // silent until it ends, report on every contact, report one contact early,
-// miss a report because the contact at that count was skipped, or never show
-// a write run that its writes are landing.
+// miss a report because the contact at that count was skipped or was the last
+// one, or never show a write run that its writes are landing.
 
 const TOPIC = "topic-newsletter";
 const SEGMENT = "segment-newsletter";
@@ -275,9 +275,10 @@ test("every call waits its turn first, a retry included", async () => {
 	]);
 });
 
-test("a long scan reports its counts at every interval, skipped contacts included", async () => {
+test("a long scan reports its counts as each interval completes, on a skipped or last contact too", async () => {
+	// The list ends exactly on an interval, so no later contact triggers it.
 	const contacts: FakeContact[] = Array.from(
-		{ length: PROGRESS_EVERY * 2 + 1 },
+		{ length: PROGRESS_EVERY * 2 },
 		(_, index) => ({
 			id: `contact-${index}`,
 			email: `person-${index}@example.com`,
@@ -320,7 +321,7 @@ test("a long scan reports its counts at every interval, skipped contacts include
 			added: 0,
 		},
 	]);
-	expect(result.scanned).toBe(PROGRESS_EVERY * 2 + 1);
+	expect(result).toEqual(reports[1]);
 });
 
 test("a progress line shows a write run its writes and a dry run its candidates", () => {

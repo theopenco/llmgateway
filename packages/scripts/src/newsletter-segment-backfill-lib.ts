@@ -185,18 +185,14 @@ export async function backfillSegment(
 		toAdd: 0,
 		added: 0,
 	};
-	for await (const contact of list<ListedContact>(request, "/contacts")) {
-		if (result.scanned > 0 && result.scanned % PROGRESS_EVERY === 0) {
-			onProgress?.({ ...result });
-		}
-		result.scanned++;
+	const count = async (contact: ListedContact): Promise<void> => {
 		if (members.has(contact.id)) {
 			result.alreadyInSegment++;
-			continue;
+			return;
 		}
 		if (contact.unsubscribed) {
 			result.unsubscribed++;
-			continue;
+			return;
 		}
 		let optedIn = false;
 		for await (const topic of list<ListedTopic>(
@@ -210,11 +206,11 @@ export async function backfillSegment(
 		}
 		if (!optedIn) {
 			result.notOptedIn++;
-			continue;
+			return;
 		}
 		if (await isSuppressed(contact.email)) {
 			result.suppressed++;
-			continue;
+			return;
 		}
 		result.toAdd++;
 		if (apply) {
@@ -223,6 +219,14 @@ export async function backfillSegment(
 				`/contacts/${contact.id}/segments/${encodeURIComponent(segmentId)}`,
 			);
 			result.added++;
+		}
+	};
+
+	for await (const contact of list<ListedContact>(request, "/contacts")) {
+		result.scanned++;
+		await count(contact);
+		if (result.scanned % PROGRESS_EVERY === 0) {
+			onProgress?.({ ...result });
 		}
 	}
 	return result;
