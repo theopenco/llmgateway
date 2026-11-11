@@ -2691,6 +2691,39 @@ export const alibabaModels = [
 		],
 	},
 	{
+		id: "z-image-turbo",
+		name: "Z-Image Turbo",
+		description:
+			"Tongyi-MAI's fast 6B-parameter text-to-image model with photorealistic output and bilingual text rendering.",
+		family: "alibaba",
+		output: ["image"],
+		releasedAt: new Date("2025-11-26"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "fal-ai",
+				externalId: "fal-ai/z-image/turbo",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				perImagePrice: {
+					default: "0.005",
+					"1024x1024": "0.005",
+					"1536x1024": "0.01",
+					"1024x1536": "0.01",
+					"1344x768": "0.005",
+					"768x1344": "0.005",
+					"2048x2048": "0.02",
+				},
+				streaming: false,
+				vision: false,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+	{
 		id: "qwen-image-3.0",
 		name: "Qwen Image 3.0",
 		description:

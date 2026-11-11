@@ -2269,6 +2269,34 @@ describe("calculateCosts", () => {
 		expect(noSize.imageOutputCost).toBeCloseTo(0.075);
 	});
 
+	it.each([
+		["flux-2-klein-4b", undefined, 1, 0.005],
+		["flux-2-klein-4b", "1344x768", 1, 0.004921875],
+		["flux-2-klein-4b", "2048x2048", 2, 0.04],
+		["flux-3-klein", "1536x1024", 1, 0.011],
+		["z-image-turbo", "1024x1536", 1, 0.01],
+		["recraft-v4.1-flash", "2048x2048", 1, 0.007],
+	] as const)(
+		"bills fal %s at %s per megapixel tier",
+		async (model, size, images, expected) => {
+			const result = await calculateCosts(
+				model,
+				"fal-ai",
+				null,
+				0,
+				0,
+				null,
+				undefined,
+				null,
+				images,
+				size,
+				0,
+			);
+			expect(result.imageOutputCost).toBeCloseTo(expected, 10);
+			expect(result.totalCost).toBeCloseTo(expected, 10);
+		},
+	);
+
 	it("multiplies perImagePrice by the output image count", async () => {
 		// qwen-image-3.0 is $0.03/image at every tier; n=3 bills 3 images.
 		const result = await calculateCosts(

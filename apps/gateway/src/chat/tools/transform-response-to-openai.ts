@@ -1499,12 +1499,15 @@ export function transformResponseToOpenai(
 			// For providers that return non-OpenAI format (e.g. Reve image generation),
 			// construct a proper OpenAI-compatible response when we have parsed images/content.
 			// Tencent's Hy Image frames carry `choices`, but with a `delta` instead of a message.
+			// fal responses are converted even when every image was filtered.
 			if (
 				transformedResponse &&
 				typeof transformedResponse === "object" &&
 				(transformedResponse.object === "image.chat.completion.chunk" ||
 					(!transformedResponse.choices &&
-						(images.length > 0 || content !== null)))
+						(images.length > 0 ||
+							content !== null ||
+							usedProvider === "fal-ai")))
 			) {
 				transformedResponse = {
 					id: `chatcmpl-${Date.now()}`,
