@@ -93,7 +93,7 @@ function parseVideoModel(modelId: string) {
 
 // MiniMax H3 models use the v2 video API (content array, task object status).
 export function isMinimaxV2VideoModel(externalId: string): boolean {
-	return externalId === "MiniMax-H3-Max";
+	return externalId === "MiniMax-H3" || externalId === "MiniMax-H3-Max";
 }
 
 export type VideoSize =
@@ -102,6 +102,8 @@ export type VideoSize =
 	| "848x480"
 	| "854x480"
 	| "480x854"
+	| "960x540"
+	| "540x960"
 	| "1280x720"
 	| "720x1280"
 	| "1366x768"
@@ -111,11 +113,22 @@ export type VideoSize =
 	| "1024x1792"
 	| "1920x1080"
 	| "1080x1920"
+	| "2560x1440"
+	| "1440x2560"
 	| "3840x2160"
 	| "2160x3840";
 
 export type VideoResolution =
-	"360p" | "480p" | "720p" | "768p" | "960p" | "hd" | "1080p" | "4k";
+	| "360p"
+	| "480p"
+	| "540p"
+	| "720p"
+	| "768p"
+	| "960p"
+	| "hd"
+	| "1080p"
+	| "2k"
+	| "4k";
 
 export type VideoOrientation = "landscape" | "portrait";
 
@@ -247,6 +260,18 @@ const VIDEO_SIZE_SPECS: Record<VideoSize, VideoSizeSpec> = {
 		width: 480,
 		height: 854,
 	},
+	"960x540": {
+		resolution: "540p",
+		orientation: "landscape",
+		width: 960,
+		height: 540,
+	},
+	"540x960": {
+		resolution: "540p",
+		orientation: "portrait",
+		width: 540,
+		height: 960,
+	},
 	"1280x720": {
 		resolution: "720p",
 		orientation: "landscape",
@@ -301,6 +326,18 @@ const VIDEO_SIZE_SPECS: Record<VideoSize, VideoSizeSpec> = {
 		width: 1080,
 		height: 1920,
 	},
+	"2560x1440": {
+		resolution: "2k",
+		orientation: "landscape",
+		width: 2560,
+		height: 1440,
+	},
+	"1440x2560": {
+		resolution: "2k",
+		orientation: "portrait",
+		width: 1440,
+		height: 2560,
+	},
 	"3840x2160": {
 		resolution: "4k",
 		orientation: "landscape",
@@ -318,22 +355,26 @@ const VIDEO_SIZE_SPECS: Record<VideoSize, VideoSizeSpec> = {
 const VIDEO_RESOLUTIONS: VideoResolution[] = [
 	"360p",
 	"480p",
+	"540p",
 	"720p",
 	"768p",
 	"960p",
 	"hd",
 	"1080p",
+	"2k",
 	"4k",
 ];
 
 const VIDEO_RESOLUTION_LABELS: Record<VideoResolution, string> = {
 	"360p": "360p",
 	"480p": "480p",
+	"540p": "540p",
 	"720p": "720p",
 	"768p": "768p",
 	"960p": "960p",
 	hd: "HD",
 	"1080p": "1080p",
+	"2k": "2K",
 	"4k": "4K",
 };
 
@@ -418,7 +459,10 @@ export function getVideoDurations(): VideoDuration[] {
 }
 
 function isGeminiOmniVideoModel(canonicalModelId: string): boolean {
-	return canonicalModelId === "gemini-omni-1.1-flash";
+	return (
+		canonicalModelId === "gemini-omni-1.1-flash" ||
+		canonicalModelId === "gemini-omni-1.2-flash"
+	);
 }
 
 export type VideoReasoningEffort = "low" | "high";
@@ -448,6 +492,7 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 
 	if (
 		canonicalModelId === "minimax-hailuo-2-3" ||
+		canonicalModelId === "minimax-h3" ||
 		canonicalModelId === "minimax-h3-max"
 	) {
 		return providerId === undefined || providerId === "minimax";
@@ -457,7 +502,10 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 		return providerId === undefined || providerId === "xai";
 	}
 
-	if (isAtlasCloudKlingVideoModel(canonicalModelId)) {
+	if (
+		isAtlasCloudKlingVideoModel(canonicalModelId) ||
+		isLumaRayVideoModel(canonicalModelId)
+	) {
 		return providerId === undefined || providerId === "atlascloud";
 	}
 
@@ -512,8 +560,17 @@ function isAtlasCloudKlingVideoModel(canonicalModelId: string): boolean {
 	return (
 		canonicalModelId === "kling-v3-0" ||
 		canonicalModelId === "kling-v3-0-pro" ||
-		canonicalModelId === "kling-v3-0-turbo"
+		canonicalModelId === "kling-v3-0-turbo" ||
+		isKlingOmniVideoModel(canonicalModelId)
 	);
+}
+
+function isKlingOmniVideoModel(canonicalModelId: string): boolean {
+	return canonicalModelId === "kling-v3-0-omni";
+}
+
+function isLumaRayVideoModel(canonicalModelId: string): boolean {
+	return canonicalModelId === "luma-ray-3-2";
 }
 
 function isVeedFabricVideoModel(canonicalModelId: string): boolean {
@@ -535,7 +592,10 @@ export function supportsVideoReferenceInput(modelId: string): boolean {
 		return providerId === undefined || providerId === "google-ai-studio";
 	}
 
-	if (isVeedFabricVideoModel(canonicalModelId)) {
+	if (
+		isVeedFabricVideoModel(canonicalModelId) ||
+		isKlingOmniVideoModel(canonicalModelId)
+	) {
 		return providerId === undefined || providerId === "atlascloud";
 	}
 
@@ -562,6 +622,10 @@ export function supportsVideoReferenceVideoInput(modelId: string): boolean {
 
 	if (isGeminiOmniVideoModel(canonicalModelId)) {
 		return providerId === undefined || providerId === "google-ai-studio";
+	}
+
+	if (isKlingOmniVideoModel(canonicalModelId)) {
+		return providerId === undefined || providerId === "atlascloud";
 	}
 
 	if (providerId !== undefined && providerId !== "bytedance") {
@@ -675,7 +739,10 @@ function mappingSupportsVideoRequest(
 		}
 
 		if (mapping.providerId === "atlascloud") {
-			return isVeedFabricVideoModel(mapping.modelId);
+			return (
+				isVeedFabricVideoModel(mapping.modelId) ||
+				isKlingOmniVideoModel(mapping.modelId)
+			);
 		}
 
 		if (mapping.providerId === "alibaba") {

@@ -8,6 +8,8 @@ import {
 	getSupportedVideoRequestOptions,
 	getVideoOrientations,
 	getVideoResolutions,
+	getVideoSizeLabel,
+	isMinimaxV2VideoModel,
 	mergeVideoModelResults,
 	parseGoogleAiStudioFileName,
 	supportsVideoFrameInput,
@@ -254,6 +256,78 @@ describe("video size options", () => {
 		expect(findVideoSize(sizes, "480p", "landscape")).toBe("848x480");
 		expect(findVideoSize(["854x480"], "480p", "landscape")).toBe("854x480");
 		expect(findVideoSize(sizes, "720p", "portrait")).toBeUndefined();
+	});
+});
+
+describe("540p, 2K, KLING 3.0 Omni, Luma Ray, and MiniMax H3", () => {
+	test("orders and labels the new resolutions", () => {
+		expect(
+			getVideoResolutions(["2560x1440", "960x540", "1920x1080", "3840x2160"]),
+		).toEqual(["540p", "1080p", "2k", "4k"]);
+		expect(getVideoSizeLabel("1440x2560")).toBe("2K Portrait");
+		expect(getVideoSizeLabel("960x540")).toBe("540p Landscape");
+		expect(findVideoSize(["1366x768", "2560x1440"], "2k", "landscape")).toBe(
+			"2560x1440",
+		);
+	});
+
+	test("routes MiniMax H3 through the v2 API with frames", () => {
+		expect(isMinimaxV2VideoModel("MiniMax-H3")).toBe(true);
+		expect(supportsVideoFrameInput("minimax/minimax-h3")).toBe(true);
+		expect(supportsVideoEndFrameInput("minimax/minimax-h3")).toBe(true);
+	});
+
+	test("enables frames and references on KLING 3.0 Omni and frames on Luma Ray", () => {
+		expect(supportsVideoFrameInput("atlascloud/kling-v3-0-omni")).toBe(true);
+		expect(supportsVideoReferenceInput("atlascloud/kling-v3-0-omni")).toBe(
+			true,
+		);
+		expect(supportsVideoReferenceVideoInput("atlascloud/kling-v3-0-omni")).toBe(
+			true,
+		);
+		expect(supportsVideoFrameInput("atlascloud/luma-ray-3-2")).toBe(true);
+		expect(supportsVideoEndFrameInput("atlascloud/luma-ray-3-2")).toBe(true);
+		expect(supportsVideoReferenceInput("atlascloud/luma-ray-3-2")).toBe(false);
+		expect(supportsVideoReferenceInput("atlascloud/kling-v3-0")).toBe(false);
+	});
+});
+
+describe("Gemini Omni 1.2 Flash", () => {
+	const omni: VideoCatalogModel = {
+		id: "gemini-omni-1.2-flash",
+		mappings: [
+			{
+				modelId: "gemini-omni-1.2-flash",
+				providerId: "google-ai-studio",
+				status: "active",
+				deactivatedAt: null,
+				perSecondPrice: { "360p": "0.023172", "720p": "0.069504" },
+				supportedVideoSizes: ["640x360", "1280x720"],
+				supportedVideoDurationsSeconds: [
+					3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+				],
+				supportedVideoDurationsSecondsImageToVideo: [3, 4, 5, 6, 7, 8, 9, 10],
+			},
+		],
+	};
+
+	test("caps frame durations at 10 seconds and allows every input mode", () => {
+		expect(
+			getSupportedVideoRequestOptions([omni], [omni.id], "none").durations,
+		).toEqual([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+		expect(
+			getSupportedVideoRequestOptions([omni], [omni.id], "frames").durations,
+		).toEqual([3, 4, 5, 6, 7, 8, 9, 10]);
+		const modelId = "google-ai-studio/gemini-omni-1.2-flash";
+		expect(supportsVideoFrameInput(modelId)).toBe(true);
+		expect(supportsVideoEndFrameInput(modelId)).toBe(true);
+		expect(supportsVideoReferenceInput(modelId)).toBe(true);
+		expect(supportsVideoReferenceVideoInput(modelId)).toBe(true);
+		expect(supportsVideoReferenceAudioInput(modelId)).toBe(false);
+		expect(
+			supportsVideoReferenceInput("google-vertex/gemini-omni-1.2-flash"),
+		).toBe(false);
+		expect(estimateVideoCostUsd(omni.mappings[0], "720p", 10, 0)).toBe(0.69504);
 	});
 });
 
