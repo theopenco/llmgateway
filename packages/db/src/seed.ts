@@ -3359,9 +3359,47 @@ async function seedAirside() {
 		matchedDomain: "mistral.ai",
 		claimedBy: "airside-user-mistral",
 		status: "active",
+		billingMode: "payout",
 		reviewedBy: "test-user-id",
 		reviewedAt: daysAgo(20),
 		createdAt: daysAgo(21),
+	});
+
+	// Payout statements: last month's preview and a paid one before it.
+	const monthStart = (monthsAgo: number) => {
+		const now = new Date();
+		return new Date(
+			Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsAgo, 1),
+		);
+	};
+	await upsert(tables.airsidePayoutStatement, {
+		id: "airside-payout-mistral-previous",
+		providerCompanyId: "airside-company-mistral",
+		providerId: "mistral",
+		periodStart: monthStart(1),
+		periodEnd: monthStart(0),
+		requestCount: 18240,
+		grossAmount: "1284.50",
+		gatewayFeeAmount: "385.35",
+		status: "draft",
+	});
+	await upsert(tables.airsidePayoutStatement, {
+		id: "airside-payout-mistral-older",
+		providerCompanyId: "airside-company-mistral",
+		providerId: "mistral",
+		periodStart: monthStart(2),
+		periodEnd: monthStart(1),
+		requestCount: 9120,
+		grossAmount: "642.10",
+		gatewayFeeAmount: "192.63",
+		adjustmentAmount: "-12.00",
+		adjustmentNote: "Credit for a degraded-capacity window",
+		status: "paid",
+		approvedAt: daysAgo(8),
+		approvedBy: "test-user-id",
+		paidAt: daysAgo(6),
+		paidBy: "test-user-id",
+		paymentReference: "WIRE-0001",
 	});
 
 	// A second carrier whose claim is still pending review, so the admin

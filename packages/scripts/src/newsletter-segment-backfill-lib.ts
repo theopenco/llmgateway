@@ -1,6 +1,13 @@
 const PAGE_SIZE = 100;
 const MAX_RETRIES = 5;
 const MS_PER_SECOND = 1000;
+/**
+ * Resend's rate limit is per team, so production mail shares it with this
+ * scan. One call every 200 ms stays at half of it.
+ */
+export const PACE_MS = 200;
+/** How often a long scan reports its counts. */
+export const PROGRESS_EVERY = 500;
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 /** One Resend call that resolves with the response of a successful request. */
@@ -16,6 +23,8 @@ export interface BackfillInput {
 	topicId: string;
 	segmentId: string;
 	apply: boolean;
+	/** Called with the counts so far, every `PROGRESS_EVERY` contacts. */
+	onProgress?: (result: BackfillResult) => void;
 }
 
 export interface BackfillResult {
@@ -99,6 +108,31 @@ export function withRetry(
 	};
 }
 
+function paced(
+	send: ResendRequest,
+	sleep: (ms: number) => Promise<void>,
+): ResendRequest {
+	return async (method, path) => {
+		await sleep(PACE_MS);
+		return await send(method, path);
+	};
+}
+
+/** Every attempt, a retry included, waits its turn before it is sent. */
+export function pacedWithRetry(
+	send: ResendRequest,
+	sleep: (ms: number) => Promise<void>,
+): ResendRequest {
+	return withRetry(paced(send, sleep), sleep);
+}
+
+/** The counts of a scan in progress; a write run reports what it has added. */
+export function progressLine(counts: BackfillResult, apply: boolean): string {
+	return apply
+		? `Scanned ${counts.scanned}: ${counts.added} added to the segment so far`
+		: `Scanned ${counts.scanned}: ${counts.toAdd} opted in and not in the segment so far`;
+}
+
 async function* list<T extends Listed>(
 	request: ResendRequest,
 	path: string,
@@ -132,7 +166,8 @@ async function* list<T extends Listed>(
 export async function backfillSegment(
 	input: BackfillInput,
 ): Promise<BackfillResult> {
-	const { request, isSuppressed, topicId, segmentId, apply } = input;
+	const { request, isSuppressed, topicId, segmentId, apply, onProgress } =
+		input;
 	const members = new Set<string>();
 	for await (const member of list<Listed>(
 		request,
@@ -150,15 +185,14 @@ export async function backfillSegment(
 		toAdd: 0,
 		added: 0,
 	};
-	for await (const contact of list<ListedContact>(request, "/contacts")) {
-		result.scanned++;
+	const count = async (contact: ListedContact): Promise<void> => {
 		if (members.has(contact.id)) {
 			result.alreadyInSegment++;
-			continue;
+			return;
 		}
 		if (contact.unsubscribed) {
 			result.unsubscribed++;
-			continue;
+			return;
 		}
 		let optedIn = false;
 		for await (const topic of list<ListedTopic>(
@@ -172,11 +206,11 @@ export async function backfillSegment(
 		}
 		if (!optedIn) {
 			result.notOptedIn++;
-			continue;
+			return;
 		}
 		if (await isSuppressed(contact.email)) {
 			result.suppressed++;
-			continue;
+			return;
 		}
 		result.toAdd++;
 		if (apply) {
@@ -185,6 +219,14 @@ export async function backfillSegment(
 				`/contacts/${contact.id}/segments/${encodeURIComponent(segmentId)}`,
 			);
 			result.added++;
+		}
+	};
+
+	for await (const contact of list<ListedContact>(request, "/contacts")) {
+		result.scanned++;
+		await count(contact);
+		if (result.scanned % PROGRESS_EVERY === 0) {
+			onProgress?.({ ...result });
 		}
 	}
 	return result;

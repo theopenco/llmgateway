@@ -1,7 +1,16 @@
 "use client";
 
-import { Check, ChevronDown, ShieldAlert, ShieldCheck, X } from "lucide-react";
+import {
+	AlertTriangle,
+	Check,
+	ChevronDown,
+	ShieldAlert,
+	ShieldCheck,
+	X,
+} from "lucide-react";
 import { useState, useCallback } from "react";
+
+import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
 
@@ -42,13 +51,18 @@ interface MultiProviderSelectorProps {
 	selectedProviders: string[];
 	onProvidersChange: (providers: string[]) => void;
 	placeholder?: string;
+	/** Flag selected ids missing from `providers` as unavailable. */
+	markUnavailable?: boolean;
 }
+
+const UNAVAILABLE_PROVIDER_NOTE = "Not currently available on LLM Gateway";
 
 export function MultiProviderSelector({
 	providers,
 	selectedProviders,
 	onProvidersChange,
 	placeholder = "Select providers...",
+	markUnavailable = false,
 }: MultiProviderSelectorProps) {
 	const [open, setOpen] = useState(false);
 	const [compatibleOnly, setCompatibleOnly] = useState(false);
@@ -92,13 +106,24 @@ export function MultiProviderSelector({
 					{selectedProviders.map((providerId) => {
 						const provider = providers.find((p) => p.id === providerId);
 						const ProviderIcon = getProviderIcon(providerId);
+						const unavailable = markUnavailable && !provider;
 						return (
 							<Badge
 								key={providerId}
 								variant="secondary"
-								className="flex items-center gap-1"
+								className={cn(
+									"flex items-center gap-1",
+									unavailable && "border-dashed text-muted-foreground",
+								)}
+								title={unavailable ? UNAVAILABLE_PROVIDER_NOTE : undefined}
 							>
 								{ProviderIcon && <ProviderIcon className="h-3 w-3" />}
+								{unavailable && (
+									<AlertTriangle
+										className="h-3 w-3 text-amber-500"
+										aria-label={UNAVAILABLE_PROVIDER_NOTE}
+									/>
+								)}
 								{provider?.name ?? providerId}
 								{provider?.meetsPolicy === false && (
 									<span

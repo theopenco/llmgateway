@@ -6411,6 +6411,55 @@ export const providerRoutingFiling = snakeCase.table(
 	],
 );
 
+// Monthly settlement of a payout-mode Airside carrier. The worker refreshes
+// `draft` rows from global_model_stats until an admin approves them; the wire
+// is sent manually and then marked paid. See AIRSIDE_PAYOUT_STATUSES.
+export const airsidePayoutStatement = snakeCase.table(
+	"airside_payout_statement",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		providerId: text().notNull(),
+		// UTC calendar month, [periodStart, periodEnd).
+		periodStart: timestamp().notNull(),
+		periodEnd: timestamp().notNull(),
+		requestCount: integer().notNull().default(0),
+		// Platform-paid (credits-mode) traffic billed at the carrier's prices.
+		grossAmount: decimal().notNull().default("0"),
+		// Gateway margin on that traffic (provider_margin_amount).
+		gatewayFeeAmount: decimal().notNull().default("0"),
+		// Signed admin correction: payout = gross - fee + adjustment.
+		adjustmentAmount: decimal().notNull().default("0"),
+		adjustmentNote: text(),
+		status: text({ enum: ["draft", "approved", "paid"] })
+			.notNull()
+			.default("draft"),
+		computedAt: timestamp().notNull().defaultNow(),
+		approvedAt: timestamp(),
+		approvedBy: text().references(() => user.id, { onDelete: "set null" }),
+		paidAt: timestamp(),
+		paidBy: text().references(() => user.id, { onDelete: "set null" }),
+		// Wire or transfer reference, for reconciliation.
+		paymentReference: text(),
+	},
+	(table) => [
+		// One statement per carrier and month, whichever company holds it.
+		uniqueIndex("airside_payout_statement_provider_period_uidx").on(
+			table.providerId,
+			table.periodStart,
+		),
+		index("airside_payout_statement_company_idx").on(table.providerCompanyId),
+		index("airside_payout_statement_status_idx").on(table.status),
+	],
+);
+
 // Project hourly statistics aggregation - used for fast dashboard queries
 /**
  * BYOK (`used_mode = 'api-keys'`) subset of the error and latency columns on

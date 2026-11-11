@@ -22,12 +22,16 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import type { UnifiedModel, UnifiedProvider } from "./model-entries";
 import type { StabilityLevel } from "@llmgateway/models";
 
+const UNAVAILABLE_MODEL_NOTE = "Not currently available on LLM Gateway";
+
 interface MultiModelSelectorProps {
 	models: readonly UnifiedModel[];
 	providers: readonly UnifiedProvider[];
 	selectedModels: string[];
 	onModelsChange: (models: string[]) => void;
 	placeholder?: string;
+	/** Flag selected ids missing from `models` as unavailable. */
+	markUnavailable?: boolean;
 }
 
 function getStabilityBadgeProps(stability?: StabilityLevel | null) {
@@ -90,6 +94,7 @@ export function MultiModelSelector({
 	selectedModels,
 	onModelsChange,
 	placeholder = "Select models...",
+	markUnavailable = false,
 }: MultiModelSelectorProps) {
 	const [open, setOpen] = useState(false);
 
@@ -147,12 +152,23 @@ export function MultiModelSelector({
 					{selectedModels.map((modelId) => {
 						const model = modelsWithProviderInfo.find((m) => m.id === modelId);
 						const firstProvider = model?.providersWithInfo[0];
+						const unavailable = markUnavailable && !model;
 						return (
 							<Badge
 								key={modelId}
 								variant="secondary"
-								className="flex items-center gap-1"
+								className={cn(
+									"flex items-center gap-1",
+									unavailable && "border-dashed text-muted-foreground",
+								)}
+								title={unavailable ? UNAVAILABLE_MODEL_NOTE : undefined}
 							>
+								{unavailable && (
+									<AlertTriangle
+										className="h-3 w-3 text-amber-500"
+										aria-label={UNAVAILABLE_MODEL_NOTE}
+									/>
+								)}
 								{firstProvider?.providerInfo?.color && (
 									<div
 										className="w-2 h-2 rounded-full"
