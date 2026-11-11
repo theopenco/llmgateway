@@ -5,7 +5,7 @@ import { useEffect } from "react";
 
 import { useAppConfig } from "@/lib/config";
 
-export function LandingPageTracker() {
+function usePageViewed(event: string) {
 	const posthog = usePostHog();
 	const { posthogKey } = useAppConfig();
 
@@ -13,23 +13,22 @@ export function LandingPageTracker() {
 		if (!posthogKey) {
 			return;
 		}
-		posthog.capture("page_viewed_code_landing");
-	}, [posthog, posthogKey]);
+		posthog.capture(event);
+	}, [event, posthog, posthogKey]);
+}
 
+export function LandingPageTracker() {
+	usePageViewed("page_viewed_code_landing");
 	return null;
 }
 
 export function StartPageTracker() {
-	const posthog = usePostHog();
-	const { posthogKey } = useAppConfig();
+	usePageViewed("page_viewed_start");
+	return null;
+}
 
-	useEffect(() => {
-		if (!posthogKey) {
-			return;
-		}
-		posthog.capture("page_viewed_start");
-	}, [posthog, posthogKey]);
-
+export function KoreanPageTracker() {
+	usePageViewed("page_viewed_ko");
 	return null;
 }
 

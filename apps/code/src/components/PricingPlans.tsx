@@ -5,6 +5,10 @@ import { motion } from "motion/react";
 import Link from "next/link";
 
 import { CodeCTATracker, CodePlanTracker } from "@/components/LandingTracker";
+import {
+	pricingCopy,
+	type PricingLocale,
+} from "@/components/pricing-plans-copy";
 import { BorderBeam } from "@/components/ui/border-beam";
 import { Button } from "@/components/ui/button";
 import { formatUsageRatio, formatUsd } from "@/lib/utils";
@@ -24,58 +28,31 @@ import {
 
 export type DevPlanCredits = Record<DevPlanTier, number>;
 
-interface PlanContent {
-	name: string;
-	description: string;
-	tier: DevPlanTier;
-	support: string;
-	popular?: boolean;
-	features: string[];
-}
-
-const plans: PlanContent[] = [
-	{
-		name: "Lite",
-		tier: "lite",
-		description: "For evenings-and-weekends coding",
-		support: "Email",
-		features: [
-			"All 100+ models — Claude, GPT-5, Gemini, GLM, Qwen, …",
-			"DevPass Code, Claude Code, OpenCode, Empryo, SoulForge & any OpenAI-compatible tool",
-			"Real-time dashboard with per-request cost",
-		],
-	},
-	{
-		name: "Pro",
-		tier: "pro",
-		description: "For daily development work",
-		popular: true,
-		support: "Priority",
-		features: [
-			"Everything in Lite",
-			"Headroom for a full agent session every day",
-			"More frontier fair-use headroom than Lite",
-		],
-	},
-	{
-		name: "Max",
-		tier: "max",
-		description: "For all-day, multi-agent workloads",
-		support: "Front of queue",
-		features: [
-			"Everything in Pro",
-			"Run agents non-stop without watching the meter",
-			"Best frontier-model allowance per dollar",
-		],
-	},
+const plans: { name: string; tier: DevPlanTier; popular?: boolean }[] = [
+	{ name: "Lite", tier: "lite" },
+	{ name: "Pro", tier: "pro", popular: true },
+	{ name: "Max", tier: "max" },
 ];
 
 interface PricingPlansProps {
 	credits: DevPlanCredits;
 	paygoUrl?: string;
+	locale?: PricingLocale;
 }
 
-export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
+export function PricingPlans({
+	credits,
+	paygoUrl,
+	locale = "en",
+}: PricingPlansProps) {
+	const copy = pricingCopy[locale];
+	// The monospace face has no Hangul, so Korean figures use the body face.
+	const mono = locale === "en" ? "font-mono " : "";
+	const eyebrow =
+		locale === "en"
+			? "font-mono text-[10px] font-semibold uppercase tracking-[0.18em]"
+			: "text-xs font-semibold";
+
 	return (
 		<div>
 			<div className="grid items-stretch gap-6 md:grid-cols-3">
@@ -84,10 +61,12 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 					const ratioLabel = formatUsageRatio(credits[plan.tier], monthlyPrice);
 					const perDay = (monthlyPrice / 30).toFixed(2);
 					const revealDelay = idx * 0.08;
+					const planCopy = copy.plans[plan.tier];
 
 					return (
 						<motion.div
 							key={plan.tier}
+							data-testid={`plan-${plan.tier}`}
 							initial={{ opacity: 0, y: 16 }}
 							whileInView={{ opacity: 1, y: 0 }}
 							viewport={{ once: true, margin: "-60px" }}
@@ -112,7 +91,7 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 									/>
 									<div className="absolute -top-3 left-6">
 										<span className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-medium text-white dark:bg-emerald-500 dark:text-emerald-950">
-											Most popular
+											{copy.popular}
 										</span>
 									</div>
 								</>
@@ -123,7 +102,7 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 									{plan.name}
 								</h3>
 								<p className="mt-1 text-sm text-muted-foreground">
-									{plan.description}
+									{planCopy.description}
 								</p>
 							</div>
 
@@ -131,75 +110,74 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 								<span className="font-display text-5xl font-bold tracking-tight tabular-nums">
 									${monthlyPrice}
 								</span>
-								<span className="text-muted-foreground">/mo</span>
+								<span className="text-muted-foreground">{copy.perMonth}</span>
 							</div>
-							<p className="mb-6 font-mono text-xs text-muted-foreground">
-								≈ ${perDay}/day · switch or cancel anytime
+							<p className={`mb-6 ${mono}text-xs text-muted-foreground`}>
+								{copy.perDay(perDay)}
 							</p>
 
 							{/* Value multiplier */}
 							<div className="mb-5 flex items-center gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.05] p-4">
-								<span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-1 font-mono text-xs font-bold tabular-nums text-white dark:bg-emerald-500 dark:text-emerald-950">
+								<span
+									className={`inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-1 ${mono}text-xs font-bold tabular-nums text-white dark:bg-emerald-500 dark:text-emerald-950`}
+								>
 									<Zap className="h-3 w-3" strokeWidth={2.5} />
-									{ratioLabel} usage
+									{copy.usageBadge(ratioLabel)}
 								</span>
 								<p className="text-xs leading-relaxed text-muted-foreground">
-									Worth {ratioLabel} what you pay in model usage, metered at
-									provider list rates.
+									{copy.usageNote(ratioLabel)}
 								</p>
 							</div>
 
 							{/* Ledger: the numbers that change between tiers */}
 							<dl className="mb-5 divide-y divide-dashed divide-border rounded-lg border border-dashed">
+								{[
+									copy.catalog,
+									[
+										copy.dailyPacing[0],
+										copy.dailyPacing[1](
+											Math.round(DEV_PLAN_DAILY_PERCENT[plan.tier] * 100),
+										),
+									],
+									[
+										copy.frontier[0],
+										copy.frontier[1](
+											Math.round(
+												DEV_PLAN_PREMIUM_WEEKLY_PERCENT[plan.tier] * 100,
+											),
+										),
+									],
+									[
+										copy.rollover[0],
+										copy.rollover[1](
+											formatUsd(
+												getDevPlanRenewalRolloverCap(credits[plan.tier]),
+											),
+										),
+									],
+								].map(([label, value]) => (
+									<div
+										key={label}
+										className="flex items-center justify-between gap-3 px-3.5 py-2"
+									>
+										<dt className="text-xs text-muted-foreground">{label}</dt>
+										<dd className={`${mono}text-xs font-semibold tabular-nums`}>
+											{value}
+										</dd>
+									</div>
+								))}
 								<div className="flex items-center justify-between gap-3 px-3.5 py-2">
 									<dt className="text-xs text-muted-foreground">
-										Model catalog
+										{copy.support}
 									</dt>
-									<dd className="font-mono text-xs font-semibold tabular-nums">
-										100+ models
-									</dd>
-								</div>
-								<div className="flex items-center justify-between gap-3 px-3.5 py-2">
-									<dt className="text-xs text-muted-foreground">
-										Daily pacing
-									</dt>
-									<dd className="font-mono text-xs font-semibold tabular-nums">
-										{Math.round(DEV_PLAN_DAILY_PERCENT[plan.tier] * 100)}% of
-										credits / day
-									</dd>
-								</div>
-								<div className="flex items-center justify-between gap-3 px-3.5 py-2">
-									<dt className="text-xs text-muted-foreground">
-										Frontier fair-use
-									</dt>
-									<dd className="font-mono text-xs font-semibold tabular-nums">
-										{Math.round(
-											DEV_PLAN_PREMIUM_WEEKLY_PERCENT[plan.tier] * 100,
-										)}
-										% of credits / week
-									</dd>
-								</div>
-								<div className="flex items-center justify-between gap-3 px-3.5 py-2">
-									<dt className="text-xs text-muted-foreground">
-										Unused carries over
-									</dt>
-									<dd className="font-mono text-xs font-semibold tabular-nums">
-										up to{" "}
-										{formatUsd(
-											getDevPlanRenewalRolloverCap(credits[plan.tier]),
-										)}
-									</dd>
-								</div>
-								<div className="flex items-center justify-between gap-3 px-3.5 py-2">
-									<dt className="text-xs text-muted-foreground">Support</dt>
-									<dd className="font-mono text-xs font-semibold">
-										{plan.support}
+									<dd className={`${mono}text-xs font-semibold`}>
+										{planCopy.support}
 									</dd>
 								</div>
 							</dl>
 
 							<ul className="mb-7 flex-1 space-y-2.5">
-								{plan.features.map((feature) => (
+								{planCopy.features.map((feature) => (
 									<li key={feature} className="flex items-start gap-2.5">
 										<Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
 										<span className="text-sm text-muted-foreground">
@@ -221,31 +199,30 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 									asChild
 								>
 									<Link href={`/signup?plan=${plan.tier}`}>
-										Get {plan.name}
+										{copy.getPlan(plan.name)}
 									</Link>
 								</Button>
 							</CodePlanTracker>
-							<p className="mt-2.5 text-center font-mono text-[11px] text-muted-foreground">
-								{SELF_REFUND_WINDOW_DAYS}-day self-serve refund · no lock-in
+							<p
+								className={`mt-2.5 text-center ${mono}text-[11px] text-muted-foreground`}
+							>
+								{copy.refundLine(SELF_REFUND_WINDOW_DAYS)}
 							</p>
 						</motion.div>
 					);
 				})}
 			</div>
 
+			{copy.currencyNote && (
+				<p className="mx-auto mt-6 max-w-3xl text-center text-sm font-medium">
+					{copy.currencyNote}
+				</p>
+			)}
 			<p className="mx-auto mt-6 max-w-3xl text-center text-xs leading-relaxed text-muted-foreground">
-				Daily pacing spreads your allowance across the cycle: each rolling
-				24-hour window can use the share of monthly credits shown on the card,
-				across every model. Frontier fair-use covers premium models — any model
-				priced at ${Math.round(HIGH_COST_INPUT_PRICE * 1_000_000)}+ per million
-				input tokens or ${Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000)}+ per
-				million output tokens after any active public discount — as a weekly
-				allowance on top. Every other model draws on your full monthly
-				allowance, and what you leave unused at renewal carries into the next
-				cycle up to the amount on the card. No hidden throttling. And none of it
-				is a wall: opt into pay-as-you-go overflow in your dashboard to keep
-				coding past any of them, billed from a credits balance at provider
-				rates.
+				{copy.pacingNote(
+					Math.round(HIGH_COST_INPUT_PRICE * 1_000_000),
+					Math.round(HIGH_COST_OUTPUT_PRICE * 1_000_000),
+				)}
 			</p>
 
 			<div className="mx-auto mt-8 flex max-w-2xl flex-col items-center gap-4 rounded-2xl border border-dashed border-emerald-500/30 bg-emerald-500/[0.04] p-6 text-center sm:flex-row sm:text-left">
@@ -256,19 +233,20 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 					/>
 				</div>
 				<div>
-					<p className="text-sm font-semibold">First-month guarantee</p>
+					<p className="text-sm font-semibold">{copy.guaranteeTitle}</p>
 					<p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-						Try DevPass for real. If it&apos;s not for you, refund yourself from{" "}
-						<Link
-							href="/dashboard/billing"
-							className="font-medium text-foreground underline underline-offset-4"
-						>
-							Billing
-						</Link>{" "}
-						in your dashboard — a full refund of your first month, up to{" "}
-						{SELF_REFUND_WINDOW_DAYS} days after purchase, as long as
-						you&apos;ve used less than {SELF_REFUND_USAGE_PERCENT}% of your
-						allowance. One click, no email, no cancellation fee.
+						{copy.guarantee(
+							(label) => (
+								<Link
+									href="/dashboard/billing"
+									className="font-medium text-foreground underline underline-offset-4"
+								>
+									{label}
+								</Link>
+							),
+							SELF_REFUND_WINDOW_DAYS,
+							SELF_REFUND_USAGE_PERCENT,
+						)}
 					</p>
 				</div>
 			</div>
@@ -276,22 +254,17 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 			{paygoUrl && (
 				<div className="mx-auto mt-4 flex max-w-2xl flex-col items-center gap-4 rounded-2xl border border-dashed bg-muted/20 p-6 text-center sm:flex-row sm:justify-between sm:text-left">
 					<div>
-						<p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-							No subscription? Pay as you go
+						<p className={`${eyebrow} text-muted-foreground`}>
+							{copy.paygoLabel}
 						</p>
 						<p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-							The same 100+ models are on{" "}
-							<span className="font-semibold text-foreground">LLM Gateway</span>{" "}
-							without a plan — top up credits and pay per token at provider
-							rates with a flat {MARKETING_STATS.platformFee} platform fee, or
-							bring your own provider keys for free. DevPass simply doubles
-							every dollar.
+							{copy.paygo(MARKETING_STATS.platformFee)}
 						</p>
 					</div>
 					<CodeCTATracker cta="paygo" location="pricing_plans">
 						<Button variant="outline" size="lg" asChild className="shrink-0">
 							<a href={paygoUrl} target="_blank" rel="noopener noreferrer">
-								Use pay-as-you-go
+								{copy.paygoCta}
 								<ArrowRight className="h-4 w-4" />
 							</a>
 						</Button>
@@ -299,20 +272,12 @@ export function PricingPlans({ credits, paygoUrl }: PricingPlansProps) {
 				</div>
 			)}
 
-			<InvoiceInfoLabel />
+			<p className="mx-auto mt-4 max-w-2xl text-center text-[11px] leading-relaxed text-muted-foreground">
+				{copy.invoice}
+			</p>
 			<p className="mt-3 text-center text-xs text-muted-foreground">
-				Usage is metered at each provider&apos;s published per-token rate. Every
-				request shows its dollar value in your dashboard in real time.
+				{copy.metering}
 			</p>
 		</div>
-	);
-}
-
-function InvoiceInfoLabel() {
-	return (
-		<p className="mx-auto mt-4 max-w-2xl text-center text-[11px] leading-relaxed text-muted-foreground">
-			Need company/address details on your invoice? Update billing settings
-			before purchase. We email the invoice automatically after payment.
-		</p>
 	);
 }
