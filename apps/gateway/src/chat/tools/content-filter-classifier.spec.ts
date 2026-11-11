@@ -159,6 +159,9 @@ describe("runContentFilterClassifier", () => {
 		expect(events.indexOf("image:start")).toBeLessThan(
 			events.indexOf("text:end"),
 		);
+		expect(events.indexOf("text:start")).toBeLessThan(
+			events.indexOf("image:end"),
+		);
 		expect(checked.results).toHaveLength(2);
 	});
 
