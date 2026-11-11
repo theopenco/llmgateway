@@ -47,10 +47,13 @@ jobs:
         run: |
           pnpm exec playwright install chromium
           for attempt in 1 2; do
-            if timeout -k 10 240 pnpm exec playwright install-deps chromium; then
+            # Run as root so timeout's process-group kill also stops apt-get.
+            if sudo env "PATH=$PATH" timeout -k 10 240 \
+              pnpm exec playwright install-deps chromium; then
               exit 0
             fi
             echo "playwright install-deps failed (attempt $attempt)"
+            sudo pkill -x apt-get || true
             sleep $((attempt * 20))
           done
           echo "::warning::Ubuntu apt mirrors unreachable; using the runner image's preinstalled libraries."
