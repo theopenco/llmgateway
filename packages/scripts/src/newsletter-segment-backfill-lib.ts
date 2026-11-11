@@ -1,6 +1,13 @@
 const PAGE_SIZE = 100;
 const MAX_RETRIES = 5;
 const MS_PER_SECOND = 1000;
+/**
+ * Resend's rate limit is per team, so production mail shares it with this
+ * scan. One call every 200 ms stays at half of it.
+ */
+export const PACE_MS = 200;
+/** How often a long scan reports its counts. */
+export const PROGRESS_EVERY = 500;
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 /** One Resend call that resolves with the response of a successful request. */
@@ -16,6 +23,8 @@ export interface BackfillInput {
 	topicId: string;
 	segmentId: string;
 	apply: boolean;
+	/** Called with the counts so far, every `PROGRESS_EVERY` contacts. */
+	onProgress?: (result: BackfillResult) => void;
 }
 
 export interface BackfillResult {
@@ -99,6 +108,17 @@ export function withRetry(
 	};
 }
 
+/** Waits before every call, retries included, so a scan never runs flat out. */
+export function paced(
+	send: ResendRequest,
+	sleep: (ms: number) => Promise<void>,
+): ResendRequest {
+	return async (method, path) => {
+		await sleep(PACE_MS);
+		return await send(method, path);
+	};
+}
+
 async function* list<T extends Listed>(
 	request: ResendRequest,
 	path: string,
@@ -132,7 +152,8 @@ async function* list<T extends Listed>(
 export async function backfillSegment(
 	input: BackfillInput,
 ): Promise<BackfillResult> {
-	const { request, isSuppressed, topicId, segmentId, apply } = input;
+	const { request, isSuppressed, topicId, segmentId, apply, onProgress } =
+		input;
 	const members = new Set<string>();
 	for await (const member of list<Listed>(
 		request,
@@ -151,6 +172,9 @@ export async function backfillSegment(
 		added: 0,
 	};
 	for await (const contact of list<ListedContact>(request, "/contacts")) {
+		if (result.scanned > 0 && result.scanned % PROGRESS_EVERY === 0) {
+			onProgress?.({ ...result });
+		}
 		result.scanned++;
 		if (members.has(contact.id)) {
 			result.alreadyInSegment++;

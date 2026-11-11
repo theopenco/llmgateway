@@ -3,7 +3,11 @@ import { expect, test, vi } from "vitest";
 import {
 	assertSafeToApply,
 	backfillSegment,
+	PACE_MS,
+	paced,
+	PROGRESS_EVERY,
 	withRetry,
+	type BackfillResult,
 	type ResendRequest,
 } from "./newsletter-segment-backfill-lib.js";
 
@@ -11,7 +15,11 @@ import {
 // of segment members, it adds people who unsubscribed (in Resend or in the
 // app) or never opted in, it re-adds current members, a dry run writes, a
 // write run reads unsubscribes from the wrong database, or a rate limit, a 5xx
-// or a dropped connection ends the run halfway.
+// or a dropped connection ends the run halfway. It can also run flat out and
+// take the rate limit from production mail, pace only its first call or skip
+// the pause on a retry, and a long scan can stay silent until it ends, report
+// on every contact, or miss a report because the contact at that count was
+// skipped.
 
 const TOPIC = "topic-newsletter";
 const SEGMENT = "segment-newsletter";
@@ -232,4 +240,53 @@ test("any other failure stops the run with the status and body", async () => {
 	await expect(request("POST", "/contacts/a/segments/b")).rejects.toThrow(
 		"Resend error on POST /contacts/a/segments/b: 404 - segment not found",
 	);
+});
+
+test("every call waits its turn first, a retry included", async () => {
+	const responses = [
+		new Response("slow down", { status: 429, headers: { "retry-after": "3" } }),
+		json({ ok: true }),
+		json({ ok: true }),
+	];
+	const sleep = vi.fn(async () => {});
+	const request = withRetry(
+		paced(async () => responses.shift()!, sleep),
+		sleep,
+	);
+
+	await request("GET", "/contacts");
+	await request("GET", "/contacts");
+
+	expect(sleep.mock.calls).toEqual([[PACE_MS], [3000], [PACE_MS], [PACE_MS]]);
+});
+
+test("a long scan reports its counts at every interval, skipped contacts included", async () => {
+	const contacts: FakeContact[] = Array.from(
+		{ length: PROGRESS_EVERY * 2 + 1 },
+		(_, index) => ({
+			id: `contact-${index}`,
+			email: `person-${index}@example.com`,
+			// The contacts sitting at each interval are ones the scan skips.
+			unsubscribed: index % PROGRESS_EVERY === 0,
+			subscription: "opt_in",
+			inSegment: index % PROGRESS_EVERY === PROGRESS_EVERY - 1,
+		}),
+	);
+	const reports: BackfillResult[] = [];
+
+	const result = await backfillSegment({
+		request: fakeResend(contacts),
+		isSuppressed: async () => false,
+		topicId: TOPIC,
+		segmentId: SEGMENT,
+		apply: false,
+		onProgress: (counts) => reports.push(counts),
+	});
+
+	// Read after the run: each report keeps the counts of its own moment.
+	expect(reports.map(({ scanned, toAdd }) => ({ scanned, toAdd }))).toEqual([
+		{ scanned: PROGRESS_EVERY, toAdd: PROGRESS_EVERY - 2 },
+		{ scanned: PROGRESS_EVERY * 2, toAdd: (PROGRESS_EVERY - 2) * 2 },
+	]);
+	expect(result.scanned).toBe(PROGRESS_EVERY * 2 + 1);
 });
