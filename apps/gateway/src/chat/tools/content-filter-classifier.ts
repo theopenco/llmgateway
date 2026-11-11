@@ -160,45 +160,29 @@ async function runClassifierChecks(
 		return { ...result, classifier };
 	}
 
-	const textStartTime = performance.now();
+	// The image delegation runs alongside the text check, not after it, so a
+	// request with images waits for the slower of the two rather than both.
+	const [text, image] = await Promise.all([
+		runTextCheck(classifier, messages, context, requestSignal, options),
+		options.imagesAllowed &&
+		buildOpenAIContentFilterImageInputs(messages).length > 0
+			? runImageCheck(messages, context, requestSignal)
+			: null,
+	]);
 	const {
 		requestCount,
+		durationMs: classifierDurationMs,
 		...textResult
-	}: OpenAIContentFilterCheckResult & {
-		partialModerationFailed?: boolean;
-		requestCount?: number;
-	} =
-		classifier === "internal"
-			? await checkInternalContentFilter(
-					messages,
-					context,
-					requestSignal,
-					options.internalScope,
-				)
-			: await checkJevContentFilter(messages, context, requestSignal);
+	} = text;
 	const timings = {
-		classifierDurationMs: Math.round(performance.now() - textStartTime),
+		classifierDurationMs,
 		...(requestCount !== undefined ? { classifierRequests: requestCount } : {}),
 	};
 
-	// Text-only requests are the common case: skip the OpenAI credential lookup
-	// and the no-op moderation call entirely when there is no image to cover.
-	if (
-		!options.imagesAllowed ||
-		buildOpenAIContentFilterImageInputs(messages).length === 0 ||
-		!(await hasOpenAIContentFilterCredential())
-	) {
+	if (!image) {
 		return { ...textResult, ...timings, classifier };
 	}
-
-	const imageStartTime = performance.now();
-	const imageResult = await checkOpenAIContentFilter(
-		messages,
-		context,
-		requestSignal,
-		{ kinds: ["image"] },
-	);
-	const imageDurationMs = Math.round(performance.now() - imageStartTime);
+	const { durationMs: imageDurationMs, ...imageResult } = image;
 
 	// Both filters fail open by returning no results, and the delegation only
 	// runs when the request actually carries images — so an empty result on
@@ -304,4 +288,48 @@ export async function evaluateContentFilterWithClassifiers(options: {
 		),
 		results: [result],
 	};
+}
+async function runTextCheck(
+	classifier: Exclude<ContentFilterClassifier, "openai">,
+	messages: BaseMessage[],
+	context: GatewayContentFilterContext,
+	requestSignal: AbortSignal | undefined,
+	options: ContentFilterRunOptions,
+): Promise<
+	OpenAIContentFilterCheckResult & {
+		partialModerationFailed?: boolean;
+		requestCount?: number;
+		durationMs: number;
+	}
+> {
+	const startTime = performance.now();
+	const result =
+		classifier === "internal"
+			? await checkInternalContentFilter(
+					messages,
+					context,
+					requestSignal,
+					options.internalScope,
+				)
+			: await checkJevContentFilter(messages, context, requestSignal);
+	return { ...result, durationMs: Math.round(performance.now() - startTime) };
+}
+
+/** OpenAI moderation of the image parts; null without an OpenAI credential. */
+async function runImageCheck(
+	messages: BaseMessage[],
+	context: GatewayContentFilterContext,
+	requestSignal: AbortSignal | undefined,
+): Promise<(OpenAIContentFilterCheckResult & { durationMs: number }) | null> {
+	if (!(await hasOpenAIContentFilterCredential())) {
+		return null;
+	}
+	const startTime = performance.now();
+	const result = await checkOpenAIContentFilter(
+		messages,
+		context,
+		requestSignal,
+		{ kinds: ["image"] },
+	);
+	return { ...result, durationMs: Math.round(performance.now() - startTime) };
 }

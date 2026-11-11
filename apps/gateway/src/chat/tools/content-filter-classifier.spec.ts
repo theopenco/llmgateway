@@ -128,7 +128,7 @@ describe("runContentFilterClassifier", () => {
 		expect(checked.model).toBe("jev-1.13.0");
 	});
 
-	it("times the text check and the image delegation together", async () => {
+	it("runs the text check and the image delegation in parallel", async () => {
 		checkJev.mockImplementation(async () => {
 			await sleep(40);
 			return result(false, { violence: 0.1 }, "jev-1.13.0");
@@ -146,7 +146,10 @@ describe("runContentFilterClassifier", () => {
 			{ imagesAllowed: true },
 		);
 
-		expect(checked.durationMs).toBeGreaterThanOrEqual(75);
+		expect(checked.durationMs).toBeGreaterThanOrEqual(35);
+		expect(checked.durationMs).toBeLessThan(75);
+		expect(checked.classifierDurationMs).toBeGreaterThanOrEqual(35);
+		expect(checked.imageDurationMs).toBeGreaterThanOrEqual(35);
 	});
 
 	it("times the text check and the image delegation separately", async () => {
