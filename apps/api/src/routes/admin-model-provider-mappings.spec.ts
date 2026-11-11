@@ -31,9 +31,11 @@ interface CatalogTotals {
 	totalCost: number;
 	inputTokens: number;
 	cachedTokens: number;
+	cacheWriteTokens: number;
 	outputTokens: number;
 	inputCost: number;
 	cachedInputCost: number;
+	cacheWriteInputCost: number;
 	outputCost: number;
 }
 
@@ -122,10 +124,12 @@ describe("admin model-provider mapping totals", () => {
 			logsCount: 10,
 			totalInputTokens: 60,
 			totalCachedTokens: 10,
+			totalCacheWriteTokens: 4,
 			totalOutputTokens: 30,
 			totalTokens: 100,
 			totalInputCost: 0.8,
 			totalCachedInputCost: 0.2,
+			totalCacheWriteInputCost: 0.1,
 			totalOutputCost: 0.7,
 			totalCost: 2,
 		};
@@ -133,10 +137,12 @@ describe("admin model-provider mapping totals", () => {
 			logsCount: 20,
 			totalInputTokens: 120,
 			totalCachedTokens: 20,
+			totalCacheWriteTokens: 8,
 			totalOutputTokens: 60,
 			totalTokens: 200,
 			totalInputCost: 2,
 			totalCachedInputCost: 0.5,
+			totalCacheWriteInputCost: 0.3,
 			totalOutputCost: 1.5,
 			totalCost: 5,
 			upstreamErrorsCount: 5,
@@ -221,12 +227,19 @@ describe("admin model-provider mapping totals", () => {
 			totalCost: 7,
 			inputTokens: 180,
 			cachedTokens: 30,
+			cacheWriteTokens: 12,
 			outputTokens: 90,
 		});
+		expect(mappings.cacheWriteInputCost).toBeCloseTo(0.4, 6);
 		expect(mappings.totalCost).toBeCloseTo(models.totalCost, 6);
 		expect(mappings.totalCost).toBeCloseTo(providers.totalCost, 6);
 		expect(mappings.inputCost).toBeCloseTo(models.inputCost, 6);
 		expect(mappings.cachedInputCost).toBeCloseTo(models.cachedInputCost, 6);
+		expect(mappings.cacheWriteInputCost).toBeCloseTo(
+			models.cacheWriteInputCost,
+			6,
+		);
+		expect(providers.cacheWriteInputCost).toBeCloseTo(0.4, 6);
 		expect(mappings.outputCost).toBeCloseTo(models.outputCost, 6);
 	});
 

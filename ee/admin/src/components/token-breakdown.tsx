@@ -24,19 +24,22 @@ import {
 export const TOKEN_COLORS = {
 	input: "hsl(221 83% 53%)",
 	cached: "hsl(142 71% 45%)",
+	cacheWrite: "hsl(330 81% 60%)",
 	output: "hsl(32 95% 44%)",
 };
 
 export interface TokenBreakdownData {
 	inputTokens: number;
 	cachedTokens: number;
+	cacheWriteTokens: number;
 	outputTokens: number;
 	inputCost: number;
 	cachedInputCost: number;
+	cacheWriteInputCost: number;
 	outputCost: number;
 }
 
-type TokenKind = "input" | "cached" | "output";
+type TokenKind = "input" | "cached" | "cacheWrite" | "output";
 
 const SEGMENTS: {
 	kind: TokenKind;
@@ -61,6 +64,14 @@ const SEGMENTS: {
 		tokensKey: "cachedTokens",
 		costKey: "cachedInputCost",
 		color: TOKEN_COLORS.cached,
+	},
+	{
+		kind: "cacheWrite",
+		label: "Cache write",
+		shortLabel: "Write",
+		tokensKey: "cacheWriteTokens",
+		costKey: "cacheWriteInputCost",
+		color: TOKEN_COLORS.cacheWrite,
 	},
 	{
 		kind: "output",
@@ -158,7 +169,7 @@ function ProviderCacheRate({ breakdown }: { breakdown: TokenBreakdownData }) {
 }
 
 /**
- * Inline `In 15.1M · Cached 3.0M · Out 2.2M` breakdown where hovering any
+ * Inline `In 15.1M · Cached 3.0M · Write 0.4M · Out 2.2M` breakdown where hovering any
  * segment reveals the cost that segment accounts for.
  */
 export function TokenBreakdown({
@@ -218,7 +229,7 @@ export function TokenBreakdown({
 }
 
 /**
- * Stacked variant for table cells, where the three segments need to line up
+ * Stacked variant for table cells, where the segments need to line up
  * across rows rather than flow inline.
  */
 export function TokenBreakdownCell({
@@ -281,7 +292,7 @@ export function TokenBreakdownCards({
 		breakdown.inputTokens + breakdown.cachedTokens + breakdown.outputTokens;
 
 	return (
-		<section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+		<section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
 			<div className="rounded-xl border border-border/60 p-4 shadow-sm">
 				<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					Total Tokens
