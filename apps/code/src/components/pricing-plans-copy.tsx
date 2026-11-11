@@ -108,7 +108,8 @@ const en: PricingCopy = {
 		"Usage is metered at each provider's published per-token rate. Every request shows its dollar value in your dashboard in real time.",
 };
 
-const times = (ratio: string) => ratio.replace("×", "배");
+/** "2×" as Korean reads it: "2배". */
+export const toKoreanRatio = (ratio: string) => ratio.replace("×", "배");
 
 const ko: PricingCopy = {
 	plans: {
@@ -117,7 +118,7 @@ const ko: PricingCopy = {
 			support: "이메일",
 			features: [
 				"Claude, GPT, Gemini를 비롯한 모든 모델",
-				"DevPass Code, Claude Code, OpenCode, Empryo, SoulForge와 모든 OpenAI 호환 도구",
+				"DevPass Code, Claude Code, OpenCode, Empryo, SoulForge 등 OpenAI 호환 코딩 도구",
 				"요청마다 비용을 보여 주는 실시간 대시보드",
 			],
 		},
@@ -143,9 +144,9 @@ const ko: PricingCopy = {
 	popular: "가장 인기",
 	perMonth: "/월",
 	perDay: (amount) => `하루 약 $${amount} · 언제든 변경·해지`,
-	usageBadge: (ratio) => `사용량 ${times(ratio)}`,
+	usageBadge: (ratio) => `사용량 ${toKoreanRatio(ratio)}`,
 	usageNote: (ratio) =>
-		`결제 금액의 ${times(ratio)}만큼 모델을 쓰고, 사용량은 제공사 공시 요금으로 측정합니다.`,
+		`결제 금액의 ${toKoreanRatio(ratio)}만큼 모델을 쓰고, 사용량은 제공사 공식 요금으로 계산합니다.`,
 	catalog: ["모델 카탈로그", "100개 이상"],
 	dailyPacing: ["일일 사용 한도", (percent) => `하루에 크레딧의 ${percent}%`],
 	frontier: ["프런티어 공정 사용", (percent) => `주당 크레딧의 ${percent}%`],
@@ -156,14 +157,15 @@ const ko: PricingCopy = {
 	currencyNote:
 		"모든 요금은 미국 달러(USD)로 청구됩니다. 원화 청구 금액은 카드사 환율과 해외 결제 수수료에 따라 달라집니다.",
 	pacingNote: (inputPrice, outputPrice) =>
-		`일일 사용 한도는 월 한도를 결제 주기 전체에 고르게 나눕니다. 연속된 24시간 동안 카드에 적힌 비율만큼의 월 크레딧을 모든 모델에 쓸 수 있습니다. 프런티어 공정 사용은 프리미엄 모델에 추가로 적용되는 주간 한도입니다. 공개 할인을 적용한 뒤 입력 100만 토큰당 $${inputPrice} 이상이거나 출력 100만 토큰당 $${outputPrice} 이상인 모델이 프리미엄 모델입니다. 그 밖의 모델은 월 한도 전체를 쓰고, 갱신할 때 남은 한도는 카드에 적힌 금액까지 다음 주기로 이월됩니다. 숨은 속도 제한은 없습니다. 한도에 닿더라도 대시보드에서 종량제 초과 사용을 켜면 크레딧 잔액에서 제공사 요금으로 계속 코딩할 수 있습니다.`,
-	guaranteeTitle: "첫 달 보장",
+		`일일 사용 한도는 월 한도가 한꺼번에 소진되지 않도록 결제 주기에 걸쳐 나눠 줍니다. 연속된 24시간 동안 요금제 카드에 표시된 비율만큼의 월 크레딧을 모든 모델에 쓸 수 있습니다. 프런티어 공정 사용은 프리미엄 모델에 추가로 적용되는 주간 한도입니다. 공개 할인을 적용한 뒤 입력 100만 토큰당 $${inputPrice} 이상이거나 출력 100만 토큰당 $${outputPrice} 이상인 모델이 프리미엄 모델입니다. 그 밖의 모델은 월 한도 전체를 쓰고, 갱신할 때 남은 한도는 요금제 카드에 표시된 금액까지 다음 주기로 이월됩니다. 숨은 속도 제한은 없습니다. 한도에 닿더라도 대시보드에서 종량제 초과 사용을 켜면 크레딧 잔액에서 제공사 요금으로 계속 코딩할 수 있습니다.`,
+	guaranteeTitle: "첫 달 환불 보장",
 	guarantee: (billing, days, percent) => (
 		<>
-			DevPass를 제대로 써 보세요. 맞지 않으면 대시보드의 {billing("결제 메뉴")}
-			에서 직접 환불할 수 있습니다. 한도의 {percent}% 미만을 썼다면 구매 후{" "}
-			{days}일 안에 첫 달 요금을 전액 돌려받습니다. 클릭 한 번이면 되고,
-			이메일도 해지 수수료도 없습니다.
+			DevPass를 제대로 써 보세요. 맞지 않으면 대시보드의{" "}
+			{billing("Billing(결제) 메뉴")}에서 직접 환불할 수 있습니다. 한도의{" "}
+			{percent}% 미만을 썼다면 구매 후 {days}일 안에 첫 달 요금을 전액
+			돌려받습니다. 클릭 한 번이면 되고, 이메일을 보낼 필요도, 해지 수수료도
+			없습니다.
 		</>
 	),
 	paygoLabel: "구독 없이 종량제로",
@@ -180,7 +182,7 @@ const ko: PricingCopy = {
 	invoice:
 		"인보이스에 회사명이나 주소가 필요하면 구매 전에 결제 설정에서 입력하세요. 결제가 끝나면 인보이스를 이메일로 자동 발송합니다.",
 	metering:
-		"사용량은 각 제공사가 공시한 토큰 단가로 측정합니다. 모든 요청의 달러 금액을 대시보드에서 실시간으로 볼 수 있습니다.",
+		"사용량은 각 제공사가 공개한 토큰 단가로 계산합니다. 모든 요청의 달러 금액을 대시보드에서 실시간으로 볼 수 있습니다.",
 };
 
 export const pricingCopy: Record<PricingLocale, PricingCopy> = { en, ko };

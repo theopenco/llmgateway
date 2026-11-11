@@ -17,6 +17,7 @@ Last updated: 2026-11-10
 ## Key pages
 
 - [DevPass](https://devpass.llmgateway.io): Plans, supported coding agents, and setup.
+- [DevPass in Korean](https://devpass.llmgateway.io/ko): The DevPass landing page in Korean, with the same plans.
 - [Pricing](https://devpass.llmgateway.io/pricing): Lite, Pro, and Max plans with included usage, premium fair-use limits, and Reset Passes.
 - [Pricing (machine-readable)](https://devpass.llmgateway.io/pricing.md): Plain-markdown DevPass pricing for AI agents.
 - [Compare](https://devpass.llmgateway.io/compare): DevPass vs Cursor, OpenCode, FirePass, the z.ai GLM Coding Plan, and Alibaba's Qwen plan.

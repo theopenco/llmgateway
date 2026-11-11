@@ -5,12 +5,15 @@ import { Footer } from "@/components/Footer";
 import { GetDevPassButton } from "@/components/GetDevPassButton";
 import { Header } from "@/components/Header";
 import { CodeCTATracker, KoreanPageTracker } from "@/components/LandingTracker";
+import { toKoreanRatio } from "@/components/pricing-plans-copy";
 import { PricingPlans } from "@/components/PricingPlans";
 import { Button } from "@/components/ui/button";
 import { FlickeringGrid } from "@/components/ui/flickering-grid";
 import { Marquee } from "@/components/ui/marquee";
 import { marqueeTools } from "@/lib/agent-tools";
+import { getConfig } from "@/lib/config-server";
 import { buildDevPassProductSchema } from "@/lib/product-schema";
+import { formatUsageRatio } from "@/lib/utils";
 
 import {
 	DEV_PLAN_PRICES,
@@ -43,8 +46,25 @@ export const metadata: Metadata = {
 		siteName: "DevPass by LLM Gateway",
 		images: ["/opengraph.png?v=2"],
 	},
-	twitter: { card: "summary_large_image", title, description },
+	twitter: {
+		card: "summary_large_image",
+		title,
+		description,
+		creator: "@llmgateway",
+	},
 };
+
+const UNITS: Record<string, number> = { K: 1e3, M: 1e6, B: 1e9, T: 1e12 };
+
+/** A marketing figure such as "1T+" in Korean units: "1조". */
+function koreanCount(stat: string): string {
+	const match = /^([\d.]+)([KMBT])?\+?$/.exec(stat);
+	if (!match) {
+		return stat;
+	}
+	const value = Number(match[1]) * (match[2] ? UNITS[match[2]] : 1);
+	return new Intl.NumberFormat("ko", { notation: "compact" }).format(value);
+}
 
 const cta = { signedOut: "DevPass 시작하기", signedIn: "대시보드로 이동" };
 const ctaClassName =
@@ -80,18 +100,20 @@ const directItems = [
 const devpassItems = [
 	{
 		label: "모든 모델",
-		value: `모델 100개 이상, 제공사 ${MARKETING_STATS.providers}`,
+		value: `모델 100개 이상, 제공사 ${koreanCount(MARKETING_STATS.providers)}곳 이상`,
 	},
 	{ label: "정액 요금", value: `월 $${DEV_PLAN_PRICES.lite}부터` },
-	{ label: "사용량 측정", value: "제공사 공시 요금 그대로" },
+	{ label: "사용량 측정", value: "제공사 공식 요금 그대로" },
 	{ label: "약정", value: "없음, 언제든 해지" },
 ] as const;
 
-const faqItems: { question: string; answer: string; content?: ReactNode }[] = [
+const paygoApi = "LLM Gateway의 종량제 API";
+
+const faqItems: { question: string; answer: string }[] = [
 	{
 		question: "DevPass는 어떤 코딩 에이전트에서 쓸 수 있나요?",
 		answer:
-			"OpenAI 또는 Anthropic API를 쓰는 도구라면 모두 됩니다. DevPass Code, Claude Code, OpenCode, GitHub Copilot, Empryo, SoulForge, Cursor, Cline, Continue, Aider, OpenAI와 Anthropic SDK에서 쓸 수 있습니다. 환경 변수 두 개만 설정하면 됩니다.",
+			"OpenAI 또는 Anthropic API를 지원하는 코딩 에이전트에서 쓸 수 있습니다. DevPass Code, Claude Code, OpenCode, GitHub Copilot, Empryo, SoulForge, Cursor, Cline, Continue, Aider 등이 있습니다. 환경 변수 두 개만 설정하면 됩니다.",
 	},
 	{
 		question: "어떤 모델이 포함되나요?",
@@ -101,7 +123,7 @@ const faqItems: { question: string; answer: string; content?: ReactNode }[] = [
 	{
 		question: "원화로 결제할 수 있나요?",
 		answer:
-			"요금은 미국 달러(USD)로 청구되며, 해외 결제가 되는 신용카드나 체크카드로 결제합니다. 원화 청구 금액은 카드사 환율과 해외 결제 수수료에 따라 달라집니다.",
+			"아니요, 원화 결제는 지원하지 않습니다. 요금은 미국 달러(USD)로 청구되며, 해외 결제가 되는 신용카드나 체크카드로 결제할 수 있습니다. 원화 청구 금액은 카드사 환율과 해외 결제 수수료에 따라 달라집니다.",
 	},
 	{
 		question: "쓰지 않은 한도는 다음 달로 넘어가나요?",
@@ -110,27 +132,15 @@ const faqItems: { question: string; answer: string; content?: ReactNode }[] = [
 	{
 		question: "사용량은 어떻게 측정되나요?",
 		answer:
-			"각 제공사가 공시한 토큰 단가(입력, 출력, 캐시 토큰)로 측정합니다. 모든 요청의 달러 금액을 대시보드에서 실시간으로 확인할 수 있습니다.",
+			"각 제공사가 공개한 토큰 단가(입력, 출력, 캐시 토큰)로 계산합니다. 모든 요청의 달러 금액을 대시보드에서 실시간으로 확인할 수 있습니다.",
 	},
 	{
 		question: "요청을 처리할 제공사를 직접 고를 수 있나요?",
-		answer:
-			"아니요. DevPass는 항상 스마트 라우팅을 씁니다. 모델 ID만 지정하면 게이트웨이가 가동률, 속도, 가격, 프롬프트 캐싱을 기준으로 가장 알맞은 제공사를 실시간으로 고릅니다. 제공사나 리전을 고정해야 한다면 LLM Gateway의 종량제 API를 이용하세요.",
-		content: (
-			<>
-				아니요. DevPass는 항상 스마트 라우팅을 씁니다. 모델 ID만 지정하면
-				게이트웨이가 가동률, 속도, 가격, 프롬프트 캐싱을 기준으로 가장 알맞은
-				제공사를 실시간으로 고릅니다. 제공사나 리전을 고정해야 한다면{" "}
-				<a href="https://llmgateway.io" className="underline">
-					LLM Gateway의 종량제 API
-				</a>
-				를 이용하세요.
-			</>
-		),
+		answer: `아니요. DevPass는 항상 스마트 라우팅을 씁니다. 모델 ID만 지정하면 게이트웨이가 가동률, 속도, 가격, 프롬프트 캐싱을 기준으로 가장 알맞은 제공사를 실시간으로 고릅니다. 제공사나 리전을 고정해야 한다면 ${paygoApi}를 이용하세요.`,
 	},
 	{
-		question: "첫 달 보장은 무엇인가요?",
-		answer: `DevPass가 맞지 않고 월 한도의 ${SELF_REFUND_USAGE_PERCENT}% 미만을 썼다면, 구매 후 ${SELF_REFUND_WINDOW_DAYS}일 안에 대시보드의 결제 메뉴에서 직접 환불할 수 있습니다. 첫 달 요금을 전액 돌려받고, 환불하면 요금제는 바로 종료되며 해지 수수료는 없습니다.`,
+		question: "첫 달 환불 보장은 무엇인가요?",
+		answer: `DevPass가 맞지 않고 월 한도의 ${SELF_REFUND_USAGE_PERCENT}% 미만을 썼다면, 구매 후 ${SELF_REFUND_WINDOW_DAYS}일 안에 대시보드의 Billing(결제) 메뉴에서 직접 환불할 수 있습니다. 첫 달 요금을 전액 돌려받고, 환불하면 요금제는 바로 종료되며 해지 수수료는 없습니다.`,
 	},
 	{
 		question: "인보이스를 받을 수 있나요?",
@@ -138,6 +148,23 @@ const faqItems: { question: string; answer: string; content?: ReactNode }[] = [
 			"결제가 끝나면 인보이스를 이메일로 자동 발송합니다. 인보이스에 회사명이나 주소가 필요하면 구매 전에 결제 설정에서 입력하세요.",
 	},
 ];
+
+/** The answer, with its mention of the pay-as-you-go API turned into a link. */
+function FaqAnswer({ answer }: { answer: string }) {
+	const [before, after] = answer.split(paygoApi);
+	if (after === undefined) {
+		return answer;
+	}
+	return (
+		<>
+			{before}
+			<a href="https://llmgateway.io" className="underline">
+				{paygoApi}
+			</a>
+			{after}
+		</>
+	);
+}
 
 function SectionLabel({ children }: { children: ReactNode }) {
 	return (
@@ -148,19 +175,21 @@ function SectionLabel({ children }: { children: ReactNode }) {
 }
 
 export default function KoreanLandingPage() {
+	const config = getConfig();
 	const credits = {
 		lite: getDevPlanCreditsLimit("lite"),
 		pro: getDevPlanCreditsLimit("pro"),
 		max: getDevPlanCreditsLimit("max"),
 	};
-	const usageRatio = credits.lite / DEV_PLAN_PRICES.lite;
-	const refundNote = `첫 달 보장: 한도의 ${SELF_REFUND_USAGE_PERCENT}% 미만을 썼다면 첫 결제 후 ${SELF_REFUND_WINDOW_DAYS}일 안에 결제 대시보드에서 직접 환불할 수 있습니다.`;
+	const usageRatio = toKoreanRatio(
+		formatUsageRatio(credits.lite, DEV_PLAN_PRICES.lite),
+	);
+	const refundNote = `첫 달 환불 보장: 한도의 ${SELF_REFUND_USAGE_PERCENT}% 미만을 썼다면 첫 결제 후 ${SELF_REFUND_WINDOW_DAYS}일 안에 대시보드의 Billing(결제) 메뉴에서 직접 환불할 수 있습니다.`;
 
 	const schemaJson = JSON.stringify([
 		{
 			...buildDevPassProductSchema("https://devpass.llmgateway.io/ko#pricing"),
 			description,
-			inLanguage: "ko",
 		},
 		{
 			"@context": "https://schema.org",
@@ -175,7 +204,7 @@ export default function KoreanLandingPage() {
 	]).replace(/</g, "\\u003c");
 
 	return (
-		<div lang="ko" className="min-h-screen break-keep bg-background">
+		<div className="min-h-screen break-keep bg-background">
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
@@ -184,7 +213,7 @@ export default function KoreanLandingPage() {
 			<KoreanPageTracker />
 			<Header />
 
-			<main>
+			<main lang="ko">
 				<section className="relative overflow-hidden">
 					<div
 						aria-hidden
@@ -209,7 +238,7 @@ export default function KoreanLandingPage() {
 							</h1>
 							<p className="mx-auto mb-8 max-w-xl text-lg leading-relaxed text-muted-foreground">
 								Claude, GPT, Gemini를 비롯한 모든 모델을 지금 쓰는 코딩
-								에이전트에서 그대로 쓰세요. 결제한 금액의 {usageRatio}배만큼
+								에이전트에서 그대로 쓰세요. 결제한 금액의 {usageRatio}만큼
 								모델을 쓸 수 있습니다.
 							</p>
 							<div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
@@ -259,16 +288,16 @@ export default function KoreanLandingPage() {
 									{tool.name}
 								</span>
 							))}
-							<span className="flex items-center gap-2.5 font-mono text-sm text-muted-foreground">
+							<span className="flex items-center gap-2.5 text-sm text-muted-foreground">
 								<span className="h-1 w-1 rounded-full bg-emerald-500/70" />
-								OpenAI 호환 도구 전부
+								OpenAI 호환 코딩 도구
 							</span>
 						</Marquee>
 					</div>
 					<p className="container mx-auto mt-10 px-4 text-center text-xs text-muted-foreground">
-						오픈소스 LLM Gateway 위에서 동작합니다 · 누적 라우팅{" "}
-						{MARKETING_STATS.tokensRouted} 토큰 · GitHub 스타{" "}
-						{MARKETING_STATS.githubStars}
+						오픈소스 LLM Gateway 위에서 동작합니다 · 누적 라우팅 토큰{" "}
+						{koreanCount(MARKETING_STATS.tokensRouted)} 개 이상 · GitHub 스타{" "}
+						{koreanCount(MARKETING_STATS.githubStars)} 개 이상
 					</p>
 				</section>
 
@@ -304,11 +333,11 @@ export default function KoreanLandingPage() {
 						<div className="mx-auto mb-12 max-w-2xl text-center">
 							<SectionLabel>비용 비교</SectionLabel>
 							<h2 className="font-display mb-3 text-3xl font-bold tracking-tight sm:text-4xl">
-								구독을 여러 개 쌓지 마세요
+								구독은 하나면 충분합니다
 							</h2>
 							<p className="text-muted-foreground">
 								모델을 둘 이상 쓰려면 보통 여러 곳에 따로 결제해야 합니다.
-								DevPass는 그 구독들을 사용량 기반 요금제 하나로 바꿉니다.
+								DevPass는 그 구독들을 정액 요금제 하나로 바꿉니다.
 							</p>
 						</div>
 						<div className="grid gap-5 md:grid-cols-2">
@@ -354,14 +383,14 @@ export default function KoreanLandingPage() {
 									))}
 								</dl>
 								<p className="mt-5 text-sm leading-relaxed text-muted-foreground">
-									결제한 금액의 {usageRatio}배에 해당하는 모델 사용량을 각
-									제공사의 공시 토큰 단가로 측정합니다.
+									결제한 금액의 {usageRatio}만큼 모델을 쓸 수 있고, 사용량은 각
+									제공사의 공식 토큰 단가로 계산합니다.
 								</p>
 							</div>
 						</div>
 						<p className="mt-4 text-center text-xs text-muted-foreground">
-							다른 회사의 가격은 일반적으로 공개된 요금이며 회사와 등급에 따라
-							다릅니다.
+							타사 가격은 공개된 일반 요금 기준이며 회사와 요금제에 따라 다를 수
+							있습니다.
 						</p>
 					</div>
 				</section>
@@ -382,7 +411,11 @@ export default function KoreanLandingPage() {
 								한도뿐입니다.
 							</p>
 						</div>
-						<PricingPlans credits={credits} locale="ko" />
+						<PricingPlans
+							credits={credits}
+							paygoUrl={config.uiUrl}
+							locale="ko"
+						/>
 					</div>
 				</section>
 
@@ -407,7 +440,7 @@ export default function KoreanLandingPage() {
 										</span>
 									</summary>
 									<p className="mt-3 text-sm leading-relaxed text-muted-foreground sm:text-base">
-										{item.content ?? item.answer}
+										<FaqAnswer answer={item.answer} />
 									</p>
 								</details>
 							))}

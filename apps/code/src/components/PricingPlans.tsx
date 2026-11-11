@@ -48,6 +48,10 @@ export function PricingPlans({
 	const copy = pricingCopy[locale];
 	// The monospace face has no Hangul, so Korean figures use the body face.
 	const mono = locale === "en" ? "font-mono " : "";
+	const eyebrow =
+		locale === "en"
+			? "font-mono text-[10px] font-semibold uppercase tracking-[0.18em]"
+			: "text-xs font-semibold";
 
 	return (
 		<div>
@@ -250,7 +254,7 @@ export function PricingPlans({
 			{paygoUrl && (
 				<div className="mx-auto mt-4 flex max-w-2xl flex-col items-center gap-4 rounded-2xl border border-dashed bg-muted/20 p-6 text-center sm:flex-row sm:justify-between sm:text-left">
 					<div>
-						<p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+						<p className={`${eyebrow} text-muted-foreground`}>
 							{copy.paygoLabel}
 						</p>
 						<p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">

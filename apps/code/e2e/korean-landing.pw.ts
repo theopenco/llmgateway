@@ -1,15 +1,51 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { DEV_PLAN_PRICES } from "@llmgateway/shared";
 
 const HANGUL = /[가-힣]/;
+
+/** How many pixels differ between two screenshots of the same element. */
+async function changedPixels(page: Page, first: Buffer, second: Buffer) {
+	return await page.evaluate(
+		async (frames) => {
+			const [one, two] = await Promise.all(
+				frames.map(async (frame) => {
+					const image = new Image();
+					image.src = `data:image/png;base64,${frame}`;
+					await image.decode();
+					const context = new OffscreenCanvas(
+						image.width,
+						image.height,
+					).getContext("2d");
+					if (!context) {
+						throw new Error("no 2d context");
+					}
+					context.drawImage(image, 0, 0);
+					return context.getImageData(0, 0, image.width, image.height).data;
+				}),
+			);
+			let changed = 0;
+			for (let i = 0; i < one.length; i += 4) {
+				const distance =
+					Math.abs(one[i] - two[i]) +
+					Math.abs(one[i + 1] - two[i + 1]) +
+					Math.abs(one[i + 2] - two[i + 2]);
+				if (distance > 30) {
+					changed++;
+				}
+			}
+			return changed;
+		},
+		[first.toString("base64"), second.toString("base64")],
+	);
+}
 
 test("the Korean page is in Korean and declares its language", async ({
 	page,
 }) => {
 	await page.goto("/ko");
 
-	await expect(page.locator("div[lang='ko']")).toHaveCount(1);
+	await expect(page.locator("main[lang='ko']")).toHaveCount(1);
 	await expect(page.getByRole("heading", { level: 1 })).toHaveText(HANGUL);
 	await expect(page).toHaveTitle(HANGUL);
 	await expect(page.locator("meta[name='description']")).toHaveAttribute(
@@ -50,7 +86,7 @@ test("each plan shows its price and starts signup on that plan", async ({
 
 	for (const tier of ["lite", "pro", "max"] as const) {
 		const card = page.getByTestId(`plan-${tier}`);
-		await expect(card).toContainText(`$${DEV_PLAN_PRICES[tier]}`);
+		await expect(card).toContainText(`$${DEV_PLAN_PRICES[tier]}/월`);
 		await expect(card.getByRole("link")).toHaveAttribute(
 			"href",
 			`/signup?plan=${tier}`,
@@ -91,14 +127,34 @@ test("the Korean page fits a phone without sideways scroll", async ({
 	expect(widest).toBeLessThanOrEqual(0);
 });
 
+// Keeping the beam inside the card must not hide it. A still card differs by a
+// handful of pixels between frames; a travelling beam by a few hundred.
+test("the popular plan keeps its moving border", async ({ page }) => {
+	await page.goto("/ko");
+	const card = page.getByTestId("plan-pro");
+	await card.scrollIntoViewIfNeeded();
+	await page.waitForTimeout(1500);
+
+	const first = await card.screenshot();
+	await page.waitForTimeout(2000);
+	const second = await card.screenshot();
+
+	expect(await changedPixels(page, first, second)).toBeGreaterThan(100);
+});
+
 test("the sitemap lists the Korean page with its language pair", async ({
 	request,
 }) => {
 	const response = await request.get("/sitemap.xml");
 	const xml = await response.text();
+	const entry = xml
+		.split("<url>")
+		.find((block) =>
+			block.includes("<loc>https://devpass.llmgateway.io/ko</loc>"),
+		);
 
-	expect(xml).toContain("<loc>https://devpass.llmgateway.io/ko</loc>");
-	expect(xml).toContain(
+	expect(entry).toContain(
 		'hreflang="ko" href="https://devpass.llmgateway.io/ko"',
 	);
+	expect(entry).toContain('hreflang="en" href="https://devpass.llmgateway.io"');
 });
