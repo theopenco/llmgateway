@@ -119,19 +119,24 @@ export function ContentFilterSettingsForm({
 			setValidationError("Sample rate must be between 0 and 100.");
 			return;
 		}
-		// The field is disabled while global blocking is on; keep its stored value.
-		const enforceRate = enforce
-			? settings.enforceSampleRatePercent
-			: Number(enforceSampleRate);
-		if (
-			(!enforce && enforceSampleRate.trim() === "") ||
-			!Number.isFinite(enforceRate) ||
-			enforceRate < 0 ||
-			enforceRate > 100
-		) {
+		const editedEnforceRate = Number(enforceSampleRate);
+		const enforceRateValid =
+			enforceSampleRate.trim() !== "" &&
+			Number.isFinite(editedEnforceRate) &&
+			editedEnforceRate >= 0 &&
+			editedEnforceRate <= 100;
+		// The field is disabled while global blocking is on, so an invalid edit
+		// keeps the stored value instead of failing validation.
+		if (!enforceRateValid && !enforce) {
 			mutation.reset();
 			setValidationError("Blocking sample rate must be between 0 and 100.");
 			return;
+		}
+		const enforceRate = enforceRateValid
+			? editedEnforceRate
+			: settings.enforceSampleRatePercent;
+		if (!enforceRateValid) {
+			setEnforceSampleRate(String(enforceRate));
 		}
 		const savedEnforceEnterprise = anyEnforced && enforceEnterprise;
 		mutation.mutate(
@@ -200,8 +205,9 @@ export function ContentFilterSettingsForm({
 				/>
 				<p className="text-xs text-muted-foreground">
 					Share of eligible requests sent to the moderation API. 100 moderates
-					every request on an enabled provider; 0 disables moderation except the
-					blocking share of blocking providers.
+					every request on an enabled provider; 0 disables moderation, except
+					the blocking share of blocking providers while blocking is off for
+					everyone.
 				</p>
 			</div>
 
