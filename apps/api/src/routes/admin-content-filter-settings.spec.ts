@@ -59,6 +59,7 @@ describe("admin content filter settings", () => {
 				sampleRatePercent: 25,
 				enforce: true,
 				enforceProviderIds: ["openai", "openai"],
+				enforceSampleRatePercent: 10,
 				enforceEnterprise: false,
 			}),
 		});
@@ -77,12 +78,14 @@ describe("admin content filter settings", () => {
 				.filter((p: { enforced: boolean }) => p.enforced)
 				.map((p: { id: string }) => p.id),
 		).toEqual(["openai"]);
+		expect(body.enforceSampleRatePercent).toBe(10);
 		expect(await getContentFilterSettings()).toEqual({
 			enabled: true,
 			providerIds: ["openai", "anthropic"],
 			sampleRatePercent: 25,
 			enforce: true,
 			enforceProviderIds: ["openai"],
+			enforceSampleRatePercent: 10,
 			enforceEnterprise: false,
 			classifier: "openai",
 			internalScope: "full",

@@ -42,6 +42,7 @@ export interface ContentFilterSettingsInput {
 	sampleRatePercent: number;
 	enforce: boolean;
 	enforceProviderIds: string[];
+	enforceSampleRatePercent: number;
 	enforceEnterprise: boolean;
 	classifier: "openai" | "jev" | "internal";
 	internalScope: "full" | "latest_turn";

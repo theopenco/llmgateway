@@ -172,6 +172,46 @@ describe("resolveTieredContentFilterPlan", () => {
 		).toMatchObject({ enforce: false, exemptReason: "global_log_only" });
 	});
 
+	test("splits a blocking provider between blocking and monitoring", async () => {
+		const split = {
+			...enabledSettings,
+			enforceProviderIds: ["openai"],
+			enforceSampleRatePercent: 10,
+		};
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", split, () => 0.05),
+		).toMatchObject({ enforce: true });
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", split, () => 0.5),
+		).toMatchObject({ enforce: false, exemptReason: "global_log_only" });
+		// Missing the blocking share falls back to the general rate.
+		expect(
+			await resolveTieredContentFilterPlan(
+				org(),
+				"openai",
+				{ ...split, sampleRatePercent: 90 },
+				() => 0.95,
+			),
+		).toBeNull();
+		// The blocking share is checked even when the general rate skips it.
+		expect(
+			await resolveTieredContentFilterPlan(
+				org(),
+				"openai",
+				{ ...split, sampleRatePercent: 0 },
+				() => 0.05,
+			),
+		).toMatchObject({ enforce: true });
+		expect(
+			await resolveTieredContentFilterPlan(
+				org(),
+				"openai",
+				{ ...split, enforceSampleRatePercent: 0 },
+				() => 0,
+			),
+		).toMatchObject({ enforce: false, exemptReason: "global_log_only" });
+	});
+
 	test("honours the content filter pin and the trust tier pin", async () => {
 		expect(
 			await resolveTieredContentFilterPlan(

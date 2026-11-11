@@ -52,6 +52,7 @@ interface ContentFilterSettingsFormProps {
 		enabled: boolean;
 		sampleRatePercent: number;
 		enforce: boolean;
+		enforceSampleRatePercent: number;
 		enforceEnterprise: boolean;
 		classifier: Classifier;
 		internalScope: InternalScope;
@@ -85,6 +86,9 @@ export function ContentFilterSettingsForm({
 	const [enforceProviderIds, setEnforceProviderIds] = useState<string[]>(() =>
 		settings.providers.filter((p) => p.enforced).map((p) => p.id),
 	);
+	const [enforceSampleRate, setEnforceSampleRate] = useState(
+		String(settings.enforceSampleRatePercent),
+	);
 	const anyEnforced = enforce || enforceProviderIds.length > 0;
 	const allSelected =
 		settings.providers.length > 0 &&
@@ -115,6 +119,12 @@ export function ContentFilterSettingsForm({
 			setValidationError("Sample rate must be between 0 and 100.");
 			return;
 		}
+		const enforceRate = Number(enforceSampleRate);
+		if (!Number.isFinite(enforceRate) || enforceRate < 0 || enforceRate > 100) {
+			mutation.reset();
+			setValidationError("Blocking sample rate must be between 0 and 100.");
+			return;
+		}
 		const savedEnforceEnterprise = anyEnforced && enforceEnterprise;
 		mutation.mutate(
 			{
@@ -123,6 +133,7 @@ export function ContentFilterSettingsForm({
 					sampleRatePercent: rate,
 					enforce,
 					enforceProviderIds,
+					enforceSampleRatePercent: enforceRate,
 					enforceEnterprise: savedEnforceEnterprise,
 					classifier,
 					internalScope,
@@ -370,10 +381,11 @@ export function ContentFilterSettingsForm({
 			<div className="space-y-2">
 				<p className="text-sm font-medium">Blocking providers</p>
 				<p className="text-xs text-muted-foreground">
-					Requests routed to these providers are always moderated and blocked on
-					a violation, even while blocking is off for everyone else. Their check
-					runs before the provider call. The sample rate and the enterprise and
-					log-only organization exemptions still apply.
+					Requests routed to these providers are always moderated. A share set
+					by the blocking sample rate is checked before the provider call and
+					blocked on a violation, even while blocking is off for everyone else;
+					the rest are monitored log-only at the sample rate above. The
+					enterprise and log-only organization exemptions still apply.
 				</p>
 				{readOnly ? (
 					<div className="flex flex-wrap gap-2">
@@ -396,6 +408,30 @@ export function ContentFilterSettingsForm({
 						placeholder="Search and select blocking providers..."
 					/>
 				)}
+			</div>
+
+			<div className="space-y-2">
+				<Label htmlFor="content-filter-enforce-sample-rate">
+					Blocking sample rate (%)
+				</Label>
+				<Input
+					id="content-filter-enforce-sample-rate"
+					type="number"
+					min={0}
+					max={100}
+					step={1}
+					className="w-32"
+					value={enforceSampleRate}
+					disabled={pending || readOnly || enforce}
+					onChange={(event) => {
+						setSaved(false);
+						setEnforceSampleRate(event.target.value);
+					}}
+				/>
+				<p className="text-xs text-muted-foreground">
+					Share of a blocking provider&apos;s requests checked in blocking mode.
+					Ignored while blocking is on for everyone.
+				</p>
 			</div>
 
 			<div className="flex items-center gap-3">
