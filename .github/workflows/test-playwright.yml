@@ -40,8 +40,20 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      # The runner image already ships Chromium's runtime libraries; apt only adds
+      # fonts, and no test compares screenshots. Retry apt, then continue without
+      # it so an Ubuntu mirror outage does not fail every shard.
       - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          pnpm exec playwright install chromium
+          for attempt in 1 2; do
+            if timeout -k 10 240 pnpm exec playwright install-deps chromium; then
+              exit 0
+            fi
+            echo "playwright install-deps failed (attempt $attempt)"
+            sleep $((attempt * 20))
+          done
+          echo "::warning::Ubuntu apt mirrors unreachable; using the runner image's preinstalled libraries."
 
       - name: Build apps for the local stack
         # Next.js rewrites embed these URLs at build time. Do not restore
