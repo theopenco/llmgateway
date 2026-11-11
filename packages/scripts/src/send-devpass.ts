@@ -34,14 +34,7 @@ import { readFileSync } from "fs";
 
 import { Resend } from "resend";
 
-import {
-	and,
-	db,
-	eq,
-	inArray,
-	isEmailSuppressed,
-	tables,
-} from "@llmgateway/db";
+import { isEmailSuppressed } from "@llmgateway/db";
 import {
 	buildUnsubscribeHeaders,
 	renderFooterText,
@@ -49,13 +42,13 @@ import {
 } from "@llmgateway/shared/email-unsubscribe";
 
 import {
-	DEVPASS_AUDIENCES,
-	PAID_PLAN_TRANSACTION_TYPES,
-	isDevPassAudience,
+	parseSendArgs,
 	selectDevPassAudience,
 	type DevPassAudience,
 	type DevPassMembership,
+	type SendArgs,
 } from "./devpass-audiences.js";
+import { loadDevPassMemberships } from "./devpass-memberships.js";
 
 const FROM = "Luca from LLMGateway <contact@mail.llmgateway.io>";
 const REPLY_TO = "luca.steeb@llmgateway.io";
@@ -64,64 +57,8 @@ const MAX_RETRIES = 5;
 
 type Recipient = DevPassMembership;
 
-function getArg(name: string): string | undefined {
-	const flag = `--${name}=`;
-	const arg = process.argv.find((a) => a.startsWith(flag));
-	return arg?.slice(flag.length);
-}
-
-function hasFlag(name: string): boolean {
-	return process.argv.includes(`--${name}`);
-}
-
 async function sleep(ms: number) {
 	return await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function loadDevPassMemberships(): Promise<DevPassMembership[]> {
-	const [rows, paid] = await Promise.all([
-		db
-			.select({
-				organizationId: tables.organization.id,
-				email: tables.user.email,
-				name: tables.user.name,
-				devPlan: tables.organization.devPlan,
-				cancelled: tables.organization.devPlanCancelled,
-				expiresAt: tables.organization.devPlanExpiresAt,
-				subscriptionId: tables.organization.devPlanStripeSubscriptionId,
-				paymentStatus: tables.organization.subscriptionPaymentStatus,
-			})
-			.from(tables.organization)
-			.innerJoin(
-				tables.userOrganization,
-				eq(tables.userOrganization.organizationId, tables.organization.id),
-			)
-			.innerJoin(
-				tables.user,
-				eq(tables.user.id, tables.userOrganization.userId),
-			)
-			.where(eq(tables.organization.kind, "devpass")),
-		db
-			.selectDistinct({ organizationId: tables.transaction.organizationId })
-			.from(tables.transaction)
-			.where(
-				and(
-					inArray(tables.transaction.type, [...PAID_PLAN_TRANSACTION_TYPES]),
-					eq(tables.transaction.status, "completed"),
-				),
-			),
-	]);
-	const paidOrganizations = new Set(paid.map((row) => row.organizationId));
-	return rows.map((row) => ({
-		email: row.email,
-		name: row.name,
-		devPlan: row.devPlan,
-		cancelled: row.cancelled,
-		expiresAt: row.expiresAt,
-		hasSubscription: row.subscriptionId !== null,
-		paymentStatus: row.paymentStatus,
-		everPaid: paidOrganizations.has(row.organizationId),
-	}));
 }
 
 function describe(recipient: Recipient, audience: DevPassAudience): string {
@@ -180,15 +117,14 @@ async function sendWithRetry(
 }
 
 async function main() {
-	const dryRun = hasFlag("dry-run");
-	const subject = getArg("subject");
-	const bodyPath = getArg("body");
-
-	const audience = getArg("audience") ?? "active";
-	if (!isDevPassAudience(audience)) {
-		console.error(`--audience must be one of: ${DEVPASS_AUDIENCES.join(", ")}`);
+	let args: SendArgs;
+	try {
+		args = parseSendArgs(process.argv.slice(2));
+	} catch (error) {
+		console.error(error instanceof Error ? error.message : error);
 		process.exit(1);
 	}
+	const { audience, subject, bodyPath, dryRun } = args;
 
 	const recipients = selectDevPassAudience(
 		await loadDevPassMemberships(),

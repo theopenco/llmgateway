@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import {
-	isDevPassAudience,
+	parseSendArgs,
 	selectDevPassAudience,
 	type DevPassMembership,
 } from "./devpass-audiences.js";
@@ -9,8 +9,9 @@ import {
 // Ways a campaign reaches the wrong people: a current subscriber is asked to
 // come back, someone who never paid is, a cancelled plan still inside its paid
 // period counts as gone, a healthy subscriber is told a payment failed, a
-// person with two organizations gets the mail twice or for the wrong one, or
-// addresses that differ only in case are treated as two people.
+// person with two organizations gets the mail twice or for the wrong one,
+// addresses that differ only in case are treated as two people, or a mistyped
+// flag quietly sends the default audience.
 
 const now = new Date("2026-11-10T12:00:00Z");
 const later = new Date("2026-11-20T00:00:00Z");
@@ -44,7 +45,8 @@ const rows = [
 	member("Left@Example.com", gone),
 	member("never-paid@example.com", { ...gone, everPaid: false }),
 	member("came-back@example.com", gone),
-	member("came-back@example.com"),
+	member("Came-Back@Example.com"),
+	member("active@example.com", { devPlan: "lite" }),
 	member("no-subscription@example.com", { hasSubscription: false }),
 	member("stale-flag@example.com", { ...gone, paymentStatus: "past_due" }),
 ];
@@ -56,7 +58,7 @@ function emails(audience: "active" | "past" | "past-due"): string[] {
 test("active is every plan that still runs, once per address", () => {
 	expect(emails("active")).toEqual([
 		"active@example.com",
-		"came-back@example.com",
+		"Came-Back@Example.com",
 		"cancelled-running@example.com",
 		"past-due@example.com",
 	]);
@@ -73,7 +75,37 @@ test("past is people who paid once and have no plan anywhere now", () => {
 	]);
 });
 
-test("only the three audiences are accepted", () => {
-	expect(["active", "past", "past-due"].every(isDevPassAudience)).toBe(true);
-	expect(isDevPassAudience("everyone")).toBe(false);
+test("flags are read strictly", () => {
+	expect(parseSendArgs([])).toEqual({
+		audience: "active",
+		subject: undefined,
+		bodyPath: undefined,
+		dryRun: false,
+	});
+	expect(
+		parseSendArgs([
+			"--",
+			"--audience=past-due",
+			"--subject=Your renewal = failed",
+			"--body=body.txt",
+			"--dry-run",
+		]),
+	).toEqual({
+		audience: "past-due",
+		subject: "Your renewal = failed",
+		bodyPath: "body.txt",
+		dryRun: true,
+	});
+});
+
+test.each([
+	[["--audience", "past"]],
+	[["--audience=everyone"]],
+	[["--audience="]],
+	[["--audiance=past"]],
+	[["--dry-run=yes"]],
+	[["--subject"]],
+	[["past"]],
+])("a flag the script does not know stops the run: %j", (argv) => {
+	expect(() => parseSendArgs(argv)).toThrow();
 });

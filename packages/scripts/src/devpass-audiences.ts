@@ -25,6 +25,51 @@ export function isDevPassAudience(value: string): value is DevPassAudience {
 	return (DEVPASS_AUDIENCES as readonly string[]).includes(value);
 }
 
+export interface SendArgs {
+	audience: DevPassAudience;
+	subject: string | undefined;
+	bodyPath: string | undefined;
+	dryRun: boolean;
+}
+
+/**
+ * Reads the script's flags and rejects anything it does not know. A mistyped
+ * flag must stop the run: falling back to the default audience would send a
+ * win-back to every current subscriber.
+ */
+export function parseSendArgs(argv: ReadonlyArray<string>): SendArgs {
+	const args: SendArgs = {
+		audience: "active",
+		subject: undefined,
+		bodyPath: undefined,
+		dryRun: false,
+	};
+	for (const arg of argv) {
+		if (arg === "--") {
+			continue;
+		}
+		const separator = arg.indexOf("=");
+		const name = separator === -1 ? arg : arg.slice(0, separator);
+		const value = separator === -1 ? undefined : arg.slice(separator + 1);
+		if (name === "--dry-run" && value === undefined) {
+			args.dryRun = true;
+		} else if (name === "--audience" && value && isDevPassAudience(value)) {
+			args.audience = value;
+		} else if (name === "--audience") {
+			throw new Error(
+				`--audience must be written as --audience=<name>, one of: ${DEVPASS_AUDIENCES.join(", ")}`,
+			);
+		} else if (name === "--subject" && value) {
+			args.subject = value;
+		} else if (name === "--body" && value) {
+			args.bodyPath = value;
+		} else {
+			throw new Error(`Unknown or incomplete argument: ${arg}`);
+		}
+	}
+	return args;
+}
+
 /** A plan that still runs, including a cancelled one inside its paid period. */
 function isActive(row: DevPassMembership, now: Date): boolean {
 	return (
