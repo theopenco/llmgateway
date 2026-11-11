@@ -1015,6 +1015,33 @@ export function parseProviderResponse(
 				svgAuthorUsage = parseSvgAuthorUsage(json.svg_usage);
 				break;
 			}
+			// fal text-to-image: { images: [{ url }], has_nsfw_concepts?: boolean[] }.
+			// The safety checker replaces flagged images with black frames, so drop them.
+			if (usedProvider === "fal-ai" && Array.isArray(json.images)) {
+				const nsfw: unknown[] = Array.isArray(json.has_nsfw_concepts)
+					? json.has_nsfw_concepts
+					: [];
+				images = json.images
+					.filter(
+						(item: { url?: unknown }, index: number) =>
+							typeof item?.url === "string" && nsfw[index] !== true,
+					)
+					.map((item: { url: string }): ImageObject => ({
+						type: "image_url",
+						image_url: { url: item.url },
+					}));
+				content = images.length > 0 ? imageLabel : null;
+				finishReason =
+					images.length > 0
+						? "stop"
+						: nsfw.includes(true)
+							? "content_filter"
+							: "upstream_error";
+				promptTokens = 0;
+				completionTokens = 0;
+				totalTokens = 0;
+				break;
+			}
 			// Check if this is an xAI Grok Imagine image generation response
 			// Format: { data: [{ url: "..." }] }
 			if (usedProvider === "xai" && json.data && Array.isArray(json.data)) {

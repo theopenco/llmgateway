@@ -13,6 +13,7 @@ const MODEL_FAMILY_LABELS: Record<string, string> = {
 	luma: "Luma",
 	"black-forest-labs": "Black Forest Labs",
 	bytedance: "ByteDance",
+	recraft: "Recraft",
 	canopylabs: "Canopy Labs",
 	deepseek: "DeepSeek",
 	elevenlabs: "ElevenLabs",

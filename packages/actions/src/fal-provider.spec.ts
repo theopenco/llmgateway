@@ -103,3 +103,35 @@ describe("fal provider", () => {
 		},
 	);
 });
+
+describe("fal image generation", () => {
+	const endpoint = (baseUrl: string | undefined, model: string) =>
+		getProviderEndpoint(
+			"fal-ai",
+			baseUrl,
+			model,
+			undefined,
+			false,
+			false,
+			false,
+			undefined,
+			undefined,
+			true,
+		);
+
+	it("calls the synchronous fal.run host instead of the queue", () => {
+		vi.stubEnv("LLM_FAL_AI_BASE_URL", undefined);
+		expect(endpoint(undefined, "flux-2-klein-4b")).toBe(
+			"https://fal.run/fal-ai/flux-2/klein/4b",
+		);
+		expect(endpoint(undefined, "recraft-v4.1-flash")).toBe(
+			"https://fal.run/recraft/v4.1/flash/text-to-image",
+		);
+	});
+
+	it("keeps an explicit base URL", () => {
+		expect(endpoint("https://proxy.example/", "flux-3-klein")).toBe(
+			"https://proxy.example/blackforestlabs/flux-3/klein/text-to-image",
+		);
+	});
+});

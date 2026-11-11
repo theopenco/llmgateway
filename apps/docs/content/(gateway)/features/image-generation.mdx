@@ -763,6 +763,38 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 Muse Image does not expose a quality setting. Use `image_size` to choose square,
 portrait, or landscape output.
 
+### fal Models
+
+fal serves fast text-to-image models. They do not accept input images.
+
+| Model                       | Description                                   |
+| --------------------------- | --------------------------------------------- |
+| `fal-ai/flux-2-klein-4b`    | FLUX.2 Klein 4B, Black Forest Labs' fastest.  |
+| `fal-ai/flux-3-klein`       | FLUX 3 Klein with built-in prompt expansion.  |
+| `fal-ai/z-image-turbo`      | Z-Image Turbo, photorealistic with text.      |
+| `fal-ai/recraft-v4.1-flash` | Recraft V4.1 Flash for photo and illustration |
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fal-ai/flux-2-klein-4b",
+    "messages": [{ "role": "user", "content": "A lighthouse at dusk" }],
+    "image_config": { "image_size": "1536x1024", "n": 2 }
+  }'
+```
+
+| Parameter       | Type    | Description                                                                                                                       |
+| --------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `image_size`    | string  | One of `"1024x1024"` (default), `"1536x1024"`, `"1024x1536"`, `"1344x768"`, `"768x1344"`, or `"2048x2048"`. Price varies by size. |
+| `n`             | integer | Number of images. Not supported by Recraft.                                                                                       |
+| `seed`          | integer | Random seed. Not supported by Recraft.                                                                                            |
+| `output_format` | string  | `png`, `jpeg`, or `webp`. Not supported by Recraft.                                                                               |
+
+Images flagged by fal's safety checker are removed; if none remain, the response
+returns `finish_reason: "content_filter"`.
+
 ### Alibaba Models
 
 ```bash
