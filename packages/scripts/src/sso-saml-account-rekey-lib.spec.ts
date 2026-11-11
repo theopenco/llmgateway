@@ -149,6 +149,16 @@ test("reports a conflict when another user also holds the NameID", () => {
 	expect(actions.map((a) => a.kind)).toEqual(["conflict"]);
 });
 
+test("does not rewrite onto an object-id-shaped NameID", () => {
+	const actions = planRekey({
+		accounts: [account("a1", "u1", OID_A), account("b1", "u2", OID_B)],
+		nameIdByObjectId: new Map([[OID_A, OID_B]]),
+		scimExternalIdByUser: new Map(),
+		legacyMappingActive: true,
+	});
+	expect(actions.map((a) => a.kind)).toEqual(["unmapped", "unmapped"]);
+});
+
 test("compares NameIDs exactly, like the sign-in lookup", () => {
 	const actions = planRekey({
 		accounts: [

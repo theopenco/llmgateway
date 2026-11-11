@@ -88,7 +88,12 @@ export function planRekey(input: RekeyInput): RekeyAction[] {
 			externalId && input.nameIdDomain
 				? `${externalId}@${input.nameIdDomain}`
 				: undefined;
-		const nameId = fromIdp ?? fromScim;
+		const candidate = fromIdp ?? fromScim;
+		// An object-id-shaped target can't be told apart from another legacy
+		// key, so it may collide with a row this plan leaves alone. Resolve such
+		// accounts by hand.
+		const nameId =
+			candidate && !isLegacyObjectId(candidate) ? candidate : undefined;
 
 		if (!nameId) {
 			const existing = input.accounts.find(
