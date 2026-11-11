@@ -30,7 +30,10 @@ import { CopyModelName } from "@/components/models/copy-model-name";
 import { DetailProviderCards } from "@/components/models/detail-provider-cards";
 import { GlobalDiscountBanner } from "@/components/models/global-discount-banner";
 import { ModelBenchmarks } from "@/components/models/model-benchmarks";
-import { ModelCtaButton } from "@/components/models/model-cta-button";
+import {
+	ModelCtaButton,
+	TryInLoungeLink,
+} from "@/components/models/model-cta-button";
 import { ModelFaqSection } from "@/components/models/model-faq";
 import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
@@ -363,6 +366,12 @@ export default async function ModelPage({ params }: PageProps) {
 							</Link>
 
 							<ModelUsageStats modelId={canonicalName} />
+
+							<TryInLoungeLink
+								modelId={decodedName}
+								output={modelDef.output}
+								className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1 text-xs md:text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+							/>
 						</div>
 
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">

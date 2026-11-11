@@ -30,7 +30,10 @@ import {
 	GlobalDiscountBanner,
 	type DiscountData,
 } from "@/components/models/global-discount-banner";
-import { ModelCtaButton } from "@/components/models/model-cta-button";
+import {
+	ModelCtaButton,
+	TryInLoungeLink,
+} from "@/components/models/model-cta-button";
 import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { buildProviderTabBranding } from "@/components/models/provider-tab-branding";
@@ -325,6 +328,12 @@ export default async function ModelProviderPage({ params }: PageProps) {
 								size="sm"
 								className="gap-2"
 								iconClassName="h-3 w-3"
+							/>
+
+							<TryInLoungeLink
+								modelId={decodedName}
+								output={modelDef.output}
+								className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1 text-xs md:text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
 							/>
 						</div>
 

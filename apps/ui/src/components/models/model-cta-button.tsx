@@ -6,6 +6,7 @@ import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { Button } from "@/lib/components/button";
 import { useAppConfig } from "@/lib/config";
 import { getLoungeStudioPath } from "@/lib/model-utils";
+import { usePostHog } from "@/lib/posthog";
 
 // Endpoint-only models have no Lounge studio, so logged-in users get their docs.
 const ENDPOINT_DOCS_PATHS: Record<string, string> = {
@@ -13,6 +14,53 @@ const ENDPOINT_DOCS_PATHS: Record<string, string> = {
 	decision: "/features/system-one",
 	search: "/features/search",
 };
+
+// Lounge has no studio for these; its model picker leaves them out.
+const NO_LOUNGE_OUTPUTS = ["embedding", "rerank", "decision", "search"];
+
+/**
+ * A second way in for a signed-out visitor: the model open in Lounge, before
+ * any API setup. Signed-in users already get that as the main button.
+ */
+export function TryInLoungeLink({
+	modelId,
+	output,
+	className,
+}: {
+	modelId: string;
+	output?: readonly string[] | null;
+	className?: string;
+}) {
+	const config = useAppConfig();
+	const posthog = usePostHog();
+	const { isAuthenticated } = useSessionStatus();
+
+	if (
+		isAuthenticated ||
+		output?.some((kind) => NO_LOUNGE_OUTPUTS.includes(kind))
+	) {
+		return null;
+	}
+
+	return (
+		<a
+			href={`${config.playgroundUrl}${getLoungeStudioPath(output)}?model=${encodeURIComponent(modelId)}`}
+			target="_blank"
+			rel="noopener noreferrer"
+			data-testid="try-in-lounge"
+			className={className}
+			onClick={() =>
+				posthog.capture("cta_clicked", {
+					location: "model_page_try_lounge",
+					cta: "try_in_lounge",
+				})
+			}
+		>
+			<Play className="h-3.5 w-3.5" />
+			Try in Lounge
+		</a>
+	);
+}
 
 export function ModelCtaButton({
 	modelId,
