@@ -1,6 +1,6 @@
 # Airside — What It Costs To List
 
-Last updated: 2026-10-15
+Last updated: 2026-11-11
 
 > Airside is the carrier console where an AI model provider lists its models on LLM Gateway. There is no subscription and no minimum volume: you set the prices developers pay, you choose the gateway margin you accept, and you share margin only on traffic you win.
 
@@ -24,7 +24,7 @@ Last updated: 2026-10-15
 - The margin is a control in your console, not a fixed rate: raising the margin you accept improves your routing score, lowering it keeps more revenue per request.
 - An optional traffic discount lowers your effective price in the routing election and, once approved, the price developers are billed for your models. It is shown on your model cards, and you keep the discounted billed traffic less the margin you accept.
 - Margin and discount changes are filed like tariffs: they are reviewed by the LLM Gateway team and only reach routing once approved.
-- The console reports traffic, not amounts owed. Settlement — schedule, currency, minimums — is governed by a separate written agreement.
+- Traffic figures are not amounts owed. Carriers on the Payout billing mode also get a monthly statement on the 1st: last month's billed traffic less the gateway margin, shown as a preview subject to manual adjustment until approved, then marked paid once wired. Settlement — schedule, currency, minimums — is governed by a separate written agreement.
 
 ## How traffic is allocated
 

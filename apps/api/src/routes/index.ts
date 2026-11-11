@@ -7,6 +7,7 @@ import { accountBlockMessage } from "@llmgateway/shared/account-block";
 
 import { activity } from "./activity.js";
 import { adminAirsideCertification } from "./admin-airside-certification.js";
+import { adminAirsidePayouts } from "./admin-airside-payouts.js";
 import { adminAirside } from "./admin-airside.js";
 import { adminBenchmarks } from "./admin-benchmarks.js";
 import { adminContentFilterErrors } from "./admin-content-filter-errors.js";
@@ -115,6 +116,7 @@ routes.route("/admin", adminLoad);
 routes.route("/admin", adminBenchmarks);
 routes.route("/admin", adminAirside);
 routes.route("/admin", adminAirsideCertification);
+routes.route("/admin", adminAirsidePayouts);
 routes.route("/admin", adminModelVerifications);
 routes.route("/admin", adminSdk);
 routes.route("/admin", adminCrm);

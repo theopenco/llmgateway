@@ -1,0 +1,627 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "cca7ec86-2a1d-43eb-a71b-3016ab0365bb",
+  "prevIds": [
+    "31fb6e18-7066-4a56-a4bf-b736a68a32dc"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "airside_payout_statement"
+      ],
+      "writes": [
+        "s|tbl|public.airside_payout_statement",
+        "n|tbl|public.airside_payout_statement",
+        "e|tbl|public.airside_payout_statement",
+        "n|rel|public.airside_payout_statement",
+        "n|type|public.airside_payout_statement",
+        "n|rel|public.airside_payout_statement_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "airside_payout_statement",
+        "airside_payout_statement_provider_period_uidx"
+      ],
+      "writes": [
+        "s|idx|public.airside_payout_statement_provider_period_uidx",
+        "n|idx|public.airside_payout_statement_provider_period_uidx",
+        "e|idx|public.airside_payout_statement_provider_period_uidx",
+        "n|rel|public.airside_payout_statement_provider_period_uidx"
+      ],
+      "reads": [
+        "n|tbl|public.airside_payout_statement",
+        "n|sch|public",
+        "n|col|public.airside_payout_statement.provider_id",
+        "n|col|public.airside_payout_statement.period_start"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "airside_payout_statement",
+        "airside_payout_statement_company_idx"
+      ],
+      "writes": [
+        "s|idx|public.airside_payout_statement_company_idx",
+        "n|idx|public.airside_payout_statement_company_idx",
+        "e|idx|public.airside_payout_statement_company_idx",
+        "n|rel|public.airside_payout_statement_company_idx"
+      ],
+      "reads": [
+        "n|tbl|public.airside_payout_statement",
+        "n|sch|public",
+        "n|col|public.airside_payout_statement.provider_company_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "airside_payout_statement",
+        "airside_payout_statement_status_idx"
+      ],
+      "writes": [
+        "s|idx|public.airside_payout_statement_status_idx",
+        "n|idx|public.airside_payout_statement_status_idx",
+        "e|idx|public.airside_payout_statement_status_idx",
+        "n|rel|public.airside_payout_statement_status_idx"
+      ],
+      "reads": [
+        "n|tbl|public.airside_payout_statement",
+        "n|sch|public",
+        "n|col|public.airside_payout_statement.status"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "airside_payout_statement"
+      ],
+      "writes": [
+        "s|fk|public.airside_payout_statement.airside_payout_statement_8fUDM7ImgCEQ_fkey",
+        "n|fk|public.airside_payout_statement.airside_payout_statement_8fUDM7ImgCEQ_fkey",
+        "e|fk|public.airside_payout_statement.airside_payout_statement_8fUDM7ImgCEQ_fkey",
+        "n|con|public.airside_payout_statement.airside_payout_statement_8fUDM7ImgCEQ_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.airside_payout_statement",
+        "n|sch|public",
+        "n|tbl|public.provider_company",
+        "n|sch|public",
+        "n|col|public.airside_payout_statement.provider_company_id",
+        "n|col|public.provider_company.id",
+        "e|uniqueness|public.provider_company.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "airside_payout_statement"
+      ],
+      "writes": [
+        "s|fk|public.airside_payout_statement.airside_payout_statement_approved_by_user_id_fkey",
+        "n|fk|public.airside_payout_statement.airside_payout_statement_approved_by_user_id_fkey",
+        "e|fk|public.airside_payout_statement.airside_payout_statement_approved_by_user_id_fkey",
+        "n|con|public.airside_payout_statement.airside_payout_statement_approved_by_user_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.airside_payout_statement",
+        "n|sch|public",
+        "n|tbl|public.user",
+        "n|sch|public",
+        "n|col|public.airside_payout_statement.approved_by",
+        "n|col|public.user.id",
+        "e|uniqueness|public.user.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "airside_payout_statement"
+      ],
+      "writes": [
+        "s|fk|public.airside_payout_statement.airside_payout_statement_paid_by_user_id_fkey",
+        "n|fk|public.airside_payout_statement.airside_payout_statement_paid_by_user_id_fkey",
+        "e|fk|public.airside_payout_statement.airside_payout_statement_paid_by_user_id_fkey",
+        "n|con|public.airside_payout_statement.airside_payout_statement_paid_by_user_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.airside_payout_statement",
+        "n|sch|public",
+        "n|tbl|public.user",
+        "n|sch|public",
+        "n|col|public.airside_payout_statement.paid_by",
+        "n|col|public.user.id",
+        "e|uniqueness|public.user.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "airside_payout_statement",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "created_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "updated_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "provider_company_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "provider_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "period_start",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "period_end",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "request_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "gross_amount",
+        "type": "numeric",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'0'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "gateway_fee_amount",
+        "type": "numeric",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'0'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "adjustment_amount",
+        "type": "numeric",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'0'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "adjustment_note",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "status",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'draft'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "computed_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "approved_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "approved_by",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "paid_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "paid_by",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "payment_reference",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "airside_payout_statement_provider_period_uidx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "provider_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "period_start",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "airside_payout_statement_company_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "provider_company_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "airside_payout_statement_status_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "status",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "airside_payout_statement_8fUDM7ImgCEQ_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "provider_company_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "provider_company",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "airside_payout_statement_approved_by_user_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "approved_by"
+        ],
+        "schemaTo": "public",
+        "tableTo": "user",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "airside_payout_statement_paid_by_user_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "paid_by"
+        ],
+        "schemaTo": "public",
+        "tableTo": "user",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "airside_payout_statement",
+        "name": "airside_payout_statement_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    }
+  ]
+}

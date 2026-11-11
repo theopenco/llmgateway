@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
 	Activity,
 	AlertTriangle,
+	Banknote,
 	BarChart3,
 	Building2,
 	Cpu,
@@ -170,6 +171,12 @@ const navItems: NavItem[] = [
 		href: "/airside-carriers",
 		label: "Airside Carriers",
 		icon: PlaneLanding,
+		match: "prefix",
+	},
+	{
+		href: "/airside-payouts",
+		label: "Airside Payouts",
+		icon: Banknote,
 		match: "prefix",
 	},
 	{

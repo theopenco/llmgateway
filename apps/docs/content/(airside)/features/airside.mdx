@@ -175,6 +175,17 @@ LLM Gateway settles the traffic it sends you under one of three billing modes. T
 2. **Payout** — you issue us an API key and invoice us on the 1st for the previous month. We pay out your earnings by USD wire, weekly or monthly.
 3. **Post-billing** — we open an account on your platform and you switch it to post-paid. You invoice us on the 1st for the previous month and we pay once a month.
 
+#### Payout statements
+
+On the **Payout** mode, the **Payouts** page shows one statement per carrier and calendar month (UTC). On the 1st we open the previous month's statement:
+
+- **Billed traffic** — requests we routed to you on our own credentials, billed at your filed prices. Bring-your-own-key traffic and cache hits are excluded: those requests never reach your account on our behalf.
+- **Gateway fee** — the landing fee you accepted, applied to each request at the rate in effect when it was served.
+- **Adjustments** — corrections made by the LLM Gateway team, each with a note.
+- **To pay out** — billed traffic minus the gateway fee, plus adjustments.
+
+A new statement is a **Preview**: it keeps updating as late traffic is aggregated and stays subject to manual adjustments. Once we approve it the amounts are final, and after we send the wire it shows **Paid** with the payment date and reference.
+
 ## Traffic
 
 The **Traffic** page shows usage of your claimed providers: requests, errors, input/output/total tokens, and billed traffic in USD, as a daily series and broken down per model.

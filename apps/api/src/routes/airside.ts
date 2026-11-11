@@ -53,6 +53,11 @@ import {
 	webSearchFormatValue,
 } from "@/lib/airside-metadata.js";
 import {
+	carrierNames,
+	payoutStatementSchema,
+	serializePayoutStatement,
+} from "@/lib/airside-payouts.js";
+import {
 	assertNoRequiredCleared,
 	effectiveClaimKind,
 	assertEditableProfile,
@@ -4450,6 +4455,49 @@ airside.openapi(statsRoute, async (c) => {
 			...row,
 			day: new Date(row.day).toISOString(),
 		})),
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Payouts (monthly statements of payout-mode carriers)
+// ---------------------------------------------------------------------------
+
+const listPayouts = createRoute({
+	method: "get",
+	path: "/payouts",
+	request: {
+		query: z.object({ providerCompanyId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ statements: z.array(payoutStatementSchema) }),
+				},
+			},
+			description:
+				"The company's monthly payout statements, newest first. Drafts are previews subject to manual adjustment.",
+		},
+	},
+});
+
+airside.openapi(listPayouts, async (c) => {
+	const user = requireUser(c.get("user"));
+	const { providerCompanyId } = c.req.valid("query");
+	await requireCompanyMembership(user.id, providerCompanyId);
+	const rows = await db
+		.select()
+		.from(tables.airsidePayoutStatement)
+		.where(
+			eq(tables.airsidePayoutStatement.providerCompanyId, providerCompanyId),
+		)
+		.orderBy(
+			desc(tables.airsidePayoutStatement.periodStart),
+			tables.airsidePayoutStatement.providerId,
+		);
+	const names = await carrierNames(rows);
+	return c.json({
+		statements: rows.map((row) => serializePayoutStatement(row, names)),
 	});
 });
 
