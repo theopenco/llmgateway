@@ -921,6 +921,9 @@ export async function finalizeDevPlanSetupSession(
 			error instanceof Stripe.errors.StripeInvalidRequestError &&
 			error.code === "resource_missing"
 		) {
+			logger.warn("Dev plan finalize: checkout session not found", {
+				sessionId,
+			});
 			return { status: "invalid_session", reason: "not_found" };
 		}
 		throw error;
