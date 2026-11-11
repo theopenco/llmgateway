@@ -43,7 +43,13 @@ export async function resolveAirsideModel(
 	modelInput: string,
 ): Promise<AirsideResolution | null> {
 	const resolution = await resolveExactAirsideModel(modelInput);
-	const lowercased = modelInput.toLowerCase();
+	// Lowercase only the model id; a `:region` suffix keeps its own validation.
+	const slash = modelInput.indexOf("/");
+	const colon = slash > 0 ? modelInput.indexOf(":", slash + 1) : -1;
+	const lowercased =
+		colon === -1
+			? modelInput.toLowerCase()
+			: modelInput.slice(0, colon).toLowerCase() + modelInput.slice(colon);
 	if (resolution || lowercased === modelInput) {
 		return resolution;
 	}
