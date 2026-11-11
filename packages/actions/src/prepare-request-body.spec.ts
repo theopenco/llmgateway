@@ -10592,6 +10592,107 @@ describe("prepareRequestBody - Baidu Kimi K3 empty text parts", () => {
 	});
 });
 
+describe("prepareRequestBody - fal image generation", () => {
+	async function prepareFalImageRequest(
+		model: string,
+		externalId: string,
+		imageConfig?: {
+			image_size?: string;
+			n?: number;
+			seed?: number;
+			output_format?: string;
+		},
+	) {
+		return (await prepareRequestBody(
+			"fal-ai",
+			model,
+			null,
+			externalId,
+			[
+				{ role: "user", content: "An earlier prompt" },
+				{ role: "assistant", content: "Image generated" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "A lighthouse at dusk" }],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			imageConfig,
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("sends the prompt with an explicit size, count, format and seed", async () => {
+		expect(
+			await prepareFalImageRequest(
+				"flux-2-klein-4b",
+				"fal-ai/flux-2/klein/4b",
+				{
+					image_size: "1536x1024",
+					n: 2,
+					seed: 7,
+					output_format: "webp",
+				},
+			),
+		).toEqual({
+			prompt: "A lighthouse at dusk",
+			image_size: { width: 1536, height: 1024 },
+			num_images: 2,
+			output_format: "webp",
+			seed: 7,
+		});
+	});
+
+	test("defaults to the 1024x1024 tier the catalogue bills without a size", async () => {
+		expect(
+			await prepareFalImageRequest("z-image-turbo", "fal-ai/z-image/turbo"),
+		).toEqual({
+			prompt: "A lighthouse at dusk",
+			image_size: { width: 1024, height: 1024 },
+		});
+	});
+
+	test("omits parameters Recraft does not accept", async () => {
+		expect(
+			await prepareFalImageRequest(
+				"recraft-v4.1-flash",
+				"recraft/v4.1/flash/text-to-image",
+				{ image_size: "1024x1536", n: 2, seed: 7, output_format: "png" },
+			),
+		).toEqual({
+			prompt: "A lighthouse at dusk",
+			image_size: { width: 1024, height: 1536 },
+		});
+	});
+
+	test("rejects sizes without a catalogue price", async () => {
+		await expect(
+			prepareFalImageRequest(
+				"flux-3-klein",
+				"blackforestlabs/flux-3/klein/text-to-image",
+				{
+					image_size: "4096x4096",
+				},
+			),
+		).rejects.toBeInstanceOf(RequestError);
+	});
+});
+
 describe("prepareRequestBody - bytedance prompt caching", () => {
 	async function prepare(provider: "bytedance" | "deepinfra", model: string) {
 		return (await prepareRequestBody(

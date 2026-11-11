@@ -36,6 +36,7 @@ import {
 	type WebSearchTool,
 } from "@llmgateway/models";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
+import { FAL_IMAGE_SIZES } from "@llmgateway/shared/image-generation-config";
 
 import {
 	anthropicThinkingBlocksFor,
@@ -2447,6 +2448,46 @@ export async function prepareRequestBody(
 			...(image_config?.image_size && { size: image_config.image_size }),
 			...(image_config?.seed !== undefined && { seed: image_config.seed }),
 		} as ProviderRequestBody;
+	}
+
+	// Handle fal text-to-image models (synchronous fal.run API)
+	if (imageGenerations && usedProvider === "fal-ai") {
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		const prompt =
+			typeof lastUserMessage?.content === "string"
+				? lastUserMessage.content
+				: (lastUserMessage?.content ?? [])
+						.filter(
+							(p): p is { type: "text"; text: string } => p.type === "text",
+						)
+						.map((p) => p.text)
+						.join("\n");
+		// Always send a size: fal's defaults differ per model, and billing keys
+		// on the requested size, so only priced presets are accepted.
+		const imageSize = image_config?.image_size ?? "1024x1024";
+		if (!(FAL_IMAGE_SIZES as readonly string[]).includes(imageSize)) {
+			throw new RequestError(
+				`Unsupported image_size "${imageSize}". Supported sizes: ${FAL_IMAGE_SIZES.join(", ")}`,
+			);
+		}
+		const [width, height] = imageSize.split("x").map(Number);
+		// Recraft accepts neither num_images nor output_format.
+		const isRecraft = usedInternalModel === "recraft-v4.1-flash";
+		const outputFormat = image_config?.output_format;
+		return {
+			prompt,
+			image_size: { width, height },
+			...(!isRecraft &&
+				image_config?.n !== undefined && { num_images: image_config.n }),
+			...(!isRecraft &&
+				(outputFormat === "png" ||
+					outputFormat === "jpeg" ||
+					outputFormat === "webp") && { output_format: outputFormat }),
+			...(!isRecraft &&
+				image_config?.seed !== undefined && { seed: image_config.seed }),
+		} as unknown as ProviderRequestBody;
 	}
 
 	// Check if the model supports system role. Look up by canonical model id.
