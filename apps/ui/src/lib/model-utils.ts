@@ -51,28 +51,43 @@ export function getLoungeStudioPath(
 }
 
 interface LoungeMapping {
+	providerId: string;
 	deactivatedAt?: Date | string | null;
+	streaming?: boolean | "only" | null;
 	realtime?: boolean | null;
 	realtimeTranscription?: boolean | null;
 }
 
 /**
- * Whether Lounge chat can run the model through `routes`, the mappings a page
- * offers: text out only, no realtime socket, and at least one live route.
+ * Whether a new Lounge account can chat with the model through `routes`, the
+ * mappings a page offers. Lounge chat streams text and routes the bare model
+ * id, so every live mapping has to stream.
  */
 export function isLoungeChatModel(
 	model: {
+		id: string;
 		output?: readonly string[] | null;
+		enterpriseOnly?: boolean;
 		providers: readonly LoungeMapping[];
 	},
 	routes: readonly LoungeMapping[],
 ): boolean {
-	if (model.output?.some((kind) => kind !== "text")) {
+	if (model.enterpriseOnly || model.output?.some((kind) => kind !== "text")) {
+		return false;
+	}
+	// Smart Route needs an organization config and Custom a base URL.
+	if (
+		model.id !== "auto" &&
+		model.providers.some((mapping) => mapping.providerId === "llmgateway")
+	) {
 		return false;
 	}
 	if (
 		model.providers.some(
-			(mapping) => mapping.realtime || mapping.realtimeTranscription,
+			(mapping) =>
+				mapping.realtime ||
+				mapping.realtimeTranscription ||
+				(mapping.streaming === false && !isMappingDeactivated(mapping)),
 		)
 	) {
 		return false;

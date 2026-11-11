@@ -8,7 +8,7 @@ import { useAppConfig } from "@/lib/config";
 import { getLoungeStudioPath } from "@/lib/model-utils";
 import { usePostHog } from "@/lib/posthog";
 
-// Endpoint-only models have no Lounge studio, so logged-in users get their docs.
+// Endpoint models: logged-in users get the docs instead of a Lounge link.
 const ENDPOINT_DOCS_PATHS: Record<string, string> = {
 	embedding: "/features/embeddings",
 	rerank: "/features/rerank",
@@ -52,7 +52,10 @@ export function TryInLoungeLink({
 			data-testid="try-in-lounge"
 			className={className}
 			onClick={() =>
-				posthog.capture("cta_clicked", { location, cta: "try_in_lounge" })
+				posthog.capture("cta_clicked", {
+					location,
+					cta: "try_in_lounge_signed_out",
+				})
 			}
 		>
 			<Play className="h-3.5 w-3.5" />

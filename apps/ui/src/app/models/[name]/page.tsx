@@ -351,7 +351,7 @@ export default async function ModelPage({ params }: PageProps) {
 							/>
 
 							<ModelCtaButton
-								modelId={decodedName}
+								modelId={canonicalName}
 								output={modelDef.output}
 								size="sm"
 								className="gap-2"
@@ -361,7 +361,7 @@ export default async function ModelPage({ params }: PageProps) {
 
 							{isLoungeChatModel(modelDef, activeProviders) && (
 								<TryInLoungeLink
-									modelId={decodedName}
+									modelId={canonicalName}
 									location="model_page"
 									className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1 text-xs md:text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
 								/>

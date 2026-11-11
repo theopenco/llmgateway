@@ -13,6 +13,8 @@ async function signIn(page: Page) {
 
 // gpt-4o-mini: live chat model. gpt-4: every mapping deactivated.
 // gemini-3-pro-image, bge-m3: not text-only. gpt-4o-transcribe: realtime socket.
+// smart: needs an organization config. deepseek-v4.1-flash-cyber: enterprise
+// only. o3: its live mapping does not stream.
 const CHAT_HREF = /^https?:\/\/[^/]+\?model=gpt-4o-mini$/;
 
 test("a signed-out visitor can open a chat model in Lounge", async ({
@@ -36,13 +38,33 @@ test("the provider page links to the same chat", async ({ page }) => {
 	);
 });
 
+test("an alias page links to the model it points at", async ({ page }) => {
+	await page.goto("/models/deepseek-v4.1-flash-latest");
+
+	const link = page.getByTestId("try-in-lounge");
+	await expect(link).toHaveAttribute("href", /\?model=deepseek-v4\.1-flash-/);
+	await expect(link).not.toHaveAttribute("href", /latest/);
+});
+
+test("Auto Route keeps its Lounge link", async ({ page }) => {
+	await page.goto("/models/auto");
+
+	await expect(page.getByTestId("try-in-lounge")).toHaveAttribute(
+		"href",
+		/\?model=auto$/,
+	);
+});
+
 for (const model of [
 	"gpt-4",
 	"gemini-3-pro-image",
 	"bge-m3",
 	"gpt-4o-transcribe",
+	"smart",
+	"deepseek-v4.1-flash-cyber",
+	"o3",
 ]) {
-	test(`${model} is not a live chat model and gets no Lounge link`, async ({
+	test(`${model} cannot run in Lounge chat and gets no link`, async ({
 		page,
 	}) => {
 		await page.goto(`/models/${model}`);
