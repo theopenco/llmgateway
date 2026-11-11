@@ -123,7 +123,12 @@ export function ContentFilterSettingsForm({
 		const enforceRate = enforce
 			? settings.enforceSampleRatePercent
 			: Number(enforceSampleRate);
-		if (!Number.isFinite(enforceRate) || enforceRate < 0 || enforceRate > 100) {
+		if (
+			(!enforce && enforceSampleRate.trim() === "") ||
+			!Number.isFinite(enforceRate) ||
+			enforceRate < 0 ||
+			enforceRate > 100
+		) {
 			mutation.reset();
 			setValidationError("Blocking sample rate must be between 0 and 100.");
 			return;
