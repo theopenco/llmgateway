@@ -1231,6 +1231,7 @@ export const deepseekModels = [
 				// TokenHub's /v1/models names this dated Vendor Direct id
 				// "DeepSeek-V4-Flash 0731" (created 2026-07-31).
 				externalId: "deepseek-v4-flash-202605",
+				deactivatedAt: new Date("2026-12-09T16:00:00Z"),
 				inputPrice: "0.15e-6",
 				cachedInputPrice: "0.003e-6",
 				outputPrice: "0.6e-6",

@@ -404,7 +404,16 @@ export interface VideoPricingContext {
 	durationSeconds: number;
 	includeAudio: boolean;
 	resolution:
-		"default" | "hd" | "1080p" | "4k" | "768p" | "720p" | "480p" | "360p";
+		| "default"
+		| "hd"
+		| "2k"
+		| "1080p"
+		| "4k"
+		| "768p"
+		| "720p"
+		| "540p"
+		| "480p"
+		| "360p";
 }
 
 function getPerSecondBillingKeys(
@@ -414,6 +423,18 @@ function getPerSecondBillingKeys(
 		return videoPricing.includeAudio
 			? ["4k_audio", "default_audio", "4k", "default"]
 			: ["4k_video", "default_video", "4k", "default"];
+	}
+
+	if (videoPricing.resolution === "2k") {
+		return videoPricing.includeAudio
+			? ["2k_audio", "default_audio", "2k", "default"]
+			: ["2k_video", "default_video", "2k", "default"];
+	}
+
+	if (videoPricing.resolution === "540p") {
+		return videoPricing.includeAudio
+			? ["540p_audio", "default_audio", "540p", "default"]
+			: ["540p_video", "default_video", "540p", "default"];
 	}
 
 	if (videoPricing.resolution === "hd") {

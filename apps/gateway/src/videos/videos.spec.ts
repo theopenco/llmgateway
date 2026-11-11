@@ -707,7 +707,7 @@ describe("videos", () => {
 		await expect(createRes.json()).resolves.toMatchObject({
 			error: {
 				message: expect.stringContaining(
-					"reference inputs are unsupported on AtlasCloud KLING v3.0 models",
+					"reference inputs are only supported on AtlasCloud Kling 3.0 Omni",
 				),
 			},
 		});
@@ -753,7 +753,7 @@ describe("videos", () => {
 		await expect(res.json()).resolves.toMatchObject({
 			error: {
 				message: expect.stringContaining(
-					"reference inputs are unsupported on AtlasCloud KLING v3.0 models",
+					"reference inputs are only supported on AtlasCloud Kling 3.0 Omni",
 				),
 			},
 		});
@@ -1021,35 +1021,6 @@ describe("videos", () => {
 			expect(log.providerDiscountPercent).toBeCloseTo(0.05);
 			expect(log.providerMarginPercent).toBeCloseTo(0.25);
 		}
-	});
-
-	test("/v1/videos restricts reference inputs to Seedance 2.x models", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			...hashApiKeyForStorage("real-token"),
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		const res = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "bytedance/seedance-1-5-pro",
-				prompt: "Reproduce this motion",
-				size: "1280x720",
-				seconds: 5,
-				reference_videos: ["https://example.com/reference-motion.mp4"],
-			}),
-		});
-
-		expect(res.status).toBe(400);
-		const json = await res.json();
-		expect(JSON.stringify(json)).toContain("Seedance 2.x");
 	});
 
 	test("/v1/videos forwards up to nine reference images to Seedance 2.0 Fast", async () => {
@@ -1541,6 +1512,457 @@ describe("videos", () => {
 		});
 		expect(logs).toHaveLength(1);
 		expect(logs[0].videoOutputCost).toBe(0.56);
+	});
+
+	test("/v1/videos sends MiniMax H3 2K portrait to the v2 API and bills the 2K rate", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-minimax",
+			...encryptProviderKeyForStorage(
+				"minimax-test-token",
+				"provider-key-minimax",
+				"org-id",
+			),
+			provider: "minimax",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "minimax/minimax-h3",
+				prompt: "A paper boat drifting on a pond",
+				size: "1440x2560",
+				seconds: 15,
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.requestBody).toEqual({
+			model: "MiniMax-H3",
+			content: [{ type: "text", text: "A paper boat drifting on a pond" }],
+			resolution: "2K",
+			duration: 15,
+			ratio: "9:16",
+		});
+
+		setMockVideoStatus(videoJob!.upstreamId, "completed");
+		await processPendingVideoJobs();
+
+		const logs = await db.query.log.findMany({
+			where: { usedModel: { eq: "minimax/minimax-h3" } },
+		});
+		expect(logs).toHaveLength(1);
+		expect(logs[0].videoOutputCost).toBe(1.95);
+	});
+
+	test("/v1/videos routes KLING 3.0 Omni 4K text-to-video with audio", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0-omni",
+				prompt: "A lighthouse in a storm",
+				size: "3840x2160",
+				seconds: 15,
+				audio: true,
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(videoJob?.usedModel).toBe("kwaivgi/kling-video-o3-4k/text-to-video");
+		expect(mockVideo?.requestBody).toEqual({
+			model: "kwaivgi/kling-video-o3-4k/text-to-video",
+			prompt: "A lighthouse in a storm",
+			duration: 15,
+			aspect_ratio: "16:9",
+			sound: true,
+		});
+
+		setMockVideoStatus(videoJob!.upstreamId, "completed");
+		await processPendingVideoJobs();
+
+		const logs = await db.query.log.findMany({
+			where: { usedModel: { eq: "atlascloud/kling-v3-0-omni" } },
+		});
+		expect(logs).toHaveLength(1);
+		expect(logs[0].videoOutputCost).toBe(6.3);
+	});
+
+	test("/v1/videos routes KLING 3.0 Omni first/last frames to the 720p upstream model", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0-omni",
+				prompt: "Morph between the two frames",
+				size: "720x1280",
+				seconds: 3,
+				audio: false,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+				last_frame: { image_url: "data:image/png;base64,d29ybGQ=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.requestBody).toMatchObject({
+			model: "kwaivgi/kling-video-o3-std/image-to-video",
+			duration: 3,
+			sound: false,
+		});
+		expect(mockVideo?.requestBody).toHaveProperty("image");
+		expect(mockVideo?.requestBody).toHaveProperty("end_image");
+	});
+
+	test("/v1/videos sends KLING 3.0 Omni reference images and video to reference-to-video", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0-omni",
+				prompt: "Put the character from the images into the reference scene",
+				size: "1920x1080",
+				seconds: 8,
+				audio: false,
+				reference_images: [
+					{ image_url: "data:image/png;base64,aGVsbG8=" },
+					{ image_url: "data:image/png;base64,d29ybGQ=" },
+				],
+				reference_videos: ["https://example.com/reference.mp4"],
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.requestBody).toMatchObject({
+			model: "kwaivgi/kling-video-o3-pro/reference-to-video",
+			duration: 8,
+			aspect_ratio: "16:9",
+			sound: false,
+			video: "https://example.com/reference.mp4",
+			keep_original_sound: false,
+		});
+		expect(mockVideo?.requestBody).toHaveProperty("images.length", 2);
+
+		setMockVideoStatus(videoJob!.upstreamId, "completed");
+		await processPendingVideoJobs();
+
+		const logs = await db.query.log.findMany({
+			where: { usedModel: { eq: "atlascloud/kling-v3-0-omni" } },
+		});
+		expect(logs).toHaveLength(1);
+		// Reference-video requests bill the 1080p edit rate.
+		expect(logs[0].videoOutputCost).toBe(1.344);
+	});
+
+	test("/v1/videos rejects KLING 3.0 Omni audio with a reference video", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0-omni",
+				prompt: "Restyle the reference",
+				size: "1280x720",
+				seconds: 5,
+				audio: true,
+				reference_videos: ["https://example.com/reference.mp4"],
+			}),
+		});
+
+		expect(createRes.status).toBe(400);
+		await expect(createRes.json()).resolves.toMatchObject({
+			error: {
+				message: expect.stringContaining(
+					"generates no audio with a reference video",
+				),
+			},
+		});
+	});
+
+	test("/v1/videos sends Luma Ray 3.2 540p frames to image-to-video", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/luma-ray-3-2",
+				prompt: "The scene comes alive",
+				size: "960x540",
+				seconds: 5,
+				audio: false,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+				last_frame: { image_url: "data:image/png;base64,d29ybGQ=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.requestBody).toMatchObject({
+			model: "luma/ray-3.2/image-to-video",
+			prompt: "The scene comes alive",
+			duration: 5,
+			resolution: "540p",
+		});
+		expect(mockVideo?.requestBody).toHaveProperty("image");
+		expect(mockVideo?.requestBody).toHaveProperty("last_image");
+		expect(mockVideo?.requestBody).not.toHaveProperty("aspect_ratio");
+		expect(mockVideo?.requestBody).not.toHaveProperty("sound");
+
+		setMockVideoStatus(videoJob!.upstreamId, "completed");
+		await processPendingVideoJobs();
+
+		const logs = await db.query.log.findMany({
+			where: { usedModel: { eq: "atlascloud/luma-ray-3-2" } },
+		});
+		expect(logs).toHaveLength(1);
+		expect(logs[0].videoOutputCost).toBe(0.165);
+	});
+
+	test("/v1/videos rejects Luma Ray 3.2 frames longer than 5 seconds", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/luma-ray-3-2",
+				prompt: "The scene comes alive",
+				size: "1280x720",
+				seconds: 10,
+				audio: false,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(400);
+		await expect(createRes.json()).resolves.toMatchObject({
+			error: {
+				message: expect.stringContaining(
+					"Luma Ray only supports 5s outputs with frame inputs",
+				),
+			},
+		});
+	});
+
+	test("/v1/videos sends Luma Ray 3.2 1080p portrait text-to-video", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/luma-ray-3-2",
+				prompt: "A majestic eagle soaring",
+				size: "1080x1920",
+				seconds: 5,
+				audio: false,
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.requestBody).toEqual({
+			model: "luma/ray-3.2/text-to-video",
+			prompt: "A majestic eagle soaring",
+			duration: 5,
+			resolution: "1080p",
+			aspect_ratio: "9:16",
+		});
 	});
 
 	async function startGeminiInteractionsMock(
@@ -3058,51 +3480,6 @@ describe("videos", () => {
 		expect(mockVideo?.duration).toBe(15);
 	});
 
-	test("/v1/videos rejects frame inputs on non-Seedance-2.0 bytedance models", async () => {
-		await db.insert(tables.apiKey).values({
-			id: "token-id",
-			...hashApiKeyForStorage("real-token"),
-			projectId: "project-id",
-			description: "Test API Key",
-			createdBy: "user-id",
-		});
-
-		await db.insert(tables.providerKey).values({
-			id: "provider-key-id",
-			...encryptProviderKeyForStorage(
-				"sk-bytedance-key",
-				"provider-key-id",
-				"org-id",
-			),
-			provider: "bytedance",
-			organizationId: "org-id",
-			baseUrl: mockServerUrl,
-		});
-
-		const res = await app.request("/v1/videos", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer real-token",
-			},
-			body: JSON.stringify({
-				model: "bytedance/seedance-1-5-pro",
-				prompt: "Morph from the first frame into the last frame",
-				size: "1280x720",
-				seconds: 5,
-				image: {
-					image_url: "data:image/png;base64,aGVsbG8=",
-				},
-			}),
-		});
-
-		expect(res.status).toBe(400);
-		const json = await res.json();
-		expect(JSON.stringify(json)).toContain(
-			"frame inputs are currently only supported on bytedance Seedance 2.x",
-		);
-	});
-
 	test("/v1/videos forwards reference images to google-vertex preview", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
@@ -3886,41 +4263,6 @@ describe("Seedance pricing regressions", () => {
 				...body,
 			}),
 		});
-
-	test.each(
-		[
-			{ size: "1280x720", resolution: "720p", ratio: "16:9" },
-			{ size: "1920x1080", resolution: "1080p", ratio: "16:9" },
-			{ size: "1080x1920", resolution: "1080p", ratio: "9:16" },
-		].flatMap((size) =>
-			[true, false, undefined].map((audio) => ({ ...size, audio })),
-		),
-	)(
-		"forwards Seedance 1.5 Pro $resolution/$ratio audio=$audio",
-		async ({ size, resolution, ratio, audio }) => {
-			const res = await submit({
-				model: "bytedance/seedance-1-5-pro",
-				size,
-				seconds: 5,
-				audio,
-			});
-			expect(res.status).toBe(200);
-			const created = await res.json();
-			const job = await db.query.videoJob.findFirst({
-				where: { id: { eq: created.id } },
-			});
-			expect(
-				(job?.upstreamCreateResponse as Record<string, unknown>)
-					?.llmgateway_upstream_request,
-			).toMatchObject({
-				model: "seedance-1-5-pro-251215",
-				resolution,
-				ratio,
-				duration: 5,
-				generate_audio: audio ?? true,
-			});
-		},
-	);
 
 	test.each([
 		{

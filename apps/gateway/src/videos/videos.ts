@@ -211,6 +211,20 @@ const SUPPORTED_VIDEO_SIZES = {
 		resolution: "480p",
 		orientation: "portrait",
 	},
+	"960x540": {
+		size: "960x540",
+		width: 960,
+		height: 540,
+		resolution: "540p",
+		orientation: "landscape",
+	},
+	"540x960": {
+		size: "540x960",
+		width: 540,
+		height: 960,
+		resolution: "540p",
+		orientation: "portrait",
+	},
 	"1280x720": {
 		size: "1280x720",
 		width: 1280,
@@ -258,6 +272,20 @@ const SUPPORTED_VIDEO_SIZES = {
 		width: 1080,
 		height: 1920,
 		resolution: "1080p",
+		orientation: "portrait",
+	},
+	"2560x1440": {
+		size: "2560x1440",
+		width: 2560,
+		height: 1440,
+		resolution: "2k",
+		orientation: "landscape",
+	},
+	"1440x2560": {
+		size: "1440x2560",
+		width: 1440,
+		height: 2560,
+		resolution: "2k",
 		orientation: "portrait",
 	},
 	"3840x2160": {
@@ -393,7 +421,7 @@ const videoSourceVideoInputSchema = z
 	])
 	.openapi({
 		description:
-			"LLMGateway extension. Source video (up to 10 seconds) to edit or extend, see video_task. Must be a publicly reachable HTTPS URL. Currently only supported on google-ai-studio/gemini-omni-1.1-flash.",
+			"LLMGateway extension. Source video (up to 10 seconds) to edit or extend, see video_task. Must be a publicly reachable HTTPS URL. Currently only supported on google-ai-studio Gemini Omni models.",
 		example: {
 			video_url: "https://example.com/source.mp4",
 		},
@@ -1249,6 +1277,18 @@ function isAtlasCloudCollapsedKlingModel(externalId: string): boolean {
 	);
 }
 
+function isAtlasCloudKlingOmniModel(externalId: string): boolean {
+	return externalId === "kwaivgi/kling-video-o3";
+}
+
+function isAtlasCloudLumaRayModel(externalId: string): boolean {
+	return externalId === "luma/ray-3.2";
+}
+
+// AtlasCloud Kling 3.0 Omni reference-to-video image limits.
+const KLING_OMNI_MAX_REFERENCE_IMAGES = 7;
+const KLING_OMNI_MAX_REFERENCE_IMAGES_WITH_VIDEO = 4;
+
 function isAlibabaWan3VideoModel(externalId: string): boolean {
 	return externalId === "wan3.0-video" || externalId === "wan3.0-video-prime";
 }
@@ -1390,12 +1430,26 @@ function getVideoProviderConstraintReasons(
 				);
 			}
 		} else if (isAtlasCloudVideoProvider(provider.providerId)) {
-			if (!isAtlasCloudCollapsedKlingModel(provider.externalId)) {
+			// Kling 3.0 Omni takes every catalogued duration with frames.
+			const isLumaRay = isAtlasCloudLumaRayModel(provider.externalId);
+			const framesFollowCatalog =
+				isAtlasCloudKlingOmniModel(provider.externalId) || isLumaRay;
+			if (isLumaRay && videoDurationSeconds !== 5) {
+				reasons.push("Luma Ray only supports 5s outputs with frame inputs");
+			}
+			if (
+				!framesFollowCatalog &&
+				!isAtlasCloudCollapsedKlingModel(provider.externalId)
+			) {
 				reasons.push(
-					"frame inputs are only supported on AtlasCloud KLING video models",
+					"frame inputs are only supported on AtlasCloud KLING and Luma Ray video models",
 				);
 			}
-			if (videoDurationSeconds !== 5 && videoDurationSeconds !== 10) {
+			if (
+				!framesFollowCatalog &&
+				videoDurationSeconds !== 5 &&
+				videoDurationSeconds !== 10
+			) {
 				reasons.push(
 					"duration is unsupported because AtlasCloud KLING v3.0 only supports 5s and 10s outputs",
 				);
@@ -1433,9 +1487,37 @@ function getVideoProviderConstraintReasons(
 		}
 
 		if (isAtlasCloudVideoProvider(provider.providerId)) {
-			reasons.push(
-				"reference inputs are unsupported on AtlasCloud KLING v3.0 models",
-			);
+			if (!isAtlasCloudKlingOmniModel(provider.externalId)) {
+				reasons.push(
+					"reference inputs are only supported on AtlasCloud Kling 3.0 Omni",
+				);
+				return reasons;
+			}
+			if (videoSize.resolution === "4k") {
+				reasons.push(
+					"reference inputs are unsupported at 4k on Kling 3.0 Omni",
+				);
+			}
+			if (referenceAudioCount > 0) {
+				reasons.push("reference audio is unsupported on Kling 3.0 Omni");
+			}
+			if (referenceVideoCount > 1) {
+				reasons.push("Kling 3.0 Omni supports at most 1 reference video");
+			}
+			if (referenceVideoCount > 0 && includeAudio) {
+				reasons.push(
+					"Kling 3.0 Omni generates no audio with a reference video; set audio to false",
+				);
+			}
+			const maxReferenceImages =
+				referenceVideoCount > 0
+					? KLING_OMNI_MAX_REFERENCE_IMAGES_WITH_VIDEO
+					: KLING_OMNI_MAX_REFERENCE_IMAGES;
+			if (inputImageCount > maxReferenceImages) {
+				reasons.push(
+					`Kling 3.0 Omni supports at most ${maxReferenceImages} reference images${referenceVideoCount > 0 ? " with a reference video" : ""}`,
+				);
+			}
 
 			return reasons;
 		}
@@ -1610,6 +1692,23 @@ function getAtlasCloudVideoModelName(
 	}
 
 	const taskName = getAtlasCloudTaskName(inputMode);
+	if (isAtlasCloudLumaRayModel(baseModelName)) {
+		return `${baseModelName}/${taskName}`;
+	}
+
+	if (isAtlasCloudKlingOmniModel(baseModelName)) {
+		// Omni splits into 720p (std), 1080p (pro), and 4k upstream models.
+		const tier =
+			videoSize.resolution === "4k"
+				? "4k"
+				: videoSize.resolution === "1080p"
+					? "pro"
+					: "std";
+		const omniTask =
+			inputMode === "reference" ? "reference-to-video" : taskName;
+		return `${baseModelName}-${tier}/${omniTask}`;
+	}
+
 	if (
 		baseModelName === "kwaivgi/kling-v3.0-turbo" ||
 		baseModelName === "kwaivgi/kling-v3.0-pro"
@@ -2195,7 +2294,10 @@ async function resolveVideoExecution(
 									? "360p"
 									: videoSize.resolution === "hd"
 										? "hd"
-										: "default",
+										: videoSize.resolution === "2k" ||
+											  videoSize.resolution === "540p"
+											? videoSize.resolution
+											: "default",
 	};
 	const eligibleMappings = getEligibleVideoProviderMappings(
 		modelInfo,
@@ -3853,6 +3955,31 @@ async function buildAtlasCloudKlingVideoRequest(
 					),
 				)
 			: [];
+	if (upstreamModelName.endsWith("/reference-to-video")) {
+		const [referenceVideoUrl] = referenceVideoUrls;
+		if (referenceVideoUrl) {
+			// AtlasCloud fetches the video itself; still refuse internal targets.
+			try {
+				await assertSafeUserContentUrl(referenceVideoUrl);
+			} catch (error) {
+				throw new HTTPException(400, {
+					message: `Invalid reference video URL: ${toError(error).message}`,
+				});
+			}
+		}
+		return {
+			model: upstreamModelName,
+			prompt,
+			duration: durationSeconds,
+			aspect_ratio: getAtlasCloudVideoAspectRatio(videoSize),
+			// Upstream ignores sound when a reference video is set.
+			sound: includeAudio && !referenceVideoUrl,
+			...(referenceImageUrls.length > 0 ? { images: referenceImageUrls } : {}),
+			...(referenceVideoUrl
+				? { video: referenceVideoUrl, keep_original_sound: false }
+				: {}),
+		};
+	}
 	return {
 		model: upstreamModelName,
 		prompt,
@@ -3869,6 +3996,39 @@ async function buildAtlasCloudKlingVideoRequest(
 		...(referenceVideoUrls.length > 0
 			? { reference_video_urls: referenceVideoUrls }
 			: {}),
+	};
+}
+
+async function buildAtlasCloudLumaVideoRequest(
+	providerContext: ProviderContext,
+	upstreamModelName: string,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	firstFrameInput: VideoImageInput | undefined,
+	lastFrameInput: VideoImageInput | undefined,
+): Promise<Record<string, unknown>> {
+	if (lastFrameInput && !firstFrameInput) {
+		throw new HTTPException(400, {
+			message: "Luma Ray requires image when last_frame is provided",
+		});
+	}
+	const imageUrl = firstFrameInput
+		? await getAtlasCloudImageUrl(providerContext, firstFrameInput)
+		: null;
+	const lastImageUrl = lastFrameInput
+		? await getAtlasCloudImageUrl(providerContext, lastFrameInput)
+		: null;
+	return {
+		model: upstreamModelName,
+		prompt,
+		duration: durationSeconds,
+		resolution: videoSize.resolution,
+		// Image-to-video follows the first frame's aspect ratio.
+		...(imageUrl
+			? { image: imageUrl }
+			: { aspect_ratio: getAtlasCloudVideoAspectRatio(videoSize) }),
+		...(lastImageUrl ? { last_image: lastImageUrl } : {}),
 	};
 }
 
@@ -3939,18 +4099,28 @@ async function createAtlasCloudVideoJob(
 				referenceImageInputs,
 				referenceAudioUrls,
 			)
-		: await buildAtlasCloudKlingVideoRequest(
-				providerContext,
-				upstreamModelName,
-				videoSize,
-				prompt,
-				durationSeconds,
-				includeAudio,
-				firstFrameInput,
-				lastFrameInput,
-				referenceImageInputs,
-				referenceVideoUrls,
-			);
+		: isAtlasCloudLumaRayModel(providerMapping.externalId)
+			? await buildAtlasCloudLumaVideoRequest(
+					providerContext,
+					upstreamModelName,
+					videoSize,
+					prompt,
+					durationSeconds,
+					firstFrameInput,
+					lastFrameInput,
+				)
+			: await buildAtlasCloudKlingVideoRequest(
+					providerContext,
+					upstreamModelName,
+					videoSize,
+					prompt,
+					durationSeconds,
+					includeAudio,
+					firstFrameInput,
+					lastFrameInput,
+					referenceImageInputs,
+					referenceVideoUrls,
+				);
 
 	const upstreamUrl = joinUrl(
 		providerContext.baseUrl,
@@ -4168,7 +4338,12 @@ async function createMinimaxV2VideoJob(
 	const upstreamRequest: Record<string, unknown> = {
 		model: upstreamModelName,
 		content,
-		resolution: videoSize.resolution === "480p" ? "480P" : "768P",
+		resolution:
+			videoSize.resolution === "480p"
+				? "480P"
+				: videoSize.resolution === "2k"
+					? "2K"
+					: "768P",
 		duration: durationSeconds,
 		ratio: hasFrames
 			? "adaptive"
@@ -5805,6 +5980,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					llmgateway_requested_resolution: videoSize.resolution,
 					llmgateway_requested_duration_seconds: videoDurationSeconds,
 					llmgateway_input_image_count: inputImageCount,
+					llmgateway_reference_video_count: referenceVideoInputs.length,
 					llmgateway_reserved_spend_usd: reservedSpendUsd,
 					// Carried onto the job's log row by the worker at finalization.
 					...(storedContentFilterEvaluation
