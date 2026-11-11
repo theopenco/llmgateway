@@ -2,6 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { KeyRound, Loader2, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -259,6 +260,15 @@ function BillingSection({ claim }: { claim: Claim }) {
 			<p className="text-muted-foreground text-sm">
 				{AIRSIDE_BILLING_MODE_DESCRIPTIONS[claim.billingMode]}
 			</p>
+			{claim.billingMode === "payout" ? (
+				<p className="text-muted-foreground text-sm">
+					Your monthly statements are under{" "}
+					<Link href="/dashboard/payouts" className="text-primary underline">
+						Payouts
+					</Link>
+					.
+				</p>
+			) : null}
 			<p className="text-muted-foreground text-sm">
 				Airside test requests consume usage on the same provider-key account. We
 				log and bill them to our gateway project for reconciliation; your agreed
