@@ -11,6 +11,10 @@ const COMPANY_ID = "payout-spec-company";
 const OTHER_COMPANY_ID = "payout-spec-other-company";
 const STATEMENT_ID = "payout-spec-statement";
 const CARRIER = "payout-spec-carrier";
+const FROM_ZERO = {
+	previousAdjustmentAmount: "0.00",
+	previousAdjustmentNote: null,
+};
 
 interface Statement {
 	id: string;
@@ -119,16 +123,28 @@ describe("Airside payout statements", () => {
 		const unexplained = await call(
 			`/admin/airside/payouts/${STATEMENT_ID}`,
 			"PATCH",
-			{ adjustmentAmount: "-5.5", adjustmentNote: null },
+			{ adjustmentAmount: "-5.5", adjustmentNote: null, ...FROM_ZERO },
 		);
 		expect(unexplained.status).toBe(400);
 
 		const adjusted = await call(
 			`/admin/airside/payouts/${STATEMENT_ID}`,
 			"PATCH",
-			{ adjustmentAmount: "-5.5", adjustmentNote: "Refunded outage" },
+			{
+				adjustmentAmount: "-5.5",
+				adjustmentNote: "Refunded outage",
+				...FROM_ZERO,
+			},
 		);
 		expect(adjusted.status).toBe(200);
+
+		// A second admin editing from the old, unadjusted state is refused.
+		const stale = await call(
+			`/admin/airside/payouts/${STATEMENT_ID}`,
+			"PATCH",
+			{ adjustmentAmount: "3", adjustmentNote: "Other fix", ...FROM_ZERO },
+		);
+		expect(stale.status).toBe(409);
 		expect((await adjusted.json()).statement).toMatchObject({
 			adjustmentAmount: "-5.50",
 			payoutAmount: "114.50",
@@ -159,6 +175,8 @@ describe("Airside payout statements", () => {
 				await call(`/admin/airside/payouts/${STATEMENT_ID}`, "PATCH", {
 					adjustmentAmount: "0",
 					adjustmentNote: null,
+					previousAdjustmentAmount: "-5.50",
+					previousAdjustmentNote: "Refunded outage",
 				})
 			).status,
 		).toBe(409);

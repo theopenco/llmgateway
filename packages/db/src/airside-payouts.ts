@@ -7,6 +7,25 @@ import { and, eq, sql, type AnyColumn } from "drizzle-orm";
 import { db } from "./db.js";
 import { globalModelStats, type providerClaim } from "./schema.js";
 
+function utcTimestamp(date: Date): string {
+	return date.toISOString().slice(0, 19).replace("T", " ");
+}
+
+/**
+ * Platform-paid traffic of one carrier in [start, end): BYOK requests pay the
+ * carrier directly and cache hits cost nothing, so only credits mode counts.
+ */
+function trafficFilter(providerId: string, start: Date, end: Date) {
+	const g = globalModelStats;
+	return and(
+		eq(g.usedProvider, providerId),
+		eq(g.usedMode, "credits"),
+		// dayTimestamp is `timestamp without time zone`: compare UTC strings.
+		sql`${g.dayTimestamp} >= ${utcTimestamp(start)}::timestamp`,
+		sql`${g.dayTimestamp} < ${utcTimestamp(end)}::timestamp`,
+	);
+}
+
 type Claim = Pick<
 	typeof providerClaim.$inferSelect,
 	"status" | "createdAt" | "reviewedAt" | "revokedAt"
@@ -33,14 +52,9 @@ export function isPayoutClaimLiveDuring(
 	);
 }
 
-function utcTimestamp(date: Date): string {
-	return date.toISOString().slice(0, 19).replace("T", " ");
-}
-
 /**
- * Platform-paid traffic of one carrier in [start, end), rounded to cents:
- * BYOK requests pay the carrier directly and cache hits cost nothing, so only
- * credits-mode cost counts. The fee is the margin snapshotted on each request.
+ * Totals of trafficFilter, rounded to cents. The fee is the margin
+ * snapshotted on each request.
  */
 export async function sumAirsideCarrierTraffic(
 	providerId: string,
@@ -48,22 +62,29 @@ export async function sumAirsideCarrierTraffic(
 	end: Date,
 ) {
 	const g = globalModelStats;
-	const [row] = await db
+	// Round per model first, so the total equals the sum of the CSV rows.
+	const perModel = db
 		.select({
-			requestCount: sql<string>`coalesce(sum(${g.requestCount}), 0)::text`,
-			gross: sql<string>`round(coalesce(sum(cast(cast(${g.cost} as double precision) as numeric)), 0), 2)::text`,
-			fee: sql<string>`round(coalesce(sum(cast(cast(${g.providerMarginAmount} as double precision) as numeric)), 0), 2)::text`,
+			requests: sql<string>`sum(${g.requestCount})`.as("requests"),
+			gross:
+				sql<string>`round(sum(cast(cast(${g.cost} as double precision) as numeric)), 2)`.as(
+					"gross",
+				),
+			fee: sql<string>`round(sum(cast(cast(${g.providerMarginAmount} as double precision) as numeric)), 2)`.as(
+				"fee",
+			),
 		})
 		.from(g)
-		.where(
-			and(
-				eq(g.usedProvider, providerId),
-				eq(g.usedMode, "credits"),
-				// dayTimestamp is `timestamp without time zone`: compare UTC strings.
-				sql`${g.dayTimestamp} >= ${utcTimestamp(start)}::timestamp`,
-				sql`${g.dayTimestamp} < ${utcTimestamp(end)}::timestamp`,
-			),
-		);
+		.where(trafficFilter(providerId, start, end))
+		.groupBy(g.usedModel)
+		.as("per_model");
+	const [row] = await db
+		.select({
+			requestCount: sql<string>`coalesce(sum(${perModel.requests}), 0)::text`,
+			gross: sql<string>`round(coalesce(sum(${perModel.gross}), 0), 2)::text`,
+			fee: sql<string>`round(coalesce(sum(${perModel.fee}), 0), 2)::text`,
+		})
+		.from(perModel);
 	return {
 		requestCount: Number(row?.requestCount ?? 0),
 		grossAmount: row?.gross ?? "0.00",
@@ -98,14 +119,7 @@ export async function airsideCarrierTrafficByModel(
 			gatewayFeeAmount: money(g.providerMarginAmount),
 		})
 		.from(g)
-		.where(
-			and(
-				eq(g.usedProvider, providerId),
-				eq(g.usedMode, "credits"),
-				sql`${g.dayTimestamp} >= ${utcTimestamp(start)}::timestamp`,
-				sql`${g.dayTimestamp} < ${utcTimestamp(end)}::timestamp`,
-			),
-		)
+		.where(trafficFilter(providerId, start, end))
 		.groupBy(g.usedModel)
 		.orderBy(g.usedModel);
 }

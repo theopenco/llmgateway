@@ -423,6 +423,8 @@ export function AirsidePayoutsClient() {
 									body: {
 										adjustmentAmount: adjustment.trim(),
 										adjustmentNote: adjustmentNote.trim() || null,
+										previousAdjustmentAmount: adjusting.adjustmentAmount,
+										previousAdjustmentNote: adjusting.adjustmentNote,
 									},
 								})
 							}

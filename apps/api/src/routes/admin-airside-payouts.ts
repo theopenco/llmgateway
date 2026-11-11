@@ -201,7 +201,11 @@ adminAirsidePayouts.openapi(listPayouts, async (c) => {
 		if (!carriers.has(claim.providerId)) {
 			carriers.set(claim.providerId, {
 				name: names.get(claim.providerId) ?? claim.providerId,
-				liveSince: (claim.reviewedAt ?? claim.createdAt).toISOString(),
+				// Revocation overwrites reviewedAt, so revoked claims use createdAt.
+				liveSince: (claim.status === "active"
+					? (claim.reviewedAt ?? claim.createdAt)
+					: claim.createdAt
+				).toISOString(),
 			});
 		}
 	}
@@ -301,6 +305,12 @@ const updatePayout = createRoute({
 							.string()
 							.regex(/^-?\d{1,9}(\.\d{1,2})?$/, "Use a USD amount like -12.50"),
 						adjustmentNote: z.string().trim().max(1000).nullable(),
+						// The adjustment the admin started from; a concurrent edit
+						// since then makes this a 409 instead of a silent overwrite.
+						previousAdjustmentAmount: z
+							.string()
+							.regex(/^-?\d{1,9}(\.\d{1,2})?$/),
+						previousAdjustmentNote: z.string().nullable(),
 					}),
 				},
 			},
@@ -319,12 +329,14 @@ adminAirsidePayouts.openapi(updatePayout, async (c) => {
 			message: "Explain the adjustment: the carrier sees the note.",
 		});
 	}
+	const previous = new Decimal(body.previousAdjustmentAmount).toFixed(2);
 	return c.json({
 		statement: await transition(
 			id,
 			"draft",
 			{ adjustmentAmount: amount.toFixed(2), adjustmentNote: note },
-			"Only a draft statement can be adjusted. Reopen it first.",
+			"Only a draft statement can be adjusted, and only from its current adjustment. Reload and try again.",
+			sql`${statement.adjustmentAmount} = ${previous}::numeric and ${statement.adjustmentNote} is not distinct from ${body.previousAdjustmentNote}`,
 		),
 	});
 });
