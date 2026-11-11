@@ -12,6 +12,7 @@ import { useCustomProviderSelection } from "@/hooks/useCustomProviders";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
+import { getApiErrorMessage } from "@/lib/api-error";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -369,8 +370,13 @@ export function CompliancePolicyEditor({
 	// data policy, headquarters — deliberately NOT the allowed/blocked lists,
 	// which the pickers themselves edit), so the dropdowns can show which
 	// providers would satisfy the policy if selected.
-	const { customProviderOptions, customModelOptions } =
-		useCustomProviderSelection();
+	const {
+		customProviderOptions,
+		customModelOptions,
+		isLoaded: customOptionsLoaded,
+	} = useCustomProviderSelection();
+	// Only flag unknown refs once every option source has loaded.
+	const optionsLoaded = providerFacts !== undefined && customOptionsLoaded;
 	const selectableProviders = useMemo<SelectableProviderOption[]>(() => {
 		const catalogueOptions = providers
 			.filter((provider) => !HIDDEN_PROVIDER_IDS.has(provider.id))
@@ -498,10 +504,13 @@ export function CompliancePolicyEditor({
 				title: "Settings saved",
 				description: "Your provider compliance policy has been updated.",
 			});
-		} catch {
+		} catch (error) {
 			toast({
 				title: "Error",
-				description: "Failed to save compliance policy.",
+				description: getApiErrorMessage(
+					error,
+					"Failed to save compliance policy.",
+				),
 				variant: "destructive",
 			});
 		}
@@ -959,6 +968,7 @@ export function CompliancePolicyEditor({
 										setRestrictionList("blockedProviders", values)
 									}
 									placeholder="Select providers to block..."
+									markUnavailable={optionsLoaded}
 								/>
 							</div>
 							<div className="space-y-2">
@@ -974,6 +984,7 @@ export function CompliancePolicyEditor({
 										setRestrictionList("allowedProviders", values)
 									}
 									placeholder="Select allowed providers..."
+									markUnavailable={optionsLoaded}
 								/>
 							</div>
 							<div className="space-y-2">
@@ -990,6 +1001,7 @@ export function CompliancePolicyEditor({
 										setRestrictionList("blockedModels", values)
 									}
 									placeholder="Select models to block..."
+									markUnavailable={optionsLoaded}
 								/>
 							</div>
 							<div className="space-y-2">
@@ -1006,6 +1018,7 @@ export function CompliancePolicyEditor({
 										setRestrictionList("allowedModels", values)
 									}
 									placeholder="Select allowed models..."
+									markUnavailable={optionsLoaded}
 								/>
 							</div>
 						</fieldset>

@@ -53,6 +53,11 @@ import {
 	webSearchFormatValue,
 } from "@/lib/airside-metadata.js";
 import {
+	carrierNames,
+	payoutStatementSchema,
+	serializePayoutStatement,
+} from "@/lib/airside-payouts.js";
+import {
 	assertNoRequiredCleared,
 	effectiveClaimKind,
 	assertEditableProfile,
@@ -119,6 +124,7 @@ import {
 	AIRSIDE_DISCOUNT_MAX,
 	AIRSIDE_MARGIN_MAX,
 	AIRSIDE_MARGIN_MIN,
+	airsideCarrierTrafficByModel,
 	and,
 	catalogueMetadataFromMapping,
 	cdb,
@@ -141,6 +147,7 @@ import {
 	providers as catalogueProviders,
 } from "@llmgateway/models";
 import {
+	buildCsv,
 	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
 	providerBaseUrlHasEndpointPath,
 } from "@llmgateway/shared";
@@ -4450,6 +4457,120 @@ airside.openapi(statsRoute, async (c) => {
 			...row,
 			day: new Date(row.day).toISOString(),
 		})),
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Payouts (monthly statements of payout-mode carriers)
+// ---------------------------------------------------------------------------
+
+const listPayouts = createRoute({
+	method: "get",
+	path: "/payouts",
+	request: {
+		query: z.object({ providerCompanyId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ statements: z.array(payoutStatementSchema) }),
+				},
+			},
+			description:
+				"The company's monthly payout statements, newest first. Drafts are previews subject to manual adjustment.",
+		},
+	},
+});
+
+airside.openapi(listPayouts, async (c) => {
+	const user = requireUser(c.get("user"));
+	const { providerCompanyId } = c.req.valid("query");
+	await requireCompanyMembership(user.id, providerCompanyId);
+	const rows = await db
+		.select()
+		.from(tables.airsidePayoutStatement)
+		.where(
+			eq(tables.airsidePayoutStatement.providerCompanyId, providerCompanyId),
+		)
+		.orderBy(
+			desc(tables.airsidePayoutStatement.periodStart),
+			tables.airsidePayoutStatement.providerId,
+		);
+	const names = await carrierNames(rows);
+	return c.json({
+		statements: rows.map((row) => serializePayoutStatement(row, names)),
+	});
+});
+
+const PAYOUT_REPORT_CSV_HEADERS = [
+	"period",
+	"provider",
+	"model",
+	"requests",
+	"cache_hits",
+	"input_tokens",
+	"cached_input_tokens",
+	"cache_write_tokens",
+	"output_tokens",
+	"reasoning_tokens",
+	"billed_usd",
+	"gateway_fee_usd",
+] as const;
+
+const payoutReport = createRoute({
+	method: "get",
+	path: "/payouts/{id}/report",
+	request: {
+		params: z.object({ id: z.string() }),
+		query: z.object({ providerCompanyId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: { "text/csv": { schema: z.string() } },
+			description:
+				"Per-model breakdown of the statement's traffic as CSV: requests and tokens served on gateway credentials, with billed amount and gateway fee. Recomputed from the current rollups.",
+		},
+	},
+});
+
+airside.openapi(payoutReport, async (c) => {
+	const user = requireUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const { providerCompanyId } = c.req.valid("query");
+	await requireCompanyMembership(user.id, providerCompanyId);
+	const row = await db.query.airsidePayoutStatement.findFirst({
+		where: { id: { eq: id }, providerCompanyId: { eq: providerCompanyId } },
+	});
+	if (!row) {
+		throw new HTTPException(404, { message: "Statement not found" });
+	}
+	const models = await airsideCarrierTrafficByModel(
+		row.providerId,
+		row.periodStart,
+		row.periodEnd,
+	);
+	const period = row.periodStart.toISOString().slice(0, 7);
+	const body = buildCsv(
+		PAYOUT_REPORT_CSV_HEADERS,
+		models.map((model) => [
+			period,
+			row.providerId,
+			model.model,
+			model.requestCount,
+			model.cacheHitCount,
+			model.inputTokens,
+			model.cachedInputTokens,
+			model.cacheWriteTokens,
+			model.outputTokens,
+			model.reasoningTokens,
+			model.grossAmount,
+			model.gatewayFeeAmount,
+		]),
+	);
+	return c.body(`${body}\n`, 200, {
+		"Content-Type": "text/csv; charset=utf-8",
+		"Content-Disposition": `attachment; filename="airside-payout-${row.providerId}-${period}.csv"`,
 	});
 });
 
