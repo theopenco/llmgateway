@@ -119,7 +119,10 @@ export function ContentFilterSettingsForm({
 			setValidationError("Sample rate must be between 0 and 100.");
 			return;
 		}
-		const enforceRate = Number(enforceSampleRate);
+		// The field is disabled while global blocking is on; keep its stored value.
+		const enforceRate = enforce
+			? settings.enforceSampleRatePercent
+			: Number(enforceSampleRate);
 		if (!Number.isFinite(enforceRate) || enforceRate < 0 || enforceRate > 100) {
 			mutation.reset();
 			setValidationError("Blocking sample rate must be between 0 and 100.");
@@ -192,7 +195,8 @@ export function ContentFilterSettingsForm({
 				/>
 				<p className="text-xs text-muted-foreground">
 					Share of eligible requests sent to the moderation API. 100 moderates
-					every request on an enabled provider; 0 disables moderation.
+					every request on an enabled provider; 0 disables moderation except the
+					blocking share of blocking providers.
 				</p>
 			</div>
 
@@ -381,11 +385,12 @@ export function ContentFilterSettingsForm({
 			<div className="space-y-2">
 				<p className="text-sm font-medium">Blocking providers</p>
 				<p className="text-xs text-muted-foreground">
-					Requests routed to these providers are always moderated. A share set
-					by the blocking sample rate is checked before the provider call and
-					blocked on a violation, even while blocking is off for everyone else;
-					the rest are monitored log-only at the sample rate above. The
-					enterprise and log-only organization exemptions still apply.
+					A share of requests routed to these providers, set by the blocking
+					sample rate, is checked before the provider call and blocked on a
+					violation, even while blocking is off for everyone else. The rest are
+					monitored log-only at the sample rate above. These providers do not
+					need to be in the provider list. The enterprise and log-only
+					organization exemptions still apply.
 				</p>
 				{readOnly ? (
 					<div className="flex flex-wrap gap-2">
@@ -419,7 +424,7 @@ export function ContentFilterSettingsForm({
 					type="number"
 					min={0}
 					max={100}
-					step={1}
+					step="any"
 					className="w-32"
 					value={enforceSampleRate}
 					disabled={pending || readOnly || enforce}
