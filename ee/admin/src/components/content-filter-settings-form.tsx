@@ -29,6 +29,7 @@ interface ContentFilterProvider {
 	name: string;
 	color: string | null;
 	enabled: boolean;
+	enforced: boolean;
 }
 
 type Classifier = ContentFilterSettingsInput["classifier"];
@@ -81,6 +82,10 @@ export function ContentFilterSettingsForm({
 	const [providerIds, setProviderIds] = useState<string[]>(() =>
 		settings.providers.filter((p) => p.enabled).map((p) => p.id),
 	);
+	const [enforceProviderIds, setEnforceProviderIds] = useState<string[]>(() =>
+		settings.providers.filter((p) => p.enforced).map((p) => p.id),
+	);
+	const anyEnforced = enforce || enforceProviderIds.length > 0;
 	const allSelected =
 		settings.providers.length > 0 &&
 		providerIds.length >= settings.providers.length;
@@ -110,13 +115,14 @@ export function ContentFilterSettingsForm({
 			setValidationError("Sample rate must be between 0 and 100.");
 			return;
 		}
-		const savedEnforceEnterprise = enforce && enforceEnterprise;
+		const savedEnforceEnterprise = anyEnforced && enforceEnterprise;
 		mutation.mutate(
 			{
 				body: {
 					enabled,
 					sampleRatePercent: rate,
 					enforce,
+					enforceProviderIds,
 					enforceEnterprise: savedEnforceEnterprise,
 					classifier,
 					internalScope,
@@ -206,8 +212,8 @@ export function ContentFilterSettingsForm({
 			<div className="flex items-center gap-3">
 				<Switch
 					id="content-filter-enforce-enterprise"
-					checked={enforce && enforceEnterprise}
-					disabled={pending || readOnly || !enforce}
+					checked={anyEnforced && enforceEnterprise}
+					disabled={pending || readOnly || !anyEnforced}
 					onCheckedChange={(checked) => {
 						setSaved(false);
 						setEnforceEnterprise(checked);
@@ -357,6 +363,37 @@ export function ContentFilterSettingsForm({
 							setProviderIds(next);
 						}}
 						placeholder="Search and select providers..."
+					/>
+				)}
+			</div>
+
+			<div className="space-y-2">
+				<p className="text-sm font-medium">Blocking providers</p>
+				<p className="text-xs text-muted-foreground">
+					Requests routed to these providers are always moderated and blocked on
+					a violation, even while blocking is off for everyone else. Their check
+					runs before the provider call. The sample rate and the enterprise and
+					log-only organization exemptions still apply.
+				</p>
+				{readOnly ? (
+					<div className="flex flex-wrap gap-2">
+						{settings.providers
+							.filter((p) => p.enforced)
+							.map((p) => (
+								<Badge key={p.id} variant="secondary">
+									{p.name}
+								</Badge>
+							))}
+					</div>
+				) : (
+					<MultiProviderSelector
+						providers={settings.providers}
+						selectedProviders={enforceProviderIds}
+						onProvidersChange={(next) => {
+							setSaved(false);
+							setEnforceProviderIds(next);
+						}}
+						placeholder="Search and select blocking providers..."
 					/>
 				)}
 			</div>

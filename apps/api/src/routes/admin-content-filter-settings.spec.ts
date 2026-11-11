@@ -58,6 +58,7 @@ describe("admin content filter settings", () => {
 				providerIds: ["openai", "anthropic", "openai"],
 				sampleRatePercent: 25,
 				enforce: true,
+				enforceProviderIds: ["openai", "openai"],
 				enforceEnterprise: false,
 			}),
 		});
@@ -71,11 +72,17 @@ describe("admin content filter settings", () => {
 				.map((p: { id: string }) => p.id)
 				.sort(),
 		).toEqual(["anthropic", "openai"]);
+		expect(
+			body.providers
+				.filter((p: { enforced: boolean }) => p.enforced)
+				.map((p: { id: string }) => p.id),
+		).toEqual(["openai"]);
 		expect(await getContentFilterSettings()).toEqual({
 			enabled: true,
 			providerIds: ["openai", "anthropic"],
 			sampleRatePercent: 25,
 			enforce: true,
+			enforceProviderIds: ["openai"],
 			enforceEnterprise: false,
 			classifier: "openai",
 			internalScope: "full",
@@ -96,6 +103,23 @@ describe("admin content filter settings", () => {
 			}),
 		});
 		expect(unknown.status).toBe(400);
+
+		const unknownEnforced = await app.request(
+			"/admin/settings/content-filter",
+			{
+				method: "PUT",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					enabled: true,
+					providerIds: [],
+					sampleRatePercent: 100,
+					enforce: false,
+					enforceProviderIds: ["not-a-provider"],
+					enforceEnterprise: false,
+				}),
+			},
+		);
+		expect(unknownEnforced.status).toBe(400);
 
 		const rate = await app.request("/admin/settings/content-filter", {
 			method: "PUT",

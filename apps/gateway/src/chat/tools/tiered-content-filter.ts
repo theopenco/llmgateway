@@ -125,7 +125,11 @@ export async function resolveTieredContentFilterPlan(
 	settings: ContentFilterSettings,
 	random: () => number = randomFloat,
 ): Promise<TieredContentFilterPlan | null> {
-	if (!settings.enabled || !settings.providerIds.includes(providerId)) {
+	const providerEnforced = settings.enforceProviderIds.includes(providerId);
+	if (
+		!settings.enabled ||
+		(!providerEnforced && !settings.providerIds.includes(providerId))
+	) {
 		return null;
 	}
 	if (!isContentFilterSampled(settings, random)) {
@@ -142,7 +146,7 @@ export async function resolveTieredContentFilterPlan(
 	);
 
 	let exemptReason: TieredContentFilterPlan["exemptReason"];
-	if (!settings.enforce) {
+	if (!settings.enforce && !providerEnforced) {
 		exemptReason = "global_log_only";
 	} else if (
 		organization.plan === "enterprise" &&

@@ -6510,6 +6510,7 @@ const contentFilterSettingsResponseSchema = z
 				name: z.string(),
 				color: z.string().nullable(),
 				enabled: z.boolean(),
+				enforced: z.boolean(),
 			}),
 		),
 	})

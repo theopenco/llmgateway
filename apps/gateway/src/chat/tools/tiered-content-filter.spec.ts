@@ -122,6 +122,47 @@ describe("resolveTieredContentFilterPlan", () => {
 		).toMatchObject({ enforce: false, exemptReason: "org_log_only" });
 	});
 
+	test("blocks on enforced providers while the rest stay log-only", async () => {
+		const perProvider = {
+			...enabledSettings,
+			providerIds: ["openai", "anthropic"],
+			enforceProviderIds: ["openai"],
+		};
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", perProvider),
+		).toMatchObject({ enforce: true });
+		expect(
+			await resolveTieredContentFilterPlan(org(), "anthropic", perProvider),
+		).toMatchObject({ enforce: false, exemptReason: "global_log_only" });
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", {
+				...enabledSettings,
+				providerIds: [],
+				enforceProviderIds: ["openai"],
+			}),
+		).toMatchObject({ enforce: true });
+		expect(
+			await resolveTieredContentFilterPlan(
+				org({ plan: "enterprise" }),
+				"openai",
+				perProvider,
+			),
+		).toMatchObject({ enforce: false, exemptReason: "enterprise" });
+		expect(
+			await resolveTieredContentFilterPlan(
+				org({ contentFilterLogOnly: true }),
+				"openai",
+				perProvider,
+			),
+		).toMatchObject({ enforce: false, exemptReason: "org_log_only" });
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", {
+				...perProvider,
+				enabled: false,
+			}),
+		).toBeNull();
+	});
+
 	test("honours the content filter pin and the trust tier pin", async () => {
 		expect(
 			await resolveTieredContentFilterPlan(
