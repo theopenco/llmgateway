@@ -70,6 +70,11 @@ export function useCustomProviderSelection() {
 					],
 				};
 			});
-		return { customProviderOptions, customModelOptions };
+		return {
+			customProviderOptions,
+			customModelOptions,
+			isLoaded:
+				providerKeysData !== undefined && customModelsData !== undefined,
+		};
 	}, [providerKeysData, customModelsData, selectedOrganization?.id]);
 }
