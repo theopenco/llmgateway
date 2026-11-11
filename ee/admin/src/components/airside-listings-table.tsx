@@ -1,10 +1,14 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import {
+	ModelVerificationDialog,
+	VerificationStatusBadge,
+} from "@/components/model-verification-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,6 +35,7 @@ import { useApi } from "@/lib/fetch-client";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
 
+import type { ModelVerification } from "@/components/model-verification-dialog";
 import type { paths } from "@/lib/api/v1";
 
 type Listing =
@@ -99,6 +104,33 @@ export function AirsideListingsTable({
 			},
 		},
 	});
+	const listingIds = (query.data?.listings ?? []).map((listing) => listing.id);
+	// Latest run per listing, carrier- or admin-initiated, so admins see the
+	// same verification state the carrier sees in Fleet.
+	const verificationsQuery = $api.useQuery(
+		"get",
+		"/admin/model-verifications",
+		{ params: { query: { draftModelIds: listingIds.join(",") } } },
+		{
+			enabled: listingIds.length > 0,
+			refetchInterval: (q) =>
+				q.state.data?.entries.some(
+					(entry) =>
+						entry.verification.status === "queued" ||
+						entry.verification.status === "running",
+				)
+					? 2_000
+					: false,
+		},
+	);
+	const verificationByListing = new Map(
+		(verificationsQuery.data?.entries ?? [])
+			.filter((entry) => entry.draftModelId)
+			.map((entry) => [
+				entry.draftModelId as string,
+				entry.verification as ModelVerification,
+			]),
+	);
 	const refreshListings = async () => {
 		await queryClient.invalidateQueries({
 			queryKey: ["get", "/admin/airside/listings"],
@@ -171,6 +203,7 @@ export function AirsideListingsTable({
 						<TableHead>Model</TableHead>
 						<TableHead>Status</TableHead>
 						<TableHead>Context</TableHead>
+						<TableHead>Verification</TableHead>
 						<TableHead>Listing / mappings</TableHead>
 						<TableHead className="text-right">Action</TableHead>
 					</TableRow>
@@ -216,6 +249,13 @@ export function AirsideListingsTable({
 							</TableCell>
 							<TableCell>
 								<ContextCell listing={listing} />
+							</TableCell>
+							<TableCell>
+								<VerificationCell
+									listing={listing}
+									latest={verificationByListing.get(listing.id)}
+									onSettled={() => void verificationsQuery.refetch()}
+								/>
 							</TableCell>
 							<TableCell className="font-mono text-xs text-muted-foreground">
 								<div>{listing.id}</div>
@@ -353,5 +393,60 @@ export function AirsideListingsTable({
 				</DialogContent>
 			</Dialog>
 		</>
+	);
+}
+function VerificationCell({
+	listing,
+	latest,
+	onSettled,
+}: {
+	listing: Listing;
+	latest: ModelVerification | undefined;
+	onSettled: () => void;
+}) {
+	const failedChecks =
+		latest?.status === "failed"
+			? latest.checks
+					.filter((check) => check.status === "failed")
+					.map((check) => check.label)
+			: [];
+	const failure =
+		failedChecks.length > 0 ? failedChecks.join(", ") : latest?.summary;
+	return (
+		<div data-testid={`listing-verification-${listing.id}`}>
+			<div className="flex items-center gap-2">
+				<VerificationStatusBadge verification={latest} />
+				{listing.status === "delisted" ? null : (
+					<ModelVerificationDialog
+						title={`${listing.providerId}/${listing.modelName}`}
+						draftModelId={listing.id}
+						latest={latest}
+						onSettled={onSettled}
+					>
+						<Button
+							size="sm"
+							variant="outline"
+							data-testid={`verify-listing-${listing.id}`}
+						>
+							<ShieldCheck className="size-3.5" />
+							{latest ? "Details" : "Verify"}
+						</Button>
+					</ModelVerificationDialog>
+				)}
+			</div>
+			{latest ? (
+				<div className="mt-1 text-xs text-muted-foreground">
+					{new Date(latest.createdAt).toLocaleString()}
+				</div>
+			) : null}
+			{failure ? (
+				<div
+					className="max-w-64 truncate text-xs text-destructive"
+					title={latest?.summary ?? failure}
+				>
+					{failure}
+				</div>
+			) : null}
+		</div>
 	);
 }
