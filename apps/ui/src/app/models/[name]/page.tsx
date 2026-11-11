@@ -30,7 +30,10 @@ import { CopyModelName } from "@/components/models/copy-model-name";
 import { DetailProviderCards } from "@/components/models/detail-provider-cards";
 import { GlobalDiscountBanner } from "@/components/models/global-discount-banner";
 import { ModelBenchmarks } from "@/components/models/model-benchmarks";
-import { ModelCtaButton } from "@/components/models/model-cta-button";
+import {
+	ModelCtaButton,
+	TryInLoungeLink,
+} from "@/components/models/model-cta-button";
 import { ModelFaqSection } from "@/components/models/model-faq";
 import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
@@ -51,6 +54,7 @@ import {
 import { fetchModelDiscounts, fetchProviders } from "@/lib/fetch-models";
 import { buildFaqSchema, buildModelFaqs } from "@/lib/model-faq";
 import { getCheapestOgMapping } from "@/lib/model-og";
+import { isLoungeChatModel } from "@/lib/model-utils";
 import { pageTitle } from "@/lib/page-title";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
@@ -347,12 +351,21 @@ export default async function ModelPage({ params }: PageProps) {
 							/>
 
 							<ModelCtaButton
-								modelId={decodedName}
+								modelId={canonicalName}
 								output={modelDef.output}
 								size="sm"
 								className="gap-2"
 								iconClassName="h-3 w-3"
+								location="model_page"
 							/>
+
+							{isLoungeChatModel(modelDef, activeProviders) && (
+								<TryInLoungeLink
+									modelId={canonicalName}
+									location="model_page"
+									className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1 text-xs md:text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+								/>
+							)}
 
 							<Link
 								href={`/models/${encodeURIComponent(decodedName)}/uptime`}
