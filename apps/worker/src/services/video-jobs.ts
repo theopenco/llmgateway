@@ -157,10 +157,12 @@ const TERMINAL_VIDEO_STATUSES = new Set<string>(TERMINAL_VIDEO_STATUS_VALUES);
 const REQUESTED_VIDEO_RESOLUTIONS = [
 	"360p",
 	"480p",
+	"540p",
 	"720p",
 	"768p",
 	"1080p",
 	"hd",
+	"2k",
 	"4k",
 ] as const;
 
@@ -1017,15 +1019,17 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 		requestedResolution ??
 		(largestDimension >= 3840
 			? "4k"
-			: largestDimension >= 1920
-				? "1080p"
-				: largestDimension >= 1792
-					? "hd"
-					: largestDimension >= 720
-						? "720p"
-						: largestDimension > 640
-							? "480p"
-							: "360p");
+			: largestDimension >= 2560
+				? "2k"
+				: largestDimension >= 1920
+					? "1080p"
+					: largestDimension >= 1792
+						? "hd"
+						: largestDimension >= 720
+							? "720p"
+							: largestDimension > 640
+								? "480p"
+								: "360p");
 
 	return {
 		size,
@@ -1297,12 +1301,12 @@ function is4kVideo(job: VideoJobRecord): boolean {
 
 		for (const key of ["height", "width"]) {
 			const value = readNestedValue(candidate, key);
-			if (typeof value === "number" && value >= 2160) {
+			if (typeof value === "number" && value >= 3840) {
 				return true;
 			}
 			if (typeof value === "string") {
 				const parsed = Number(value);
-				if (!Number.isNaN(parsed) && parsed >= 2160) {
+				if (!Number.isNaN(parsed) && parsed >= 3840) {
 					return true;
 				}
 			}
@@ -1310,6 +1314,16 @@ function is4kVideo(job: VideoJobRecord): boolean {
 	}
 
 	return false;
+}
+
+function videoHasReferenceVideoInput(job: VideoJobRecord): boolean {
+	const rawRequest = getStoredVideoDebugPayload(job, "llmgateway_raw_request");
+	if (!rawRequest || typeof rawRequest !== "object") {
+		return false;
+	}
+	const referenceVideos = (rawRequest as Record<string, unknown>)
+		.reference_videos;
+	return Array.isArray(referenceVideos) && referenceVideos.length > 0;
 }
 
 function videoIncludesAudio(job: VideoJobRecord): boolean | null {
@@ -1512,8 +1526,13 @@ function getVideoPerSecondOutputCost(
 		trustedIncludesAudio ??
 		videoIncludesAudio(job) ??
 		inferVideoIncludesAudioFromPricing(pricing);
-	const priceCandidates =
-		includesAudio === null
+	// Reference-video (edit) requests have their own rate where one is listed.
+	const videoInputCandidates = videoHasReferenceVideoInput(job)
+		? resolutionCandidates.map((resolution) => `${resolution}_video_input`)
+		: [];
+	const priceCandidates = [
+		...videoInputCandidates,
+		...(includesAudio === null
 			? resolutionCandidates
 			: [
 					...resolutionCandidates.map(
@@ -1521,7 +1540,8 @@ function getVideoPerSecondOutputCost(
 							`${resolution}_${includesAudio ? "audio" : "video"}`,
 					),
 					...resolutionCandidates,
-				];
+				]),
+	];
 	const pricePerSecondStr = priceCandidates
 		.map((key) => pricing[key])
 		.find((value): value is string => value !== undefined);

@@ -17,7 +17,9 @@ Currently available models:
 - **Seedance 2.0** and **Seedance 1.5 Pro** through `bytedance` (720p, 1080p), **Seedance 2.0 Fast** through `bytedance` (720p only)
 - **Seedance 2.0 Mini** through `bytedance` (480p, 720p)
 - **KLING v3.0** and **KLING v3.0 Turbo** through `atlascloud` (720p, 1080p; KLING v3.0 also 4k), **KLING v3.0 Pro** through `atlascloud` (1080p only)
-- **MiniMax H3 Max** through `minimax` (480p, 768p; clips from 5 to 15 seconds, always with audio)
+- **KLING 3.0 Omni** through `atlascloud` (720p, 1080p, 4k; 3–15 seconds; optional audio; first/last frames, reference images, and a reference video)
+- **Luma Ray 3.2** through `atlascloud` (540p, 720p, 1080p; 5 or 10 seconds, 5 with frames; no audio; first/last frames)
+- **MiniMax H3** through `minimax` (768p, 2K; 4–15 seconds, always with audio) and **MiniMax H3 Max** through `minimax` (480p, 768p; 5–15 seconds, always with audio)
 - **Wan 3.0 Video** and **Wan 3.0 Video Prime** through `alibaba` (480p, 720p, 1080p; 2–30 seconds; optional audio; first/last frames and reference images), **Wan 2.6 Text-to-Video** through `alibaba` (720p, 1080p; text only, always with audio)
 - **VEED Fabric 1.0** and **VEED Fabric 1.0 Fast** through `atlascloud` (480p, 720p; lip-synced talking video from one image and one speech track, as long as the audio)
 
@@ -79,14 +81,17 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 | KLING v3.0            | `atlascloud`       | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840`                       | `5`, `10`           |
 | KLING v3.0 Turbo      | `atlascloud`       | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                                                 | `5`, `10`           |
 | KLING v3.0 Pro        | `atlascloud`       | `1920x1080`, `1080x1920`                                                                         | `5`, `10`           |
+| KLING 3.0 Omni        | `atlascloud`       | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840`                       | `3`–`15`            |
+| Luma Ray 3.2          | `atlascloud`       | `960x540`, `540x960`, `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                           | `5`, `10`           |
+| MiniMax H3            | `minimax`          | `1366x768`, `768x1366`, `2560x1440`, `1440x2560`                                                 | `4`–`15`            |
 | MiniMax H3 Max        | `minimax`          | `848x480`, `854x480`, `480x854`, `1366x768`, `768x1366`                                          | `5`–`15`            |
 | Wan 3.0 Video, Prime  | `alibaba`          | `854x480`, `480x854`, `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                           | `2`–`30`            |
 | Wan 2.6 Text-to-Video | `alibaba`          | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                                                 | `2`–`15`            |
 | VEED Fabric 1.0, Fast | `atlascloud`       | `854x480`, `480x854`, `1280x720`, `720x1280`                                                     | audio length, ≤ 300 |
 
-Requests return `400` when the selected provider cannot serve the requested `size` or `seconds`. Gemini Omni 1.2 Flash accepts `3`–`10` seconds with first/last frames. Seedance, KLING v3.0, and Wan 3.0 derive the aspect ratio from the requested `size` (16:9 for landscape, 9:16 for portrait).
+Requests return `400` when the selected provider cannot serve the requested `size` or `seconds`. Gemini Omni 1.2 Flash accepts `3`–`10` seconds with first/last frames. Seedance, KLING, Luma Ray, MiniMax H3, and Wan 3.0 derive the aspect ratio from the requested `size` (16:9 for landscape, 9:16 for portrait).
 
-**KLING v3.0 Turbo**, **MiniMax H3 Max**, **Wan 2.6 Text-to-Video**, and **Gemini Omni** always generate audio and do not support `audio: false`; silent requests return a `400`. Use **KLING v3.0** (`kling-v3-0`) when you need silent output.
+**KLING v3.0 Turbo**, **MiniMax H3**, **MiniMax H3 Max**, **Wan 2.6 Text-to-Video**, and **Gemini Omni** always generate audio and do not support `audio: false`; silent requests return a `400`. Use **KLING v3.0** (`kling-v3-0`) when you need silent output.
 
 ### FLUX 3 Max options
 
@@ -114,15 +119,15 @@ curl -X POST "https://api.llmgateway.io/v1/videos" \
 
 Frame inputs interpolate a video between a starting frame and an optional ending frame. You provide the first frame as `image` and, optionally, the ending frame as `last_frame`. The gateway tags each one with the correct role for the provider, so you don't set roles yourself.
 
-| Field        | Required           | Accepted input                   | Available on                                                                                                                                                                                                             |
-| ------------ | ------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `image`      | for frame mode     | HTTPS URL **or** base64 data URL | **FLUX 3 Max** (`fal-ai`), **Seedance 2.x** (`bytedance`), **KLING v3.0 / Pro / Turbo** (`atlascloud`), Veo 3.1 (`google-vertex`), Gemini Omni (`google-ai-studio`), Wan 3.0 (`alibaba`), `minimax`, `xai`               |
-| `last_frame` | no (needs `image`) | HTTPS URL **or** base64 data URL | **FLUX 3 Max** (`fal-ai`), **Seedance 2.x** (`bytedance`), **KLING v3.0 / Pro / Turbo** (`atlascloud`), Veo 3.1 (`google-vertex`), Gemini Omni (`google-ai-studio`), Wan 3.0 (`alibaba`), **MiniMax H3 Max** (`minimax`) |
+| Field        | Required           | Accepted input                   | Available on                                                                                                                                                                                                                                              |
+| ------------ | ------------------ | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `image`      | for frame mode     | HTTPS URL **or** base64 data URL | **FLUX 3 Max** (`fal-ai`), **Seedance 2.x** (`bytedance`), **KLING v3.0 / Pro / Turbo / Omni** and **Luma Ray 3.2** (`atlascloud`), Veo 3.1 (`google-vertex`), Gemini Omni (`google-ai-studio`), Wan 3.0 (`alibaba`), `minimax`, `xai`                    |
+| `last_frame` | no (needs `image`) | HTTPS URL **or** base64 data URL | **FLUX 3 Max** (`fal-ai`), **Seedance 2.x** (`bytedance`), **KLING v3.0 / Pro / Turbo / Omni** and **Luma Ray 3.2** (`atlascloud`), Veo 3.1 (`google-vertex`), Gemini Omni (`google-ai-studio`), Wan 3.0 (`alibaba`), **MiniMax H3 / H3 Max** (`minimax`) |
 
 #### Rules and limits
 
 - **Seedance scope.** Frame inputs are supported on **Seedance 2.5**, **Seedance 2.0**, **Seedance 2.0 Fast**, and **Seedance 2.0 Mini** (`seedance-2-5`, `seedance-2-0`, `seedance-2-0-fast`, `seedance-2-0-mini`). Sending `image`/`last_frame` to Seedance 1.5 Pro or any other ByteDance model returns a `400`.
-- **KLING scope.** Frame inputs are supported on **KLING v3.0**, **KLING v3.0 Pro**, and **KLING v3.0 Turbo** (`kling-v3-0`, `kling-v3-0-pro`, `kling-v3-0-turbo`). The gateway uploads base64 frames to AtlasCloud's media endpoint automatically, so both HTTPS URLs and base64 data URLs are accepted.
+- **KLING and Luma scope.** Frame inputs are supported on **KLING v3.0**, **Pro**, **Turbo**, and **3.0 Omni** (`kling-v3-0`, `kling-v3-0-pro`, `kling-v3-0-turbo`, `kling-v3-0-omni`) and **Luma Ray 3.2** (`luma-ray-3-2`). KLING v3.0, Pro, and Turbo need `5` or `10` seconds with frames; Omni accepts any listed duration and Luma only `5`. Luma image-to-video follows the first frame's aspect ratio. The gateway uploads base64 frames to AtlasCloud's media endpoint automatically, so both HTTPS URLs and base64 data URLs are accepted.
 - **Wan scope.** Frame inputs are supported on **Wan 3.0 Video** and **Wan 3.0 Video Prime** (`wan-3-0-video`, `wan-3-0-video-prime`). Wan 2.6 Text-to-Video accepts text only. Frames must be at least 240 pixels per side.
 - **FLUX scope.** FLUX 3 Max (`fal-ai`) accepts first and last frames as HTTPS URLs or base64 data URLs; use `image` for the start and `last_frame` for the optional end.
 - **`last_frame` requires `image`.** Providing `last_frame` without `image` returns a `400`.
@@ -182,7 +187,8 @@ You can mix all three reference types in one request. The `prompt` can be a ligh
 - **HTTPS only for video and audio.** `reference_videos` and `reference_audios` must be publicly reachable HTTPS URLs (the provider fetches them). base64 data URLs are rejected for video/audio; images may be HTTPS URLs or base64 data URLs.
 - **Reference video resolution.** Seedance requires reference video frames to be at least ~409,600 pixels (roughly 480p or larger). Low-resolution clips such as 360p are rejected with a `400`.
 - **Not combinable with frames.** Reference inputs (`reference_images`, `reference_videos`, `reference_audios`) cannot be combined with the first/last frame inputs (`image`, `last_frame`).
-- **Provider scope.** Reference videos are only supported on Seedance 2.x and Gemini Omni, and reference audio only on Seedance 2.x and VEED Fabric; sending them to other models returns a `400`. **KLING v3.0** does not support any reference inputs (`reference_images`, `reference_videos`, `reference_audios`); use first/last frame inputs instead.
+- **Provider scope.** Reference videos are only supported on Seedance 2.x and Gemini Omni, and reference audio only on Seedance 2.x and VEED Fabric; sending them to other models returns a `400`. **KLING v3.0**, **Pro**, and **Turbo** and **Luma Ray 3.2** do not support any reference inputs; use first/last frame inputs instead.
+- **KLING 3.0 Omni references.** Up to 7 reference images, or one reference video plus up to 4 images; no reference audio and no references at 4k. Omni generates no audio with a reference video, so send `audio: false`.
 - **Wan 3.0 references.** Wan 3.0 Video and Prime accept up to 10 reference images and no reference video or audio. Refer to them in the prompt as "Image 1", "Image 2", and so on, in the order sent.
 - **Gemini Omni references.** Use up to 3 reference video clips of about 3 seconds each; their audio is ignored. Refer to references in the prompt as `<IMAGE_REF_0>` or `<VIDEO_REF_0>` to say how each one is used.
 - **Moderation still applies.** The output is subject to the provider's content moderation. Blocked generations finish as `failed` and are logged with a `content_filter` finish reason. The [gateway content filter](/resources/error-handling#gateway-content-filter) may also reject the request with a `403` before a job is created.
@@ -361,6 +367,21 @@ Wan (Alibaba), billed per second of generated video at the requested resolution;
 | `wan-3-0-video`       | `alibaba` | `$0.05 / second`  | `$0.10 / second` | `$0.20 / second` |
 | `wan-3-0-video-prime` | `alibaba` | `$0.068 / second` | `$0.14 / second` | `$0.28 / second` |
 | `wan-2-6-t2v`         | `alibaba` | n/a               | `$0.10 / second` | `$0.15 / second` |
+
+KLING 3.0 Omni and Luma Ray 3.2 (AtlasCloud), billed per second of generated video:
+
+| Model             | Provider     | Resolution | With audio        | Video only        |
+| ----------------- | ------------ | ---------- | ----------------- | ----------------- |
+| `kling-v3-0-omni` | `atlascloud` | 720p       | `$0.112 / second` | `$0.084 / second` |
+| `kling-v3-0-omni` | `atlascloud` | 1080p      | `$0.14 / second`  | `$0.112 / second` |
+| `kling-v3-0-omni` | `atlascloud` | 4k         | `$0.42 / second`  | `$0.42 / second`  |
+| `luma-ray-3-2`    | `atlascloud` | 540p       | n/a               | `$0.033 / second` |
+| `luma-ray-3-2`    | `atlascloud` | 720p       | n/a               | `$0.066 / second` |
+| `luma-ray-3-2`    | `atlascloud` | 1080p      | n/a               | `$0.264 / second` |
+
+KLING 3.0 Omni requests with a reference video cost `$0.126 / second` at 720p and `$0.168 / second` at 1080p.
+
+MiniMax H3 (`minimax`) costs `$0.08 / second` at 768p and `$0.13 / second` at 2K, always with audio.
 
 VEED Fabric (AtlasCloud), billed per second of generated video; the reservation assumes the 300-second maximum:
 

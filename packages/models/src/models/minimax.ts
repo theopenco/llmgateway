@@ -723,6 +723,43 @@ export const minimaxModels = [
 		],
 	},
 	{
+		id: "minimax-h3",
+		name: "MiniMax H3",
+		description:
+			"MiniMax's flagship H3 video model with native synchronized audio, supporting text-to-video and first/last-frame image-to-video from 4 to 15 seconds at 768p or 2K.",
+		family: "minimax",
+		output: ["video"],
+		maxVideoDurationSeconds: 15,
+		releasedAt: new Date("2026-09-08"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "minimax",
+				externalId: "MiniMax-H3",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				perSecondPrice: {
+					"768p": "0.08",
+					"2k": "0.13",
+				},
+				contextSize: 7000,
+				maxOutput: 1,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				videoGenerations: true,
+				supportedVideoSizes: ["1366x768", "768x1366", "2560x1440", "1440x2560"],
+				supportedVideoDurationsSeconds: [
+					4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+				],
+				supportsVideoAudio: true,
+				supportsVideoWithoutAudio: false,
+			},
+		],
+	},
+	{
 		id: "minimax-h3-max",
 		name: "MiniMax H3 Max",
 		description:

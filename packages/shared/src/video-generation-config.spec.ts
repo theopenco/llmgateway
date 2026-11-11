@@ -8,6 +8,8 @@ import {
 	getSupportedVideoRequestOptions,
 	getVideoOrientations,
 	getVideoResolutions,
+	getVideoSizeLabel,
+	isMinimaxV2VideoModel,
 	mergeVideoModelResults,
 	parseGoogleAiStudioFileName,
 	supportsVideoFrameInput,
@@ -254,6 +256,39 @@ describe("video size options", () => {
 		expect(findVideoSize(sizes, "480p", "landscape")).toBe("848x480");
 		expect(findVideoSize(["854x480"], "480p", "landscape")).toBe("854x480");
 		expect(findVideoSize(sizes, "720p", "portrait")).toBeUndefined();
+	});
+});
+
+describe("540p, 2K, KLING 3.0 Omni, Luma Ray, and MiniMax H3", () => {
+	test("orders and labels the new resolutions", () => {
+		expect(
+			getVideoResolutions(["2560x1440", "960x540", "1920x1080", "3840x2160"]),
+		).toEqual(["540p", "1080p", "2k", "4k"]);
+		expect(getVideoSizeLabel("1440x2560")).toBe("2K Portrait");
+		expect(getVideoSizeLabel("960x540")).toBe("540p Landscape");
+		expect(findVideoSize(["1366x768", "2560x1440"], "2k", "landscape")).toBe(
+			"2560x1440",
+		);
+	});
+
+	test("routes MiniMax H3 through the v2 API with frames", () => {
+		expect(isMinimaxV2VideoModel("MiniMax-H3")).toBe(true);
+		expect(supportsVideoFrameInput("minimax/minimax-h3")).toBe(true);
+		expect(supportsVideoEndFrameInput("minimax/minimax-h3")).toBe(true);
+	});
+
+	test("enables frames and references on KLING 3.0 Omni and frames on Luma Ray", () => {
+		expect(supportsVideoFrameInput("atlascloud/kling-v3-0-omni")).toBe(true);
+		expect(supportsVideoReferenceInput("atlascloud/kling-v3-0-omni")).toBe(
+			true,
+		);
+		expect(supportsVideoReferenceVideoInput("atlascloud/kling-v3-0-omni")).toBe(
+			true,
+		);
+		expect(supportsVideoFrameInput("atlascloud/luma-ray-3-2")).toBe(true);
+		expect(supportsVideoEndFrameInput("atlascloud/luma-ray-3-2")).toBe(true);
+		expect(supportsVideoReferenceInput("atlascloud/luma-ray-3-2")).toBe(false);
+		expect(supportsVideoReferenceInput("atlascloud/kling-v3-0")).toBe(false);
 	});
 });
 
