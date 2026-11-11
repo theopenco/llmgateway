@@ -105,13 +105,13 @@ function Newsletter() {
 	);
 }
 
-export function Footer() {
+export function Footer({ newsletter = true }: { newsletter?: boolean }) {
 	const config = useAppConfig();
 
 	return (
 		<footer className="relative border-t py-12 px-4">
 			<div className="container mx-auto max-w-5xl">
-				<Newsletter />
+				{newsletter && <Newsletter />}
 
 				<div className="flex flex-col md:flex-row md:justify-between md:items-start gap-8">
 					<div>
@@ -346,7 +346,22 @@ export function Footer() {
 						&copy; {new Date().getUTCFullYear()} LLM Gateway. All rights
 						reserved.
 					</p>
-					<div className="flex items-center gap-6">
+					<div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+						<Link
+							href="/"
+							hrefLang="en"
+							className="text-sm text-muted-foreground hover:underline underline-offset-4 hover:text-foreground"
+						>
+							English
+						</Link>
+						<Link
+							href="/ko"
+							hrefLang="ko"
+							lang="ko"
+							className="text-sm text-muted-foreground hover:underline underline-offset-4 hover:text-foreground"
+						>
+							한국어
+						</Link>
 						<Link
 							href="/legal/privacy"
 							className="text-sm text-muted-foreground hover:underline underline-offset-4 hover:text-foreground"
