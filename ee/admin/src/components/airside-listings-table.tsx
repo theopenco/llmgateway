@@ -410,8 +410,14 @@ function VerificationCell({
 					.filter((check) => check.status === "failed")
 					.map((check) => check.label)
 			: [];
+	// Only failed runs get the red failure line; a passed run's summary is
+	// not an error.
 	const failure =
-		failedChecks.length > 0 ? failedChecks.join(", ") : latest?.summary;
+		latest?.status !== "failed"
+			? undefined
+			: failedChecks.length > 0
+				? failedChecks.join(", ")
+				: (latest.summary ?? undefined);
 	return (
 		<div data-testid={`listing-verification-${listing.id}`}>
 			<div className="flex items-center gap-2">
