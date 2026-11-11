@@ -158,10 +158,15 @@ async function main() {
 	}
 
 	await db.transaction(async (tx) => {
-		// Block concurrent sign-in account writes (reads still pass) while the
-		// plan is re-read and applied, so no NameID is linked in between. Held
-		// for the few statements below.
-		await tx.execute(sql`LOCK TABLE account IN SHARE ROW EXCLUSIVE MODE`);
+		// Block concurrent account and SCIM membership writes (reads still pass)
+		// while the plan is re-read and applied, so no NameID is linked and no
+		// externalId changes in between. The lock is table-wide, so fail fast
+		// instead of queueing, and write in bulk to keep it short.
+		await tx.execute(sql`SET LOCAL lock_timeout = '5s'`);
+		await tx.execute(sql`SET LOCAL statement_timeout = '30s'`);
+		await tx.execute(
+			sql`LOCK TABLE account, user_organization IN SHARE ROW EXCLUSIVE MODE`,
+		);
 		const result = await plan(tx);
 		report(result);
 		const redundant = result.actions.flatMap((a) =>
@@ -172,18 +177,17 @@ async function main() {
 				.delete(tables.account)
 				.where(inArray(tables.account.id, redundant));
 		}
-		for (const action of result.actions) {
-			if (action.kind === "rewrite") {
-				await tx
-					.update(tables.account)
-					.set({ accountId: action.nameId })
-					.where(
-						and(
-							eq(tables.account.id, action.accountRowId),
-							eq(tables.account.accountId, action.objectId),
-						),
-					);
-			}
+		const rewrites = result.actions.flatMap((a) =>
+			a.kind === "rewrite"
+				? [sql`(${a.accountRowId}, ${a.objectId}, ${a.nameId})`]
+				: [],
+		);
+		if (rewrites.length > 0) {
+			await tx.execute(sql`
+				UPDATE account AS a SET account_id = v.name_id, updated_at = now()
+				FROM (VALUES ${sql.join(rewrites, sql`, `)}) AS v(id, old_id, name_id)
+				WHERE a.id = v.id AND a.account_id = v.old_id
+			`);
 		}
 		if (result.strippedConfig) {
 			await tx

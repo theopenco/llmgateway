@@ -135,6 +135,20 @@ test("never rewrites two accounts onto the same NameID", () => {
 	expect(actions.map((a) => a.kind)).toEqual(["rewrite", "conflict"]);
 });
 
+test("reports a conflict when another user also holds the NameID", () => {
+	const actions = planRekey({
+		accounts: [
+			account("a1", "u1", OID_A),
+			account("x1", "u2", "u1@corp.example"),
+			account("a2", "u1", "u1@corp.example"),
+		],
+		nameIdByObjectId: new Map([[OID_A, "u1@corp.example"]]),
+		scimExternalIdByUser: new Map(),
+		legacyMappingActive: true,
+	});
+	expect(actions.map((a) => a.kind)).toEqual(["conflict"]);
+});
+
 test("compares NameIDs exactly, like the sign-in lookup", () => {
 	const actions = planRekey({
 		accounts: [

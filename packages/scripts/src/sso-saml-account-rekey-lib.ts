@@ -57,11 +57,17 @@ export function planRekey(input: RekeyInput): RekeyAction[] {
 		return [];
 	}
 
-	// Exact match, like Better Auth's account lookup at sign-in.
-	const holders = new Map<string, string>();
+	// Exact match, like Better Auth's account lookup at sign-in. Account ids are
+	// not unique per provider, so keep every holder.
+	const holders = new Map<string, Set<string>>();
+	const hold = (nameId: string, userId: string) => {
+		const set = holders.get(nameId) ?? new Set<string>();
+		set.add(userId);
+		holders.set(nameId, set);
+	};
 	for (const account of input.accounts) {
 		if (!isLegacyObjectId(account.accountId)) {
-			holders.set(account.accountId, account.userId);
+			hold(account.accountId, account.userId);
 		}
 	}
 
@@ -97,16 +103,17 @@ export function planRekey(input: RekeyInput): RekeyAction[] {
 			continue;
 		}
 
-		const heldBy = holders.get(nameId);
-		if (heldBy === account.userId) {
+		const heldBy = [...(holders.get(nameId) ?? [])];
+		const other = heldBy.find((userId) => userId !== account.userId);
+		if (other) {
+			actions.push({ ...base, kind: "conflict", nameId, heldByUserId: other });
+			continue;
+		}
+		if (heldBy.length > 0) {
 			actions.push({ ...base, kind: "delete-redundant", nameId });
 			continue;
 		}
-		if (heldBy) {
-			actions.push({ ...base, kind: "conflict", nameId, heldByUserId: heldBy });
-			continue;
-		}
-		holders.set(nameId, account.userId);
+		hold(nameId, account.userId);
 		actions.push({
 			...base,
 			kind: "rewrite",
