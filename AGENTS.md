@@ -128,7 +128,7 @@ NEVER put internal or private information into anything published to this public
 - Open review feedback (CodeRabbit or human) blocks the merge. Address every item: implement the fix and push, or dismiss it with a one-line reason, then resolve the thread. Docstring Coverage is CodeRabbit's default, not a repo rule; ignore it.
 - Write pull request links in full (`https://github.com/theopenco/llmgateway/pull/<n>`) in every PR status, summary and handoff, never as a bare `#<n>`; a commit hash does not replace the PR link.
 - PRs are ready for review (not drafts) unless the user asks otherwise, and their title and description always reflect the final scope. Split independently reviewable layers into native stacked PRs with `gh stack`.
-- Review is layered, not a single gate: self-review before the PR (`pull-request` skill), CodeRabbit on every PR, a maintainer review requested on `risk: high` (`pr-risk`), then the merge queue. `REVIEW.md` is the brief every reviewer loads; when a finding repeats, fix it at the source (ESLint rule, skill line, `REVIEW.md`) instead of re-explaining it.
+- Review is layered, not a single gate: self-review before the PR (`pull-request` skill), CodeRabbit on every PR, `risk-gate` approval scaled by risk, then the merge queue. `REVIEW.md` is the brief every reviewer loads; when a finding repeats, fix it at the source (ESLint rule, skill line, `REVIEW.md`) instead of re-explaining it.
 
 ## License
 
