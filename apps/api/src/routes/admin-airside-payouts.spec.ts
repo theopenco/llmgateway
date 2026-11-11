@@ -10,6 +10,7 @@ const originalSupportEmails = process.env.ADMIN_SUPPORT_EMAILS;
 const COMPANY_ID = "payout-spec-company";
 const OTHER_COMPANY_ID = "payout-spec-other-company";
 const STATEMENT_ID = "payout-spec-statement";
+const CARRIER = "payout-spec-carrier";
 
 interface Statement {
 	id: string;
@@ -235,5 +236,154 @@ describe("Airside payout statements", () => {
 		expect((await call("/admin/airside/payouts/missing/approve")).status).toBe(
 			404,
 		);
+	});
+
+	describe("backfill and report", () => {
+		const statsRow = (
+			usedModel: string,
+			day: string,
+			values: { cost: number; fee: number; requests: number },
+			usedMode: "credits" | "api-keys" = "credits",
+		) => ({
+			dayTimestamp: new Date(day),
+			usedModel,
+			usedProvider: CARRIER,
+			usedMode,
+			orgKind: "default" as const,
+			requestCount: values.requests,
+			cacheCount: 1,
+			inputTokens: "1000",
+			cachedTokens: "200",
+			cacheWriteTokens: "50",
+			outputTokens: "300",
+			reasoningTokens: "10",
+			cost: values.cost,
+			providerMarginAmount: values.fee,
+		});
+
+		beforeEach(async () => {
+			await db
+				.update(tables.providerClaim)
+				.set({
+					createdAt: new Date("2026-08-15T00:00:00Z"),
+					reviewedAt: new Date("2026-08-15T00:00:00Z"),
+				})
+				.where(eq(tables.providerClaim.providerId, CARRIER));
+			await db.insert(tables.globalModelStats).values([
+				statsRow("model-a", "2026-09-02T00:00:00Z", {
+					cost: 100,
+					fee: 20,
+					requests: 10,
+				}),
+				statsRow("model-a", "2026-09-30T00:00:00Z", {
+					cost: 50.005,
+					fee: 10,
+					requests: 5,
+				}),
+				statsRow("model-b", "2026-09-10T00:00:00Z", {
+					cost: 40,
+					fee: 8,
+					requests: 4,
+				}),
+				// BYOK and other months are not the carrier's payout.
+				statsRow(
+					"model-b",
+					"2026-09-11T00:00:00Z",
+					{ cost: 999, fee: 0, requests: 99 },
+					"api-keys",
+				),
+				statsRow("model-a", "2026-10-01T00:00:00Z", {
+					cost: 7,
+					fee: 1,
+					requests: 1,
+				}),
+			]);
+		});
+
+		afterEach(async () => {
+			await db
+				.delete(tables.globalModelStats)
+				.where(eq(tables.globalModelStats.usedProvider, CARRIER));
+		});
+
+		test("opens a draft for a closed month once", async () => {
+			const backfill = (month: string, providerId = CARRIER) =>
+				call("/admin/airside/payouts/backfill", "POST", { providerId, month });
+
+			const created = await backfill("2026-09");
+			expect(created.status).toBe(201);
+			expect((await created.json()).statement).toMatchObject({
+				status: "draft",
+				requestCount: 19,
+				grossAmount: "190.01",
+				gatewayFeeAmount: "38.00",
+				payoutAmount: "152.01",
+				company: { id: COMPANY_ID },
+			});
+
+			expect((await backfill("2026-09")).status).toBe(409);
+			// Not live yet, not ended yet, not a payout carrier.
+			expect((await backfill("2026-07")).status).toBe(400);
+			expect((await backfill("2999-01")).status).toBe(400);
+			expect((await backfill("2026-09", "unknown-carrier")).status).toBe(400);
+
+			const listed = await app.request("/admin/airside/payouts", {
+				headers: { Cookie: cookie },
+			});
+			expect((await listed.json()).carriers).toEqual([
+				{
+					providerId: CARRIER,
+					name: "Payout Spec Carrier",
+					liveSince: "2026-08-15T00:00:00.000Z",
+				},
+			]);
+		});
+
+		test("carrier downloads a per-model CSV of its statement only", async () => {
+			const { statement } = await (
+				await call("/admin/airside/payouts/backfill", "POST", {
+					providerId: CARRIER,
+					month: "2026-09",
+				})
+			).json();
+
+			const response = await app.request(
+				`/airside/payouts/${statement.id}/report?providerCompanyId=${COMPANY_ID}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(response.status).toBe(200);
+			expect(response.headers.get("content-type")).toContain("text/csv");
+			expect(response.headers.get("content-disposition")).toContain(
+				`airside-payout-${CARRIER}-2026-09.csv`,
+			);
+			expect((await response.text()).trimEnd().split("\n")).toEqual([
+				"period,provider,model,requests,cache_hits,input_tokens,cached_input_tokens,cache_write_tokens,output_tokens,reasoning_tokens,billed_usd,gateway_fee_usd",
+				`2026-09,${CARRIER},model-a,15,2,2000,400,100,600,20,150.01,30.00`,
+				`2026-09,${CARRIER},model-b,4,1,1000,200,50,300,10,40.00,8.00`,
+			]);
+
+			// Another company's id, or a statement outside the company, is a 404.
+			expect(
+				(
+					await app.request(
+						`/airside/payouts/${statement.id}/report?providerCompanyId=${OTHER_COMPANY_ID}`,
+						{ headers: { Cookie: cookie } },
+					)
+				).status,
+			).toBe(404);
+			await db.insert(tables.providerCompanyMember).values({
+				providerCompanyId: OTHER_COMPANY_ID,
+				userId: "test-user-id",
+				role: "owner",
+			});
+			expect(
+				(
+					await app.request(
+						`/airside/payouts/${statement.id}/report?providerCompanyId=${OTHER_COMPANY_ID}`,
+						{ headers: { Cookie: cookie } },
+					)
+				).status,
+			).toBe(404);
+		});
 	});
 });

@@ -1,12 +1,14 @@
 "use client";
-
-import { Loader2 } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
+import { toast } from "sonner";
 
 import { useCompany } from "@/components/dashboard/company-context";
 import { QueryError } from "@/components/dashboard/IncidentsTable";
 import { RelativeDate } from "@/components/RelativeDate";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
 	Card,
 	CardContent,
@@ -22,7 +24,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { useApi } from "@/lib/fetch-client";
+import { useApi, useFetchClient } from "@/lib/fetch-client";
 import { formatUsdCents } from "@/lib/format";
 
 import { AIRSIDE_PAYOUT_STATUS_LABELS } from "@llmgateway/shared/airside-billing";
@@ -66,6 +68,62 @@ function StatusCell({ statement }: { statement: Statement }) {
 				</p>
 			) : null}
 		</div>
+	);
+}
+
+function ReportButton({
+	statement,
+	providerCompanyId,
+}: {
+	statement: Statement;
+	providerCompanyId: string;
+}) {
+	const fetchClient = useFetchClient();
+	const [pending, setPending] = useState(false);
+
+	async function download() {
+		setPending(true);
+		try {
+			const { data, error } = await fetchClient.GET(
+				"/airside/payouts/{id}/report",
+				{
+					params: {
+						path: { id: statement.id },
+						query: { providerCompanyId },
+					},
+					parseAs: "blob",
+				},
+			);
+			if (error || !data) {
+				toast.error("Could not download the report.");
+				return;
+			}
+			const url = URL.createObjectURL(data);
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = `airside-payout-${statement.providerId}-${statement.periodStart.slice(0, 7)}.csv`;
+			link.click();
+			URL.revokeObjectURL(url);
+		} finally {
+			setPending(false);
+		}
+	}
+
+	return (
+		<Button
+			size="sm"
+			variant="outline"
+			disabled={pending}
+			onClick={() => void download()}
+			data-testid={`payout-report-${statement.id}`}
+		>
+			{pending ? (
+				<Loader2 className="size-3.5 animate-spin" />
+			) : (
+				<Download className="size-3.5" />
+			)}
+			CSV
+		</Button>
 	);
 }
 
@@ -133,7 +191,8 @@ export default function PayoutsPage() {
 						On the 1st we consolidate the previous month: the traffic billed at
 						your prices, less the gateway fee you accepted. A preview stays
 						subject to manual adjustments until we approve it; we then pay it
-						out by wire and mark it paid.
+						out by wire and mark it paid. Download a statement&apos;s CSV for a
+						per-model breakdown of requests and tokens to reconcile it.
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -154,6 +213,7 @@ export default function PayoutsPage() {
 									<TableHead className="text-right">Adjustments</TableHead>
 									<TableHead className="text-right">To pay out</TableHead>
 									<TableHead>Status</TableHead>
+									<TableHead className="text-right">Report</TableHead>
 								</TableRow>
 							</TableHeader>
 							<TableBody>
@@ -190,6 +250,12 @@ export default function PayoutsPage() {
 										</TableCell>
 										<TableCell>
 											<StatusCell statement={statement} />
+										</TableCell>
+										<TableCell className="text-right">
+											<ReportButton
+												statement={statement}
+												providerCompanyId={company.id}
+											/>
 										</TableCell>
 									</TableRow>
 								))}

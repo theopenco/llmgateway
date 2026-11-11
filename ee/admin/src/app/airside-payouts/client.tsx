@@ -26,6 +26,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import {
 	Table,
 	TableBody,
 	TableCell,
@@ -93,6 +100,9 @@ export function AirsidePayoutsClient() {
 	const [adjustmentNote, setAdjustmentNote] = useState("");
 	const [paying, setPaying] = useState<Statement | null>(null);
 	const [reference, setReference] = useState("");
+	const [backfilling, setBackfilling] = useState(false);
+	const [backfillCarrier, setBackfillCarrier] = useState("");
+	const [backfillMonth, setBackfillMonth] = useState("");
 
 	const query = $api.useQuery(
 		"get",
@@ -138,7 +148,13 @@ export function AirsidePayoutsClient() {
 		"/admin/airside/payouts/{id}/mark-paid",
 		handlers("Marked as paid.", () => setPaying(null)),
 	);
+	const backfill = $api.useMutation(
+		"post",
+		"/admin/airside/payouts/backfill",
+		handlers("Statement opened as a draft.", () => setBackfilling(false)),
+	);
 	const pending =
+		backfill.isPending ||
 		adjust.isPending ||
 		approve.isPending ||
 		reopen.isPending ||
@@ -153,6 +169,16 @@ export function AirsidePayoutsClient() {
 	}
 
 	const statements = query.data?.statements ?? [];
+	const carriers = query.data?.carriers ?? [];
+	const selectedCarrier = carriers.find(
+		(carrier) => carrier.providerId === backfillCarrier,
+	);
+	// Months that have ended, back to the carrier's first live month.
+	const lastClosedMonth = new Date(
+		Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() - 1, 1),
+	)
+		.toISOString()
+		.slice(0, 7);
 
 	return (
 		<div className="space-y-6 p-4 md:p-8">
@@ -166,6 +192,20 @@ export function AirsidePayoutsClient() {
 					</p>
 				</div>
 				<div className="flex gap-1">
+					{isAdmin ? (
+						<Button
+							size="sm"
+							variant="outline"
+							className="mr-2"
+							onClick={() => {
+								setBackfillCarrier(query.data?.carriers[0]?.providerId ?? "");
+								setBackfillMonth("");
+								setBackfilling(true);
+							}}
+						>
+							Backfill month
+						</Button>
+					) : null}
 					{(["all", ...AIRSIDE_PAYOUT_STATUSES] as const).map((value) => (
 						<Button
 							key={value}
@@ -432,6 +472,65 @@ export function AirsidePayoutsClient() {
 							}
 						>
 							Mark paid
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			<Dialog open={backfilling} onOpenChange={setBackfilling}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Backfill a month</DialogTitle>
+						<DialogDescription>
+							Opens a draft statement for a closed month the worker did not
+							cover, computed from the daily rollups. Review it like any other
+							draft before approving.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="space-y-3">
+						<div className="space-y-1">
+							<Label htmlFor="payout-backfill-carrier">Carrier</Label>
+							<Select
+								value={backfillCarrier}
+								onValueChange={setBackfillCarrier}
+							>
+								<SelectTrigger id="payout-backfill-carrier" className="w-full">
+									<SelectValue placeholder="No payout-mode carriers" />
+								</SelectTrigger>
+								<SelectContent>
+									{carriers.map((carrier) => (
+										<SelectItem
+											key={carrier.providerId}
+											value={carrier.providerId}
+										>
+											{carrier.name} ({carrier.providerId})
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+						<div className="space-y-1">
+							<Label htmlFor="payout-backfill-month">Month (UTC)</Label>
+							<Input
+								id="payout-backfill-month"
+								type="month"
+								value={backfillMonth}
+								min={selectedCarrier?.liveSince.slice(0, 7)}
+								max={lastClosedMonth}
+								onChange={(event) => setBackfillMonth(event.target.value)}
+							/>
+						</div>
+					</div>
+					<DialogFooter>
+						<Button
+							disabled={pending || !backfillCarrier || !backfillMonth}
+							onClick={() =>
+								backfill.mutate({
+									body: { providerId: backfillCarrier, month: backfillMonth },
+								})
+							}
+						>
+							Open statement
 						</Button>
 					</DialogFooter>
 				</DialogContent>

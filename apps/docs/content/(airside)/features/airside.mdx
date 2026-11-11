@@ -184,6 +184,8 @@ On the **Payout** mode, the **Payouts** page shows one statement per carrier and
 - **Adjustments** — corrections made by the LLM Gateway team, each with a note.
 - **To pay out** — billed traffic minus the gateway fee, plus adjustments.
 
+**CSV** on a statement downloads its per-model breakdown — requests, cache hits, input, cached input, cache-write, output and reasoning tokens, billed amount and gateway fee — covering the same traffic as the statement, so you can reconcile it against your own records. It is recomputed from current data on each download.
+
 A new statement is a **Preview**: it keeps updating as late traffic is aggregated and stays subject to manual adjustments. About a day after the month closes we review and approve it; the amounts are then final unless we reopen it to correct an error, which returns it to Preview. After we send the wire it shows **Paid** with the payment date and reference.
 
 ## Traffic

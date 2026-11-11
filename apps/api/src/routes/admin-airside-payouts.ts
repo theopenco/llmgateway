@@ -17,7 +17,9 @@ import {
 	desc,
 	eq,
 	inArray,
+	isPayoutClaimLiveDuring,
 	sql,
+	sumAirsideCarrierTraffic,
 	tables,
 	type SQL,
 } from "@llmgateway/db";
@@ -145,6 +147,14 @@ const listPayouts = createRoute({
 				"application/json": {
 					schema: z.object({
 						statements: z.array(adminPayoutStatementSchema),
+						// Payout-mode carriers, for the backfill picker.
+						carriers: z.array(
+							z.object({
+								providerId: z.string(),
+								name: z.string(),
+								liveSince: z.string(),
+							}),
+						),
 					}),
 				},
 			},
@@ -153,14 +163,128 @@ const listPayouts = createRoute({
 	},
 });
 
+/** Payout-mode claims of `providerId` (all when omitted), active first. */
+async function payoutClaims(providerId?: string) {
+	const claims = await db.query.providerClaim.findMany({
+		where: {
+			billingMode: { eq: "payout" },
+			status: { in: ["active", "revoked"] },
+			...(providerId ? { providerId: { eq: providerId } } : {}),
+		},
+		columns: {
+			providerId: true,
+			providerCompanyId: true,
+			status: true,
+			createdAt: true,
+			reviewedAt: true,
+			revokedAt: true,
+		},
+	});
+	return claims.sort(
+		(a, b) => Number(b.status === "active") - Number(a.status === "active"),
+	);
+}
+
 adminAirsidePayouts.openapi(listPayouts, async (c) => {
 	const { status } = c.req.valid("query");
-	const rows = await db
-		.select()
-		.from(statement)
-		.where(status ? eq(statement.status, status) : undefined)
-		.orderBy(desc(statement.periodStart), statement.providerId);
-	return c.json({ statements: await serializeAdminStatements(rows) });
+	const [rows, claims] = await Promise.all([
+		db
+			.select()
+			.from(statement)
+			.where(status ? eq(statement.status, status) : undefined)
+			.orderBy(desc(statement.periodStart), statement.providerId),
+		payoutClaims(),
+	]);
+	const names = await carrierNames(claims);
+	const carriers = new Map<string, { name: string; liveSince: string }>();
+	for (const claim of claims) {
+		if (!carriers.has(claim.providerId)) {
+			carriers.set(claim.providerId, {
+				name: names.get(claim.providerId) ?? claim.providerId,
+				liveSince: (claim.reviewedAt ?? claim.createdAt).toISOString(),
+			});
+		}
+	}
+	return c.json({
+		statements: await serializeAdminStatements(rows),
+		carriers: [...carriers]
+			.map(([providerId, carrier]) => ({ providerId, ...carrier }))
+			.sort((a, b) => a.name.localeCompare(b.name)),
+	});
+});
+
+const backfillPayout = createRoute({
+	method: "post",
+	path: "/airside/payouts/backfill",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						providerId: z.string().min(1),
+						// UTC calendar month, e.g. "2026-09".
+						month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Use YYYY-MM"),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({ statement: adminPayoutStatementSchema }),
+				},
+			},
+			description: "The opened draft statement, computed from the rollups.",
+		},
+	},
+});
+
+// Opens a draft for a past month the worker never covered (it only opens the
+// previous month). The worker then refreshes it like any other draft.
+adminAirsidePayouts.openapi(backfillPayout, async (c) => {
+	const { providerId, month } = c.req.valid("json");
+	const [year, monthIndex] = month.split("-").map(Number);
+	const periodStart = new Date(Date.UTC(year, monthIndex - 1, 1));
+	const periodEnd = new Date(Date.UTC(year, monthIndex, 1));
+	if (periodEnd > new Date()) {
+		throw new HTTPException(400, {
+			message: "Only a month that has already ended can be backfilled.",
+		});
+	}
+	const claim = (await payoutClaims(providerId)).find((candidate) =>
+		isPayoutClaimLiveDuring(candidate, periodStart, periodEnd),
+	);
+	if (!claim) {
+		throw new HTTPException(400, {
+			message: `${providerId} had no live payout-mode claim in ${month}.`,
+		});
+	}
+	const totals = await sumAirsideCarrierTraffic(
+		providerId,
+		periodStart,
+		periodEnd,
+	);
+	const [row] = await db
+		.insert(statement)
+		.values({
+			providerCompanyId: claim.providerCompanyId,
+			providerId,
+			periodStart,
+			periodEnd,
+			...totals,
+			computedAt: new Date(),
+		})
+		.onConflictDoNothing()
+		.returning();
+	if (!row) {
+		throw new HTTPException(409, {
+			message: `A ${month} statement for ${providerId} already exists.`,
+		});
+	}
+	const [serialized] = await serializeAdminStatements([row]);
+	return c.json({ statement: serialized }, 201);
 });
 
 const updatePayout = createRoute({
