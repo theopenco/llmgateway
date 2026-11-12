@@ -56,10 +56,13 @@ export function assertProductionDatabase(
 	databaseHost: string,
 	allowLocalDatabase: boolean,
 ): void {
-	// As the URL parser reads it, so LOCALHOST, 127.1 or 0x7f.0.0.1 count too.
-	const host = URL.canParse(`http://${databaseHost}`)
-		? new URL(`http://${databaseHost}`).hostname
-		: databaseHost;
+	// As the URL parser reads it and without the root dot, so LOCALHOST, 127.1,
+	// 0x7f.0.0.1 or localhost. count too.
+	const host = (
+		URL.canParse(`http://${databaseHost}`)
+			? new URL(`http://${databaseHost}`).hostname
+			: databaseHost
+	).replace(/\.+$/, "");
 	const local = LOCAL_HOSTS.has(host) || IPV4_LOOPBACK.test(host);
 	if (local && !allowLocalDatabase) {
 		throw new Error(

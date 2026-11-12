@@ -178,6 +178,8 @@ test("a write run refuses a local or empty database", () => {
 	for (const databaseHost of [
 		"localhost",
 		"LOCALHOST",
+		"localhost.",
+		"127.0.0.1.",
 		"127.0.0.1",
 		"127.0.0.2",
 		"127.255.255.254",
