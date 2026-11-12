@@ -217,9 +217,16 @@ const modelSchema = z.object({
 				.optional(),
 			json_output: z.boolean().optional(),
 			structured_outputs: z.boolean().optional(),
-			web_search: z.boolean().optional(),
 			verbosity: z.boolean().optional(),
 			reasoning: z.boolean(),
+			web_search: z.boolean().openapi({
+				description:
+					"Whether this mapping supports native web search through the web_search tool.",
+			}),
+			web_search_forced_only: z.boolean().openapi({
+				description:
+					'Whether this mapping only searches when the request forces it with tool_choice: {"type": "web_search"}. A web_search tool that is merely offered is not routed to it, and is dropped when no other mapping can choose to search on its own.',
+			}),
 			reasoning_efforts: z.array(reasoningEffortSchema).optional().openapi({
 				description:
 					"Exact reasoning_effort values this provider mapping accepts, in ascending order of effort. Omitted when the supported values are not declared for the mapping.",
@@ -268,6 +275,10 @@ const modelSchema = z.object({
 	supported_parameters: z.array(z.string()).optional(),
 	json_output: z.boolean(),
 	structured_outputs: z.boolean(),
+	web_search: z.boolean().openapi({
+		description:
+			"Whether at least one still-servable provider mapping supports native web search through the web_search tool (deactivated mappings are excluded).",
+	}),
 	free: z.boolean().optional(),
 	image_input_required: z.boolean().optional(),
 	deprecated_at: z.string().optional(),
@@ -580,6 +591,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 							}),
 							json_output: provider.jsonOutput === true,
 							structured_outputs: provider.jsonOutputSchema === true,
+							web_search: provider.webSearch === true,
 							free: model.free ?? false,
 							image_input_required: model.imageInputRequired,
 							deprecated_at: provider.deprecatedAt?.toISOString(),
@@ -681,6 +693,9 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 				structured_outputs: (model.providers as ProviderModelMapping[])
 					.filter((p) => !(p.deactivatedAt && currentDate > p.deactivatedAt))
 					.some((p) => p.jsonOutputSchema === true),
+				web_search: (model.providers as ProviderModelMapping[])
+					.filter((p) => !(p.deactivatedAt && currentDate > p.deactivatedAt))
+					.some((p) => p.webSearch === true),
 				free: model.free ?? false,
 				image_input_required: model.imageInputRequired,
 				// A model is only deprecated/deactivated once EVERY provider mapping
@@ -770,9 +785,11 @@ function serializeProviderMapping(
 			: undefined,
 		json_output: provider.jsonOutput,
 		structured_outputs: provider.jsonOutputSchema,
-		web_search: provider.webSearch,
 		verbosity: provider.verbosity,
 		reasoning: provider.reasoning ?? false,
+		web_search: provider.webSearch === true,
+		web_search_forced_only:
+			provider.webSearch === true && provider.webSearchForcedOnly === true,
 		reasoning_efforts: provider.reasoningEfforts,
 		reasoning_modes: provider.reasoningModes,
 		reasoning_max_tokens: provider.reasoningMaxTokens,
