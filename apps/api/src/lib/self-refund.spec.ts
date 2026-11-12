@@ -142,6 +142,45 @@ describe("computeSelfRefundEligibility", () => {
 		});
 	});
 
+	test("a clawed-back end-user bonus does not hide first top-up usage", async () => {
+		// 60 funded into an end-user wallet, then returned by an end-user refund;
+		// all 100 purchased credits were consumed.
+		await seedOrg({ credits: "0" });
+		const tx = await seedTransaction();
+		for (const creditAmount of ["-60", "60"]) {
+			await seedTransaction({
+				type: "end_user_bonus",
+				amount: "60",
+				creditAmount,
+				status: "completed",
+				stripePaymentIntentId: null,
+			});
+		}
+
+		expect(await getEligibility(tx.id)).toEqual({
+			eligible: false,
+			reason: "usage_exceeded",
+		});
+	});
+
+	test("credits moved into an end-user wallet count as first top-up usage", async () => {
+		// The whole top-up was granted to an end-user wallet and spent there.
+		await seedOrg({ credits: "0" });
+		const tx = await seedTransaction();
+		await seedTransaction({
+			type: "end_user_bonus",
+			amount: "100",
+			creditAmount: "-100",
+			status: "completed",
+			stripePaymentIntentId: null,
+		});
+
+		expect(await getEligibility(tx.id)).toEqual({
+			eligible: false,
+			reason: "usage_exceeded",
+		});
+	});
+
 	test("negative balance disqualifies the first top-up", async () => {
 		await seedOrg({ credits: "-5" });
 		const tx = await seedTransaction();
@@ -512,7 +551,11 @@ describe("computeSelfRefundEligibility", () => {
 		"repeat top-up boundary with $credits remaining",
 		async ({ credits, eligible }) => {
 			await seedOrg({ credits });
-			await seedTransaction({ createdAt: daysAgo(5) });
+			// A repeat top-up is a separate payment, so it has its own intent.
+			await seedTransaction({
+				createdAt: daysAgo(5),
+				stripePaymentIntentId: "pi_test_previous",
+			});
 			const latest = await seedTransaction();
 			expect(await getEligibility(latest.id)).toEqual(
 				eligible

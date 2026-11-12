@@ -40,7 +40,6 @@ interface ProviderDetail {
 			companyWebsite: string | null;
 			members: { id: string; email: string; role: string }[];
 			listedModels: string[];
-			verificationKeyMasked: string | null;
 			billingMode: string;
 			modelOverrides: { modelId: string; discountPercent: number }[];
 			pendingFilings: { id: string; modelId: string | null }[];
@@ -173,9 +172,12 @@ describe("admin provider detail for airside carriers", () => {
 			headers: { Cookie: cookie },
 		});
 		const detail = (await response.json()) as ProviderDetail;
+		expect(detail.airside?.settings).not.toHaveProperty(
+			"verificationKeyMasked",
+		);
+		expect(JSON.stringify(detail)).not.toContain("sk-...abcd");
 		expect(detail.airside?.settings).toMatchObject({
 			customBaseUrl: "https://airside-detail.example/v1",
-			verificationKeyMasked: "sk-...abcd",
 			modelOverrides: [{ modelId: MODEL_ID, discountPercent: 0.05 }],
 			pendingFilings: [{ id: FILING_ID, modelId: null }],
 		});
@@ -278,7 +280,7 @@ describe("admin provider detail for airside carriers", () => {
 					},
 				)
 			).status,
-		).toBe(200);
+		).toBe(404);
 		expect(
 			(
 				await send("PATCH", `/admin/airside/companies/${COMPANY_ID}`, {
@@ -331,7 +333,9 @@ describe("admin provider detail for airside carriers", () => {
 				modelOverrides: [{ modelId: MODEL_ID, discountPercent: 0.3 }],
 			},
 		});
-		expect(detail.airside?.settings.verificationKeyMasked).toMatch(/abcd$/);
+		expect(detail.airside?.settings).not.toHaveProperty(
+			"verificationKeyMasked",
+		);
 
 		expect(
 			(
@@ -348,14 +352,13 @@ describe("admin provider detail for airside carriers", () => {
 					`/admin/airside/claims/${CLAIM_ID}/verification-key`,
 				)
 			).status,
-		).toBe(200);
+		).toBe(404);
 		detail = (await (
 			await app.request(`/admin/providers/${CARRIER_ID}`, {
 				headers: { Cookie: cookie },
 			})
 		).json()) as ProviderDetail;
 		expect(detail.airside?.settings).toMatchObject({
-			verificationKeyMasked: null,
 			modelOverrides: [],
 		});
 

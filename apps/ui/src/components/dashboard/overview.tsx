@@ -28,6 +28,7 @@ import {
 	type ChartPoint,
 	isSegmentShown,
 	segmentField,
+	type UsageGrain,
 	visibleSegments,
 } from "./overview-data";
 
@@ -47,6 +48,7 @@ interface OverviewProps {
 	isComparisonError?: boolean;
 	metric?: "costs" | "requests";
 	costView?: "total" | "breakdown";
+	grain?: UsageGrain;
 }
 
 const COLORS = {
@@ -92,8 +94,15 @@ function comparisonName(mode: UsageComparisonMode | undefined): string {
 	}
 }
 
+function formatBucket(start: string, end: string | undefined): string {
+	return end && end !== start
+		? formatUsageDateRange({ from: parseISO(start), to: parseISO(end) })
+		: format(parseISO(start), "MMM d, yyyy");
+}
+
 function TooltipSection({
 	date,
+	endDate,
 	label,
 	point,
 	metric,
@@ -101,6 +110,7 @@ function TooltipSection({
 	comparison = false,
 }: {
 	date: string;
+	endDate?: string;
 	label: string;
 	point: ChartPoint;
 	metric: "costs" | "requests";
@@ -118,7 +128,7 @@ function TooltipSection({
 			<div className="flex items-baseline justify-between gap-6">
 				<p className="text-xs font-medium text-muted-foreground">{label}</p>
 				<p className="text-xs tabular-nums text-muted-foreground">
-					{format(parseISO(date), "MMM d, yyyy")}
+					{formatBucket(date, endDate)}
 				</p>
 			</div>
 			{metric === "requests" ? (
@@ -189,6 +199,7 @@ function CustomTooltip({
 			{point.currentDate && (
 				<TooltipSection
 					date={point.currentDate}
+					endDate={point.currentEndDate}
 					label="Current"
 					point={point}
 					metric={metric}
@@ -198,6 +209,7 @@ function CustomTooltip({
 			{point.comparisonDate && (
 				<TooltipSection
 					date={point.comparisonDate}
+					endDate={point.comparisonEndDate}
 					label={comparisonName(comparisonMode)}
 					point={point}
 					metric={metric}
@@ -275,7 +287,7 @@ export function Overview({ isLoading = false, data, ...props }: OverviewProps) {
 	);
 }
 
-/** Daily spend or request bars, optionally stacked by cost type. */
+/** Spend or request bars per day, week or month, optionally stacked by cost type. */
 export function UsageOverviewChart({
 	currentRange,
 	data,
@@ -286,6 +298,7 @@ export function UsageOverviewChart({
 	isComparisonError = false,
 	metric = "costs",
 	costView = "total",
+	grain = "day",
 }: Omit<OverviewProps, "isLoading" | "data"> & {
 	currentRange: UsageDateRange;
 	data: DailyActivity[];
@@ -305,6 +318,7 @@ export function UsageOverviewChart({
 		data,
 		comparisonRange,
 		comparisonData,
+		grain,
 	);
 
 	const segments = visibleSegments(chartData);
@@ -375,9 +389,13 @@ export function UsageOverviewChart({
 						dataKey="index"
 						tickFormatter={(value: number) => {
 							const date = chartData[value]?.currentDate;
-							return date
-								? format(parseISO(date), "MMM d")
-								: `Day ${value + 1}`;
+							if (!date) {
+								return `${grain === "day" ? "Day" : grain === "week" ? "Week" : "Month"} ${value + 1}`;
+							}
+							return format(
+								parseISO(date),
+								grain === "month" ? "MMM yyyy" : "MMM d",
+							);
 						}}
 						stroke="#888888"
 						fontSize={12}
@@ -403,7 +421,7 @@ export function UsageOverviewChart({
 								comparisonMode={comparisonMode}
 							/>
 						}
-						cursor={{ stroke: "currentColor", strokeOpacity: 0.15 }}
+						cursor={{ fill: "currentColor", fillOpacity: 0.08 }}
 					/>
 					{metric === "costs" &&
 						costView === "breakdown" &&

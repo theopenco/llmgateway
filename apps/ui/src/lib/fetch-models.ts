@@ -1,5 +1,6 @@
 import { cache } from "react";
 
+import { getVirtualModelTarget } from "@llmgateway/models";
 import {
 	fetchModelsFromApi,
 	fetchProvidersFromApi,
@@ -27,6 +28,7 @@ export const fetchModelDiscounts = cache(
 		revalidate: number | false = 60,
 	): Promise<DiscountData[]> => {
 		const config = getConfig();
+		modelId = getVirtualModelTarget(modelId)?.id ?? modelId;
 		try {
 			const response = await fetch(
 				`${config.apiBackendUrl}/public/discounts/model/${encodeURIComponent(modelId)}`,

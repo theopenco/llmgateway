@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { getModelImageConfig } from "./image-generation-config.js";
+import { models } from "@llmgateway/models";
+
+import {
+	FAL_IMAGE_SIZES,
+	getModelImageConfig,
+	isFalImageModel,
+} from "./image-generation-config.js";
+
+import type { ProviderModelMapping } from "@llmgateway/models";
 
 describe("getModelImageConfig", () => {
 	it("uses pixel presets for models that require dimensions", () => {
@@ -12,6 +20,51 @@ describe("getModelImageConfig", () => {
 			).toBe(true);
 		}
 	});
+	it("offers the priced fal size presets", () => {
+		for (const model of [
+			"flux-2-klein-4b",
+			"fal-ai/flux-3-klein",
+			"z-image-turbo",
+			"fal-ai/recraft-v4.1-flash",
+		]) {
+			expect(isFalImageModel(model)).toBe(true);
+			const config = getModelImageConfig(model);
+			expect(config.usesPixelDimensions).toBe(true);
+			expect(config.availableSizes).toEqual(FAL_IMAGE_SIZES);
+			expect(config.defaultSize).toBe("1024x1024");
+		}
+		expect(isFalImageModel("flux-3-max")).toBe(false);
+	});
+	it("prices every fal size preset in the catalogue", () => {
+		const falImageModels = models.filter((model) =>
+			model.providers.some(
+				(p) =>
+					p.providerId === "fal-ai" &&
+					(p as ProviderModelMapping).imageGenerations === true,
+			),
+		);
+		expect(falImageModels.map((model) => model.id).sort()).toEqual([
+			"flux-2-klein-4b",
+			"flux-3-klein",
+			"recraft-v4.1-flash",
+			"z-image-turbo",
+		]);
+		// Either one flat price, or a price for every preset plus a "default"
+		// equal to the 1024x1024 size the gateway sends when none is requested.
+		for (const model of falImageModels) {
+			expect(isFalImageModel(model.id)).toBe(true);
+			const prices =
+				(model.providers[0] as ProviderModelMapping).perImagePrice ?? {};
+			if (Object.keys(prices).length === 1) {
+				expect(Object.keys(prices)).toEqual(["default"]);
+				continue;
+			}
+			expect(Object.keys(prices).sort()).toEqual(
+				[...FAL_IMAGE_SIZES, "default"].sort(),
+			);
+			expect(prices.default).toBe(prices["1024x1024"]);
+		}
+	});
 	it("allows up to 10 reference images for Qwen Image 2.1", () => {
 		for (const model of [
 			"alibaba/qwen-image-2.1-pro",
@@ -21,6 +74,18 @@ describe("getModelImageConfig", () => {
 			expect(config.maxInputImages).toBe(10);
 			expect(config.defaultSize).toBe("1024x1024");
 		}
+	});
+	it("offers Wan 2.7 Image resolution tiers and 9 input images", () => {
+		for (const model of ["wan-2-7-image", "alibaba/wan-2-7-image"]) {
+			const config = getModelImageConfig(model);
+			expect(config.usesPixelDimensions).toBe(false);
+			expect(config.availableSizes).toEqual(["1K", "2K"]);
+			expect(config.defaultSize).toBe("2K");
+			expect(config.maxInputImages).toBe(9);
+		}
+		expect(
+			getModelImageConfig("alibaba/wan-2-7-image-pro").availableSizes,
+		).toEqual(["1K", "2K", "4K"]);
 	});
 	it("exposes the cheapest supported image options", () => {
 		const gptImage = getModelImageConfig("openai/gpt-image-2");
@@ -59,5 +124,12 @@ describe("getModelImageConfig", () => {
 		expect(config.availableSizes).toEqual(["1K", "2K", "4K"]);
 		expect(config.defaultSize).toBe("1K");
 		expect(config.maxInputImages).toBe(14);
+	});
+
+	it("offers only 1K for Gemini 2.5 Flash Image", () => {
+		const config = getModelImageConfig("google-vertex/gemini-2.5-flash-image");
+
+		expect(config.availableSizes).toEqual(["1K"]);
+		expect(config.defaultSize).toBe("1K");
 	});
 });

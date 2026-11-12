@@ -1,5 +1,12 @@
 import { getChatPlanMinimumTier } from "@/chat-plans.js";
-import { isPremiumModel } from "@/model-categories.js";
+import {
+	isPremiumModel,
+	discountLookupFromMappings,
+} from "@/model-categories.js";
+
+import { expandVirtualModels } from "@llmgateway/models";
+
+import type { BatchEndpoint } from "@llmgateway/models";
 
 export interface TimeBasedTokenPrices {
 	inputPrice: string;
@@ -122,6 +129,7 @@ export interface ApiModelProviderMapping {
 	realtimeTranscription?: boolean | null;
 	realtimeTranscriptionTurnDetection?: boolean | null;
 	supportedVoices?: string[] | null;
+	batchEndpoints?: BatchEndpoint[] | null;
 	supportedVideoSizes: string[] | null;
 	supportedVideoDurationsSeconds: number[] | null;
 	supportedVideoDurationsSecondsImageToVideo?: number[] | null;
@@ -201,6 +209,8 @@ export interface ApiModel {
 	 * (treated as "catalog").
 	 */
 	source?: "catalog" | "custom";
+	/** Current canonical cut of a moving alias. */
+	virtualModelTarget?: string;
 }
 
 type NextFetchInit = RequestInit & { next?: { revalidate?: number } };
@@ -235,11 +245,16 @@ export async function fetchModelsFromApi(
 		const data = await response.json();
 		const models: Omit<ApiModel, "premium" | "loungePlan">[] =
 			data.models ?? [];
-		const withPremium = models.map((model) => ({
-			...model,
-			premium: isPremiumModel(model.id),
-			loungePlan: getChatPlanMinimumTier(model.id),
-		}));
+		const withPremium = expandVirtualModels(
+			models.map((model) => ({
+				...model,
+				premium: isPremiumModel(
+					model.id,
+					discountLookupFromMappings(model.mappings),
+				),
+				loungePlan: getChatPlanMinimumTier(model.id),
+			})),
+		);
 		modelsMemo.set(apiBackendUrl, {
 			data: withPremium,
 			fetchedAt: Date.now(),

@@ -1,11 +1,11 @@
 "use client";
 
 import { keepPreviousData } from "@tanstack/react-query";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { useUsageMode } from "@/components/usage-mode-selector";
 import { useApi } from "@/lib/fetch-client";
+import { parseUsageBreakdown } from "@/lib/usage-breakdown";
 
 import {
 	OrganizationUsageTimeseries,
@@ -36,23 +36,31 @@ function parseWindow(value: string | null): TokenWindow {
 	return "1d";
 }
 
-function parseGroupBy(value: string | null): OrganizationCostGroupBy {
-	return value === "project" || value === "api-key" || value === "user"
-		? value
-		: "model";
-}
-
-function parseModelView(value: string | null): ModelView {
-	return value === "canonical" ? "canonical" : "mapping";
-}
-
 export function OrgCostByModelTimeseries({ orgId }: { orgId: string }) {
-	const searchParams = useSearchParams();
-	const router = useRouter();
-	const pathname = usePathname();
-	const window = parseWindow(searchParams.get("window"));
-	const groupBy = parseGroupBy(searchParams.get("breakdown"));
-	const modelView = parseModelView(searchParams.get("modelView"));
+	const params = useSearchParams();
+	const window = parseWindow(params.get("window"));
+	const { groupBy, modelView } = parseUsageBreakdown(params, "organization");
+	return (
+		<OrgUsageTimeseries
+			key={modelView}
+			orgId={orgId}
+			window={window}
+			groupBy={groupBy}
+			modelView={modelView}
+		/>
+	);
+}
+function OrgUsageTimeseries({
+	orgId,
+	window,
+	groupBy,
+	modelView,
+}: {
+	orgId: string;
+	window: TokenWindow;
+	groupBy: OrganizationCostGroupBy;
+	modelView: ModelView;
+}) {
 	const days = {
 		"1h": 1 / 24,
 		"4h": 4 / 24,
@@ -64,7 +72,7 @@ export function OrgCostByModelTimeseries({ orgId }: { orgId: string }) {
 		"365d": 365,
 	}[window];
 	const controls = useUsageTimeseriesControls(days);
-	const usageMode = useUsageMode();
+	const mode = useUsageMode();
 	const api = useApi();
 	const query = api.useQuery(
 		"get",
@@ -72,43 +80,20 @@ export function OrgCostByModelTimeseries({ orgId }: { orgId: string }) {
 		{
 			params: {
 				path: { orgId },
-				query: {
-					window,
-					modelView,
-					groupBy,
-					...controls.query,
-					mode: usageMode,
-				},
+				query: { window, modelView, groupBy, ...controls.query, mode },
 			},
 		},
 		{ placeholderData: keepPreviousData },
 	);
-
-	const updateView = useCallback(
-		(updates: { groupBy?: OrganizationCostGroupBy; modelView?: ModelView }) => {
-			const params = new URLSearchParams(searchParams.toString());
-			if (updates.groupBy) {
-				if (updates.groupBy === "model") {
-					params.delete("breakdown");
-				} else {
-					params.set("breakdown", updates.groupBy);
-				}
-			}
-			if (updates.modelView) {
-				if (updates.modelView === "mapping") {
-					params.delete("modelView");
-				} else {
-					params.set("modelView", updates.modelView);
-				}
-			}
-			const query = params.toString();
-			router.push(query ? `${pathname}?${query}` : pathname);
-		},
-		[pathname, router, searchParams],
-	);
-
 	return (
 		<OrganizationUsageTimeseries
+			modelLabel={
+				modelView === "provider"
+					? "Provider"
+					: modelView === "family"
+						? "Family"
+						: "Model"
+			}
 			data={query.data?.timeseries}
 			loading={query.isFetching}
 			error={query.isError}
@@ -116,27 +101,8 @@ export function OrgCostByModelTimeseries({ orgId }: { orgId: string }) {
 				void query.refetch();
 			}}
 			controls={controls}
-			mode={usageMode}
+			mode={mode}
 			groupBy={groupBy === "api-key" ? "apiKey" : groupBy}
-			onGroupByChange={(value) =>
-				updateView({ groupBy: value === "apiKey" ? "api-key" : value })
-			}
-			modelViewControl={
-				groupBy === "model" ? (
-					<select
-						aria-label="Model view"
-						className="rounded-md border border-input bg-background px-3 py-1.5 text-xs"
-						value={modelView}
-						onChange={(event) => {
-							controls.setModel("");
-							updateView({ modelView: event.target.value as ModelView });
-						}}
-					>
-						<option value="mapping">Mappings</option>
-						<option value="canonical">Canonical</option>
-					</select>
-				) : undefined
-			}
 		/>
 	);
 }

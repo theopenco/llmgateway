@@ -2,6 +2,12 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { app } from "@/app.js";
+import {
+	svgOptionsSchema,
+	imageAnimationFields,
+	imageMarkupSchema,
+	validateImageAnimation,
+} from "@/chat/schemas/completions.js";
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import {
 	extractCustomHeaders,
@@ -18,6 +24,8 @@ import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { ExpectedHTTPException } from "@/lib/expected-http-exception.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
+import { imageFormatFromBase64 } from "@/lib/image-format.js";
+import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
@@ -25,74 +33,101 @@ import { parseDataUrl, processImageUrl } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import { models, providers } from "@llmgateway/models";
-import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { parseDynamicRouteModel } from "@llmgateway/shared/dynamic-route";
 
 import { isValidBase64ImageDataUrl } from "./data-url.js";
 
+import type { ImageFormat } from "@/lib/image-format.js";
 import type { ServerTypes } from "@/vars.js";
+import type { ProviderModelMapping } from "@llmgateway/models";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
-const imageGenerationsRequestSchema = z.object({
-	prompt: z.string().min(1).openapi({
-		description: "A text description of the desired image(s).",
-		example: "A white siamese cat",
-	}),
-	model: z.string().optional().default("auto").openapi({
-		description:
-			"The model to use for image generation. Defaults to auto which selects an appropriate image generation model.",
-		example: "gemini-3.1-flash-image",
-	}),
-	n: z.number().int().min(1).max(10).optional().default(1).openapi({
-		description: "The number of images to generate. Must be between 1 and 10.",
-		example: 1,
-	}),
-	size: z.string().optional().openapi({
-		description:
-			"The size of the generated images. Supported sizes depend on the model and provider.",
-		example: "1024x1024",
-	}),
-	quality: z
-		.enum(["standard", "hd", "low", "medium", "high", "xhigh", "max", "auto"])
-		.optional()
-		.openapi({
-			description:
-				"The quality of the image that will be generated. Supported values depend on the model and provider.",
-			example: "standard",
+const imageGenerationsRequestSchema = z
+	.object({
+		prompt: z.string().min(1).openapi({
+			description: "A text description of the desired image(s).",
+			example: "A white siamese cat",
 		}),
-	response_format: z
-		.literal("b64_json")
-		.optional()
-		.default("b64_json")
-		.openapi({
+		model: z.string().optional().default("auto").openapi({
 			description:
-				"The format in which the generated images are returned. Only b64_json is supported since images are generated via chat completions models.",
-			example: "b64_json",
+				"The model to use for image generation. Defaults to auto which selects an appropriate image generation model.",
+			example: "gemini-3.1-flash-image",
 		}),
-	style: z.enum(["vivid", "natural"]).optional().openapi({
-		description: "The style of the generated images.",
-		example: "vivid",
-	}),
-	aspect_ratio: z.string().optional().openapi({
-		description:
-			"The aspect ratio of the generated images (e.g. '1:1', '16:9', '4:3', '5:4'). Takes precedence over size if both are provided.",
-		example: "16:9",
-	}),
-	moderation: z.enum(["auto", "low"]).optional().openapi({
-		description:
-			"Content moderation strictness for models that support it (GPT Image). 'auto' applies the default filtering, 'low' is less restrictive. Ignored by models without a moderation control.",
-		example: "low",
-	}),
-	service_tier: z
-		.enum(["auto", "default", "flex", "priority"])
-		.optional()
-		.openapi({
+		n: z.number().int().min(1).max(10).optional().default(1).openapi({
 			description:
-				"Processing tier for the request, forwarded to the underlying chat completion. `flex` and `priority` are only accepted for provider/model mappings that support the tier; an unsupported tier returns a 400 `unsupported_service_tier` error.",
-			example: "flex",
+				"The number of images to generate. Must be between 1 and 10.",
+			example: 1,
 		}),
-});
+		size: z.string().optional().openapi({
+			description:
+				"The size of the generated images. Supported sizes depend on the model and provider.",
+			example: "1024x1024",
+		}),
+		quality: z
+			.enum(["standard", "hd", "low", "medium", "high", "xhigh", "max", "auto"])
+			.optional()
+			.openapi({
+				description:
+					"The quality of the image that will be generated. Supported values depend on the model and provider.",
+				example: "standard",
+			}),
+		response_format: z
+			.literal("b64_json")
+			.optional()
+			.default("b64_json")
+			.openapi({
+				description:
+					"The format in which the generated images are returned. Only b64_json is supported since images are generated via chat completions models.",
+				example: "b64_json",
+			}),
+		style: z.enum(["vivid", "natural"]).optional().openapi({
+			description: "The style of the generated images.",
+			example: "vivid",
+		}),
+		aspect_ratio: z.string().optional().openapi({
+			description:
+				"The aspect ratio of the generated images (e.g. '1:1', '16:9', '4:3', '5:4'). Takes precedence over size if both are provided.",
+			example: "16:9",
+		}),
+		complexity: z.enum(["low", "medium", "high"]).optional().openapi({
+			description:
+				"Image complexity for supported models. When omitted, the provider default applies.",
+			example: "low",
+		}),
+		moderation: z.enum(["auto", "low"]).optional().openapi({
+			description:
+				"Content moderation strictness for models that support it (GPT Image). 'auto' applies the default filtering, 'low' is less restrictive. Ignored by models without a moderation control.",
+			example: "low",
+		}),
+		output_format: z
+			.enum(["png", "jpeg", "webp", "svg", "gif"])
+			.optional()
+			.openapi({
+				description:
+					"The file format of the generated image for GPT Image models. `svg` returns a base64-encoded SVG document in `b64_json`; it requires a model with SVG output (GPT Image 2.6) and `n` of 1, and does not accept `output_compression`.",
+				example: "svg",
+			}),
+		svg: svgOptionsSchema.nullable().optional().openapi({
+			description:
+				"SVG author model and reasoning settings. Required when the OpenAI account has SVG model selection enabled; otherwise omit it.",
+		}),
+		...imageAnimationFields,
+		output_compression: z.number().int().min(0).max(100).optional().openapi({
+			description:
+				"Compression level (0-100) for `jpeg` and `webp` output on GPT Image models.",
+			example: 80,
+		}),
+		service_tier: z
+			.enum(["auto", "default", "flex", "priority"])
+			.optional()
+			.openapi({
+				description:
+					"Processing tier for the request, forwarded to the underlying chat completion. `flex` and `priority` are only accepted for provider/model mappings that support the tier; an unsupported tier returns a 400 `unsupported_service_tier` error.",
+				example: "flex",
+			}),
+	})
+	.superRefine(validateImageAnimation);
 
 type ImageGenerationsRequest = z.infer<typeof imageGenerationsRequestSchema>;
 
@@ -152,6 +187,7 @@ const imageGenerationsResponseSchema = z.object({
 			revised_prompt: z.string().optional(),
 		}),
 	),
+	output_format: z.enum(["png", "jpeg", "webp", "svg", "gif"]).optional(),
 	usage: imagesUsageSchema.optional(),
 });
 
@@ -450,7 +486,7 @@ function forwardHeaders(c: Context): Record<string, string> {
 		...(noFallbackHeader !== null ? { "x-no-fallback": noFallbackHeader } : {}),
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 		...internalApiOriginHeaders("images"),
-		...forwardedIpHeaders(c.req.raw.headers),
+		...internalPrincipalHeaders(c.req.raw.headers),
 		...forwardedCustomHeaders(c.req.raw.headers),
 	};
 }
@@ -561,7 +597,7 @@ async function resolveImageClientErrorLogContext(
 		project,
 		organization,
 		requestId,
-		retentionLevel: getEffectiveRetentionLevel(organization),
+		retentionLevel: getEffectiveRetentionLevel(organization, apiKey),
 	};
 }
 
@@ -692,6 +728,68 @@ async function logImageClientError(
 			err: toError(error),
 		});
 	}
+}
+
+function parseImageModelRef(model: string): {
+	providerId: string | undefined;
+	modelId: string;
+} {
+	const slashIdx = model.indexOf("/");
+	if (slashIdx <= 0) {
+		return { providerId: undefined, modelId: model };
+	}
+	const modelKey = model.slice(slashIdx + 1);
+	return {
+		providerId: model.slice(0, slashIdx),
+		modelId: modelKey.includes(":")
+			? modelKey.slice(0, modelKey.lastIndexOf(":"))
+			: modelKey,
+	};
+}
+
+function providerMappings(modelId: string): ProviderModelMapping[] {
+	return (models.find((m) => m.id === modelId)?.providers ??
+		[]) as ProviderModelMapping[];
+}
+
+const svgOutputModelIds = models
+	.filter((m) => providerMappings(m.id).some((p) => p.svgOutput === true))
+	.map((m) => m.id);
+
+// SVG output is only served by mappings declaring `svgOutput`. A model
+// requested without a provider prefix must declare it on every active mapping,
+// so routing cannot land on one that rejects the format.
+function modelSupportsSvgOutput(model: string): boolean {
+	const { providerId, modelId } = parseImageModelRef(model);
+	const now = new Date();
+	const mappings = providerMappings(modelId).filter(
+		(p) =>
+			(!providerId || p.providerId === providerId) &&
+			(!p.deactivatedAt || p.deactivatedAt > now),
+	);
+	return mappings.length > 0 && mappings.every((p) => p.svgOutput === true);
+}
+
+function getSvgOutputError(
+	request: Pick<
+		ImageGenerationsRequest,
+		"output_format" | "svg" | "output_compression"
+	> & { n?: number },
+	model: string,
+): string | undefined {
+	if (request.output_format !== "svg") {
+		return request.svg ? "svg requires output_format=svg." : undefined;
+	}
+	if (!modelSupportsSvgOutput(model)) {
+		return `Model ${model} does not support SVG output. Use one of: ${svgOutputModelIds.join(", ")}.`;
+	}
+	if ((request.n ?? 1) !== 1) {
+		return "SVG output supports only n=1.";
+	}
+	if (request.output_compression !== undefined) {
+		return "output_compression is not supported with SVG output.";
+	}
+	return undefined;
 }
 
 // Reject non-image models up front. Image generation forwards to
@@ -869,6 +967,19 @@ images.openapi(generations, async (c): Promise<any> => {
 
 	assertImageModel(model);
 
+	const svgOutputError = getSvgOutputError(request, model);
+	if (svgOutputError) {
+		await logImageClientError(
+			c,
+			getLogContext,
+			buildImageClientErrorLogRequest("images.generations", rawBody),
+			400,
+			svgOutputError,
+			startedAt,
+		);
+		throw new HTTPException(400, { message: svgOutputError });
+	}
+
 	// Build the chat completions request
 	const chatPrompt = buildImagePrompt(request);
 	const aspectRatio =
@@ -899,6 +1010,9 @@ images.openapi(generations, async (c): Promise<any> => {
 		request.size ||
 		normalizedQuality ||
 		request.moderation ||
+		request.complexity ||
+		request.output_format ||
+		request.output_compression !== undefined ||
 		request.n > 1
 	) {
 		chatRequest.image_config = {
@@ -906,6 +1020,18 @@ images.openapi(generations, async (c): Promise<any> => {
 			...(request.size && { image_size: request.size }),
 			...(normalizedQuality && { image_quality: normalizedQuality }),
 			...(request.moderation && { moderation: request.moderation }),
+			...(request.complexity && { complexity: request.complexity }),
+			...(request.frame_count !== undefined && {
+				frame_count: request.frame_count,
+			}),
+			...(request.frame_duration_ms !== undefined && {
+				frame_duration_ms: request.frame_duration_ms,
+			}),
+			...(request.output_format && { output_format: request.output_format }),
+			...(request.svg && { svg: request.svg }),
+			...(request.output_compression !== undefined && {
+				output_compression: request.output_compression,
+			}),
 			n: request.n,
 		};
 	}
@@ -942,6 +1068,16 @@ images.openapi(generations, async (c): Promise<any> => {
 		data: truncatedImages,
 		...(usage && { usage }),
 	};
+	if (request.output_format) {
+		const outputFormat = nativeOutputOptionProviders.has(
+			chatResponse.metadata?.used_provider,
+		)
+			? request.output_format
+			: deliveredImageFormat(imageObjects);
+		if (outputFormat) {
+			imagesResponse.output_format = outputFormat;
+		}
+	}
 
 	logger.debug("Images API - returning response", {
 		imageCount: truncatedImages.length,
@@ -960,76 +1096,94 @@ const imageEditImageInputSchema = z.object({
 	}),
 });
 
-const imageEditsRequestSchema = z.object({
-	images: z.array(imageEditImageInputSchema).min(1).max(16).openapi({
-		description:
-			"Input image references to edit. Provide image_url as HTTPS URL or data URL.",
-	}),
-	prompt: z.string().min(1).openapi({
-		description: "A text description of the desired image edit.",
-		example: "Add a watercolor effect to this image",
-	}),
-	background: z.enum(["transparent", "opaque", "auto"]).optional().openapi({
-		description: "Background behavior for generated image output.",
-		example: "transparent",
-	}),
-	input_fidelity: z.enum(["high", "low"]).optional().openapi({
-		description: "Controls fidelity to the original input image(s).",
-		example: "high",
-	}),
-	model: z.string().optional().openapi({
-		description: "The model to use for image editing.",
-		example: "gemini-3-pro-image",
-	}),
-	n: z.number().int().min(1).max(10).optional().openapi({
-		description: "The number of edited images to generate.",
-		example: 1,
-	}),
-	output_compression: z.number().int().min(0).max(100).optional().openapi({
-		description: "Compression level for jpeg or webp output.",
-		example: 100,
-	}),
-	output_format: z.enum(["png", "jpeg", "webp"]).optional().openapi({
-		description: "Output image format.",
-		example: "png",
-	}),
-	quality: z
-		.enum(["low", "medium", "high", "xhigh", "max", "auto"])
-		.optional()
-		.openapi({
-			description: "Output quality for image models.",
+const imageEditsRequestSchema = z
+	.object({
+		images: z.array(imageEditImageInputSchema).min(1).max(16).openapi({
+			description:
+				"Input image references to edit. Provide image_url as HTTPS URL or data URL.",
+		}),
+		prompt: z.string().min(1).openapi({
+			description: "A text description of the desired image edit.",
+			example: "Add a watercolor effect to this image",
+		}),
+		background: z.enum(["transparent", "opaque", "auto"]).optional().openapi({
+			description:
+				"Background behavior for generated image output. OpenAI and Azure GPT Image models apply it natively and reject it when unsupported; `transparent` requires `png` or `webp` output. Other providers only receive it as a prompt hint.",
+			example: "transparent",
+		}),
+		input_fidelity: z.enum(["high", "low"]).optional().openapi({
+			description: "Controls fidelity to the original input image(s).",
 			example: "high",
 		}),
-	size: z.string().optional().openapi({
-		description:
-			"Requested output image size. Supported values depend on the model and provider.",
-		example: "1024x1024",
-	}),
-	aspect_ratio: z.string().optional().openapi({
-		description:
-			"The aspect ratio of the edited images (e.g. '1:1', '16:9', '4:3', '5:4'). Takes precedence over size-derived defaults.",
-		example: "16:9",
-	}),
-	moderation: z.enum(["auto", "low"]).optional().openapi({
-		description:
-			"Content moderation strictness for models that support it (GPT Image). 'auto' applies the default filtering, 'low' is less restrictive. Ignored by models without a moderation control.",
-		example: "low",
-	}),
-	service_tier: z
-		.enum(["auto", "default", "flex", "priority"])
-		.optional()
-		.openapi({
-			description:
-				"Processing tier for the request, forwarded to the underlying chat completion. `flex` and `priority` are only accepted for provider/model mappings that support the tier; an unsupported tier returns a 400 `unsupported_service_tier` error.",
-			example: "flex",
+		model: z.string().optional().openapi({
+			description: "The model to use for image editing.",
+			example: "gemini-3-pro-image",
 		}),
-});
+		n: z.number().int().min(1).max(10).optional().openapi({
+			description: "The number of edited images to generate.",
+			example: 1,
+		}),
+		...imageAnimationFields,
+		markup: imageMarkupSchema.optional(),
+		output_compression: z.number().int().min(0).max(100).optional().openapi({
+			description: "Compression level for jpeg or webp output.",
+			example: 100,
+		}),
+		output_format: z
+			.enum(["png", "jpeg", "webp", "svg", "gif"])
+			.optional()
+			.openapi({
+				description:
+					"Output image format. `svg` returns a base64-encoded SVG document in `b64_json`; it requires a model with SVG output (GPT Image 2.6) and `n` of 1, and does not accept `output_compression`.",
+				example: "png",
+			}),
+		svg: svgOptionsSchema.nullable().optional().openapi({
+			description:
+				"SVG author model and reasoning settings. Required when the OpenAI account has SVG model selection enabled; otherwise omit it.",
+		}),
+		quality: z
+			.enum(["low", "medium", "high", "xhigh", "max", "auto"])
+			.optional()
+			.openapi({
+				description: "Output quality for image models.",
+				example: "high",
+			}),
+		size: z.string().optional().openapi({
+			description:
+				"Requested output image size. Supported values depend on the model and provider.",
+			example: "1024x1024",
+		}),
+		aspect_ratio: z.string().optional().openapi({
+			description:
+				"The aspect ratio of the edited images (e.g. '1:1', '16:9', '4:3', '5:4'). Takes precedence over size-derived defaults.",
+			example: "16:9",
+		}),
+		complexity: z.enum(["low", "medium", "high"]).optional().openapi({
+			description:
+				"Image complexity for supported models. When omitted, the provider default applies.",
+			example: "low",
+		}),
+		moderation: z.enum(["auto", "low"]).optional().openapi({
+			description:
+				"Content moderation strictness for models that support it (GPT Image). 'auto' applies the default filtering, 'low' is less restrictive. Ignored by models without a moderation control.",
+			example: "low",
+		}),
+		service_tier: z
+			.enum(["auto", "default", "flex", "priority"])
+			.optional()
+			.openapi({
+				description:
+					"Processing tier for the request, forwarded to the underlying chat completion. `flex` and `priority` are only accepted for provider/model mappings that support the tier; an unsupported tier returns a 400 `unsupported_service_tier` error.",
+				example: "flex",
+			}),
+	})
+	.superRefine(validateImageAnimation);
 
 type ImageEditsRequest = z.infer<typeof imageEditsRequestSchema>;
 
 const imageEditsResponseSchema = imageGenerationsResponseSchema.extend({
 	background: z.enum(["transparent", "opaque"]).optional(),
-	output_format: z.enum(["png", "webp", "jpeg"]).optional(),
+	output_format: z.enum(["png", "webp", "jpeg", "svg", "gif"]).optional(),
 	quality: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
 	size: z.string().optional(),
 });
@@ -1096,12 +1250,41 @@ async function fileToDataUri(file: File): Promise<string> {
 	return `data:${mimeType};base64,${base64}`;
 }
 
-function buildEditPrompt(request: ImageEditsRequest): string {
+const nativeOutputOptionProviders = new Set(["openai", "azure"]);
+
+function deliveredImageFormat(
+	images: Array<{ b64_json: string }>,
+): ImageFormat | undefined {
+	const formats = new Set(
+		images.map((img) => imageFormatFromBase64(img.b64_json)),
+	);
+	const [format] = formats;
+	return formats.size === 1 ? format : undefined;
+}
+
+function routesOnlyToNativeOutputOptionProviders(model: string): boolean {
+	const slashIdx = model.indexOf("/");
+	if (slashIdx > 0) {
+		return nativeOutputOptionProviders.has(model.slice(0, slashIdx));
+	}
+	const modelInfo = models.find((m) => m.id === model);
+	return (
+		modelInfo !== undefined &&
+		modelInfo.providers.every((p) =>
+			nativeOutputOptionProviders.has(p.providerId),
+		)
+	);
+}
+
+function buildEditPrompt(
+	request: ImageEditsRequest,
+	nativeOutputOptions: boolean,
+): string {
 	let prompt = `Edit the provided image(s) based on the following description: ${request.prompt}`;
 
-	if (request.background === "transparent") {
+	if (!nativeOutputOptions && request.background === "transparent") {
 		prompt += "\n\nBackground: transparent.";
-	} else if (request.background === "opaque") {
+	} else if (!nativeOutputOptions && request.background === "opaque") {
 		prompt += "\n\nBackground: opaque.";
 	}
 
@@ -1115,11 +1298,11 @@ function buildEditPrompt(request: ImageEditsRequest): string {
 		prompt += "\n\nQuality: prioritize speed over detail.";
 	}
 
-	if (request.output_format) {
+	if (!nativeOutputOptions && request.output_format) {
 		prompt += `\n\nOutput format: ${request.output_format}.`;
 	}
 
-	if (request.output_compression !== undefined) {
+	if (!nativeOutputOptions && request.output_compression !== undefined) {
 		prompt += `\n\nOutput compression: ${request.output_compression}.`;
 	}
 
@@ -1182,26 +1365,57 @@ async function parseMultipartEditsRequest(
 			rawRequest.n = n;
 		}
 	}
-	const sizeField = body["size"];
-	const sizeValue = Array.isArray(sizeField) ? sizeField[0] : sizeField;
-	if (typeof sizeValue === "string" && sizeValue) {
-		rawRequest.size = sizeValue;
+	for (const name of [
+		"size",
+		"quality",
+		"moderation",
+		"complexity",
+		"background",
+		"output_format",
+	]) {
+		const field = body[name];
+		const value = Array.isArray(field) ? field[0] : field;
+		if (typeof value === "string" && value) {
+			rawRequest[name] = value;
+		}
 	}
-	const qualityField = body["quality"];
-	const qualityValue = Array.isArray(qualityField)
-		? qualityField[0]
-		: qualityField;
-	if (typeof qualityValue === "string" && qualityValue) {
-		rawRequest.quality = qualityValue;
-	}
-	const moderationField = body["moderation"];
-	const moderationValue = Array.isArray(moderationField)
-		? moderationField[0]
-		: moderationField;
-	if (typeof moderationValue === "string" && moderationValue) {
-		rawRequest.moderation = moderationValue;
+	const compressionField = body["output_compression"];
+	const compressionValue = Array.isArray(compressionField)
+		? compressionField[0]
+		: compressionField;
+	if (typeof compressionValue === "string" && compressionValue) {
+		rawRequest.output_compression = Number(compressionValue);
 	}
 
+	for (const name of ["frame_count", "frame_duration_ms"]) {
+		const field = body[name];
+		const value = Array.isArray(field) ? field[0] : field;
+		if (typeof value === "string" && value) {
+			rawRequest[name] = Number(value);
+		}
+	}
+	const svgModel = body["svg[model]"];
+	const svgEffort = body["svg[reasoning][effort]"];
+	if (svgModel !== undefined || svgEffort !== undefined) {
+		rawRequest.svg = {
+			model: Array.isArray(svgModel) ? svgModel[0] : svgModel,
+			...(svgEffort !== undefined && {
+				reasoning: {
+					effort: Array.isArray(svgEffort) ? svgEffort[0] : svgEffort,
+				},
+			}),
+		};
+	}
+	const markupField = body["markup"];
+	const markupFile = Array.isArray(markupField) ? markupField[0] : markupField;
+	if (markupFile !== undefined) {
+		if (!(markupFile instanceof File) || maskFile instanceof File) {
+			throw new HTTPException(400, {
+				message: "markup must be a PNG file and cannot be combined with mask.",
+			});
+		}
+		rawRequest.markup = { image_url: await fileToDataUri(markupFile) };
+	}
 	const validationResult = imageEditsRequestSchema.safeParse(rawRequest);
 	if (!validationResult.success) {
 		throw new HTTPException(400, {
@@ -1240,6 +1454,23 @@ async function processImageEdit(
 	const model = resolveImageRequestModel(request.model);
 
 	assertImageModel(model);
+	const svgOutputError = getSvgOutputError(request, model);
+	if (svgOutputError) {
+		await logImageClientError(
+			c,
+			getLogContext,
+			logRequest,
+			400,
+			svgOutputError,
+			startedAt,
+		);
+		throw new HTTPException(400, { message: svgOutputError });
+	}
+	if (request.markup && !routesOnlyToNativeOutputOptionProviders(model)) {
+		throw new HTTPException(400, {
+			message: "markup requires an OpenAI or Azure image model.",
+		});
+	}
 
 	const { imageResults, imageCount } = await (async () => {
 		try {
@@ -1300,7 +1531,10 @@ async function processImageEdit(
 		});
 	}
 
-	const chatPrompt = buildEditPrompt(request);
+	const chatPrompt = buildEditPrompt(
+		request,
+		routesOnlyToNativeOutputOptionProviders(model),
+	);
 	contentParts.push({
 		type: "text",
 		text: chatPrompt,
@@ -1333,16 +1567,31 @@ async function processImageEdit(
 		requestedSize ||
 		(request.n !== undefined && request.n > 1) ||
 		request.output_format ||
+		request.output_compression !== undefined ||
+		request.background ||
 		normalizedEditQuality ||
-		request.moderation
+		request.moderation ||
+		request.complexity ||
+		request.markup ||
+		request.svg
 	) {
 		chatRequest.image_config = {
 			...(aspectRatio && { aspect_ratio: aspectRatio }),
 			...(requestedSize && { image_size: requestedSize }),
 			...(normalizedEditQuality && { image_quality: normalizedEditQuality }),
 			...(request.moderation && { moderation: request.moderation }),
+			...(request.complexity && { complexity: request.complexity }),
+			...(request.frame_count !== undefined && {
+				frame_count: request.frame_count,
+			}),
+			...(request.frame_duration_ms !== undefined && {
+				frame_duration_ms: request.frame_duration_ms,
+			}),
+			...(request.markup && { markup: request.markup }),
+			...(request.background && { background: request.background }),
 			...(request.n !== undefined && { n: request.n }),
 			...(request.output_format && { output_format: request.output_format }),
+			...(request.svg && { svg: request.svg }),
 			...(request.output_compression !== undefined && {
 				output_compression: request.output_compression,
 			}),
@@ -1381,11 +1630,18 @@ async function processImageEdit(
 		...(usage && { usage }),
 	};
 
-	if (request.background && request.background !== "auto") {
-		imagesResponse.background = request.background;
-	}
-	if (request.output_format) {
-		imagesResponse.output_format = request.output_format;
+	if (nativeOutputOptionProviders.has(chatResponse.metadata?.used_provider)) {
+		if (request.background && request.background !== "auto") {
+			imagesResponse.background = request.background;
+		}
+		if (request.output_format) {
+			imagesResponse.output_format = request.output_format;
+		}
+	} else if (request.output_format) {
+		const deliveredFormat = deliveredImageFormat(imageObjects);
+		if (deliveredFormat && deliveredFormat !== "svg") {
+			imagesResponse.output_format = deliveredFormat;
+		}
 	}
 	if (request.quality && request.quality !== "auto") {
 		imagesResponse.quality = request.quality;

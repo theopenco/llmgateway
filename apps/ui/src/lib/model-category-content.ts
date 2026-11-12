@@ -362,14 +362,14 @@ export const modelCategoryContent = {
 		subheading:
 			"Models priced at $5+ per million input tokens or $15+ per million output tokens — the exact list used for DevPass fair-use limits",
 		intro: [
-			"Premium is a pricing classification, not a curated list: a model lands on this page when any of its providers charges at least $5 per million input tokens or $15 per million output tokens. The classification is computed directly from catalogue prices, so this page always shows exactly which models are premium right now — every model not listed here is standard.",
+			"Premium is a pricing classification, not a curated list: a model lands on this page when any of its providers charges at least $5 per million input tokens or $15 per million output tokens. The classification is computed directly from catalogue prices after active public discounts, so this page always shows exactly which models are premium right now — every model not listed here is standard.",
 			"The distinction matters for DevPass coding plans, where premium models are subject to a weekly fair-use allowance (a percentage of the plan's monthly credits) on top of the normal credit balance. When you call the LLM Gateway API directly with pay-as-you-go credits, premium models have no extra cap and no markup — you pay the same per-token provider prices shown here.",
 		],
 		faqs: [
 			{
 				question: "What makes a model premium?",
 				answer:
-					"Pricing alone. A model is premium when at least one of its providers charges $5 or more per million input tokens, or $15 or more per million output tokens. There is no hand-picked list — the classification is recomputed from the live model catalogue, so it updates automatically when prices change.",
+					"Pricing alone. A model is premium when at least one of its providers charges $5 or more per million input tokens, or $15 or more per million output tokens. Prices are taken after any active public discount, so a promotion that brings a model below both thresholds makes it standard while it runs. There is no hand-picked list — the classification is recomputed from the live model catalogue, so it updates automatically when prices change.",
 			},
 			{
 				question: "Do premium models cost extra on LLM Gateway?",

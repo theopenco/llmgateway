@@ -178,7 +178,7 @@ function getResponsesApiUserMessage(input: unknown): string {
 		.join(" ");
 }
 
-function buildAwsEventStreamMessage(
+export function buildAwsEventStreamMessage(
 	eventType: string,
 	payload: Record<string, unknown>,
 ): Uint8Array {
@@ -608,6 +608,8 @@ function stripAzureOpenaiPrefix(c: Context): Response | Promise<Response> {
 }
 mockOpenAIServer.post("/openai/v1/responses", stripAzureOpenaiPrefix);
 mockOpenAIServer.post("/openai/v1/chat/completions", stripAzureOpenaiPrefix);
+mockOpenAIServer.post("/openai/v1/embeddings", stripAzureOpenaiPrefix);
+mockOpenAIServer.post("/openai/v1/audio/speech", stripAzureOpenaiPrefix);
 
 // The legacy Azure deployment-based surface, where the model lives in the path
 // and the api-version in the query string. Rewrite it to the plain handler so
@@ -1492,6 +1494,16 @@ mockOpenAIServer.post("/v1/moderations", async (c) => {
 
 mockOpenAIServer.post("/v1/systemone", async (c) => {
 	const body = await c.req.json();
+	const hasBox = Object.values(
+		(body.questions ?? {}) as Record<string, { type: string }>,
+	).some((question) => question.type === "box");
+	if (
+		((body.assets && Object.keys(body.assets).length > 0) || hasBox) &&
+		c.req.header("TypeSafe-Danger-Zone-Images") !== "true"
+	) {
+		c.status(400);
+		return c.json({ error: { message: "Images are not turned on" } });
+	}
 	const stateText =
 		typeof body.state === "string" ? body.state : JSON.stringify(body.state);
 
@@ -1535,6 +1547,14 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 	)) {
 		if (question.type === "noul") {
 			answers[id] = { type: "noul", noul: harmful ? 0.97 : 0.01 };
+			continue;
+		}
+		if (question.type === "box") {
+			answers[id] = {
+				type: "box",
+				box: { top: 0.25, bottom: 0.75, left: 0.25, right: 0.75 },
+				confidence: 0.9,
+			};
 			continue;
 		}
 		if (question.type === "choice") {
@@ -1583,7 +1603,7 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 	}
 
 	return c.json({
-		model: body.model === "jev-latest" ? "jev-1.13.0" : body.model,
+		model: body.model === "jev-latest" ? "jev-1.14.0" : body.model,
 		answers,
 		usage: { input_tokens: 441, output_tokens: 69 },
 	});
@@ -1871,6 +1891,72 @@ mockOpenAIServer.post("/v1/stt", async (c) => {
 			{ text: "is", start: 0.96, end: 1.12 },
 			{ text: "$167,983.15.", start: 1.12, end: 3.2 },
 		],
+	});
+});
+
+// ElevenLabs speech-to-text: POST /v1/speech-to-text takes model_id plus a file
+// (or source_url) and returns Scribe's chunk shape. The response echoes the
+// option fields so specs can assert what the gateway forwarded.
+mockOpenAIServer.post("/v1/speech-to-text", async (c) => {
+	if (!c.req.header("xi-api-key")) {
+		c.status(401);
+		return c.json({ detail: { status: "invalid_api_key" } });
+	}
+	const form = await c.req.formData();
+	const file = form.get("file");
+	const sourceUrl = form.get("source_url");
+	const modelId = form.get("model_id");
+	if (
+		typeof modelId !== "string" ||
+		(!(file instanceof File) && typeof sourceUrl !== "string")
+	) {
+		c.status(422);
+		return c.json({
+			detail: [{ msg: "model_id and file or source_url are required" }],
+		});
+	}
+	const field = (name: string) => {
+		const value = form.get(name);
+		return typeof value === "string" ? value : null;
+	};
+	return c.json({
+		language_code: "eng",
+		language_probability: 0.99,
+		text: "Hello world.",
+		words: [
+			{
+				text: "Hello",
+				start: 0.1,
+				end: 0.5,
+				type: "word",
+				speaker_id: "speaker_0",
+				logprob: 0,
+			},
+			{
+				text: " ",
+				start: 0.5,
+				end: 0.6,
+				type: "spacing",
+				speaker_id: "speaker_0",
+				logprob: 0,
+			},
+			{
+				text: "world.",
+				start: 0.6,
+				end: 1.2,
+				type: "word",
+				speaker_id: "speaker_1",
+				logprob: 0,
+			},
+		],
+		audio_duration_secs: 7.2,
+		transcription_id: "mock-transcription-id",
+		mock_received: {
+			model_id: modelId,
+			language_code: field("language_code"),
+			diarize: field("diarize"),
+			no_verbatim: field("no_verbatim"),
+		},
 	});
 });
 

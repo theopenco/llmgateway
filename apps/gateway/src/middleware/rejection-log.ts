@@ -32,7 +32,7 @@ export const rejectionLogMiddleware: MiddlewareHandler<ServerTypes> = async (
 	c,
 	next,
 ) => {
-	const config = resolvePathRateLimit(c.req.path);
+	const config = resolvePathRateLimit(c.req.path, c.req.method);
 	const apiOrigin = config && origins[config.key];
 	if (
 		c.req.method !== "POST" ||

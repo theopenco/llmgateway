@@ -56,6 +56,7 @@ export {
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
+	DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
 	DEV_PLAN_RESET_PASS_PRICES,
 	DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE,
 	DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
@@ -65,6 +66,8 @@ export {
 	getDevPlanCycleUsageFraction,
 	getDevPlanDailyLimit,
 	getDevPlanPremiumWeeklyLimit,
+	getDevPlanRenewalCredits,
+	getDevPlanRenewalRolloverCap,
 	getDevPlanUpgradeCredits,
 	getIncludedResetPassesRemaining,
 	getRemainingDailyAllowance,
@@ -105,12 +108,15 @@ export {
 } from "./chat-plans.js";
 
 export {
+	discountLookupFromMappings,
 	getModelCategory,
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
 	isPremiumModel,
 	isPremiumUsedModel,
 	type ModelCategory,
+	type PremiumDiscountLookup,
+	usedModelBaseId,
 } from "./model-categories.js";
 
 export {
@@ -206,8 +212,10 @@ export {
 } from "./provider-model-ids.js";
 
 export {
+	FAL_IMAGE_SIZES,
 	getModelImageConfig,
 	GPT_IMAGE_SIZES,
+	isFalImageModel,
 	type AspectRatio,
 } from "./image-generation-config.js";
 
@@ -239,11 +247,7 @@ export {
 	LOUNGE_SOURCE,
 } from "./lounge-source.js";
 
-export {
-	getActiveProviderPromo,
-	MARKETING_STATS,
-	SCX_PROMO,
-} from "./marketing.js";
+export { MARKETING_STATS } from "./marketing.js";
 
 export {
 	type DiscordEmbed,
@@ -284,6 +288,7 @@ export {
 	contentFilterSettingsSchema,
 	DEFAULT_CONTENT_FILTER_SETTINGS,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
+	INTERNAL_CLASSIFIER_MODEL,
 	isContentFilterErrorText,
 	parseContentFilterSettings,
 	type ContentFilterClassifier,
@@ -311,6 +316,8 @@ export {
 
 export {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_REGEX,
 	CUSTOM_PROVIDER_NAME_REGEX,
 	isProviderBaseUrlOverrideAllowed,
 	isProviderHostnameLabel,
@@ -336,6 +343,7 @@ export {
 export {
 	estimateChatMessageTokens,
 	estimateTokensFromText,
+	estimateTokensFromTextLength,
 	type TokenEstimateFallback,
 } from "./token-estimate.js";
 

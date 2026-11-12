@@ -10,6 +10,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { usePlans } from "@/app/dashboard/plans";
+import { CHANGE_PLAN_SECTION_ID } from "@/app/dashboard/types";
 import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -40,6 +41,12 @@ const ActivePlanChangeTier = dynamic(
 const CancelPlanDialog = dynamic(
 	() => import("@/app/dashboard/components/CancelPlanDialog"),
 );
+
+// The dialog only mounts on first open; preloading on hover/focus hides the
+// chunk download behind the user's intent.
+function preloadCancelPlanDialog() {
+	void import("@/app/dashboard/components/CancelPlanDialog");
+}
 
 const DevPassPaymentMethod = dynamic(
 	() => import("@/app/dashboard/components/DevPassPaymentMethod"),
@@ -131,6 +138,9 @@ export default function BillingClient({
 
 	const [subscribingTier, setSubscribingTier] = useState<PlanTier | null>(null);
 	const [cancelOpen, setCancelOpen] = useState(false);
+	// Mounted on first open so the dialog's chunk isn't fetched on every
+	// billing view; stays mounted afterwards to keep the close animation.
+	const [cancelMounted, setCancelMounted] = useState(false);
 	const [isCancelling, setIsCancelling] = useState(false);
 	const [isResuming, setIsResuming] = useState(false);
 	const [isCancellingDowngrade, setIsCancellingDowngrade] = useState(false);
@@ -278,6 +288,21 @@ export default function BillingClient({
 		} finally {
 			setSubscribingTier(null);
 		}
+	};
+
+	// The cancel dialog's upgrade offer: the plan picker below already previews
+	// and confirms the charge, so the offer hands over to it and lands on the
+	// offered plan's own button.
+	const handleReviewUpgrade = (tier: PlanTier): void => {
+		const picker = document.getElementById(CHANGE_PLAN_SECTION_ID);
+		if (!picker) {
+			return;
+		}
+		picker.scrollIntoView({ behavior: "smooth", block: "start" });
+		const action = picker.querySelector<HTMLButtonElement>(
+			`[data-plan-tier="${tier}"] button:not(:disabled)`,
+		);
+		(action ?? picker).focus({ preventScroll: true });
 	};
 
 	const handleCancel = async (
@@ -510,7 +535,12 @@ export default function BillingClient({
 								size="sm"
 								disabled={isCancelling}
 								className="text-muted-foreground"
-								onClick={() => setCancelOpen(true)}
+								onMouseEnter={preloadCancelPlanDialog}
+								onFocus={preloadCancelPlanDialog}
+								onClick={() => {
+									setCancelMounted(true);
+									setCancelOpen(true);
+								}}
 								data-testid="cancel-plan-open"
 							>
 								{isCancelling && (
@@ -518,24 +548,31 @@ export default function BillingClient({
 								)}
 								Cancel subscription
 							</Button>
-							<CancelPlanDialog
-								open={cancelOpen}
-								onOpenChange={setCancelOpen}
-								tier={activeTier}
-								creditsUsed={parseFloat(
-									devPlanStatus.devPlanCreditsUsed ?? "0",
-								)}
-								creditsLimit={parseFloat(
-									devPlanStatus.devPlanCreditsLimit ?? "0",
-								)}
-								renewWhen={renewWhen}
-								pendingTier={pendingTier}
-								organizationId={devPlanStatus.organizationId ?? null}
-								isCancelling={isCancelling}
-								isDowngrading={subscribingTier !== null}
-								onCancel={handleCancel}
-								onDowngrade={handleDowngrade}
-							/>
+							{cancelMounted && (
+								<CancelPlanDialog
+									open={cancelOpen}
+									onOpenChange={setCancelOpen}
+									tier={activeTier}
+									creditsUsed={parseFloat(
+										devPlanStatus.devPlanCreditsUsed ?? "0",
+									)}
+									creditsLimit={parseFloat(
+										devPlanStatus.devPlanCreditsLimit ?? "0",
+									)}
+									renewWhen={renewWhen}
+									pendingTier={pendingTier}
+									renewalRollover={parseFloat(
+										devPlanStatus.devPlanRenewalRollover ?? "0",
+									)}
+									paygEnabled={devPlanStatus.devPlanPaygEnabled ?? false}
+									organizationId={devPlanStatus.organizationId ?? null}
+									isCancelling={isCancelling}
+									isDowngrading={subscribingTier !== null}
+									onCancel={handleCancel}
+									onDowngrade={handleDowngrade}
+									onUpgrade={handleReviewUpgrade}
+								/>
+							)}
 						</>
 					)}
 				</div>

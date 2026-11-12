@@ -1,6 +1,6 @@
 # LLM Gateway — Pricing
 
-Last updated: 2026-10-15
+Last updated: 2026-11-10
 
 > One OpenAI-compatible API for the models and providers in the live catalogue. Per-token prices match each provider's published rates; LLM Gateway charges a flat 5% platform fee when you buy credits. Bringing your own provider keys is free, and self-hosting is free under AGPLv3.
 
@@ -24,6 +24,7 @@ Last updated: 2026-10-15
 
 - Price: custom — volume discounts, custom routing, full request and response retention (30 days), 99.9% uptime SLA.
 - Details: https://llmgateway.io/enterprise — contact contact@llmgateway.io
+- Committed use: for an organization that buys credits every month, the same usage on an Enterprise Cloud contract with volume discounts on the platform fee, invoicing options and a contractual SLA. It starts with the 30-Day Production Pilot: https://llmgateway.io/enterprise#committed-use
 
 ## Refunds
 

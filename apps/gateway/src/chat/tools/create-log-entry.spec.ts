@@ -133,4 +133,71 @@ describe("createLogEntry", () => {
 		);
 		expect(positional.usedMode).toBe("credits");
 	});
+
+	it.each([
+		"data:image/png;base64,c2Vuc2l0aXZl",
+		"https://example.com/markup.png?signature=private",
+	])("redacts markup from persistent parameters: %s", (imageUrl) => {
+		const imageConfig = {
+			output_format: "gif",
+			complexity: "low",
+			frame_count: 2,
+			frame_duration_ms: 20,
+			markup: { image_url: imageUrl },
+		};
+		const log = entry({
+			imageConfig,
+			rawRequest: { image_config: imageConfig },
+		});
+		expect(log.params).toEqual({
+			image_config: {
+				output_format: "gif",
+				complexity: "low",
+				frame_count: 2,
+				frame_duration_ms: 20,
+				markup: true,
+			},
+		});
+		expect(JSON.stringify(log)).not.toContain(imageUrl);
+		expect(imageConfig.markup.image_url).toBe(imageUrl);
+	});
+	it("records markup-only metadata without retaining the image", () => {
+		const imageConfig = {
+			image_size: undefined,
+			markup: { image_url: "data:image/png;base64,c2Vuc2l0aXZl" },
+		};
+		expect(entry({ imageConfig }).params).toEqual({
+			image_config: { markup: true },
+		});
+	});
+});
+
+describe("client safety identifier metadata", () => {
+	it("records client attribution without debug payloads", () => {
+		const log = createLogEntry({
+			requestId: "request-id",
+			project: {
+				id: "project-id",
+				organizationId: "org-id",
+			} as CreateLogEntryOptions["project"],
+			apiKey: {
+				id: "key-id",
+				projectId: "project-id",
+				safetyIdentifier: "key_fixed",
+			} as GatewayApiKey,
+			usedModel: "openai/gpt-4o-mini",
+			usedProvider: "openai",
+			requestedModel: "gpt-4o-mini",
+			messages: [],
+			customHeaders: {},
+			debugMode: false,
+			rawRequest: { safety_identifier: "end-user-123" },
+			imageConfig: { image_size: "1024x1024" },
+		});
+		expect(log.params).toEqual({
+			image_config: { image_size: "1024x1024" },
+			safety_identifier: "end-user-123",
+		});
+		expect(log.rawRequest).toBeNull();
+	});
 });

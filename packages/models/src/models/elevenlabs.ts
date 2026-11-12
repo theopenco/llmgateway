@@ -136,4 +136,27 @@ export const elevenlabsModels = [
 			},
 		],
 	},
+	{
+		id: "scribe-v3",
+		name: "Scribe v3",
+		description:
+			"ElevenLabs' most accurate speech-to-text model for recorded audio, with word-level timestamps and speaker diarization across 90+ languages. Transcribes via the /v1/audio/transcriptions endpoint.",
+		family: "elevenlabs",
+		output: ["transcription"],
+		releasedAt: new Date("2026-11-10"),
+		providers: [
+			{
+				providerId: "elevenlabs",
+				externalId: "scribe_v3",
+				inputPrice: "0",
+				outputPrice: "0",
+				inputAudioHourPrice: "0.20",
+				requestPrice: "0",
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				transcriptions: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];

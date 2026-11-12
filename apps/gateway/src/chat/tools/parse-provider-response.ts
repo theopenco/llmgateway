@@ -1,18 +1,24 @@
+import { imageFormatFromBase64, imageMimeType } from "@/lib/image-format.js";
+
 import {
+	billedServerToolUseCount,
 	fromConverseReasoningContent,
 	pairedServerToolBlocks,
 	sealAnthropicThinkingBlock,
 	toAnthropicReasoningDetail,
 	type AnthropicThinkingBlock,
+	type SvgAuthorUsage,
 } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { estimateTokens } from "./estimate-tokens.js";
+import { isGoogleOutputImagePart } from "./extract-images.js";
 import {
 	adjustGoogleCandidateTokens,
 	extractBedrockCacheCreationDetails,
+	getGoogleImageOutputTokens,
 	normalizeCompletionTokens,
 } from "./extract-token-usage.js";
 import { dedupeGoogleCandidateParts } from "./google-candidates.js";
@@ -53,6 +59,30 @@ function sealedThinkingDetails(
 	return details.length > 0 ? details : null;
 }
 
+// OpenAI reports the tokens of the model that authors an SVG separately from
+// the image model's `usage`; they are billed at the authoring model's rates.
+function parseSvgAuthorUsage(svgUsage: unknown): SvgAuthorUsage | null {
+	if (!svgUsage || typeof svgUsage !== "object") {
+		return null;
+	}
+	const usage = svgUsage as Record<string, unknown>;
+	const count = (value: unknown) =>
+		typeof value === "number" && Number.isFinite(value) && value > 0
+			? value
+			: 0;
+	const inputTokens = count(usage.input_tokens);
+	const outputTokens = count(usage.output_tokens);
+	if (inputTokens === 0 && outputTokens === 0) {
+		return null;
+	}
+	return {
+		model: typeof usage.model === "string" ? usage.model : null,
+		inputTokens,
+		outputTokens,
+		reasoningTokens: count(usage.reasoning_tokens),
+	};
+}
+
 /**
  * Parses response content and metadata from different providers
  */
@@ -70,7 +100,10 @@ export function parseProviderResponse(
 	 * request actually searches, so an unforced one must count zero.
 	 */
 	webSearchForced = false,
-	options?: { cacheThoughtSignatures?: boolean },
+	options?: {
+		cacheThoughtSignatures?: boolean;
+		serverToolUseAlwaysReported?: boolean;
+	},
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -96,6 +129,7 @@ export function parseProviderResponse(
 	let imageOutputTokens: number | null = null;
 	let audioInputTokens: number | null = null;
 	let cachedAudioInputTokens: number | null = null;
+	let svgAuthorUsage: SvgAuthorUsage | null = null;
 	let toolResults = null;
 	let anthropicNativeBlocks: AnthropicNativeBlock[] | null = null;
 	let anthropicContent: AnthropicNativeBlock[] | null = null;
@@ -308,8 +342,17 @@ export function parseProviderResponse(
 					block.type === "web_search_tool_result" &&
 					Array.isArray(block.content),
 			);
+			// DeepSeek reports the billed searches and fetches, which can be
+			// fewer than its result blocks.
+			const billedServerToolUse = billedServerToolUseCount(
+				json.usage,
+				options?.serverToolUseAlwaysReported,
+			);
+			if (billedServerToolUse !== undefined) {
+				webSearchCount = billedServerToolUse;
+			}
 			if (webSearchBlocks.length > 0) {
-				webSearchCount = webSearchBlocks.length;
+				webSearchCount = billedServerToolUse ?? webSearchBlocks.length;
 				// Extract citations from each web search result
 				for (const block of webSearchBlocks) {
 					for (const item of block.content) {
@@ -428,7 +471,6 @@ export function parseProviderResponse(
 			break;
 		}
 		case "google-ai-studio":
-		case "glacier":
 		case "google-vertex":
 		case "quartz": {
 			// A response with no candidates used to be assigned "content_filter"
@@ -480,7 +522,7 @@ export function parseProviderResponse(
 			reasoningContent = thoughtContent.length > 0 ? thoughtContent : null;
 
 			// Extract images from Google response parts
-			const imageParts = parts.filter((part: any) => part.inlineData);
+			const imageParts = parts.filter(isGoogleOutputImagePart);
 			images = imageParts.map((part: any): ImageObject => ({
 				type: "image_url",
 				image_url: {
@@ -619,6 +661,7 @@ export function parseProviderResponse(
 					}
 				}
 			}
+			imageOutputTokens = getGoogleImageOutputTokens(json.usageMetadata);
 			if (Array.isArray(json.usageMetadata?.cacheTokensDetails)) {
 				for (const detail of json.usageMetadata.cacheTokensDetails) {
 					if (detail?.modality === "AUDIO" && detail.tokenCount) {
@@ -947,7 +990,7 @@ export function parseProviderResponse(
 				images = imageData.map((item: any): ImageObject => {
 					let url: string;
 					if (item.b64_json) {
-						url = `data:image/png;base64,${item.b64_json}`;
+						url = `data:${imageMimeType(imageFormatFromBase64(item.b64_json) ?? "png")};base64,${item.b64_json}`;
 					} else {
 						url = item.url;
 					}
@@ -969,6 +1012,34 @@ export function parseProviderResponse(
 				totalTokens =
 					json.usage?.total_tokens ??
 					(promptTokens ?? 0) + (completionTokens ?? 0);
+				svgAuthorUsage = parseSvgAuthorUsage(json.svg_usage);
+				break;
+			}
+			// fal text-to-image: { images: [{ url }], has_nsfw_concepts?: boolean[] }.
+			// The safety checker replaces flagged images with black frames, so drop them.
+			if (usedProvider === "fal-ai" && Array.isArray(json.images)) {
+				const nsfw: unknown[] = Array.isArray(json.has_nsfw_concepts)
+					? json.has_nsfw_concepts
+					: [];
+				images = json.images
+					.filter(
+						(item: { url?: unknown }, index: number) =>
+							typeof item?.url === "string" && nsfw[index] !== true,
+					)
+					.map((item: { url: string }): ImageObject => ({
+						type: "image_url",
+						image_url: { url: item.url },
+					}));
+				content = images.length > 0 ? imageLabel : null;
+				finishReason =
+					images.length > 0
+						? "stop"
+						: nsfw.includes(true)
+							? "content_filter"
+							: "upstream_error";
+				promptTokens = 0;
+				completionTokens = 0;
+				totalTokens = 0;
 				break;
 			}
 			// Check if this is an xAI Grok Imagine image generation response
@@ -1222,8 +1293,19 @@ export function parseProviderResponse(
 					)
 					.filter(Boolean)
 					.join("\n\n");
-				if (summaryText) {
-					reasoningContent = summaryText;
+				// DeepSeek returns raw reasoning in `content` and no summary.
+				const reasoningText = reasoningOutputs
+					.flatMap(({ item }: any) =>
+						Array.isArray(item.content)
+							? item.content
+									.filter((part: any) => part?.type === "reasoning_text")
+									.map((part: any) => part.text ?? "")
+							: [],
+					)
+					.filter(Boolean)
+					.join("\n\n");
+				if (summaryText || reasoningText) {
+					reasoningContent = summaryText || reasoningText;
 				}
 
 				// Collect encrypted reasoning payloads (returned when the upstream
@@ -1313,7 +1395,13 @@ export function parseProviderResponse(
 				const webSearchCalls = json.output.filter(
 					(item: any) => item.type === "web_search_call",
 				);
-				if (webSearchCalls.length > 0) {
+				const serverToolUse = billedServerToolUseCount(
+					json.usage,
+					options?.serverToolUseAlwaysReported,
+				);
+				if (serverToolUse !== undefined) {
+					webSearchCount = serverToolUse;
+				} else if (webSearchCalls.length > 0) {
 					webSearchCount = webSearchCalls.length;
 				}
 
@@ -1424,18 +1512,6 @@ export function parseProviderResponse(
 					}
 				}
 
-				// SCX returns finish_reason "stop" even when the message contains
-				// tool calls; normalize to "tool_calls" so downstream consumers see
-				// the OpenAI-standard value.
-				if (
-					usedProvider === "scx-ai" &&
-					finishReason === "stop" &&
-					Array.isArray(toolResults) &&
-					toolResults.length > 0
-				) {
-					finishReason = "tool_calls";
-				}
-
 				// Standard OpenAI-style token parsing
 				promptTokens = json.usage?.prompt_tokens ?? null;
 				completionTokens = json.usage?.completion_tokens ?? null;
@@ -1509,17 +1585,6 @@ export function parseProviderResponse(
 						webSearchCount = 1;
 					}
 				}
-
-				// SCX resells Qwen through DashScope, which returns no search
-				// metadata over the OpenAI-compatible protocol. See the `alibaba`
-				// case: only a forced request searches, and it always does.
-				if (
-					usedProvider === "scx-ai-gp" &&
-					webSearchRequested &&
-					webSearchForced
-				) {
-					webSearchCount = 1;
-				}
 			}
 			break;
 	}
@@ -1567,6 +1632,7 @@ export function parseProviderResponse(
 		imageOutputTokens,
 		audioInputTokens,
 		cachedAudioInputTokens,
+		svgAuthorUsage,
 		toolResults,
 		anthropicNativeBlocks,
 		anthropicContent,

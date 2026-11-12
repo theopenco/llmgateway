@@ -13,12 +13,14 @@ export function GetDevPassButton({
 	location,
 	showArrow = false,
 	className,
+	labels = { signedOut: "Get your DevPass", signedIn: "Go to Dashboard" },
 }: {
 	signupHref?: string;
 	cta: string;
 	location: string;
 	showArrow?: boolean;
 	className?: string;
+	labels?: { signedOut: string; signedIn: string };
 }) {
 	const { user, isLoading } = useUser();
 	const isAuthenticated = !!user && !isLoading;
@@ -27,7 +29,7 @@ export function GetDevPassButton({
 		<CodeCTATracker cta={cta} location={location}>
 			<Button size="lg" className={className} asChild>
 				<Link href={isAuthenticated ? "/dashboard" : signupHref}>
-					{isAuthenticated ? "Go to Dashboard" : "Get your DevPass"}
+					{isAuthenticated ? labels.signedIn : labels.signedOut}
 					{showArrow && <ArrowRight className="h-4 w-4" />}
 				</Link>
 			</Button>

@@ -17,6 +17,16 @@ import {
 } from "@/utils/playground-key.js";
 
 import { db, tables, desc, eq, and, sql } from "@llmgateway/db";
+import {
+	DECISION_IMAGE_DATA_URL_PATTERN,
+	DECISION_IMAGE_MEDIA_TYPES,
+	MAX_DECISION_CHOICES,
+	MAX_DECISION_IMAGE_DATA_URL_LENGTH,
+	MAX_DECISION_INPUT_IMAGES,
+	MAX_DECISION_LEVELS,
+	MAX_DECISION_MODELS,
+	MAX_DECISION_QUESTIONS,
+} from "@llmgateway/shared/decision-studio";
 import { mergeVideoModelResults } from "@llmgateway/shared/video-generation-config";
 
 import type { ServerTypes } from "@/vars.js";
@@ -189,6 +199,8 @@ const imageHistoryListModelSchema = z.object({
 	modelId: z.string(),
 	modelName: z.string(),
 	imageCount: z.number(),
+	// One media type per image, so saved SVGs can be shown as vectors.
+	mediaTypes: z.array(z.string()),
 	error: z.string().optional(),
 });
 
@@ -213,6 +225,93 @@ const audioHistoryItemSchema = z.object({
 	createdAt: z.string(),
 	voice: z.string().nullable(),
 	models: z.array(audioModelResultSchema),
+});
+
+const decisionChoiceValueSchema = z.union([z.string(), z.boolean()]);
+
+const decisionQuestionSchema = z.discriminatedUnion("type", [
+	z.object({
+		type: z.literal("predicate"),
+		name: z.string(),
+		instructions: z.string(),
+	}),
+	z.object({
+		type: z.literal("choice"),
+		name: z.string(),
+		instructions: z.string(),
+		choices: z
+			.array(
+				z.object({ value: z.string(), description: z.string().optional() }),
+			)
+			.min(2)
+			.max(MAX_DECISION_CHOICES),
+	}),
+	z.object({
+		type: z.literal("score"),
+		name: z.string(),
+		instructions: z.string(),
+		levels: z
+			.array(
+				z.object({ label: z.string(), description: z.string().optional() }),
+			)
+			.min(2)
+			.max(MAX_DECISION_LEVELS),
+	}),
+]);
+
+const decisionAnswerSchema = z.object({
+	type: z.enum(["predicate", "choice", "score", "refusal"]),
+	name: z.string().nullable().optional(),
+	probability: z.number().optional(),
+	choice: decisionChoiceValueSchema.optional(),
+	score: z.number().optional(),
+	probabilities: z
+		.array(
+			z.object({
+				value: z.union([z.string(), z.boolean(), z.number()]),
+				label: z.string().optional(),
+				probability: z.number(),
+			}),
+		)
+		.optional(),
+	confidence: z.number().optional(),
+});
+
+const decisionUsageSchema = z.object({
+	input_tokens: z.number(),
+	output_tokens: z.number(),
+	total_tokens: z.number(),
+});
+
+const decisionModelResultSchema = z.object({
+	modelId: z.string(),
+	modelName: z.string(),
+	answers: z.array(decisionAnswerSchema).nullable(),
+	usage: decisionUsageSchema.nullable().optional(),
+	error: z.string().optional(),
+});
+
+const decisionInputImageSchema = z.object({
+	dataUrl: z
+		.string()
+		.max(MAX_DECISION_IMAGE_DATA_URL_LENGTH)
+		.regex(DECISION_IMAGE_DATA_URL_PATTERN),
+	mediaType: z.enum(DECISION_IMAGE_MEDIA_TYPES),
+});
+
+// The list leaves the base64 input images out; the detail route returns them.
+const decisionHistoryListItemSchema = z.object({
+	id: z.string(),
+	prompt: z.string(),
+	title: z.string().nullable(),
+	createdAt: z.string(),
+	inputImageCount: z.number(),
+	questions: z.array(decisionQuestionSchema),
+	models: z.array(decisionModelResultSchema),
+});
+
+const decisionHistoryItemSchema = decisionHistoryListItemSchema.extend({
+	inputImages: z.array(decisionInputImageSchema).nullable(),
 });
 
 const videoModelResultSchema = z.object({
@@ -285,6 +384,7 @@ playground.openapi(listImageHistory, async (c) => {
 					modelId: string;
 					modelName: string;
 					imageCount: number;
+					mediaTypes: string[];
 					error: string | null;
 				}[]
 			>`(
@@ -294,6 +394,10 @@ playground.openapi(listImageHistory, async (c) => {
 							'modelId', m.value ->> 'modelId',
 							'modelName', m.value ->> 'modelName',
 							'imageCount', coalesce(jsonb_array_length(m.value -> 'images'), 0),
+							'mediaTypes', (
+								select coalesce(jsonb_agg(i.value ->> 'mediaType' order by i.ord), '[]'::jsonb)
+								from jsonb_array_elements(coalesce(m.value -> 'images', '[]'::jsonb)) with ordinality as i(value, ord)
+							),
 							'error', m.value ->> 'error'
 						)
 						order by m.ord
@@ -317,6 +421,7 @@ playground.openapi(listImageHistory, async (c) => {
 				modelId: m.modelId,
 				modelName: m.modelName,
 				imageCount: m.imageCount,
+				mediaTypes: m.mediaTypes,
 				...(m.error ? { error: m.error } : {}),
 			})),
 		})),
@@ -399,17 +504,34 @@ playground.get("/image-history/:id/thumbnail", async (c) => {
 		return c.body(null, 304);
 	}
 	const rendered = await renderImageVariant(image, "thumbnail");
-	c.header("Content-Type", rendered.mediaType);
+	setStoredImageHeaders(c, rendered.mediaType);
 	return c.body(rendered.body);
 });
 
 // Stored images never change, but a cached copy must still pass the ownership
 // check above on every use, so the browser revalidates and gets a 304 instead
 // of a re-rendered variant.
+// Bump when the response headers change: a 304 keeps a cached copy's old
+// headers, so older ETags must miss and get a fresh 200.
+const STORED_IMAGE_ETAG_VERSION = "v2";
+
 function notModified(c: Context, etag: string): boolean {
+	const versioned = `"${STORED_IMAGE_ETAG_VERSION}:${etag.replace(/^"/, "")}`;
 	c.header("Cache-Control", "private, no-cache");
-	c.header("ETag", etag);
-	return c.req.header("if-none-match") === etag;
+	c.header("ETag", versioned);
+	return c.req.header("if-none-match") === versioned;
+}
+
+// Stored images are served from the API origin with a client-supplied media
+// type, so an SVG (or anything else) opened directly can neither run scripts
+// nor load resources.
+function setStoredImageHeaders(c: Context, mediaType: string) {
+	c.header("Content-Type", mediaType);
+	c.header("X-Content-Type-Options", "nosniff");
+	c.header(
+		"Content-Security-Policy",
+		"default-src 'none'; style-src 'unsafe-inline'; sandbox",
+	);
 }
 
 function parseImageIndex(value: string): number {
@@ -465,7 +587,7 @@ playground.get(
 			return c.body(null, 304);
 		}
 		const rendered = await renderImageVariant(image, variant);
-		c.header("Content-Type", rendered.mediaType);
+		setStoredImageHeaders(c, rendered.mediaType);
 		return c.body(rendered.body);
 	},
 );
@@ -504,7 +626,7 @@ playground.get("/image-history/:id/input-images/:index", async (c) => {
 		{ base64: input.dataUrl.split(",")[1] ?? "", mediaType: input.mediaType },
 		variant,
 	);
-	c.header("Content-Type", rendered.mediaType);
+	setStoredImageHeaders(c, rendered.mediaType);
 	return c.body(rendered.body);
 });
 
@@ -579,6 +701,7 @@ playground.openapi(saveImageHistory, async (c) => {
 					modelId: m.modelId,
 					modelName: m.modelName,
 					imageCount: m.images.length,
+					mediaTypes: m.images.map((image) => image.mediaType),
 					...(m.error ? { error: m.error } : {}),
 				})),
 			},
@@ -925,6 +1048,328 @@ playground.openapi(renameAudioHistory, async (c) => {
 	});
 });
 
+// ── GET /decision-history ────────────────────────────────────────────────────
+
+const listDecisionHistory = createRoute({
+	method: "get",
+	path: "/decision-history",
+	request: {
+		query: z.object({
+			organizationId: z.string().trim().min(1).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						items: z.array(decisionHistoryListItemSchema),
+					}),
+				},
+			},
+			description:
+				"List of decision runs for the authenticated user, without the base64 input image payloads",
+		},
+	},
+});
+
+// The columns the list view needs; `inputImages` is reduced to a count in
+// SQL so the base64 payloads never leave Postgres for the list.
+const decisionHistoryListColumns = {
+	id: tables.playgroundDecisionHistory.id,
+	prompt: tables.playgroundDecisionHistory.prompt,
+	title: tables.playgroundDecisionHistory.title,
+	createdAt: tables.playgroundDecisionHistory.createdAt,
+	inputImageCount: sql<number>`case when jsonb_typeof(${tables.playgroundDecisionHistory.inputImages}) = 'array' then jsonb_array_length(${tables.playgroundDecisionHistory.inputImages}) else 0 end`,
+	questions: tables.playgroundDecisionHistory.questions,
+	models: tables.playgroundDecisionHistory.models,
+};
+
+function serializeDecisionHistoryListItem(row: {
+	id: string;
+	prompt: string;
+	title: string | null;
+	createdAt: Date;
+	inputImageCount: number;
+	questions: (typeof tables.playgroundDecisionHistory.$inferSelect)["questions"];
+	models: (typeof tables.playgroundDecisionHistory.$inferSelect)["models"];
+}) {
+	return {
+		id: row.id,
+		prompt: row.prompt,
+		title: row.title ?? null,
+		createdAt: row.createdAt.toISOString(),
+		inputImageCount: Number(row.inputImageCount),
+		questions: row.questions,
+		models: row.models,
+	};
+}
+
+function serializeDecisionHistory(
+	row: typeof tables.playgroundDecisionHistory.$inferSelect,
+) {
+	return {
+		...serializeDecisionHistoryListItem({
+			...row,
+			inputImageCount: row.inputImages?.length ?? 0,
+		}),
+		inputImages: row.inputImages ?? null,
+	};
+}
+
+// A run can only be filed under an organization the user belongs to; the
+// Chat plan context is represented by a null organizationId.
+async function assertDecisionHistoryOrganization(
+	userId: string,
+	organizationId: string | undefined,
+): Promise<void> {
+	if (!organizationId) {
+		return;
+	}
+	const membership = await db.query.userOrganization.findFirst({
+		where: { userId: { eq: userId }, organizationId: { eq: organizationId } },
+	});
+	if (!membership) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+}
+
+playground.openapi(listDecisionHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { organizationId } = c.req.valid("query");
+	const orgFilter = await buildOrgHistoryFilter(
+		tables.playgroundDecisionHistory.organizationId,
+		organizationId,
+	);
+
+	const rows = await db
+		.select(decisionHistoryListColumns)
+		.from(tables.playgroundDecisionHistory)
+		.where(and(eq(tables.playgroundDecisionHistory.userId, user.id), orgFilter))
+		.orderBy(desc(tables.playgroundDecisionHistory.createdAt));
+
+	return c.json({ items: rows.map(serializeDecisionHistoryListItem) });
+});
+
+// ── GET /decision-history/:id ────────────────────────────────────────────────
+
+const getDecisionHistory = createRoute({
+	method: "get",
+	path: "/decision-history/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ item: decisionHistoryItemSchema }),
+				},
+			},
+			description: "One decision run including its input images",
+		},
+	},
+});
+
+playground.openapi(getDecisionHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+	const row = await db.query.playgroundDecisionHistory.findFirst({
+		where: { id: { eq: id }, userId: { eq: user.id } },
+	});
+	if (!row) {
+		throw new HTTPException(404, { message: "Not found" });
+	}
+
+	return c.json({ item: serializeDecisionHistory(row) });
+});
+
+// ── POST /decision-history ───────────────────────────────────────────────────
+
+const saveDecisionHistory = createRoute({
+	method: "post",
+	path: "/decision-history",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z
+						.object({
+							// Empty when the run was images only.
+							prompt: z.string().max(100_000),
+							organizationId: z.string().trim().min(1).optional(),
+							inputImages: z
+								.array(decisionInputImageSchema)
+								.max(MAX_DECISION_INPUT_IMAGES)
+								.optional(),
+							questions: z
+								.array(decisionQuestionSchema)
+								.min(1)
+								.max(MAX_DECISION_QUESTIONS),
+							models: z
+								.array(decisionModelResultSchema)
+								.min(1)
+								.max(MAX_DECISION_MODELS),
+						})
+						.refine(
+							(body) =>
+								body.prompt.trim().length > 0 || !!body.inputImages?.length,
+							{
+								message: "A run needs text or at least one image",
+								path: ["prompt"],
+							},
+						),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({ item: decisionHistoryItemSchema }),
+				},
+			},
+			description: "Saved decision run",
+		},
+	},
+});
+
+playground.openapi(saveDecisionHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const body = c.req.valid("json");
+	await assertDecisionHistoryOrganization(user.id, body.organizationId);
+
+	const [row] = await db
+		.insert(tables.playgroundDecisionHistory)
+		.values({
+			userId: user.id,
+			organizationId: body.organizationId ?? null,
+			prompt: body.prompt,
+			inputImages: body.inputImages ?? null,
+			questions: body.questions,
+			models: body.models,
+		})
+		.returning();
+
+	if (body.models.some((m) => !m.error && m.answers)) {
+		await awardLoungePoints(user.id, "decision_run");
+	}
+
+	return c.json({ item: serializeDecisionHistory(row) }, 201);
+});
+
+// ── DELETE /decision-history/:id ─────────────────────────────────────────────
+
+const deleteDecisionHistory = createRoute({
+	method: "delete",
+	path: "/decision-history/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ message: z.string() }) },
+			},
+			description: "Deleted",
+		},
+	},
+});
+
+playground.openapi(deleteDecisionHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+
+	const [deleted] = await db
+		.delete(tables.playgroundDecisionHistory)
+		.where(
+			and(
+				eq(tables.playgroundDecisionHistory.id, id),
+				eq(tables.playgroundDecisionHistory.userId, user.id),
+			),
+		)
+		.returning({ id: tables.playgroundDecisionHistory.id });
+
+	if (!deleted) {
+		throw new HTTPException(404, { message: "Not found" });
+	}
+
+	return c.json({ message: "Deleted" });
+});
+
+// ── PATCH /decision-history/:id ──────────────────────────────────────────────
+
+const renameDecisionHistory = createRoute({
+	method: "patch",
+	path: "/decision-history/{id}",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ title: z.string().trim().min(1).max(200) }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ item: decisionHistoryItemSchema }),
+				},
+			},
+			description: "Renamed decision run",
+		},
+	},
+});
+
+playground.openapi(renameDecisionHistory, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { id } = c.req.valid("param");
+	const { title } = c.req.valid("json");
+
+	const [row] = await db
+		.update(tables.playgroundDecisionHistory)
+		.set({ title })
+		.where(
+			and(
+				eq(tables.playgroundDecisionHistory.id, id),
+				eq(tables.playgroundDecisionHistory.userId, user.id),
+			),
+		)
+		.returning();
+
+	if (!row) {
+		throw new HTTPException(404, { message: "Not found" });
+	}
+
+	return c.json({ item: serializeDecisionHistory(row) });
+});
+
 // ── GET /video-history ───────────────────────────────────────────────────────
 
 const listVideoHistory = createRoute({
@@ -1032,7 +1477,7 @@ playground.get("/video-history/:id/input-image/:index", async (c) => {
 	}
 
 	const base64 = input.dataUrl.split(",")[1] ?? "";
-	c.header("Content-Type", input.mediaType);
+	setStoredImageHeaders(c, input.mediaType);
 	c.header("Cache-Control", "private, max-age=31536000, immutable");
 	return c.body(Buffer.from(base64, "base64"));
 });

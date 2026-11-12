@@ -1,0 +1,213 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "32c42d20-233a-4cc5-96ce-800ed23b8758",
+  "prevIds": [
+    "9d934d30-96e9-42a7-b235-df50156a388d"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "model_price_state"
+      ],
+      "writes": [
+        "s|tbl|public.model_price_state",
+        "n|tbl|public.model_price_state",
+        "e|tbl|public.model_price_state",
+        "n|rel|public.model_price_state",
+        "n|type|public.model_price_state",
+        "n|rel|public.model_price_state_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "notification_preference",
+        "model_scope"
+      ],
+      "writes": [
+        "s|col|public.notification_preference.model_scope",
+        "n|col|public.notification_preference.model_scope",
+        "e|col|public.notification_preference.model_scope"
+      ],
+      "reads": [
+        "n|tbl|public.notification_preference",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "notification_preference",
+        "model_ids"
+      ],
+      "writes": [
+        "s|col|public.notification_preference.model_ids",
+        "n|col|public.notification_preference.model_ids",
+        "e|col|public.notification_preference.model_ids"
+      ],
+      "reads": [
+        "n|tbl|public.notification_preference",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "model_price_state"
+      ],
+      "writes": [
+        "s|fk|public.model_price_state.model_price_state_mapping_id_model_provider_mapping_id_fkey",
+        "n|fk|public.model_price_state.model_price_state_mapping_id_model_provider_mapping_id_fkey",
+        "e|fk|public.model_price_state.model_price_state_mapping_id_model_provider_mapping_id_fkey",
+        "n|con|public.model_price_state.model_price_state_mapping_id_model_provider_mapping_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.model_price_state",
+        "n|sch|public",
+        "n|tbl|public.model_provider_mapping",
+        "n|sch|public",
+        "n|col|public.model_price_state.mapping_id",
+        "n|col|public.model_provider_mapping.id",
+        "e|uniqueness|public.model_provider_mapping.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "model_price_state",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_price_state",
+        "name": "mapping_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_price_state",
+        "name": "prices",
+        "type": "json",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_price_state",
+        "name": "updated_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "notification_preference",
+        "name": "model_scope",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'used'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "notification_preference",
+        "name": "model_ids",
+        "type": "json",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'[]'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_price_state",
+        "name": "model_price_state_mapping_id_model_provider_mapping_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "mapping_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "model_provider_mapping",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_price_state",
+        "name": "model_price_state_pkey",
+        "columns": [
+          "mapping_id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    }
+  ]
+}

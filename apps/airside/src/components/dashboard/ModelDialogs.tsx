@@ -21,6 +21,7 @@ import {
 	useCatalogue,
 } from "@/components/dashboard/CatalogueFields";
 import { useCompany } from "@/components/dashboard/company-context";
+import { useInvalidateCompanies } from "@/components/dashboard/useInvalidateCompanies";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -59,33 +60,11 @@ import type { AirsideModel } from "@/app/dashboard/fleet/page";
 import type { ReactNode } from "react";
 
 /**
- * The key a carrier saved in settings for this provider, masked. When one
- * exists preflight no longer needs the key pasted — the server reads it off
- * the claim.
- */
-function useSavedVerificationKey(
-	providerCompanyId: string,
-	providerId: string,
-): string | null {
-	const { companies } = useCompany();
-	const claim = companies
-		.find((company) => company.id === providerCompanyId)
-		?.claims.find(
-			(candidate) =>
-				candidate.providerId === providerId && candidate.status === "active",
-		);
-	return claim?.verificationKeyMasked ?? null;
-}
-
-/**
  * A registered carrier with no provider key on file files one with its first
  * model: the server smoke-tests it against that model and it goes live once
  * the model is approved.
  */
-function useNeedsFirstProviderKey(
-	providerCompanyId: string,
-	providerId: string,
-): boolean {
+function useProviderKeySetup(providerCompanyId: string, providerId: string) {
 	const { companies } = useCompany();
 	const claim = companies
 		.find((company) => company.id === providerCompanyId)
@@ -93,31 +72,25 @@ function useNeedsFirstProviderKey(
 			(candidate) =>
 				candidate.providerId === providerId && candidate.status === "active",
 		);
-	return (
-		claim?.kind === "custom" && !claim.providerKey && !claim.pendingProviderKey
-	);
+	const canFileProviderKey = claim?.kind === "custom" && !claim.providerKey;
+	return {
+		canFileProviderKey,
+		needsProviderKey: canFileProviderKey && !claim.pendingProviderKey,
+	};
 }
 
-function VerificationKeyHint({ savedKey }: { savedKey: string | null }) {
-	return savedKey ? (
+function ProviderKeyHint() {
+	return (
 		<>
-			Leave blank to use the encrypted test key saved in{" "}
-			<Link href="/dashboard/settings" className="underline">
-				settings
-			</Link>{" "}
-			(<span className="font-mono">{savedKey}</span>). A key pasted here
-			replaces it.
-		</>
-	) : (
-		<>
-			The preflight calls your endpoint with this key. We store it encrypted as
-			this carrier's test key so later runs reuse it — replace or remove it any
-			time in{" "}
+			Preflight uses your carrier's saved provider key, managed by you or LLM
+			Gateway. These requests consume provider usage and are logged and billed
+			to our gateway project for reconciliation. Previously saved test keys are
+			no longer used; you do not need to remove them. Manage your key in
+			{"\u00a0"}
 			<Link href="/dashboard/settings" className="underline">
 				settings
 			</Link>
-			. Use a key separate from your live integration: this traffic is billed by
-			your own platform and is not tracked in LLMGateway usage or billing.
+			.
 		</>
 	);
 }
@@ -236,6 +209,11 @@ function useInvalidateModels(providerCompanyId: string) {
 		});
 	};
 }
+
+/** Decision models declare image input only. */
+const DECISION_CAPABILITIES = [
+	{ key: "vision", label: "Image input" },
+] as const;
 
 const CAPABILITIES = [
 	{ key: "streaming", label: "Streaming" },
@@ -885,6 +863,7 @@ export function RegisterModelDialog({
 	children: ReactNode;
 }) {
 	const api = useApi();
+	const invalidateCompanies = useInvalidateCompanies();
 	const invalidate = useInvalidateModels(providerCompanyId);
 	const [open, setOpen] = useState(false);
 	const catalogue = useCatalogue(open);
@@ -911,6 +890,7 @@ export function RegisterModelDialog({
 	const [externalId, setExternalId] = useState("");
 	const [apiFormat, setApiFormat] =
 		useState<AirsideModel["apiFormat"]>("provider-native");
+	const [decisions, setDecisions] = useState(false);
 	const [displayName, setDisplayName] = useState("");
 	const [contextSize, setContextSize] = useState("128000");
 	const [description, setDescription] = useState("");
@@ -924,7 +904,7 @@ export function RegisterModelDialog({
 	const [requestPrice, setRequestPrice] = useState("");
 	const [regionFares, setRegionFares] = useState<RegionFareRow[]>([]);
 	const [note, setNote] = useState("");
-	const [apiKey, setApiKey] = useState("");
+
 	const [verificationId, setVerificationId] = useState("");
 	const [maxRpm, setMaxRpm] = useState("");
 	const [maxRpd, setMaxRpd] = useState("");
@@ -957,11 +937,8 @@ export function RegisterModelDialog({
 	const effectiveProviderId = sortedProviderIds.includes(providerId)
 		? providerId
 		: (sortedProviderIds[0] ?? "");
-	const savedVerificationKey = useSavedVerificationKey(
-		providerCompanyId,
-		effectiveProviderId,
-	);
-	const needsProviderKey = useNeedsFirstProviderKey(
+
+	const { canFileProviderKey, needsProviderKey } = useProviderKeySetup(
 		providerCompanyId,
 		effectiveProviderId,
 	);
@@ -990,9 +967,10 @@ export function RegisterModelDialog({
 		"post",
 		"/airside/model-verifications",
 		{
+			onSettled: invalidateCompanies,
 			onSuccess: (data) => {
 				setVerificationId(data.verification.id);
-				setApiKey("");
+				setProviderKey("");
 				toast.success("Preflight queued. Results will update here.");
 			},
 			onError: (error) => {
@@ -1014,6 +992,7 @@ export function RegisterModelDialog({
 			setModelName("");
 			setExternalId("");
 			setApiFormat("provider-native");
+			setDecisions(false);
 			setDisplayName("");
 			setDescription("");
 			setFamily("");
@@ -1023,7 +1002,7 @@ export function RegisterModelDialog({
 			setOutputPrice("");
 			setRegionFares([]);
 			setNote("");
-			setApiKey("");
+
 			setProviderKey("");
 			setVerificationId("");
 		},
@@ -1037,26 +1016,50 @@ export function RegisterModelDialog({
 		},
 	});
 
+	// A decision model declares only image input and its input window; the
+	// server pins every chat capability off for it.
+	const declaredCapabilities = decisions
+		? { decisions: true, vision: capabilities.vision }
+		: {
+				apiFormat,
+				maxOutput: Number(maxOutput) || undefined,
+				...capabilities,
+				supportedToolChoices: capabilities.tools
+					? toolChoicePayload(toolChoices)
+					: null,
+				reasoningEfforts:
+					capabilities.reasoning && reasoningEfforts.length > 0
+						? reasoningEfforts
+						: undefined,
+				webSearchFormat: capabilities.webSearch ? webSearchFormat : undefined,
+			};
+	const pricing = decisions
+		? {
+				inputPrice: perMillionToPerToken(inputPrice),
+				outputPrice: "0",
+				requestPrice: requestPrice || undefined,
+			}
+		: {
+				inputPrice: perMillionToPerToken(inputPrice),
+				outputPrice: perMillionToPerToken(outputPrice),
+				cachedInputPrice: cachedInputPrice
+					? perMillionToPerToken(cachedInputPrice)
+					: undefined,
+				requestPrice: requestPrice || undefined,
+				regionPrices: regionFaresToBody(regionFares),
+			};
 	const verificationMapping = {
+		pricing,
 		providerCompanyId,
 		providerId: effectiveProviderId,
 		modelName: modelName.trim(),
 		externalId: externalId || undefined,
-		apiFormat,
 		contextSize: Number(contextSize) || undefined,
-		maxOutput: Number(maxOutput) || undefined,
 		promptCaching:
-			Boolean(cachedInputPrice) ||
-			regionFares.some((fare) => Boolean(fare.cachedInputPrice)),
-		...capabilities,
-		supportedToolChoices: capabilities.tools
-			? toolChoicePayload(toolChoices)
-			: null,
-		reasoningEfforts:
-			capabilities.reasoning && reasoningEfforts.length > 0
-				? reasoningEfforts
-				: undefined,
-		webSearchFormat: capabilities.webSearch ? webSearchFormat : undefined,
+			!decisions &&
+			(Boolean(cachedInputPrice) ||
+				regionFares.some((fare) => Boolean(fare.cachedInputPrice))),
+		...declaredCapabilities,
 	};
 
 	return (
@@ -1116,7 +1119,10 @@ export function RegisterModelDialog({
 							queueVerification.mutate({
 								body: {
 									...verificationMapping,
-									apiKey: apiKey || undefined,
+									providerApiKey:
+										canFileProviderKey && providerKey.trim()
+											? providerKey
+											: undefined,
 								},
 							});
 							return;
@@ -1124,12 +1130,11 @@ export function RegisterModelDialog({
 						createModel.mutate({
 							body: {
 								verificationId: verification.id,
-								providerKey: needsProviderKey ? providerKey : undefined,
+
 								providerCompanyId,
 								providerId: effectiveProviderId,
 								modelName: modelName.trim(),
 								externalId: externalId || undefined,
-								apiFormat,
 								displayName: canonicalModel
 									? undefined
 									: displayName || undefined,
@@ -1139,31 +1144,12 @@ export function RegisterModelDialog({
 								family: canonicalModel?.family ?? family,
 								quantization,
 								contextSize: Number(contextSize) || undefined,
-								maxOutput: Number(maxOutput) || undefined,
-								...capabilities,
-								supportedToolChoices: capabilities.tools
-									? toolChoicePayload(toolChoices)
-									: null,
-								reasoningEfforts:
-									capabilities.reasoning && reasoningEfforts.length > 0
-										? reasoningEfforts
-										: undefined,
-								webSearchFormat: capabilities.webSearch
-									? webSearchFormat
-									: undefined,
+								...declaredCapabilities,
 								maxRpm: Number(maxRpm) || undefined,
 								maxRpd: Number(maxRpd) || undefined,
 								rateLimitScope,
 								rateLimitMode,
-								pricing: {
-									inputPrice: perMillionToPerToken(inputPrice),
-									outputPrice: perMillionToPerToken(outputPrice),
-									cachedInputPrice: cachedInputPrice
-										? perMillionToPerToken(cachedInputPrice)
-										: undefined,
-									requestPrice: requestPrice || undefined,
-									regionPrices: regionFaresToBody(regionFares),
-								},
+								pricing,
 								note: note || undefined,
 							},
 						});
@@ -1295,35 +1281,74 @@ export function RegisterModelDialog({
 							</div>
 						)}
 						<div className="space-y-2 sm:col-span-2">
-							<Label htmlFor="model-api-format">Upstream API</Label>
+							<Label htmlFor="model-kind">Model type</Label>
 							<Select
-								value={apiFormat}
+								value={decisions ? "decisions" : "chat"}
 								onValueChange={(value) => {
-									setApiFormat(value as AirsideModel["apiFormat"]);
+									setDecisions(value === "decisions");
 									resetVerification();
 								}}
 								disabled={verificationInProgress}
 							>
-								<SelectTrigger
-									id="model-api-format"
-									data-testid="model-api-format"
-								>
+								<SelectTrigger id="model-kind" data-testid="model-kind">
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
-									{API_FORMATS.map((format) => (
-										<SelectItem key={format.value} value={format.value}>
-											{format.label}
-										</SelectItem>
-									))}
+									<SelectItem value="chat">Chat completions</SelectItem>
+									<SelectItem value="decisions">
+										Typed decisions (/v1/decisions)
+									</SelectItem>
 								</SelectContent>
 							</Select>
 							<p className="text-muted-foreground text-xs">
-								Used for preflight and every gateway request. Fixed once listed.
+								{decisions ? (
+									<>
+										Your API must serve the OpenAI-compatible{" "}
+										<span className="font-mono">POST /v1/decisions</span> and
+										report <span className="font-mono">usage.input_tokens</span>
+										. Decisions are billed on input tokens only. Fixed once
+										listed.
+									</>
+								) : (
+									"Fixed once listed."
+								)}
 							</p>
 						</div>
+						{decisions ? null : (
+							<div className="space-y-2 sm:col-span-2">
+								<Label htmlFor="model-api-format">Upstream API</Label>
+								<Select
+									value={apiFormat}
+									onValueChange={(value) => {
+										setApiFormat(value as AirsideModel["apiFormat"]);
+										resetVerification();
+									}}
+									disabled={verificationInProgress}
+								>
+									<SelectTrigger
+										id="model-api-format"
+										data-testid="model-api-format"
+									>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{API_FORMATS.map((format) => (
+											<SelectItem key={format.value} value={format.value}>
+												{format.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								<p className="text-muted-foreground text-xs">
+									Used for preflight and every gateway request. Fixed once
+									listed.
+								</p>
+							</div>
+						)}
 						<div className="space-y-2">
-							<Label htmlFor="model-context">Context size</Label>
+							<Label htmlFor="model-context">
+								{decisions ? "Max input tokens" : "Context size"}
+							</Label>
 							<Input
 								id="model-context"
 								value={contextSize}
@@ -1336,21 +1361,23 @@ export function RegisterModelDialog({
 								min={1}
 							/>
 						</div>
-						<div className="space-y-2">
-							<Label htmlFor="model-max-output">Max output tokens</Label>
-							<Input
-								id="model-max-output"
-								value={maxOutput}
-								onChange={(e) => {
-									setMaxOutput(e.target.value);
-									resetVerification();
-								}}
-								disabled={verificationInProgress}
-								type="number"
-								min={1}
-								placeholder="optional"
-							/>
-						</div>
+						{decisions ? null : (
+							<div className="space-y-2">
+								<Label htmlFor="model-max-output">Max output tokens</Label>
+								<Input
+									id="model-max-output"
+									value={maxOutput}
+									onChange={(e) => {
+										setMaxOutput(e.target.value);
+										resetVerification();
+									}}
+									disabled={verificationInProgress}
+									type="number"
+									min={1}
+									placeholder="optional"
+								/>
+							</div>
+						)}
 						<QuantizationField
 							id="model-quantization"
 							value={quantization}
@@ -1387,7 +1414,7 @@ export function RegisterModelDialog({
 					<div className="space-y-2">
 						<Label>Capabilities</Label>
 						<div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-							{CAPABILITIES.map((cap) => (
+							{(decisions ? DECISION_CAPABILITIES : CAPABILITIES).map((cap) => (
 								<label
 									key={cap.key}
 									className="border-border flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
@@ -1407,7 +1434,7 @@ export function RegisterModelDialog({
 								</label>
 							))}
 						</div>
-						{capabilities.tools ? (
+						{!decisions && capabilities.tools ? (
 							<div className="space-y-1 pt-1">
 								<Label className="text-muted-foreground text-xs">
 									Accepted tool_choice modes
@@ -1447,7 +1474,7 @@ export function RegisterModelDialog({
 								</p>
 							</div>
 						) : null}
-						{capabilities.webSearch ? (
+						{!decisions && capabilities.webSearch ? (
 							<WebSearchFormatPicker
 								value={webSearchFormat}
 								disabled={verificationInProgress}
@@ -1458,7 +1485,7 @@ export function RegisterModelDialog({
 								}}
 							/>
 						) : null}
-						{capabilities.reasoning ? (
+						{!decisions && capabilities.reasoning ? (
 							<div className="space-y-1 pt-1">
 								<Label className="text-muted-foreground text-xs">
 									Supported reasoning efforts
@@ -1540,7 +1567,7 @@ export function RegisterModelDialog({
 						<div className="text-primary font-mono text-[0.65rem] tracking-[0.25em] uppercase">
 							Initial tariff — requires approval
 						</div>
-						{canonicalModel && (
+						{canonicalModel && !decisions && (
 							<CataloguePriceButton
 								model={canonicalModel}
 								providerId={effectiveProviderId}
@@ -1567,33 +1594,39 @@ export function RegisterModelDialog({
 									required
 								/>
 							</div>
-							<div className="space-y-2">
-								<Label htmlFor="model-output-price">Output $/1M tokens</Label>
-								<Input
-									id="model-output-price"
-									data-testid="output-price"
-									value={outputPrice}
-									onChange={(e) => setOutputPrice(e.target.value)}
-									placeholder="6"
-									required
-								/>
-							</div>
-							<div className="space-y-2">
-								<Label htmlFor="model-cached-price">
-									Cached input $/1M tokens
-								</Label>
-								<Input
-									id="model-cached-price"
-									data-testid="cached-input-price"
-									value={cachedInputPrice}
-									onChange={(e) => setCachedInputPrice(e.target.value)}
-									placeholder="0.5"
-								/>
-								<CachedPriceWarning
-									inputPrice={inputPrice}
-									cachedInputPrice={cachedInputPrice}
-								/>
-							</div>
+							{decisions ? null : (
+								<>
+									<div className="space-y-2">
+										<Label htmlFor="model-output-price">
+											Output $/1M tokens
+										</Label>
+										<Input
+											id="model-output-price"
+											data-testid="output-price"
+											value={outputPrice}
+											onChange={(e) => setOutputPrice(e.target.value)}
+											placeholder="6"
+											required
+										/>
+									</div>
+									<div className="space-y-2">
+										<Label htmlFor="model-cached-price">
+											Cached input $/1M tokens
+										</Label>
+										<Input
+											id="model-cached-price"
+											data-testid="cached-input-price"
+											value={cachedInputPrice}
+											onChange={(e) => setCachedInputPrice(e.target.value)}
+											placeholder="0.5"
+										/>
+										<CachedPriceWarning
+											inputPrice={inputPrice}
+											cachedInputPrice={cachedInputPrice}
+										/>
+									</div>
+								</>
+							)}
 							<div className="space-y-2">
 								<Label htmlFor="model-request-price">Per-request $</Label>
 								<Input
@@ -1605,11 +1638,13 @@ export function RegisterModelDialog({
 								/>
 							</div>
 						</div>
-						<RegionFaresEditor
-							idPrefix="register"
-							rows={regionFares}
-							onChange={setRegionFares}
-						/>
+						{decisions ? null : (
+							<RegionFaresEditor
+								idPrefix="register"
+								rows={regionFares}
+								onChange={setRegionFares}
+							/>
+						)}
 						<div className="space-y-2">
 							<Label htmlFor="model-note">Note to the regulator</Label>
 							<Textarea
@@ -1622,46 +1657,33 @@ export function RegisterModelDialog({
 						</div>
 					</div>
 
-					<div className="border-border space-y-2 rounded-lg border p-3">
-						<Label htmlFor="verification-api-key">Provider test key</Label>
-						<Input
-							id="verification-api-key"
-							type="password"
-							autoComplete="off"
-							value={apiKey}
-							onChange={(event) => {
-								setApiKey(event.target.value);
-								setVerificationId("");
-							}}
-							placeholder={
-								savedVerificationKey
-									? "Paste a key to replace the saved one"
-									: "A key that can call this model"
-							}
-							disabled={verificationInProgress}
-						/>
-						<p className="text-muted-foreground text-xs">
-							<VerificationKeyHint savedKey={savedVerificationKey} />
-						</p>
-					</div>
-
-					{needsProviderKey ? (
+					<p className="text-muted-foreground text-xs">
+						<ProviderKeyHint />
+					</p>
+					{canFileProviderKey ? (
 						<div className="border-border space-y-2 rounded-lg border p-3">
 							<Label htmlFor="first-provider-key">Provider key</Label>
 							<Input
 								id="first-provider-key"
 								data-testid="first-provider-key-input"
+								disabled={queueVerification.isPending || verificationInProgress}
 								type="password"
 								autoComplete="off"
 								value={providerKey}
-								onChange={(event) => setProviderKey(event.target.value)}
-								placeholder="The key we serve your traffic with"
+								onChange={(event) => {
+									setProviderKey(event.target.value);
+									setVerificationId("");
+								}}
+								placeholder={
+									needsProviderKey
+										? "The key for preflight and live traffic"
+										: "Leave blank to reuse the saved key"
+								}
 							/>
 							<p className="text-muted-foreground text-xs">
-								Your first model brings the key LLM Gateway serves your live
-								traffic with. It must differ from the test key: we smoke-test it
-								against this model when you file, and it goes live once the
-								model is approved. Stored encrypted.
+								One encrypted provider key is used for live traffic and Airside
+								tests. It goes live once your first model is approved. Until
+								then, leave blank to reuse the saved key or enter a replacement.
 							</p>
 						</div>
 					) : null}
@@ -1679,12 +1701,7 @@ export function RegisterModelDialog({
 								verificationInProgress ||
 								!effectiveProviderId ||
 								!modelIdValid ||
-								(verification?.status !== "passed" &&
-									!apiKey.trim() &&
-									!savedVerificationKey) ||
-								(verification?.status === "passed" &&
-									needsProviderKey &&
-									!providerKey.trim())
+								(needsProviderKey && !providerKey.trim())
 							}
 							data-testid="register-model-submit"
 							className="font-semibold"
@@ -1715,12 +1732,9 @@ export function VerifyModelDialog({
 }) {
 	const api = useApi();
 	const invalidate = useInvalidateModels(model.providerCompanyId);
-	const savedVerificationKey = useSavedVerificationKey(
-		model.providerCompanyId,
-		model.providerId,
-	);
+
 	const [open, setOpen] = useState(false);
-	const [apiKey, setApiKey] = useState("");
+
 	const [verificationId, setVerificationId] = useState(
 		model.latestVerification?.id ?? "",
 	);
@@ -1759,7 +1773,6 @@ export function VerifyModelDialog({
 		{
 			onSuccess: async (data) => {
 				setVerificationId(data.verification.id);
-				setApiKey("");
 				await invalidate();
 				void historyQuery.refetch();
 				toast.success("Mapping verification queued.");
@@ -1801,29 +1814,9 @@ export function VerifyModelDialog({
 					</DialogDescription>
 				</DialogHeader>
 				<div className="space-y-4">
-					<div className="space-y-2">
-						<Label htmlFor={`verify-api-key-${model.id}`}>
-							Provider test key
-						</Label>
-						<Input
-							id={`verify-api-key-${model.id}`}
-							type="password"
-							autoComplete="off"
-							value={apiKey}
-							onChange={(event) => {
-								setApiKey(event.target.value);
-								setVerificationId("");
-							}}
-							placeholder={
-								savedVerificationKey
-									? "Paste a key to replace the saved one"
-									: "A key that can call this model"
-							}
-						/>
-						<p className="text-muted-foreground text-xs">
-							<VerificationKeyHint savedKey={savedVerificationKey} />
-						</p>
-					</div>
+					<p className="text-muted-foreground text-xs">
+						<ProviderKeyHint />
+					</p>
 					{verification ? (
 						<VerificationResults verification={verification} />
 					) : verificationId === (model.latestVerification?.id ?? "") &&
@@ -1841,14 +1834,13 @@ export function VerifyModelDialog({
 						type="button"
 						disabled={
 							queueVerification.isPending ||
-							(!apiKey.trim() && !savedVerificationKey) ||
 							verification?.status === "queued" ||
 							verification?.status === "running"
 						}
 						onClick={() =>
 							queueVerification.mutate({
 								params: { path: { id: model.id } },
-								body: { apiKey: apiKey || undefined },
+								body: {},
 							})
 						}
 					>
@@ -1870,10 +1862,7 @@ export function EditModelDialog({
 }) {
 	const api = useApi();
 	const invalidate = useInvalidateModels(model.providerCompanyId);
-	const savedVerificationKey = useSavedVerificationKey(
-		model.providerCompanyId,
-		model.providerId,
-	);
+
 	const [open, setOpen] = useState(false);
 	// A pending change is what the listing becomes once approved, so the form
 	// starts from it; saving replaces that filing.
@@ -1976,7 +1965,7 @@ export function EditModelDialog({
 			? (webSearchFormat ?? undefined)
 			: undefined,
 	};
-	const [apiKey, setApiKey] = useState("");
+
 	const [verificationId, setVerificationId] = useState("");
 	const verificationQuery = api.useQuery(
 		"get",
@@ -1999,7 +1988,6 @@ export function EditModelDialog({
 		{
 			onSuccess: async (data) => {
 				setVerificationId(data.verification.id);
-				setApiKey("");
 				await invalidate();
 			},
 			onError: (error) => {
@@ -2151,7 +2139,9 @@ export function EditModelDialog({
 							</div>
 						)}
 						<div className="space-y-2">
-							<Label htmlFor="edit-context">Context size</Label>
+							<Label htmlFor="edit-context">
+								{model.decisions ? "Max input tokens" : "Context size"}
+							</Label>
 							<Input
 								id="edit-context"
 								value={contextSize}
@@ -2164,20 +2154,22 @@ export function EditModelDialog({
 								min={1}
 							/>
 						</div>
-						<div className="space-y-2">
-							<Label htmlFor="edit-max-output">Max output tokens</Label>
-							<Input
-								id="edit-max-output"
-								value={maxOutput}
-								onChange={(e) => {
-									setMaxOutput(e.target.value);
-									resetVerification();
-								}}
-								disabled={verificationInProgress}
-								type="number"
-								min={1}
-							/>
-						</div>
+						{model.decisions ? null : (
+							<div className="space-y-2">
+								<Label htmlFor="edit-max-output">Max output tokens</Label>
+								<Input
+									id="edit-max-output"
+									value={maxOutput}
+									onChange={(e) => {
+										setMaxOutput(e.target.value);
+										resetVerification();
+									}}
+									disabled={verificationInProgress}
+									type="number"
+									min={1}
+								/>
+							</div>
+						)}
 						<QuantizationField
 							id="edit-quantization"
 							value={quantization}
@@ -2211,25 +2203,27 @@ export function EditModelDialog({
 					<div className="space-y-2">
 						<Label>Capabilities</Label>
 						<div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-							{CAPABILITIES.map((cap) => (
-								<label
-									key={cap.key}
-									className="border-border flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
-								>
-									{cap.label}
-									<Switch
-										checked={capabilities[cap.key]}
-										disabled={verificationInProgress}
-										onCheckedChange={(checked) => {
-											setCapabilities((prev) => ({
-												...prev,
-												[cap.key]: checked,
-											}));
-											resetVerification();
-										}}
-									/>
-								</label>
-							))}
+							{(model.decisions ? DECISION_CAPABILITIES : CAPABILITIES).map(
+								(cap) => (
+									<label
+										key={cap.key}
+										className="border-border flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
+									>
+										{cap.label}
+										<Switch
+											checked={capabilities[cap.key]}
+											disabled={verificationInProgress}
+											onCheckedChange={(checked) => {
+												setCapabilities((prev) => ({
+													...prev,
+													[cap.key]: checked,
+												}));
+												resetVerification();
+											}}
+										/>
+									</label>
+								),
+							)}
 						</div>
 						{capabilities.tools ? (
 							<div className="space-y-1 pt-1">
@@ -2360,47 +2354,25 @@ export function EditModelDialog({
 						) : null}
 					</div>
 					<div className="border-border space-y-2 rounded-lg border p-3">
-						<Label htmlFor={`edit-verify-api-key-${model.id}`}>
-							Preflight these capabilities (optional)
-						</Label>
-						<Input
-							id={`edit-verify-api-key-${model.id}`}
-							data-testid="edit-verify-api-key"
-							type="password"
-							autoComplete="off"
-							value={apiKey}
-							onChange={(event) => {
-								setApiKey(event.target.value);
-								setVerificationId("");
-							}}
-							placeholder={
-								savedVerificationKey
-									? "Paste a key to replace the saved one"
-									: "A key that can call this model"
-							}
-							disabled={verificationInProgress}
-						/>
+						<p className="text-sm font-semibold">
+							Preflight these capabilities
+						</p>
 						<p className="text-muted-foreground text-xs">
 							Runs the capabilities selected above against your endpoint before
 							you file them. Required before saving when you add a capability or
 							raise a limit; a failed check reports what the endpoint refused.{" "}
-							<VerificationKeyHint savedKey={savedVerificationKey} />
+							<ProviderKeyHint />
 						</p>
 						<Button
 							type="button"
 							variant="outline"
 							size="sm"
 							data-testid="edit-run-preflight"
-							disabled={
-								queueVerification.isPending ||
-								verificationInProgress ||
-								(!apiKey.trim() && !savedVerificationKey)
-							}
+							disabled={queueVerification.isPending || verificationInProgress}
 							onClick={() =>
 								queueVerification.mutate({
 									params: { path: { id: model.id } },
 									body: {
-										apiKey: apiKey || undefined,
 										proposed: proposedCapabilities,
 									},
 								})
@@ -2519,20 +2491,28 @@ export function FileFareDialog({
 						e.preventDefault();
 						fileFare.mutate({
 							params: { path: { id: model.id } },
-							body: {
-								inputPrice: perMillionToPerToken(inputPrice),
-								outputPrice: perMillionToPerToken(outputPrice),
-								cachedInputPrice: cachedInputPrice
-									? perMillionToPerToken(cachedInputPrice)
-									: undefined,
-								requestPrice: requestPrice || undefined,
-								regionPrices: regionFaresToBody(regionFares),
-								note: note || undefined,
-							},
+							// Decision models bill input tokens and requests only.
+							body: model.decisions
+								? {
+										inputPrice: perMillionToPerToken(inputPrice),
+										outputPrice: "0",
+										requestPrice: requestPrice || undefined,
+										note: note || undefined,
+									}
+								: {
+										inputPrice: perMillionToPerToken(inputPrice),
+										outputPrice: perMillionToPerToken(outputPrice),
+										cachedInputPrice: cachedInputPrice
+											? perMillionToPerToken(cachedInputPrice)
+											: undefined,
+										requestPrice: requestPrice || undefined,
+										regionPrices: regionFaresToBody(regionFares),
+										note: note || undefined,
+									},
 						});
 					}}
 				>
-					{canonicalModel && (
+					{canonicalModel && !model.decisions && (
 						<CataloguePriceButton
 							model={canonicalModel}
 							providerId={model.providerId}
@@ -2558,31 +2538,35 @@ export function FileFareDialog({
 								required
 							/>
 						</div>
-						<div className="space-y-2">
-							<Label htmlFor="fare-output">Output $/1M tokens</Label>
-							<Input
-								id="fare-output"
-								data-testid="fare-output-price"
-								value={outputPrice}
-								onChange={(e) => setOutputPrice(e.target.value)}
-								placeholder="6"
-								required
-							/>
-						</div>
-						<div className="space-y-2">
-							<Label htmlFor="fare-cached">Cached input $/1M tokens</Label>
-							<Input
-								id="fare-cached"
-								data-testid="fare-cached-input-price"
-								value={cachedInputPrice}
-								onChange={(e) => setCachedInputPrice(e.target.value)}
-								placeholder="0.5"
-							/>
-							<CachedPriceWarning
-								inputPrice={inputPrice}
-								cachedInputPrice={cachedInputPrice}
-							/>
-						</div>
+						{model.decisions ? null : (
+							<>
+								<div className="space-y-2">
+									<Label htmlFor="fare-output">Output $/1M tokens</Label>
+									<Input
+										id="fare-output"
+										data-testid="fare-output-price"
+										value={outputPrice}
+										onChange={(e) => setOutputPrice(e.target.value)}
+										placeholder="6"
+										required
+									/>
+								</div>
+								<div className="space-y-2">
+									<Label htmlFor="fare-cached">Cached input $/1M tokens</Label>
+									<Input
+										id="fare-cached"
+										data-testid="fare-cached-input-price"
+										value={cachedInputPrice}
+										onChange={(e) => setCachedInputPrice(e.target.value)}
+										placeholder="0.5"
+									/>
+									<CachedPriceWarning
+										inputPrice={inputPrice}
+										cachedInputPrice={cachedInputPrice}
+									/>
+								</div>
+							</>
+						)}
 						<div className="space-y-2">
 							<Label htmlFor="fare-request">Per-request $</Label>
 							<Input
@@ -2594,11 +2578,13 @@ export function FileFareDialog({
 							/>
 						</div>
 					</div>
-					<RegionFaresEditor
-						idPrefix="fare"
-						rows={regionFares}
-						onChange={setRegionFares}
-					/>
+					{model.decisions ? null : (
+						<RegionFaresEditor
+							idPrefix="fare"
+							rows={regionFares}
+							onChange={setRegionFares}
+						/>
+					)}
 					<div className="space-y-2">
 						<Label htmlFor="fare-note">Note</Label>
 						<Textarea

@@ -33,7 +33,6 @@ import {
 	Zap,
 } from "lucide-react";
 import Link from "next/link";
-import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
 import { AuthLink } from "@/components/shared/auth-link";
@@ -50,13 +49,13 @@ import {
 } from "@/lib/components/navigation-menu";
 import { useAppConfig } from "@/lib/config";
 import { LogoLockup } from "@/lib/icons/Logo";
+import { usePostHog } from "@/lib/posthog";
 import { useSystemBanner } from "@/lib/system-banner-context";
 import { cn } from "@/lib/utils";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
 import { SystemBannerBar } from "@llmgateway/shared/system-banner";
 
-import { ProviderPromoBanner } from "./provider-promo-banner";
 import { ThemeToggle } from "./theme-toggle";
 
 import type { Route } from "next";
@@ -183,7 +182,7 @@ export const Navbar = ({
 			title: "Lounge",
 			href: "/products/lounge",
 			description:
-				"Frontier models from OpenAI, Anthropic, Google and xAI in one chat (full lineup on Plus and Pro), plus image, video and audio studios.",
+				"Frontier models from OpenAI, Anthropic, Google and xAI in one chat (full lineup on Plus and Pro), plus image, video, audio and decision studios.",
 			icon: MessagesSquare,
 			gradient:
 				"hover:from-blue-500/20 hover:to-cyan-600/30 hover:shadow-blue-500/10 group-hover/product:text-blue-500 dark:group-hover/product:text-blue-400",
@@ -465,7 +464,6 @@ export const Navbar = ({
 				data-state={menuState && "active"}
 				className={cn("z-20 w-full px-2 group", sticky && "fixed")}
 			>
-				<ProviderPromoBanner collapsed={isScrolled} />
 				<div
 					className={cn(
 						"mt-2 mx-auto max-w-[1400px] px-6 transition-all duration-300",

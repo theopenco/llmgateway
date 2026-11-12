@@ -19,13 +19,31 @@ export function ResourcePage({
 		throw new Error(`Unknown resource: ${path}`);
 	}
 	const isTool = path.startsWith("/tools/");
-	const schema = {
-		"@context": "https://schema.org",
+	const url = `https://airside.llmgateway.io${path}`;
+	const breadcrumb = {
+		"@type": "BreadcrumbList",
+		itemListElement: [
+			{
+				"@type": "ListItem",
+				position: 1,
+				name: "Airside",
+				item: "https://airside.llmgateway.io",
+			},
+			{
+				"@type": "ListItem",
+				position: 2,
+				name: "Provider resources",
+				item: "https://airside.llmgateway.io/resources",
+			},
+			{ "@type": "ListItem", position: 3, name: resource.title, item: url },
+		],
+	};
+	const page = {
 		"@type": isTool ? "WebApplication" : "Article",
 		name: resource.title,
 		headline: resource.title,
 		description: resource.description,
-		url: `https://airside.llmgateway.io${path}`,
+		url,
 		...(isTool
 			? {
 					applicationCategory: "UtilitiesApplication",
@@ -40,6 +58,10 @@ export function ResourcePage({
 					},
 					dateModified: "2026-09-11",
 				}),
+	};
+	const schema = {
+		"@context": "https://schema.org",
+		"@graph": [page, breadcrumb],
 	};
 	return (
 		<div className="flex min-h-screen flex-col">

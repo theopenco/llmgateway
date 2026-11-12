@@ -330,6 +330,22 @@ committed; audio that has already produced transcript deltas is committed by
 the gateway on disconnect and ahead of an `input_audio_buffer.clear`, so it is
 billed like any other turn.
 
+## Image Input
+
+Realtime mappings with vision support accept `input_image` content in
+`conversation.item.create` and per-response `response.create.input` messages.
+Use an inline base64 PNG, JPEG, WebP or GIF data URL, or a public HTTPS image URL.
+Remote images are downloaded by the gateway with DNS and socket-level URL safety
+checks; redirects and private hosts are rejected. Image inputs share a 10 MB decoded
+size limit per event, and downloads share the `IMAGE_FETCH_TIMEOUT_MS` deadline (15 seconds
+by default). The provider receives inline data, never the remote URL.
+
+Image input requires configured image and cached-image token rates. Reported
+image tokens and cached image tokens are priced separately from text and audio;
+a missing or inconsistent usage breakdown closes the session rather than
+delivering an unbilled response. Check the live [models page](https://llmgateway.io/models)
+for each mapping's vision support.
+
 ## Function Calling
 
 Plain function tools work exactly as in the OpenAI Realtime API — declare
@@ -361,8 +377,39 @@ them in `session.update` (or per response in `response.create`), receive
 }
 ```
 
-Hosted tools (MCP servers, web search, code interpreter, etc.) are not yet
-available and are rejected with `tool_type_not_supported`.
+### Native MCP Tools
+
+Compatible realtime providers also accept native `mcp` tools in session or
+per-response configuration. Set an explicit `server_label` and public HTTPS
+`server_url`; the gateway validates the URL and its DNS records before forwarding
+the configuration. Opaque connectors, private hosts, URL credentials and
+transport-header overrides are rejected. Use `authorization` or `headers` for
+server authentication, and `require_approval` to control tool-call approval.
+
+```json
+{
+	"type": "session.update",
+	"session": {
+		"type": "realtime",
+		"tools": [
+			{
+				"type": "mcp",
+				"server_label": "documentation",
+				"server_url": "https://example.com/mcp",
+				"require_approval": "always"
+			}
+		]
+	}
+}
+```
+
+MCP model tokens, including tool definitions and result context, use the normal
+realtime token rates. Any remote server charges are separate. Tool execution can
+finish after `response.done`: wait for `response.mcp_call.completed` or
+`response.mcp_call.failed` before starting the next generation. The gateway
+serializes these calls and drains outstanding work on disconnect. Other hosted
+tool types, such as web search and code interpreter, are not supported by this
+realtime integration.
 
 ## Billing and Session Gating
 
@@ -374,6 +421,8 @@ API key status, usage limits, IAM rules), so a session cannot run past an
 exhausted balance. A blocked generation surfaces as a standard `error` event
 on the session instead of a response, and is recorded in your request logs like
 a [rejected request](/resources/error-handling#rejected-request-logs).
+
+New content, audio buffers, instructions, and private upstream reads are authorized before forwarding. Transcription models are checked against organization and API-key compliance at secret creation, connection, and each new input buffer; continuous chunks share that buffer’s authorization. Gemini also rechecks after an explicit input-stream boundary. Enabling or changing transcription with `session.update` rechecks current access. Unsupported client events, including `transcription_session.update`, are rejected; use `session.update`. Cancellation and cleanup remain available.
 
 Default per-session safety limits:
 
@@ -390,11 +439,16 @@ like any other request, including separate line items for input transcription.
 
 ## Current Limitations
 
-- **WebSocket transport only** — WebRTC and SIP are not yet supported.
-- **Image input** is not yet supported in realtime sessions.
-- **Hosted tools** (MCP, web search, etc.) and **stored prompt references**
-  (`session.prompt`) are not supported; inline your instructions and function
-  tools instead.
+- **WebSocket transport only** — native WebRTC SDP negotiation and SIP call-control
+  endpoints are not exposed by the gateway. Client secrets authenticate gateway
+  WebSocket sessions, not direct provider connections. Providers may support
+  these transports, but gateway support requires a trusted media and event relay:
+  a provider sideband alone cannot enforce authorization, credit limits, or
+  content validation before work reaches the provider.
+- **Stored prompt references** (`session.prompt` or `response.prompt`) remain
+  unsupported. An opaque template can hide instructions, transcription models
+  and remote tool URLs that the gateway cannot validate before provider egress.
+  Inline instructions and supported tools instead.
 - Provider-specific extensions that generate audio outside the gateway's
   turn gates — scripted `force_message` items and
   `turn_detection.idle_timeout_ms` re-engagement — are rejected.

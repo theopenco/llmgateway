@@ -85,6 +85,69 @@ describe("provider keys route", () => {
 		});
 	});
 
+	test("does not expose or accept managed selection strategy on BYOK keys", async () => {
+		const headers = { Cookie: token, "Content-Type": "application/json" };
+		const created = await app.request("/keys/provider", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({
+				provider: "inference.net",
+				token: "test-selection-token",
+				organizationId: "test-org-id",
+				selectionStrategy: "round_robin",
+			}),
+		});
+		expect(created.status).toBe(200);
+		const { providerKey } = await created.json();
+		expect(providerKey).not.toHaveProperty("selectionStrategy");
+		const updated = await app.request(`/keys/provider/${providerKey.id}`, {
+			method: "PATCH",
+			headers,
+			body: JSON.stringify({
+				status: "active",
+				selectionStrategy: "round_robin",
+			}),
+		});
+		expect(updated.status).toBe(200);
+		expect((await updated.json()).providerKey).not.toHaveProperty(
+			"selectionStrategy",
+		);
+		const listed = await app.request("/keys/provider", { headers });
+		expect(listed.status).toBe(200);
+		for (const key of (await listed.json()).providerKeys) {
+			expect(key).not.toHaveProperty("selectionStrategy");
+		}
+		const stored = await db.query.providerKey.findFirst({
+			where: { id: { eq: providerKey.id } },
+		});
+		expect(stored?.selectionStrategy).toBe("ordered");
+	});
+
+	test("does not expose or accept the managed-only safety identifier setting", async () => {
+		const headers = { Cookie: token, "Content-Type": "application/json" };
+		const updated = await app.request("/keys/provider/test-provider-key-id", {
+			method: "PATCH",
+			headers,
+			body: JSON.stringify({
+				status: "active",
+				forwardSafetyIdentifier: false,
+			}),
+		});
+		expect(updated.status).toBe(200);
+		expect((await updated.json()).providerKey).not.toHaveProperty(
+			"forwardSafetyIdentifier",
+		);
+		const listed = await app.request("/keys/provider", { headers });
+		expect(listed.status).toBe(200);
+		for (const key of (await listed.json()).providerKeys) {
+			expect(key).not.toHaveProperty("forwardSafetyIdentifier");
+		}
+		const stored = await db.query.providerKey.findFirst({
+			where: { id: { eq: "test-provider-key-id" } },
+		});
+		expect(stored?.forwardSafetyIdentifier).toBe(true);
+	});
+
 	test("GET /keys/provider unauthorized", async () => {
 		const res = await app.request("/keys/provider");
 		expect(res.status).toBe(401);
@@ -491,6 +554,37 @@ describe("provider keys route", () => {
 		});
 	});
 
+	describe("POST /keys/provider cloudflare account id", () => {
+		const postCloudflareKey = (options?: Record<string, string>) =>
+			app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "cloudflare",
+					token: "cloudflare-test-token",
+					organizationId: "test-org-id",
+					options,
+				}),
+			});
+
+		test("requires an account id", async () => {
+			const res = await postCloudflareKey();
+			expect(res.status).toBe(400);
+			expect(await res.text()).toContain("account ID");
+		});
+
+		test.each(["../evil", "0123456789ABCDEF0123456789ABCDEF", "abc"])(
+			"rejects an account id that is not 32 lowercase hex chars (%s)",
+			async (cloudflare_account_id) => {
+				const res = await postCloudflareKey({ cloudflare_account_id });
+				expect(res.status).toBe(400);
+			},
+		);
+	});
+
 	test("POST /keys/provider with invalid provider", async () => {
 		const res = await app.request("/keys/provider", {
 			method: "POST",
@@ -619,8 +713,8 @@ describe("provider keys route", () => {
 				Cookie: token,
 			},
 			body: JSON.stringify({
-				provider: "glacier",
-				token: "glacier-test-token",
+				provider: "quartz",
+				token: "quartz-test-token",
 				organizationId: "test-org-id",
 			}),
 		});
@@ -632,7 +726,7 @@ describe("provider keys route", () => {
 		const providerKey = await db.query.providerKey.findFirst({
 			where: {
 				provider: {
-					eq: "glacier",
+					eq: "quartz",
 				},
 			},
 		});

@@ -251,6 +251,55 @@ describe("parseProviderResponse", () => {
 			]);
 		});
 
+		it("reads DeepSeek reasoning_text content and bills server_tool_use", () => {
+			const json = {
+				id: "resp_ds",
+				status: "completed",
+				output: [
+					{
+						type: "reasoning",
+						id: "rs_1",
+						summary: [],
+						content: [{ type: "reasoning_text", text: "search first" }],
+						encrypted_content: null,
+					},
+					{
+						type: "web_search_call",
+						status: "completed",
+						action: { type: "search", queries: ["q"] },
+					},
+					{
+						type: "web_search_call",
+						status: "completed",
+						action: { type: "open_page", url: "https://example.com" },
+					},
+					{
+						type: "web_search_call",
+						status: "completed",
+						action: { type: "search", queries: ["empty"] },
+					},
+					{
+						type: "message",
+						id: "msg_1",
+						role: "assistant",
+						content: [{ type: "output_text", text: "done" }],
+					},
+				],
+				usage: {
+					input_tokens: 5556,
+					output_tokens: 119,
+					total_tokens: 5675,
+					server_tool_use: { tool_search: 1, tool_fetch: 1 },
+				},
+			};
+
+			const result = parseProviderResponse("openai", "deepseek-v4-pro", json);
+
+			expect(result.reasoningContent).toBe("search first");
+			// The empty search is not billed upstream.
+			expect(result.webSearchCount).toBe(2);
+		});
+
 		it("leaves reasoningDetails null when reasoning items carry no encrypted content", () => {
 			const json = {
 				id: "resp_123",
@@ -477,6 +526,52 @@ describe("parseProviderResponse", () => {
 
 			expect(result.promptTokens).toBe(268);
 			expect(result.imageInputTokens).toBe(258);
+		});
+	});
+
+	describe("google thought images", () => {
+		it("drops Vertex interim thought images from the output", () => {
+			const result = parseProviderResponse(
+				"google-vertex",
+				"gemini-3-pro-image-preview",
+				{
+					candidates: [
+						{
+							content: {
+								role: "model",
+								parts: [
+									{ text: "**Designing**", thought: true },
+									{
+										inlineData: { mimeType: "image/png", data: "aW50ZXJpbQ==" },
+										thought: true,
+									},
+									{
+										inlineData: { mimeType: "image/png", data: "ZmluYWw=" },
+										thoughtSignature: "sig",
+									},
+								],
+							},
+							finishReason: "STOP",
+						},
+					],
+					usageMetadata: {
+						promptTokenCount: 13,
+						candidatesTokenCount: 1120,
+						totalTokenCount: 1351,
+						candidatesTokensDetails: [{ modality: "IMAGE", tokenCount: 1120 }],
+						thoughtsTokenCount: 218,
+					},
+				},
+			);
+
+			expect(result.images).toEqual([
+				{
+					type: "image_url",
+					image_url: { url: "data:image/png;base64,ZmluYWw=" },
+				},
+			]);
+			expect(result.reasoningContent).toBe("**Designing**");
+			expect(result.imageOutputTokens).toBe(1120);
 		});
 	});
 
@@ -1064,96 +1159,6 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
-	describe("scx-ai finish reason mapping", () => {
-		it("normalizes 'stop' to 'tool_calls' when the message has tool calls", () => {
-			const json = {
-				choices: [
-					{
-						message: {
-							role: "assistant",
-							content: null,
-							tool_calls: [
-								{
-									id: "call_1",
-									type: "function",
-									function: {
-										name: "get_weather",
-										arguments: '{"city":"San Francisco"}',
-									},
-								},
-							],
-						},
-						finish_reason: "stop",
-					},
-				],
-				usage: {
-					prompt_tokens: 10,
-					completion_tokens: 5,
-					total_tokens: 15,
-				},
-			};
-
-			const result = parseProviderResponse("scx-ai", "MiniMax-M2.7", json);
-
-			expect(result.finishReason).toBe("tool_calls");
-			expect(result.toolResults).toHaveLength(1);
-		});
-
-		it("leaves 'stop' unchanged when there are no tool calls", () => {
-			const json = {
-				choices: [
-					{
-						message: { role: "assistant", content: "Hello" },
-						finish_reason: "stop",
-					},
-				],
-				usage: {
-					prompt_tokens: 10,
-					completion_tokens: 5,
-					total_tokens: 15,
-				},
-			};
-
-			const result = parseProviderResponse("scx-ai", "MiniMax-M2.7", json);
-
-			expect(result.finishReason).toBe("stop");
-		});
-
-		it("does not normalize 'stop' for the general-purpose tier", () => {
-			const json = {
-				choices: [
-					{
-						message: {
-							role: "assistant",
-							content: null,
-							tool_calls: [
-								{
-									id: "call_1",
-									type: "function",
-									function: {
-										name: "get_weather",
-										arguments: '{"city":"San Francisco"}',
-									},
-								},
-							],
-						},
-						finish_reason: "stop",
-					},
-				],
-				usage: {
-					prompt_tokens: 10,
-					completion_tokens: 5,
-					total_tokens: 15,
-				},
-			};
-
-			const result = parseProviderResponse("scx-ai-gp", "GLM-5.2", json);
-
-			expect(result.finishReason).toBe("stop");
-			expect(result.toolResults).toHaveLength(1);
-		});
-	});
-
 	describe("openai-format finish reason mapping", () => {
 		it("maps 'abort' finish reason to 'upstream_error' for minimax", () => {
 			const json = {
@@ -1316,6 +1321,47 @@ describe("parseProviderResponse", () => {
 
 			expect(result.webSearchCount).toBe(1);
 			expect(result.annotations).toHaveLength(1);
+		});
+
+		it("bills DeepSeek's reported tool_search count over its result blocks", () => {
+			const result = (n: number) => ({
+				type: "web_search_tool_result",
+				tool_use_id: `srvtoolu_${n}`,
+				content: [{ type: "web_search_result", url: "https://example.com" }],
+			});
+			const json = {
+				content: [result(1), result(2), { type: "text", text: "ok" }],
+				stop_reason: "end_turn",
+				usage: {
+					input_tokens: 100,
+					output_tokens: 5,
+					// The second search returned nothing billable upstream.
+					server_tool_use: { web_search_requests: 2, tool_search: 1 },
+				},
+			};
+
+			const parsed = parseProviderResponse(
+				"anthropic",
+				"deepseek-v4.1-flash-1017",
+				json,
+			);
+
+			expect(parsed.webSearchCount).toBe(1);
+			expect(parsed.annotations).toHaveLength(2);
+
+			// Without the counters, DeepSeek billed nothing.
+			const unbilled = parseProviderResponse(
+				"anthropic",
+				"deepseek-v4.1-flash-1017",
+				{ ...json, usage: { input_tokens: 100, output_tokens: 5 } },
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ serverToolUseAlwaysReported: true },
+			);
+			expect(unbilled.webSearchCount).toBeNull();
 		});
 	});
 
@@ -1602,7 +1648,7 @@ describe("parseProviderResponse", () => {
 			usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
 		};
 
-		it.each(["alibaba", "scx-ai-gp"] as const)(
+		it.each(["alibaba"] as const)(
 			"%s counts one search when forced",
 			(provider) => {
 				const result = parseProviderResponse(
@@ -1620,7 +1666,7 @@ describe("parseProviderResponse", () => {
 			},
 		);
 
-		it.each(["alibaba", "scx-ai-gp"] as const)(
+		it.each(["alibaba"] as const)(
 			"%s bills nothing for an unforced request",
 			(provider) => {
 				const result = parseProviderResponse(

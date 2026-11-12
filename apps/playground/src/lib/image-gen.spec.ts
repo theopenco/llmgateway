@@ -1,30 +1,46 @@
 import { describe, expect, it } from "vitest";
 
-import { getModelImageConfig } from "@/lib/image-gen";
+import {
+	getModelImageConfig,
+	historyImage,
+	selectionSupportsSvgOutput,
+} from "@/lib/image-gen";
 
 describe("getModelImageConfig", () => {
-	it.each(["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
-		"offers GPT Image 2.5 qualities for %s",
-		(model) => {
-			for (const id of [model, `openai/${model}`]) {
-				const config = getModelImageConfig(id);
+	it.each([
+		["gpt-image-2.6-flare", true],
+		["openai/gpt-image-2.6-sunburst", true],
+		["azure/gpt-image-2.6-flare", false],
+		["gpt-image-2.5-flare", false],
+		["gemini-3-pro-image", false],
+	])("reports SVG output for %s as %s", (model, expected) => {
+		expect(getModelImageConfig(model).supportsSvgOutput).toBe(expected);
+	});
 
-				expect(config.usesPixelDimensions).toBe(true);
-				expect(config.availableSizes).toContain("3840x2160");
-				expect(config.defaultSize).toBe("1024x1024");
-				expect(config.supportsQuality).toBe(true);
-				expect(config.availableQualities).toEqual([
-					"auto",
-					"low",
-					"medium",
-					"high",
-					"xhigh",
-					"max",
-				]);
-				expect(config.defaultQuality).toBe("low");
-			}
-		},
-	);
+	it.each([
+		"gpt-image-2.5-sunburst",
+		"gpt-image-2.5-flare",
+		"gpt-image-2.6-sunburst",
+		"gpt-image-2.6-flare",
+	])("offers GPT Image 2.5+ qualities for %s", (model) => {
+		for (const id of [model, `openai/${model}`]) {
+			const config = getModelImageConfig(id);
+
+			expect(config.usesPixelDimensions).toBe(true);
+			expect(config.availableSizes).toContain("3840x2160");
+			expect(config.defaultSize).toBe("1024x1024");
+			expect(config.supportsQuality).toBe(true);
+			expect(config.availableQualities).toEqual([
+				"auto",
+				"low",
+				"medium",
+				"high",
+				"xhigh",
+				"max",
+			]);
+			expect(config.defaultQuality).toBe("low");
+		}
+	});
 
 	it("offers only the tiers xAI's Grok Imagine 2.0 accepts", () => {
 		for (const model of [
@@ -108,5 +124,60 @@ describe("getModelImageConfig", () => {
 		expect(config.availableSizes).toEqual(["1K", "1.5K", "2K"]);
 		expect(config.defaultSize).toBe("2K");
 		expect(config.maxInputImages).toBe(10);
+	});
+});
+
+it.each([
+	{
+		models: ["gemini-3-pro-image", "gpt-image-2.6-flare"],
+		compare: true,
+		expected: true,
+	},
+	{
+		models: ["gpt-image-2.6-flare", "gemini-3-pro-image"],
+		compare: true,
+		expected: true,
+	},
+	{
+		models: ["gemini-3-pro-image", "gpt-image-2.6-flare"],
+		compare: false,
+		expected: false,
+	},
+	{
+		models: ["gpt-image-2.6-flare", "gemini-3-pro-image"],
+		compare: false,
+		expected: true,
+	},
+	{ models: ["azure/gpt-image-2.6-flare"], compare: true, expected: false },
+	{ models: [], compare: true, expected: false },
+])(
+	"reports effective SVG support for $models (compare=$compare)",
+	({ models, compare, expected }) => {
+		expect(selectionSupportsSvgOutput(models, compare)).toBe(expected);
+	},
+);
+
+it("keeps saved SVGs vector with their media type", () => {
+	const image = historyImage(
+		"https://api.test",
+		"svg-item",
+		0,
+		0,
+		"image/svg+xml",
+	);
+	expect(image).toEqual({
+		kind: "remote",
+		mediaType: "image/svg+xml",
+		fullUrl: "https://api.test/playground/image-history/svg-item/images/0/0",
+		previewUrl: "https://api.test/playground/image-history/svg-item/images/0/0",
+	});
+});
+
+it("keeps raster history previews downscaled", () => {
+	const image = historyImage("https://api.test", "png-item", 0, 0, "image/png");
+	expect(image).toMatchObject({
+		mediaType: "image/png",
+		previewUrl:
+			"https://api.test/playground/image-history/png-item/images/0/0?variant=preview",
 	});
 });

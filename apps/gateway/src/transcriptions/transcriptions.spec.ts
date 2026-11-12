@@ -8,6 +8,11 @@ import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
+import {
+	buildTranscriptionForm,
+	normalizeTranscriptionResponse,
+} from "./providers.js";
+
 describe("transcriptions", () => {
 	const harness = createGatewayApiTestHarness();
 
@@ -27,6 +32,20 @@ describe("transcriptions", () => {
 				"org-id",
 			),
 			provider: "xai",
+			organizationId: "org-id",
+			baseUrl: harness.mockServerUrl,
+		});
+	}
+
+	async function seedElevenLabsKey(apiKeyId: string) {
+		await db.insert(tables.providerKey).values({
+			id: `provider-key-elevenlabs-${apiKeyId}`,
+			...encryptProviderKeyForStorage(
+				"elevenlabs-test-key",
+				`provider-key-elevenlabs-${apiKeyId}`,
+				"org-id",
+			),
+			provider: "elevenlabs",
 			organizationId: "org-id",
 			baseUrl: harness.mockServerUrl,
 		});
@@ -89,6 +108,83 @@ describe("transcriptions", () => {
 		expect(json.text).toBe("The balance is $167,983.15.");
 	});
 
+	test("/v1/audio/transcriptions maps ElevenLabs Scribe requests and responses", async () => {
+		await seedKeys("real-token-scribe", "token-id-scribe");
+		await seedElevenLabsKey("token-id-scribe");
+
+		const form = buildForm("elevenlabs/scribe-v3");
+		form.append("diarize", "true");
+		const res = await app.request("/v1/audio/transcriptions", {
+			method: "POST",
+			headers: { Authorization: "Bearer real-token-scribe" },
+			body: form,
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.text).toBe("Hello world.");
+		expect(json.language).toBe("eng");
+		expect(json.duration).toBe(7.2);
+		expect(json.words).toEqual([
+			{ text: "Hello", start: 0.1, end: 0.5, speaker: 0 },
+			{ text: "world.", start: 0.6, end: 1.2, speaker: 1 },
+		]);
+		expect(json.mock_received).toBeUndefined();
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "elevenlabs/scribe-v3");
+		expect(log).toBeDefined();
+		expect(log?.hasError).toBe(false);
+		expect(log?.estimatedCost).toBe(false);
+		// scribe_v3 bills $0.20 per hour of input audio.
+		expect(Number(log?.cost)).toBeCloseTo((7.2 / 3600) * 0.2, 10);
+	});
+
+	test("buildTranscriptionForm maps options onto Scribe fields", () => {
+		const form = buildTranscriptionForm("elevenlabs", "scribe_v3", {
+			language: "en",
+			diarize: true,
+			fillerWords: false,
+			keyterms: [],
+			url: "https://example.com/a.mp3",
+		});
+		expect(Object.fromEntries(form.entries())).toEqual({
+			model_id: "scribe_v3",
+			language_code: "en",
+			diarize: "true",
+			no_verbatim: "true",
+			source_url: "https://example.com/a.mp3",
+		});
+		const verbatim = buildTranscriptionForm("elevenlabs", "scribe_v3", {
+			diarize: false,
+			fillerWords: true,
+			keyterms: [],
+			url: "https://example.com/a.mp3",
+		});
+		expect(verbatim.has("no_verbatim")).toBe(false);
+		expect(
+			normalizeTranscriptionResponse("xai", { text: "x", duration: 1 }),
+		).toEqual({ text: "x", duration: 1 });
+	});
+
+	test("/v1/audio/transcriptions rejects keyterms for ElevenLabs Scribe", async () => {
+		await seedKeys("real-token-scribe-kt", "token-id-scribe-kt");
+		await seedElevenLabsKey("token-id-scribe-kt");
+
+		const form = buildForm("scribe-v3");
+		form.append("keyterm", "LLM Gateway");
+		const res = await app.request("/v1/audio/transcriptions", {
+			method: "POST",
+			headers: { Authorization: "Bearer real-token-scribe-kt" },
+			body: form,
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.code).toBe("unsupported_parameter");
+		expect(json.error.param).toBe("keyterm");
+	});
+
 	test("/v1/audio/transcriptions rejects unknown models", async () => {
 		await seedKeys("real-token-stt-unknown", "token-id-stt-unknown");
 
@@ -138,6 +234,45 @@ describe("transcriptions", () => {
 		expect(res.status).toBe(400);
 		const json = await res.json();
 		expect(json.error.code).toBe("invalid_content_type");
+	});
+
+	test("/v1/audio/transcriptions rejects a media type that only mentions multipart in a parameter", async () => {
+		await seedKeys("real-token-stt-param", "token-id-stt-param");
+
+		const res = await app.request("/v1/audio/transcriptions", {
+			method: "POST",
+			headers: {
+				"Content-Type": 'application/json; note="multipart/form-data"',
+				Authorization: "Bearer real-token-stt-param",
+			},
+			body: JSON.stringify({ model: "grok-stt-1-0" }),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.code).toBe("invalid_content_type");
+	});
+
+	test("/v1/audio/transcriptions accepts a case variant of multipart/form-data", async () => {
+		await seedKeys("real-token-stt-case", "token-id-stt-case");
+
+		const req = new Request("http://localhost/v1/audio/transcriptions", {
+			method: "POST",
+			headers: { Authorization: "Bearer real-token-stt-case" },
+			body: buildForm("grok-stt-1-0"),
+		});
+		req.headers.set(
+			"Content-Type",
+			(req.headers.get("Content-Type") ?? "").replace(
+				"multipart/form-data",
+				"Multipart/Form-Data",
+			),
+		);
+		const res = await app.request(req);
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.text).toBe("The balance is $167,983.15.");
 	});
 
 	test("/v1/audio/transcriptions surfaces upstream errors", async () => {

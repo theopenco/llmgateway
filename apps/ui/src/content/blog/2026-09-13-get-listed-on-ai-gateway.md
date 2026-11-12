@@ -2,12 +2,13 @@
 id: "blog-get-listed-on-ai-gateway"
 slug: "get-listed-on-ai-gateway"
 date: "2026-09-13"
+updatedAt: "2026-11-05"
 title: "How to Get Your LLM API Listed on an AI Gateway"
-summary: "A checklist for inference providers who want their LLM API listed on an AI gateway: domain ownership, an OpenAI-compatible endpoint the gateway can actually call, honest capability flags, streaming that reports usage, flat per-million pricing, and rate limits you can sustain. Written against LLM Gateway's Airside listing process."
+summary: "A checklist for inference providers who want their LLM API listed on an AI gateway: domain ownership, an endpoint using a supported upstream API, honest capability flags, streaming that reports usage, flat per-million pricing, and rate limits you can sustain. Written against LLM Gateway's Airside listing process."
 categories: ["Guides", "Engineering"]
 faqs:
   - question: "What do I need to list my LLM API on LLM Gateway?"
-    answer: "A company email on the same registrable domain as your API endpoint or published website, an OpenAI-compatible endpoint you operate, and on llmgateway.io a one-time $2,500 listing fee per provider company, waived with an invite code. Self-hosted deployments with no fee configured list for free. You then register each model with its capabilities and pricing, pass a live preflight against your endpoint, and wait for the LLM Gateway team to approve the claim and the initial price filing."
+    answer: "A company email on the same registrable domain as your API endpoint or published website, an API endpoint you operate, and on llmgateway.io a one-time $2,500 listing fee per provider company, waived with an invite code. Self-hosted deployments with no fee configured list for free. You then register each model with its capabilities and pricing, pass a live preflight using the same saved provider key as live traffic, and wait for the LLM Gateway team to approve the claim and the initial price filing. No separate test key is needed."
   - question: "Does my API have to be OpenAI-compatible?"
     answer: "The carrier default is OpenAI Chat Completions, and the gateway calls your base URL plus /v1/chat/completions. Each model can instead declare the OpenAI Responses API or Google Vertex generateContent as its upstream format, and preflight verification runs through whichever format you pick."
   - question: "Why was my base URL rejected?"
@@ -48,7 +49,9 @@ Not a Chat Completions shop? Each model declares its own **upstream API**: carri
 
 Capability flags are not marketing. On LLM Gateway they decide which elections you enter: a request with tool calls only considers listings with tools enabled, and the same gate applies to vision, audio input, JSON output, JSON schema output, reasoning, reasoning budgets, and web search. Over-declare and you win candidacy followed by a `400`. Under-declare and you sit out requests you could have served.
 
-Airside runs a **preflight** against your endpoint before a model can be filed. You paste a provider key once; it is stored encrypted as your carrier's test key, reused by later runs, and can be replaced or removed under **Settings**. Each declared capability gets its own live check:
+Airside runs a **preflight** against your endpoint before a model can be filed. It uses the same saved **provider key** as live traffic, managed by you or LLM Gateway. A new carrier supplies this single key with its first preflight; replacements are smoke-tested and reviewed under **Settings**. Previously saved test keys are ignored, and you do not need to remove them.
+
+Enter proposed prices before running preflight. Airside checks, benchmarks/load tests and enabled scheduled verification consume real usage on the same provider-key account. We log and bill those inferences to our gateway project, so test usage is included on both sides for accounting, billing and reconciliation. Your agreed carrier billing mode is unchanged. Each declared capability gets its own live check:
 
 | Check            | Runs when you declare    |
 | ---------------- | ------------------------ |

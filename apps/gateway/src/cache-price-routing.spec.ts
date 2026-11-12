@@ -10,7 +10,7 @@ import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harne
 
 describe("DevPass cached-workload price routing", () => {
 	const harness = createGatewayApiTestHarness();
-	const model = "deepseek-v4-flash";
+	const model = "deepseek-v4-flash-0731";
 
 	afterEach(async () => {
 		vi.restoreAllMocks();

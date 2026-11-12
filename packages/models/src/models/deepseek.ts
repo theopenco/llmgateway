@@ -130,6 +130,7 @@ export const deepseekModels = [
 			{
 				providerId: "novita",
 				externalId: "deepseek/deepseek-v3.2",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.269e-6",
 				cachedInputPrice: "0.1345e-6",
 				outputPrice: "0.4e-6",
@@ -187,6 +188,7 @@ export const deepseekModels = [
 			{
 				providerId: "bytedance",
 				externalId: "deepseek-v3-2-251201",
+				deactivatedAt: new Date("2026-11-11T09:00:00Z"),
 				// Base fields are the [0, 32K] prompt-length band; Ark doubles the
 				// input and output rates above it.
 				inputPrice: "0.28e-6",
@@ -287,9 +289,9 @@ export const deepseekModels = [
 				// Peak hours (01:00-04:00 and 06:00-10:00 UTC, Monday-Friday) bill
 				// at the peak rates below. All other hours and UTC weekends bill at
 				// the off-peak rates.
-				inputPrice: "0.435e-6",
-				outputPrice: "0.87e-6",
-				cachedInputPrice: "0.003625e-6",
+				inputPrice: "0.66e-6",
+				outputPrice: "1.98e-6",
+				cachedInputPrice: "0.022e-6",
 				peakPricing: {
 					peak: {
 						inputPrice: "1.32e-6",
@@ -320,6 +322,12 @@ export const deepseekModels = [
 				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
+				// Hosted search runs only on the Responses API (chat completions
+				// rejects the tool). Searches and page fetches both bill per
+				// successful call, so each counts as one search.
+				webSearch: true,
+				webSearchPrice: "0.00075",
+				webSearchApiFormat: "openai-responses",
 				// DeepSeek's API 400s on the OpenAI-only `developer` role
 				// ("unknown variant `developer`, expected one of `system`, `user`,
 				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to
@@ -335,8 +343,14 @@ export const deepseekModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"tool_choice",
 					"reasoning_effort",
 				],
+				// "required" and named-function tool_choice 400 with "Thinking mode
+				// does not support this tool_choice" until thinking is disabled
+				// (verified live 2026-11-01 on chat completions and Responses).
+				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
 			},
 			{
 				providerId: "together-ai",
@@ -563,14 +577,27 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "tencent",
-				// The dated id is TokenHub's "Vendor Direct" deployment, priced at
-				// DeepSeek's own rate. The undated `deepseek-v4-pro` id is
-				// Tencent's own hosting at 1.74/3.48 — 4x the input and output
-				// price for the same model — so it is deliberately not mapped.
 				externalId: "deepseek-v4-pro-202606",
-				inputPrice: "0.435e-6",
-				cachedInputPrice: "0.00363e-6",
-				outputPrice: "0.87e-6",
+				inputPrice: "0.66e-6",
+				cachedInputPrice: "0.022e-6",
+				outputPrice: "1.98e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "1.32e-6",
+						outputPrice: "3.96e-6",
+						cachedInputPrice: "0.044e-6",
+					},
+					offPeak: {
+						inputPrice: "0.66e-6",
+						outputPrice: "1.98e-6",
+						cachedInputPrice: "0.022e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDaysUtc: [0, 6],
+				},
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 393216,
@@ -588,8 +615,42 @@ export const deepseekModels = [
 				vision: false,
 				tools: true,
 				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
+				supportsDeveloperRole: false,
 				jsonOutput: true,
 				jsonOutputSchema: false,
+			},
+			{
+				providerId: "cloudflare",
+				externalId: "@cf/deepseek-ai/deepseek-v4-pro-0813",
+				deactivatedAt: new Date("2026-11-20"),
+				inputPrice: "1.32e-6",
+				cachedInputPrice: "0.044e-6",
+				outputPrice: "3.96e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				// reasoning_effort "none" still thinks; the chat-template flag
+				// turns it off.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				chatTemplateThinkingKey: "thinking",
+				vision: false,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				// Workers AI silently drops `developer` messages.
+				supportsDeveloperRole: false,
 			},
 		],
 	},
@@ -655,6 +716,384 @@ export const deepseekModels = [
 					"reasoning_effort",
 				],
 			},
+			{
+				providerId: "novita",
+				externalId: "deepseek/deepseek-v4-flash-0731",
+				deactivatedAt: new Date("2026-11-17"),
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.028e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 393216,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				// Novita documents no reasoning_effort tiers for this model, so none
+				// are declared; the gateway still forwards whatever the caller sends.
+				vision: false,
+				tools: true,
+				// The -0731 deployment 400s on "required" and named-function
+				// tool_choice, and silently emits no tool call at all when "required"
+				// is streamed; only "auto"/"none" behave (verified 2026-08-02).
+				supportedToolChoices: ["auto", "none"],
+				jsonOutput: true,
+			},
+			{
+				providerId: "alibaba",
+				externalId: "deepseek-v4-flash-0731",
+				deactivatedAt: new Date("2026-11-17"),
+				inputPrice: "0.2e-6",
+				cachedInputPrice: "0.04e-6",
+				outputPrice: "0.4e-6",
+				regions: [
+					{ id: "singapore" },
+					{ id: "eu-frankfurt" },
+					{ id: "us-virginia" },
+					{
+						id: "cn-beijing",
+						inputPrice: "0.138e-6",
+						cachedInputPrice: "0.028e-6",
+						outputPrice: "0.275e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningMaxTokens: true,
+				// DashScope is driven through `enable_thinking`/`thinking_budget`,
+				// never `reasoning_effort`, so every tier maps onto its own native
+				// budget and is genuinely distinct; `none` disables thinking outright.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "deepinfra",
+				// The original April weights; DeepInfra lists the 0731 GA build
+				// separately as `DeepSeek-V4-Flash-0731`.
+				externalId: "deepseek-ai/DeepSeek-V4-Flash",
+				inputPrice: "0.09e-6",
+				cachedInputPrice: "0.018e-6",
+				outputPrice: "0.18e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				// DeepInfra keeps thinking off unless an effort is requested, and
+				// takes `none` to keep it off, exactly like its V4 Pro deployment.
+				reasoningEfforts: ["none", "low", "medium", "high", "max"],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+			{
+				providerId: "inference.net",
+				// The original April weights; inference.net lists the 0731 GA build
+				// separately as `deepseek-v4-flash-0731`.
+				externalId: "deepseek-v4-flash",
+				inputPrice: "0.23e-6",
+				cachedInputPrice: "0.0028e-6",
+				outputPrice: "0.62e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 384000,
+				streaming: true,
+				// Never returns reasoning: `reasoning_effort`, `reasoning` and
+				// `thinking` are all accepted and ignored.
+				reasoning: false,
+				vision: false,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+			{
+				providerId: "bytedance",
+				// The GA deployment; `deepseek-v4-flash-260425` is the superseded
+				// preview.
+				externalId: "deepseek-v4-flash-ga-260731",
+				deactivatedAt: new Date("2026-11-17"),
+				inputPrice: "0.44e-6",
+				cachedInputPrice: "0.014e-6",
+				outputPrice: "1.32e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				// `none` and `minimal` both return no reasoning at all.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				jsonOutput: false,
+			},
+			{
+				providerId: "fireworks",
+				// Fireworks removed both the `-0731` snapshot and the undated alias
+				// (404 NOT_FOUND); only deepseek-v4p1-flash remains deployed.
+				externalId: "accounts/fireworks/models/deepseek-v4-flash-0731",
+				deactivatedAt: new Date("2026-10-19"),
+				inputPrice: "0.22e-6",
+				cachedInputPrice: "0.007e-6",
+				outputPrice: "0.66e-6",
+				requestPrice: "0",
+				serviceTiers: ["priority"],
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				// Fireworks rejects "minimal" for this model; the rest of the enum
+				// (plus "none" for non-thinking mode) is accepted.
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+			{
+				providerId: "together-ai",
+				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
+				deactivatedAt: new Date("2026-10-22"),
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.03e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				contextSize: 163840,
+				maxOutput: 163840,
+				streaming: true,
+				reasoning: true,
+				// Together's deployment accepts any reasoning_effort string without
+				// validating it, and only the top tiers measurably change behaviour:
+				// xhigh and max roughly double the reasoning tokens, while
+				// low/medium/high land on the provider default. `none` is honoured
+				// through the `thinking` switch, not through reasoning_effort.
+				reasoningEfforts: ["none", "xhigh", "max"],
+				requiresDisableThinkingParam: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+			{
+				// RanoAI serves DeepSeek V4 Flash on Furiosa RNGD NPUs. The NPU
+				// deployment exposes a 1M-token context and accepts up to 393216 output
+				// tokens, rejecting 393217.
+				// Reasoning arrives as `reasoning_content` (streamed as deltas) only
+				// when `reasoning_effort` is passed explicitly — a request without it
+				// returns no reasoning at all, and "none" suppresses it.
+				// `reasoning_tokens` is reported inside completion_tokens.
+				//
+				// All four tool_choice modes are honoured, so none are declared here.
+				// The endpoint silently ignores n > 1 and returns one choice, so this
+				// mapping must not advertise supportsN.
+				// Prompt caching is automatic prefix caching — the first request
+				// misses and later ones report `cached_tokens` — priced at the
+				// `input_cache_read` rate /v1/models advertises.
+				providerId: "ranoai",
+				externalId: "deepseek-v4-flash",
+				deactivatedAt: new Date("2026-11-17"),
+				inputPrice: "0.14e-6",
+				outputPrice: "0.28e-6",
+				cachedInputPrice: "0.028e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				// RanoAI serves NVFP4 weights; the catalogue's quantization union only
+				// carries the generic 4-bit float value.
+				quantization: "fp4",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				// json_object returns valid JSON but often ignores requested fields and
+				// emits an empty object; schema-constrained output is reliable.
+				jsonOutput: false,
+				jsonOutputSchema: true,
+			},
+			{
+				providerId: "canopywave",
+				externalId: "deepseek/deepseek-v4-flash",
+				deactivatedAt: new Date("2026-11-17"),
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.03e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				// The deployment 400s on "required" and named-function tool_choice
+				// with "Thinking mode does not support this tool_choice" while
+				// thinking is on, so those modes coerce to "auto". Both work once
+				// thinking is disabled via reasoning_effort "none", which the
+				// mapping declares below (confirmed by CanopyWave, verified live
+				// 2026-08-10).
+				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
+				jsonOutput: true,
+			},
+			{
+				providerId: "baidu",
+				externalId: "deepseek-v4-flash-0731",
+				deactivatedAt: new Date("2026-11-17"),
+				inputPrice: "0.44e-6",
+				cachedInputPrice: "0.014e-6",
+				outputPrice: "1.32e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "tencent",
+				externalId: "deepseek-v4-flash-202605",
+				deactivatedAt: new Date("2026-11-17"),
+				inputPrice: "0.15e-6",
+				cachedInputPrice: "0.003e-6",
+				outputPrice: "0.6e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.3e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.006e-6",
+					},
+					offPeak: {
+						inputPrice: "0.15e-6",
+						outputPrice: "0.6e-6",
+						cachedInputPrice: "0.003e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDaysUtc: [0, 6],
+				},
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				// Same upstream constraint as the direct DeepSeek mapping: forced
+				// tool_choice 400s with "Thinking mode does not support this
+				// tool_choice".
+				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
+				supportsDeveloperRole: false,
+				jsonOutput: true,
+				jsonOutputSchema: false,
+			},
+			{
+				providerId: "cloudflare",
+				externalId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+				deactivatedAt: new Date("2026-11-17"),
+				inputPrice: "0.44e-6",
+				cachedInputPrice: "0.014e-6",
+				outputPrice: "1.32e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				// reasoning_effort "none" still thinks; the chat-template flag
+				// turns it off.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				chatTemplateThinkingKey: "thinking",
+				vision: false,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				// Workers AI silently drops `developer` messages.
+				supportsDeveloperRole: false,
+			},
+		],
+	},
+	{
+		id: "deepseek-v4-flash-0731",
+		name: "DeepSeek V4 Flash 0731",
+		description:
+			"The July 31 snapshot of DeepSeek V4 Flash with extended context and reasoning.",
+		family: "deepseek",
+		releasedAt: new Date("2026-07-31"),
+		providers: [
 			{
 				providerId: "novita",
 				externalId: "deepseek/deepseek-v4-flash-0731",
@@ -763,130 +1202,6 @@ export const deepseekModels = [
 				jsonOutput: false,
 			},
 			{
-				providerId: "fireworks",
-				// Fireworks removed both the `-0731` snapshot and the undated alias
-				// (404 NOT_FOUND); only deepseek-v4p1-flash remains deployed.
-				externalId: "accounts/fireworks/models/deepseek-v4-flash-0731",
-				deactivatedAt: new Date("2026-10-19"),
-				inputPrice: "0.22e-6",
-				cachedInputPrice: "0.007e-6",
-				outputPrice: "0.66e-6",
-				requestPrice: "0",
-				serviceTiers: ["priority"],
-				contextSize: 1048576,
-				maxOutput: 393216,
-				streaming: true,
-				reasoning: true,
-				// Fireworks rejects "minimal" for this model; the rest of the enum
-				// (plus "none" for non-thinking mode) is accepted.
-				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
-				vision: false,
-				tools: true,
-				jsonOutput: true,
-				jsonOutputSchema: true,
-			},
-			{
-				providerId: "together-ai",
-				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
-				deactivatedAt: new Date("2026-10-22"),
-				inputPrice: "0.14e-6",
-				cachedInputPrice: "0.03e-6",
-				outputPrice: "0.28e-6",
-				requestPrice: "0",
-				contextSize: 163840,
-				maxOutput: 163840,
-				streaming: true,
-				reasoning: true,
-				// Together's deployment accepts any reasoning_effort string without
-				// validating it, and only the top tiers measurably change behaviour:
-				// xhigh and max roughly double the reasoning tokens, while
-				// low/medium/high land on the provider default. `none` is honoured
-				// through the `thinking` switch, not through reasoning_effort.
-				reasoningEfforts: ["none", "xhigh", "max"],
-				requiresDisableThinkingParam: true,
-				vision: false,
-				tools: true,
-				jsonOutput: true,
-				jsonOutputSchema: true,
-			},
-			{
-				// RanoAI serves DeepSeek V4 Flash on Furiosa RNGD NPUs. The NPU
-				// deployment exposes a 1M-token context and accepts up to 393216 output
-				// tokens, rejecting 393217.
-				// Reasoning arrives as `reasoning_content` (streamed as deltas) only
-				// when `reasoning_effort` is passed explicitly — a request without it
-				// returns no reasoning at all, and "none" suppresses it.
-				// `reasoning_tokens` is reported inside completion_tokens.
-				//
-				// All four tool_choice modes are honoured, so none are declared here.
-				// The endpoint silently ignores n > 1 and returns one choice, so this
-				// mapping must not advertise supportsN.
-				// Prompt caching is automatic prefix caching — the first request
-				// misses and later ones report `cached_tokens` — priced at the
-				// `input_cache_read` rate /v1/models advertises.
-				providerId: "ranoai",
-				externalId: "deepseek-v4-flash",
-				inputPrice: "0.14e-6",
-				outputPrice: "0.28e-6",
-				cachedInputPrice: "0.028e-6",
-				requestPrice: "0",
-				contextSize: 1000000,
-				maxOutput: 393216,
-				// RanoAI serves NVFP4 weights; the catalogue's quantization union only
-				// carries the generic 4-bit float value.
-				quantization: "fp4",
-				streaming: true,
-				reasoning: true,
-				reasoningEfforts: [
-					"none",
-					"minimal",
-					"low",
-					"medium",
-					"high",
-					"xhigh",
-					"max",
-				],
-				vision: false,
-				tools: true,
-				// json_object returns valid JSON but often ignores requested fields and
-				// emits an empty object; schema-constrained output is reliable.
-				jsonOutput: false,
-				jsonOutputSchema: true,
-			},
-			{
-				providerId: "canopywave",
-				externalId: "deepseek/deepseek-v4-flash",
-				inputPrice: "0.14e-6",
-				cachedInputPrice: "0.03e-6",
-				outputPrice: "0.28e-6",
-				requestPrice: "0",
-				contextSize: 1000000,
-				maxOutput: 393216,
-				quantization: "fp8",
-				streaming: true,
-				reasoning: true,
-				reasoningEfforts: [
-					"none",
-					"minimal",
-					"low",
-					"medium",
-					"high",
-					"xhigh",
-					"max",
-				],
-				vision: false,
-				tools: true,
-				// The deployment 400s on "required" and named-function tool_choice
-				// with "Thinking mode does not support this tool_choice" while
-				// thinking is on, so those modes coerce to "auto". Both work once
-				// thinking is disabled via reasoning_effort "none", which the
-				// mapping declares below (confirmed by CanopyWave, verified live
-				// 2026-08-10).
-				supportedToolChoices: ["auto", "none"],
-				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
-				jsonOutput: true,
-			},
-			{
 				providerId: "baidu",
 				externalId: "deepseek-v4-flash-0731",
 				inputPrice: "0.44e-6",
@@ -914,15 +1229,30 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "tencent",
-				// TokenHub serves two DeepSeek V4 Flash deployments: this dated id
-				// is the "Vendor Direct" one routed to DeepSeek itself, which is
-				// why it matches DeepSeek's own cache rate. The undated
-				// `deepseek-v4-flash` id is Tencent's own hosting at a 10x cache
-				// price (0.028 vs 0.0028) and is deliberately not mapped.
+				// TokenHub's /v1/models names this dated Vendor Direct id
+				// "DeepSeek-V4-Flash 0731" (created 2026-07-31).
 				externalId: "deepseek-v4-flash-202605",
-				inputPrice: "0.14e-6",
-				cachedInputPrice: "0.0028e-6",
-				outputPrice: "0.28e-6",
+				deactivatedAt: new Date("2026-12-09T16:00:00Z"),
+				inputPrice: "0.15e-6",
+				cachedInputPrice: "0.003e-6",
+				outputPrice: "0.6e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.3e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.006e-6",
+					},
+					offPeak: {
+						inputPrice: "0.15e-6",
+						outputPrice: "0.6e-6",
+						cachedInputPrice: "0.003e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDaysUtc: [0, 6],
+				},
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 393216,
@@ -939,15 +1269,45 @@ export const deepseekModels = [
 				],
 				vision: false,
 				tools: true,
-				// Same upstream constraint as the direct DeepSeek mapping: forced
-				// tool_choice 400s with "Thinking mode does not support this
-				// tool_choice".
+				// Forced tool_choice 400s with "Thinking mode does not support this
+				// tool_choice" unless thinking is disabled.
 				supportedToolChoices: ["auto", "none"],
-				// json_object works (DeepSeek still requires the word "json" in the
-				// prompt); json_schema 400s with "This response_format type is
-				// unavailable now" on this deployment.
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
+				supportsDeveloperRole: false,
 				jsonOutput: true,
 				jsonOutputSchema: false,
+			},
+			{
+				providerId: "cloudflare",
+				externalId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+				deactivatedAt: new Date("2026-11-20"),
+				inputPrice: "0.44e-6",
+				cachedInputPrice: "0.014e-6",
+				outputPrice: "1.32e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				// reasoning_effort "none" still thinks; the chat-template flag
+				// turns it off.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				chatTemplateThinkingKey: "thinking",
+				vision: false,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				// Workers AI silently drops `developer` messages.
+				supportsDeveloperRole: false,
 			},
 		],
 	},
@@ -1017,6 +1377,51 @@ export const deepseekModels = [
 		family: "deepseek",
 		releasedAt: new Date("2026-09-10"),
 		providers: [
+			{
+				providerId: "tencent",
+				externalId: "deepseek-v4.1-flash",
+				inputPrice: "0.15e-6",
+				outputPrice: "0.6e-6",
+				cachedInputPrice: "0.003e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.3e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.006e-6",
+					},
+					offPeak: {
+						inputPrice: "0.15e-6",
+						outputPrice: "0.6e-6",
+						cachedInputPrice: "0.003e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDaysUtc: [0, 6],
+				},
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				requiresBase64Images: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "function"],
+				supportedToolChoicesWithThinkingDisabled: ["required"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-flash",
@@ -1300,12 +1705,60 @@ export const deepseekModels = [
 	},
 	{
 		id: "deepseek-v4.1-flash-1017",
+		aliases: ["deepseek-v4.1-flash-latest"],
+		aliasesAreVirtual: true,
 		name: "DeepSeek V4.1 Flash 1017",
 		description:
 			"DeepSeek's October 2026 update of V4.1 Flash, with native vision, 1M context, and reasoning.",
 		family: "deepseek",
 		releasedAt: new Date("2026-10-17"),
 		providers: [
+			{
+				providerId: "tencent",
+				externalId: "deepseek/deepseek-flash",
+				inputPrice: "0.15e-6",
+				outputPrice: "0.6e-6",
+				cachedInputPrice: "0.003e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.3e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.006e-6",
+					},
+					offPeak: {
+						inputPrice: "0.15e-6",
+						outputPrice: "0.6e-6",
+						cachedInputPrice: "0.003e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDaysUtc: [0, 6],
+				},
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				requiresBase64Images: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
+				supportsDeveloperRole: false,
+				jsonOutput: true,
+				jsonOutputSchema: false,
+			},
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-flash",
@@ -1344,6 +1797,12 @@ export const deepseekModels = [
 				reasoningEfforts: ["none", "low", "high", "max"],
 				vision: true,
 				tools: true,
+				// Hosted search runs only on DeepSeek's Anthropic Messages API for
+				// Flash (the Responses API accepts the tool but never searches).
+				// Searches and page fetches both bill per successful call.
+				webSearch: true,
+				webSearchPrice: "0.00075",
+				webSearchApiFormat: "anthropic-messages",
 				// DeepSeek's API 400s on the OpenAI-only `developer` role
 				// ("unknown variant `developer`, expected one of `system`, `user`,
 				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to
@@ -1359,8 +1818,15 @@ export const deepseekModels = [
 					"stream",
 					"response_format",
 					"tools",
+					"tool_choice",
 					"reasoning_effort",
 				],
+				// "required" and named-function tool_choice 400 with "Thinking mode
+				// does not support this tool_choice" until thinking is disabled
+				// (verified live 2026-11-01 on chat completions and the Anthropic
+				// API, which also accepts "required" with thinking on).
+				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
 			},
 			{
 				providerId: "alibaba",
@@ -1495,6 +1961,95 @@ export const deepseekModels = [
 				],
 				vision: true,
 				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsAssistantPrefill: false,
+			},
+			{
+				providerId: "baidu",
+				externalId: "deepseek-v4.1-flash-1017",
+				inputPrice: "0.28e-6",
+				cachedInputPrice: "0.006e-6",
+				outputPrice: "1.13e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 393216,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
+				vision: true,
+				requiresBase64Images: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+			{
+				providerId: "cloudflare",
+				externalId: "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.006e-6",
+				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				requiresBase64Images: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				// Workers AI silently drops `developer` messages.
+				supportsDeveloperRole: false,
+			},
+		],
+	},
+	{
+		id: "deepseek-v4.1-flash-cyber",
+		name: "DeepSeek V4.1 Flash Cyber",
+		description:
+			"Abliterated DeepSeek V4.1 Flash 1017 for security tooling and agents, with fewer refusals, vision, tool calling, and a 1M-token context window. Enterprise plan only.",
+		family: "deepseek",
+		enterpriseOnly: true,
+		releasedAt: new Date("2026-10-29"),
+		providers: [
+			{
+				providerId: "inference.net",
+				externalId: "deepseek-v4.1-flash-1017-cyber",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.007e-6",
+				outputPrice: "1e-6",
+				requestPrice: "0",
+				contextSize: 1040000,
+				maxOutput: 393216,
+				maxTemperature: 1.5,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
 				jsonOutput: true,
 				jsonOutputSchema: true,
 				supportsAssistantPrefill: false,

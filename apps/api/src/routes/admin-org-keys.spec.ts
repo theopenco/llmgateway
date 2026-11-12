@@ -152,6 +152,20 @@ describe("admin organization key listings", () => {
 				[ORG_ID],
 			);
 		});
+
+		it("finds the organization by project or API key ID", async () => {
+			for (const id of [PROJECT_ID, "ak-active", "ak-deleted"]) {
+				const res = await app.request(
+					`/admin/organizations?search=${encodeURIComponent(id)}`,
+					{ headers: { Cookie: cookie } },
+				);
+				expect(res.status).toBe(200);
+				const json = await res.json();
+				expect(json.organizations.map((o: { id: string }) => o.id)).toEqual([
+					ORG_ID,
+				]);
+			}
+		});
 	});
 
 	describe("provider keys", () => {

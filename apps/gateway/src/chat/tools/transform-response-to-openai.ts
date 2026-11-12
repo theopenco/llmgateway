@@ -440,7 +440,6 @@ export function transformResponseToOpenai(
 
 	switch (responseShape) {
 		case "google-ai-studio":
-		case "glacier":
 		case "google-vertex":
 		case "quartz": {
 			// Multi-candidate responses (n > 1 via candidateCount) map each Google
@@ -648,7 +647,7 @@ export function transformResponseToOpenai(
 						},
 						finish_reason: mapFinishReasonToOpenai(
 							finishReason,
-							usedProvider,
+							responseProvider,
 							!!toolResults,
 						),
 					},
@@ -742,8 +741,6 @@ export function transformResponseToOpenai(
 		}
 		case "inference.net":
 		case "together-ai":
-		case "scx-ai":
-		case "scx-ai-gp":
 		case "groq": {
 			if (!transformedResponse.id) {
 				transformedResponse = {
@@ -1396,7 +1393,6 @@ export function transformResponseToOpenai(
 			}
 			break;
 		}
-		case "embercloud":
 		case "zai": {
 			// Check if this is a CogView image generation response
 			// Format: { created: number, data: [{ url: "..." }] }
@@ -1503,12 +1499,15 @@ export function transformResponseToOpenai(
 			// For providers that return non-OpenAI format (e.g. Reve image generation),
 			// construct a proper OpenAI-compatible response when we have parsed images/content.
 			// Tencent's Hy Image frames carry `choices`, but with a `delta` instead of a message.
+			// fal responses are converted even when every image was filtered.
 			if (
 				transformedResponse &&
 				typeof transformedResponse === "object" &&
 				(transformedResponse.object === "image.chat.completion.chunk" ||
 					(!transformedResponse.choices &&
-						(images.length > 0 || content !== null)))
+						(images.length > 0 ||
+							content !== null ||
+							usedProvider === "fal-ai")))
 			) {
 				transformedResponse = {
 					id: `chatcmpl-${Date.now()}`,

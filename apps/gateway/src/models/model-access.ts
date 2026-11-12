@@ -36,8 +36,9 @@ import type { ComplianceCheckContext } from "@/lib/compliance.js";
 import type { ModelDefinition } from "@llmgateway/models";
 import type { Context } from "hono";
 
-export async function getModelsAccess(c: Context) {
+export async function getModelsAccess(c: Context, suppliedToken?: string) {
 	if (
+		!suppliedToken &&
 		!c.req.raw.headers.has("Authorization") &&
 		!c.req.raw.headers.has("x-api-key")
 	) {
@@ -45,7 +46,7 @@ export async function getModelsAccess(c: Context) {
 	}
 
 	c.header("Cache-Control", "private, no-store");
-	const apiKey = await findApiKeyByToken(extractApiToken(c));
+	const apiKey = await findApiKeyByToken(suppliedToken ?? extractApiToken(c));
 	if (!apiKey || apiKey.status !== "active") {
 		throw new HTTPException(401, { message: "Invalid or inactive API key" });
 	}
@@ -100,7 +101,7 @@ export async function filterAccessibleModels(
 	},
 ): Promise<ModelDefinition[]> {
 	const { apiKey, organization, project, wallet, iamRules, clientIp } = access;
-	const policy = getActiveCompliancePolicy(organization);
+	const policy = getActiveCompliancePolicy(organization, apiKey);
 	const effectiveProviders = policy ? await getEffectiveProviders() : undefined;
 	const isDevPlan =
 		organization.kind === "devpass" && organization.devPlan !== "none";
@@ -190,6 +191,7 @@ export async function filterAccessibleModels(
 					!isProviderIdCompliant(provider.providerId, policy, {
 						...context,
 						effectiveProviders,
+						mappingDataPolicy: provider.dataPolicy,
 					})) ||
 				(isDevPlan && !providerSupportsCachedInput(provider)) ||
 				(!wallet &&

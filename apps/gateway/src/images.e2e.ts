@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+
+import { Decimal } from "decimal.js";
 import "dotenv/config";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
 
@@ -18,6 +21,7 @@ import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { readFixtureImageDataUrl } from "./test-utils/image-fixture.js";
+import { waitForLogByRequestId } from "./test-utils/test-helpers.js";
 
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 
@@ -83,7 +87,11 @@ const imageTestCases = filteredModels
 		return cases;
 	});
 
-const testImageMode = process.env.TEST_IMAGE_MODE === "true";
+// Image cases bill per image, so they run on request or when TEST_MODELS names
+// image mappings explicitly (as the e2e workflow's test_models input does).
+const testImageMode =
+	process.env.TEST_IMAGE_MODE === "true" ||
+	(specifiedModels !== null && imageTestCases.length > 0);
 
 const ALLOWED_QUALITIES = [
 	"low",
@@ -261,7 +269,82 @@ describe("e2e image generation", getConcurrentTestOptions(), () => {
 			},
 		);
 
-		test.each(imageTestCases)(
+		test.each(imageTestCases.filter(({ provider }) => provider.svgOutput))(
+			"/v1/images/generations returns SVG for $model",
+			{ ...getTestOptions(), timeout: 300_000 },
+			async ({ model }) => {
+				const requestId = randomUUID();
+				const res = await app.request("/v1/images/generations", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${IMAGE_API_KEY_TOKEN}`,
+						"x-no-fallback": "true",
+						"x-request-id": requestId,
+					},
+					body: JSON.stringify({
+						model,
+						prompt: "A flat icon of an orange cat face, two colors.",
+						output_format: "svg",
+						svg: { model: "gpt-5.4-mini", reasoning: { effort: "low" } },
+						quality: qualityOverride ?? "low",
+					}),
+				});
+
+				const json = await res.json();
+				if (logMode) {
+					console.log(
+						"images.generations SVG response",
+						model,
+						JSON.stringify({ ...json, data: undefined }),
+					);
+				}
+				expect(res.status, JSON.stringify(json)).toBe(200);
+				expect(json.output_format).toBe("svg");
+				expect(json.data).toHaveLength(1);
+				const svg = Buffer.from(json.data[0].b64_json, "base64").toString(
+					"utf8",
+				);
+				expect(svg).toContain("<svg");
+				expect(svg.trimEnd()).toMatch(/<\/svg>$/);
+				expect(json.usage.cost).toBeGreaterThan(0);
+				const log = await waitForLogByRequestId(requestId);
+				const upstream = log.upstreamResponse as {
+					usage: { input_tokens: number; output_tokens: number };
+					svg_usage: {
+						model: string;
+						input_tokens: number;
+						output_tokens: number;
+						reasoning_tokens: number;
+						total_tokens: number;
+					};
+				};
+				const author = upstream.svg_usage;
+				expect(author.model).toMatch(/^gpt-5\.4-mini(?:-\d{4}-\d{2}-\d{2})?$/);
+				expect(author.total_tokens).toBe(
+					author.input_tokens + author.output_tokens,
+				);
+				expect(author.reasoning_tokens).toBeLessThanOrEqual(
+					author.output_tokens,
+				);
+				const inputCost = new Decimal(upstream.usage.input_tokens)
+					.times("5e-6")
+					.plus(new Decimal(author.input_tokens).times("0.75e-6"));
+				const outputCost = new Decimal(upstream.usage.output_tokens)
+					.times("30e-6")
+					.plus(new Decimal(author.output_tokens).times("4.5e-6"));
+				expect(Number(log.inputCost)).toBeCloseTo(inputCost.toNumber(), 6);
+				expect(Number(log.outputCost)).toBeCloseTo(outputCost.toNumber(), 6);
+				expect(Number(log.cost)).toBeCloseTo(
+					inputCost.plus(outputCost).toNumber(),
+					6,
+				);
+				expect(json.usage.cost).toBeCloseTo(Number(log.cost), 6);
+			},
+		);
+
+		// Text-to-image mappings reject input images by design.
+		test.each(imageTestCases.filter(({ provider }) => provider.vision))(
 			"/v1/images/edits returns image for $model",
 			{ ...getTestOptions(), timeout: 300_000 },
 			async ({ model, provider }) => {
@@ -309,6 +392,53 @@ describe("e2e image generation", getConcurrentTestOptions(), () => {
 					? `data:image/png;base64,${first.b64_json}`
 					: first.url;
 				expectValidImageUrl(url);
+			},
+		);
+
+		test.each(
+			imageTestCases.filter(
+				({ provider }) => provider.svgOutput && provider.vision,
+			),
+		)(
+			"/v1/images/edits returns SVG for $model",
+			{ ...getTestOptions(), timeout: 300_000 },
+			async ({ model }) => {
+				const requestId = randomUUID();
+				const res = await app.request("/v1/images/edits", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${IMAGE_API_KEY_TOKEN}`,
+						"x-no-fallback": "true",
+						"x-request-id": requestId,
+					},
+					body: JSON.stringify({
+						model,
+						prompt: "Turn this image into a flat vector icon, two colors.",
+						images: [{ image_url: readFixtureImageDataUrl() }],
+						output_format: "svg",
+						svg: { model: "gpt-5.4-mini", reasoning: { effort: "low" } },
+						complexity: "low",
+						quality: qualityOverride ?? "low",
+					}),
+				});
+
+				const json = await res.json();
+				expect(res.status, JSON.stringify(json)).toBe(200);
+				expect(json.output_format).toBe("svg");
+				expect(json.data).toHaveLength(1);
+				const svg = Buffer.from(json.data[0].b64_json, "base64").toString(
+					"utf8",
+				);
+				expect(svg).toContain("<svg");
+				const log = await waitForLogByRequestId(requestId);
+				const upstream = log.upstreamResponse as {
+					svg_usage: { model: string };
+				};
+				expect(upstream.svg_usage.model).toMatch(
+					/^gpt-5\.4-mini(?:-\d{4}-\d{2}-\d{2})?$/,
+				);
+				expect(json.usage.cost).toBeCloseTo(Number(log.cost), 6);
 			},
 		);
 	}

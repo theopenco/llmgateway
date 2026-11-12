@@ -24,17 +24,22 @@ The `/v1/images/generations` endpoint provides a drop-in replacement for OpenAI'
 
 ### Parameters
 
-| Parameter         | Type    | Default      | Description                                                                                                                  |
-| ----------------- | ------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `prompt`          | string  | required     | A text description of the desired image(s)                                                                                   |
-| `model`           | string  | `"auto"`     | The model to use. `auto` resolves to `gemini-3-pro-image`                                                                    |
-| `n`               | integer | `1`          | Number of images to generate (1-10)                                                                                          |
-| `size`            | string  | —            | Image dimensions. Supported sizes depend on the model/provider — see [Image Configuration](#image-configuration)             |
-| `quality`         | string  | —            | Image quality. Supported values depend on the model/provider — see [Image Configuration](#image-configuration)               |
-| `moderation`      | string  | `"auto"`     | Content filtering strictness for models that support it: `auto` or `low` — see [Moderation](#moderation)                     |
-| `response_format` | string  | `"b64_json"` | Only `b64_json` is supported                                                                                                 |
-| `style`           | string  | —            | Image style: `vivid` or `natural`                                                                                            |
-| `service_tier`    | string  | —            | Processing tier for mappings that offer one: `flex`, `priority`, or `default` — see [Service Tiers](/features/service-tiers) |
+| Parameter            | Type    | Default      | Description                                                                                                                  |
+| -------------------- | ------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `prompt`             | string  | required     | A text description of the desired image(s)                                                                                   |
+| `model`              | string  | `"auto"`     | The model to use. `auto` resolves to `gemini-3-pro-image`                                                                    |
+| `n`                  | integer | `1`          | Number of images to generate (1-10)                                                                                          |
+| `size`               | string  | —            | Image dimensions. Supported sizes depend on the model/provider — see [Image Configuration](#image-configuration)             |
+| `quality`            | string  | —            | Image quality. Supported values depend on the model/provider — see [Image Configuration](#image-configuration)               |
+| `moderation`         | string  | `"auto"`     | Content filtering strictness for models that support it: `auto` or `low` — see [Moderation](#moderation)                     |
+| `complexity`         | string  | —            | `low`, `medium`, or `high` for supported models — see [Complexity](#complexity)                                              |
+| `frame_count`        | integer | —            | GIF frames, 2–16; requires `output_format: "gif"`                                                                            |
+| `frame_duration_ms`  | integer | —            | GIF frame duration in milliseconds, 20–2000                                                                                  |
+| `response_format`    | string  | `"b64_json"` | Only `b64_json` is supported                                                                                                 |
+| `style`              | string  | —            | Image style: `vivid` or `natural`                                                                                            |
+| `output_format`      | string  | `"png"`      | GPT Image models: `png`, `jpeg`, `webp`, `svg`, or `gif` — see [SVG output](#svg-output)                                     |
+| `output_compression` | integer | —            | GPT Image models: `0`–`100`, for `jpeg` and `webp` output                                                                    |
+| `service_tier`       | string  | —            | Processing tier for mappings that offer one: `flex`, `priority`, or `default` — see [Service Tiers](/features/service-tiers) |
 
 ### curl
 
@@ -67,6 +72,51 @@ Both `/v1/images/generations` and `/v1/images/edits` return a `usage` object wit
 ```
 
 `cost_details` has the same fields as `usage.cost_details` on [chat completions](#response-format).
+
+### GIF output
+
+GPT Image 2.6 Sunburst and Flare support `output_format: "gif"` on generations and edits, including multipart edits. Set `frame_count` (2–16) and `frame_duration_ms` (20–2000) to control the animation. Omit them to use OpenAI's defaults. `output_compression` is not supported for GIF.
+
+`data[0].b64_json` contains the GIF bytes, and the response echoes `output_format: "gif"`. In chat completions, put these options in `image_config`; the image URL uses `data:image/gif;base64,...`. The gateway requests GIFs synchronously from the provider, including for streaming chat clients.
+
+```json
+{
+	"model": "openai/gpt-image-2.6-flare",
+	"prompt": "Animate a bouncing ball",
+	"output_format": "gif",
+	"frame_count": 8,
+	"frame_duration_ms": 100
+}
+```
+
+### SVG output
+
+GPT Image 2.6 (`openai/gpt-image-2.6-sunburst` and `openai/gpt-image-2.6-flare`) returns vector graphics when you set `output_format: "svg"`. Use it for icons, logos, stickers, and illustrations that need editable paths, shapes, and colors.
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/images/generations" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openai/gpt-image-2.6-flare",
+    "prompt": "A flat bakery logo: a golden loaf above the words Field & Flour",
+    "output_format": "svg",
+    "svg": { "model": "gpt-5.4-mini", "reasoning": { "effort": "low" } },
+    "quality": "medium"
+  }' | jq -r '.data[0].b64_json' | base64 --decode > logo.svg
+```
+
+`data[0].b64_json` holds the base64-encoded SVG document (UTF-8 XML), and the response echoes `"output_format": "svg"`. The document contains static vector content only: no scripts, external resources, or embedded raster images.
+
+- `n` must be `1`, and `output_compression` is not accepted.
+- `/v1/images/edits` returns SVG too, drawn from your input images, with the same `svg` options (multipart: `svg[model]` and `svg[reasoning][effort]`). An SVG is not accepted as an edit input. The gateway requests SVG from OpenAI without streaming.
+- `quality` controls the reference image the SVG is drawn from.
+- If your OpenAI account has SVG model selection enabled, supply `svg.model` as in the example; otherwise omit `svg`. Optional `svg.reasoning.effort` controls the author independently of image quality.
+- On `/v1/images/generations` and `/v1/images/edits`, requesting `svg` from a model without SVG output, or from `auto`, returns a `400` before any provider is called. In chat completions, the provider judges the value.
+
+OpenAI draws a reference image with the image model, then a separate authoring model writes the SVG. The request is billed for both: the image tokens at the image model's rates, and the authoring model's tokens at that model's catalogue rates, included in `input_cost` and `output_cost`. Each component uses its own model's applicable discount. If the authoring model's rates are unknown, its authoring cost is omitted and logged for reconciliation; the reference image is still billed.
+
+In chat completions, set `image_config.output_format` to `"svg"` and pass author settings in `image_config.svg`; the image arrives as a `data:image/svg+xml;base64,...` URL.
 
 ### OpenAI SDK
 
@@ -136,6 +186,8 @@ result.images.forEach((image, i) => {
 
 The `/v1/images/edits` endpoint is OpenAI-compatible and supports a focused subset of `images.edit` parameters.
 
+When `/v1/chat/completions` is converted to an OpenAI-compatible multipart image edit, remote input images must return an image content type and stay within the caller's image size limit. The gateway checks downloaded bytes even when `Content-Length` is missing or understated, stops oversized downloads, and returns a `400` error.
+
 ### Parameters
 
 | Parameter            | Type                     | Required | Description                                                                       |
@@ -143,13 +195,17 @@ The `/v1/images/edits` endpoint is OpenAI-compatible and supports a focused subs
 | `images`             | array of `{ image_url }` | yes      | Input images. `image_url` supports HTTPS URLs and base64 data URLs                |
 | `prompt`             | string                   | yes      | A text description of the desired image edit                                      |
 | `model`              | string                   | no       | Image editing model                                                               |
-| `background`         | enum                     | no       | `transparent`, `opaque`, or `auto`                                                |
+| `background`         | enum                     | no       | `transparent`, `opaque`, or `auto` — see [Transparency](#transparency)            |
 | `input_fidelity`     | enum                     | no       | `high` or `low`                                                                   |
 | `n`                  | integer                  | no       | Number of edited images to generate                                               |
-| `output_format`      | enum                     | no       | `png`, `jpeg`, or `webp`                                                          |
+| `output_format`      | enum                     | no       | `png`, `jpeg`, `webp`, `gif`, or `svg` — see [SVG output](#svg-output)            |
+| `svg`                | object                   | no       | SVG author `model` and `reasoning.effort` — see [SVG output](#svg-output)         |
 | `output_compression` | integer                  | no       | Compression level for `jpeg`/`webp`                                               |
 | `quality`            | enum                     | no       | `low`, `medium`, `high`, or `auto`; GPT Image 2.5 also supports `xhigh` and `max` |
 | `moderation`         | enum                     | no       | `auto` or `low` — see [Moderation](#moderation)                                   |
+| `complexity`         | enum                     | no       | `low`, `medium`, or `high` — see [Complexity](#complexity)                        |
+| `frame_count`        | integer                  | no       | GIF frames, 2–16; requires `output_format: "gif"`                                 |
+| `frame_duration_ms`  | integer                  | no       | GIF frame duration in milliseconds, 20–2000                                       |
 | `size`               | string                   | no       | Output size. Examples: `1024x1024`, `1536x1024`, `1K`, `2K`, `4K`                 |
 | `aspect_ratio`       | string                   | no       | Aspect ratio override. Examples: `1:1`, `16:9`, `4:3`, `5:4`                      |
 | `service_tier`       | enum                     | no       | `flex`, `priority`, or `default` — see [Service Tiers](/features/service-tiers)   |
@@ -157,6 +213,20 @@ The `/v1/images/edits` endpoint is OpenAI-compatible and supports a focused subs
 <Callout type="warning">
 	`mask` is not supported yet on `/v1/images/edits`.
 </Callout>
+
+`multipart/form-data` requests upload one `image` file instead of `images`. `input_fidelity`, `aspect_ratio`, and `service_tier` are JSON-only.
+
+### Edit markup
+
+Send a markup PNG to guide a focused edit. For JSON requests, pass `markup: { "image_url": "https://example.com/markup.png" }` (a PNG data URL also works). For multipart edits, upload it as the separate `markup` file field. Markup is forwarded separately, not added as a reference image.
+
+Use a PNG under the current image upload limit, with the same dimensions as the first input image. Markup is forwarded to OpenAI and Azure image models; availability depends on the model. It cannot be combined with the multipart `mask` field. Provider file IDs are not accepted for markup.
+
+### Transparency
+
+On `/v1/images/edits` and in chat `image_config`, `background`, `output_format`, and `output_compression` are sent to OpenAI and Azure, which return a `4xx` for values the model does not support. `/v1/images/generations` accepts `output_format` and `output_compression` but not `background`. For a transparent image, use `openai/gpt-image-2.5-sunburst` or `openai/gpt-image-2.5-flare` with `background: "transparent"` and `output_format: "png"` or `"webp"`.
+
+Other providers do not receive these as parameters. `/v1/images/edits` adds them to the prompt instead, so their output can be opaque. When a request sets `output_format`, the response reports the format the provider returned if the gateway can detect it, and otherwise omits the field.
 
 ### curl (HTTPS image URL)
 
@@ -606,6 +676,7 @@ Available Google models:
 | `gemini-3-pro-image`     | Gemini 3 Pro with native image generation. Supports aspect ratios and 1K–4K sizes.             |
 | `gemini-3.1-flash-image` | Gemini 3.1 Flash with native image generation. Supports 0.5K–4K sizes (default 1K).            |
 | `gemini-nano-banana-2.1` | Nano Banana 2.1, the Flash-tier successor to Nano Banana 2. Supports 1K–4K sizes (default 1K). |
+| `gemini-2.5-flash-image` | Gemini 2.5 Flash Image (Nano Banana). Supports aspect ratios; always 1K, `image_size` ignored. |
 
 #### gemini-3-pro-image
 
@@ -693,6 +764,38 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 Muse Image does not expose a quality setting. Use `image_size` to choose square,
 portrait, or landscape output.
 
+### fal Models
+
+fal serves fast text-to-image models. They do not accept input images.
+
+| Model                       | Description                                   |
+| --------------------------- | --------------------------------------------- |
+| `fal-ai/flux-2-klein-4b`    | FLUX.2 Klein 4B, Black Forest Labs' fastest.  |
+| `fal-ai/flux-3-klein`       | FLUX 3 Klein with built-in prompt expansion.  |
+| `fal-ai/z-image-turbo`      | Z-Image Turbo, photorealistic with text.      |
+| `fal-ai/recraft-v4.1-flash` | Recraft V4.1 Flash for photo and illustration |
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "fal-ai/flux-2-klein-4b",
+    "messages": [{ "role": "user", "content": "A lighthouse at dusk" }],
+    "image_config": { "image_size": "1536x1024", "n": 2 }
+  }'
+```
+
+| Parameter       | Type    | Description                                                                                                                       |
+| --------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `image_size`    | string  | One of `"1024x1024"` (default), `"1536x1024"`, `"1024x1536"`, `"1344x768"`, `"768x1344"`, or `"2048x2048"`. Price varies by size. |
+| `n`             | integer | Number of images. Not supported by Recraft.                                                                                       |
+| `seed`          | integer | Random seed. Not supported by Recraft.                                                                                            |
+| `output_format` | string  | `png`, `jpeg`, or `webp`. Not supported by Recraft.                                                                               |
+
+Images flagged by fal's safety checker are removed; if none remain, the response
+returns `finish_reason: "content_filter"`.
+
 ### Alibaba Models
 
 ```bash
@@ -723,17 +826,21 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 Available Alibaba models (see the [models page](https://llmgateway.io/models?filters=1&imageGeneration=true) for current pricing):
 
-| Model                          | Description                                                                                       |
-| ------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `alibaba/qwen-image-2.1-pro`   | Generation and editing from up to 10 reference images, flat price per output image                |
-| `alibaba/qwen-image-2.1-turbo` | Fast, low-cost generation and editing from up to 10 reference images, flat price per output image |
-| `alibaba/qwen-image-3.0`       | Third-generation image generation and editing                                                     |
-| `alibaba/qwen-image-3.0-pro`   | Highest quality third-generation generation and editing. Priced per output size tier              |
+| Model                          | Description                                                                                          |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `alibaba/qwen-image-2.1-pro`   | Generation and editing from up to 10 reference images, flat price per output image                   |
+| `alibaba/qwen-image-2.1-turbo` | Fast, low-cost generation and editing from up to 10 reference images, flat price per output image    |
+| `alibaba/qwen-image-3.0`       | Third-generation image generation and editing                                                        |
+| `alibaba/qwen-image-3.0-pro`   | Highest quality third-generation generation and editing. Priced per output size tier                 |
+| `alibaba/wan-2-7-image`        | Fast Wan 2.7 generation and editing from up to 9 input images, up to 2K, flat price per image        |
+| `alibaba/wan-2-7-image-pro`    | Flagship Wan 2.7 generation up to 4K (text-to-image only) and editing up to 2K, flat price per image |
 
 <Callout type="info">
 	Alibaba models use explicit pixel dimensions (e.g., `"1024x1536"`) instead of
 	aspect ratios. For portrait orientation use `"1024x1536"`, for landscape use
-	`"1536x1024"`.
+	`"1536x1024"`. Wan 2.7 models also accept the tiers `"1K"` and `"2K"`
+	(default), plus `"4K"` on `wan-2-7-image-pro` for text-to-image; tiers without
+	an input image produce square output.
 </Callout>
 
 ### Z.AI Models
@@ -794,11 +901,17 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
-| Parameter       | Type   | Description                                                                                                                       |
-| --------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| `image_size`    | string | Image dimensions in `WIDTHxHEIGHT` format, or `"auto"` to let the model choose.                                                   |
-| `image_quality` | string | `"low"`, `"medium"`, `"high"`, or `"auto"`; GPT Image 2.5 also supports `"xhigh"` and `"max"`. Defaults to `"auto"` when omitted. |
-| `moderation`    | string | `"auto"` or `"low"` — see [Moderation](#moderation). Defaults to `"auto"` when omitted.                                           |
+| Parameter            | Type    | Description                                                                                                                              |
+| -------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `image_size`         | string  | Image dimensions in `WIDTHxHEIGHT` format, or `"auto"` to let the model choose.                                                          |
+| `image_quality`      | string  | `"low"`, `"medium"`, `"high"`, or `"auto"`; GPT Image 2.5 and 2.6 also support `"xhigh"` and `"max"`. Defaults to `"auto"` when omitted. |
+| `moderation`         | string  | `"auto"` or `"low"` — see [Moderation](#moderation). Defaults to `"auto"` when omitted.                                                  |
+| `complexity`         | string  | `low`, `medium`, or `high` — see [Complexity](#complexity).                                                                              |
+| `frame_count`        | integer | GIF frames, 2–16; requires `output_format: "gif"`.                                                                                       |
+| `frame_duration_ms`  | integer | GIF frame duration in milliseconds, 20–2000.                                                                                             |
+| `background`         | string  | `"transparent"`, `"opaque"`, or `"auto"` — see [Transparency](#transparency).                                                            |
+| `output_format`      | string  | `"png"`, `"jpeg"`, or `"webp"`; GPT Image 2.6 also supports `"svg"` and `"gif"` — see [SVG output](#svg-output).                         |
+| `output_compression` | number  | `0`–`100`, for `jpeg` and `webp` output.                                                                                                 |
 
 <Callout type="warning">
 	OpenAI image models do **not** accept `aspect_ratio`. Always specify
@@ -810,11 +923,16 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 Available OpenAI image models:
 
-| Model                           | Description                                                                                                  |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `openai/gpt-image-2`            | OpenAI's next-generation image model with improved quality and prompt adherence, supporting text and vision. |
-| `openai/gpt-image-2.5-sunburst` | Image generation and precise editing with text and image inputs; adds `xhigh` and `max` quality.             |
-| `openai/gpt-image-2.5-flare`    | Fast everyday image generation and editing with text and image inputs; adds `xhigh` and `max` quality.       |
+| Model                           | Description                                                                                                    |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `openai/gpt-image-2`            | OpenAI's next-generation image model with improved quality and prompt adherence, supporting text and vision.   |
+| `openai/gpt-image-2.5-sunburst` | Image generation and precise editing with text and image inputs; adds `xhigh` and `max` quality.               |
+| `openai/gpt-image-2.5-flare`    | Fast everyday image generation and editing with text and image inputs; adds `xhigh` and `max` quality.         |
+| `openai/gpt-image-2.6-sunburst` | Detailed image generation and editing; adds `xhigh` and `max` quality and [SVG output](#svg-output).           |
+| `openai/gpt-image-2.6-flare`    | Fast image generation and editing for iteration; adds `xhigh` and `max` quality and [SVG output](#svg-output). |
+
+OpenAI shuts off `gpt-image-2` on February 10, 2027; `openai/gpt-image-2`
+requests fail from that date. Migrate to GPT Image 2.6 Sunburst or Flare.
 
 GPT Image 2.5 supports `1024x1024`, `1536x1024`, `1024x1536`, `auto`, and
 custom sizes within the limits above. Its aspect ratio must stay between 1:3
@@ -825,6 +943,8 @@ Both variants use the same per-token rates as GPT Image 2. Actual image token
 usage varies by model, size, quality, and input; billing uses the provider's
 reported usage. See the [models page](https://llmgateway.io/models?filters=1&imageGeneration=true)
 for current pricing.
+
+GPT Image 2.6 uses the same per-token rates; OpenAI serves it directly only.
 
 GPT Image 2 and both GPT Image 2.5 variants are also served through Azure at
 the same rates — swap the `openai/` prefix for `azure/` to pin that route, or
@@ -902,6 +1022,12 @@ Each request returns one image. Tencent bills a fixed token count per image
 (more at 4K); billing uses the token count Tencent reports. See the
 [models page](https://llmgateway.io/models?filters=1&imageGeneration=true) for
 current pricing.
+
+## Complexity
+
+GPT Image 2.6 Sunburst and Flare accept `complexity: "low" | "medium" | "high"` on `/v1/images/generations` and `/v1/images/edits` (JSON or multipart). For chat completions, use `image_config.complexity`. If omitted, OpenAI defaults both models to `high`; the gateway does not override this default.
+
+Complexity controls planning before rendering, independently of `quality`. Lower values can suit focused edits such as changing an outfit or background; higher values can help with dense text and complex layouts. See OpenAI's [image complexity guide](https://developers.openai.com/api/docs/guides/image-generation).
 
 ## Moderation
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	filterCompliantProviders,
 	getActiveCompliancePolicy,
+	getCatalogueMappingDataPolicy,
 	getComplianceFailureReasons,
 	getEffectiveRetentionLevel,
 	isModelIdCompliant,
@@ -217,7 +218,7 @@ describe("getActiveCompliancePolicy for DevPass", () => {
 		expect(policy).toBeDefined();
 		expect(isProviderIdCompliant("openai", policy!)).toBe(true);
 		expect(isProviderIdCompliant("deepseek", policy!)).toBe(false);
-		expect(isProviderIdCompliant("glacier", policy!)).toBe(false);
+		expect(isProviderIdCompliant("quartz", policy!)).toBe(false);
 	});
 });
 
@@ -240,6 +241,57 @@ describe("filterCompliantProviders passes context through", () => {
 				customAttestation: { soc2: 1 },
 			}).map((p) => p.providerId),
 		).toEqual(["openai", "custom"]);
+	});
+});
+
+describe("mapping data policy overrides", () => {
+	const zdr: ProviderCompliancePolicy = {
+		enabled: true,
+		zeroDataRetention: true,
+	};
+	const retains = { promptLogging: true, retentionPeriod: "30 days" };
+
+	it("fails a ZDR provider whose mapping retains data", () => {
+		expect(isProviderIdCompliant("aws-bedrock", zdr)).toBe(true);
+		expect(
+			isProviderIdCompliant("aws-bedrock", zdr, { mappingDataPolicy: retains }),
+		).toBe(false);
+		expect(
+			getComplianceFailureReasons("aws-bedrock", "claude-fable-5-2", zdr, {
+				mappingDataPolicy: retains,
+			}),
+		).toContain("zeroDataRetention");
+	});
+
+	it("finds the catalogue mapping by model or external id", () => {
+		expect(
+			getCatalogueMappingDataPolicy("aws-bedrock", "claude-fable-5-2"),
+		).toEqual(retains);
+		expect(
+			getCatalogueMappingDataPolicy(
+				"aws-bedrock",
+				"listing-name",
+				"anthropic.claude-fable-5-2",
+			),
+		).toEqual(retains);
+		expect(
+			getCatalogueMappingDataPolicy("anthropic", "claude-fable-5-2"),
+		).toBeUndefined();
+		expect(
+			getCatalogueMappingDataPolicy(
+				"aws-bedrock",
+				"claude-fable-5-2",
+				"some-other-model",
+			),
+		).toBeUndefined();
+	});
+
+	it("keeps the provider compliant when the policy allows retention", () => {
+		expect(
+			isProviderIdCompliant("aws-bedrock", POLICY, {
+				mappingDataPolicy: retains,
+			}),
+		).toBe(true);
 	});
 });
 
@@ -417,5 +469,47 @@ describe("getComplianceFailureReasons", () => {
 				{ customProviderName: "acme", customAttestation: { soc2: 2 } },
 			),
 		).toEqual(["blockedModels"]);
+	});
+});
+
+describe("model lists with virtual aliases", () => {
+	const CUT = "deepseek-v4.1-flash-1017";
+
+	it("a blocked alias blocks the model it resolves to", () => {
+		const policy: ProviderCompliancePolicy = {
+			enabled: true,
+			blockedModels: ["deepseek-v4.1-flash-latest"],
+		};
+		expect(isModelIdCompliant(CUT, policy)).toBe(false);
+		expect(getComplianceFailureReasons("tencent", CUT, policy)).toContain(
+			"blockedModels",
+		);
+	});
+
+	it("a blocked model blocks a listing named after its alias", () => {
+		expect(
+			isModelIdCompliant("deepseek-v4.1-flash-latest", {
+				enabled: true,
+				blockedModels: [CUT],
+			}),
+		).toBe(false);
+	});
+
+	it("an alias-only allow list does not admit the model", () => {
+		expect(
+			isModelIdCompliant(CUT, {
+				enabled: true,
+				allowedModels: ["deepseek-v4.1-flash-latest"],
+			}),
+		).toBe(false);
+	});
+
+	it("ignores alias lists while the policy is disabled", () => {
+		expect(
+			isModelIdCompliant(CUT, {
+				enabled: false,
+				blockedModels: ["deepseek-v4.1-flash-latest"],
+			}),
+		).toBe(true);
 	});
 });

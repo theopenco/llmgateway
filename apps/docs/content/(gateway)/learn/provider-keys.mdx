@@ -17,6 +17,10 @@ The Provider Keys page lets you add your own API keys from LLM providers (OpenAI
 	darkHeight={3341}
 />
 
+Platform-managed keys configured by administrators can also use
+[ordered or round-robin selection](/features/routing#platform-credential-selection).
+That setting does not change how your organization-owned keys are selected.
+
 ## Adding a Provider Key
 
 Click **Add Provider Key** to configure a new key:
@@ -40,13 +44,13 @@ Click **Add Provider Key** to configure a new key:
 
 Each configured key shows:
 
-| Field           | Description                                        |
-| --------------- | -------------------------------------------------- |
-| **Provider**    | The LLM provider (e.g., OpenAI, Anthropic)         |
-| **Custom name** | Your label for the key                             |
-| **Status**      | Active, inactive, or deleted                       |
-| **Base URL**    | Custom endpoint if configured                      |
-| **Token**       | Masked key with only the last 4 characters visible |
+| Field           | Description                                               |
+| --------------- | --------------------------------------------------------- |
+| **Provider**    | The LLM provider (e.g., OpenAI, Anthropic)                |
+| **Custom name** | Your label for the key                                    |
+| **Status**      | Active, inactive, or deleted                              |
+| **Base URL**    | Custom endpoint if configured                             |
+| **Token**       | Masked key: up to 12 leading characters, then 4–5 bullets |
 
 <Callout type="info">
 	Provider credentials are encrypted at rest because LLM Gateway must decrypt

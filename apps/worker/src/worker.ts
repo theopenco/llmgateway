@@ -1,5 +1,4 @@
 import { createHmac } from "node:crypto";
-import { lookup } from "node:dns/promises";
 
 import { Decimal } from "decimal.js";
 import Stripe from "stripe";
@@ -33,6 +32,7 @@ import {
 	invalidateOrganizationsCache,
 	isNotNull,
 	isApiKeyPeriodLimitConfigured,
+	isPremiumModelAfterDiscounts,
 	log,
 	type LogInsertData,
 	lt,
@@ -52,18 +52,31 @@ import {
 	isCreditTopUpAmountInRange,
 	isDailyWindowExpired,
 	isLoungeSource,
-	isPremiumUsedModel,
 	isPremiumWeekExpired,
-	isPrivateOrReservedIp,
+	usedModelBaseId,
 } from "@llmgateway/shared";
 import {
 	getLogRetentionCutoff,
 	LOG_RETENTION_DAYS,
 } from "@llmgateway/shared/log-retention";
+import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
 
 import { posthog } from "./posthog.js";
+import { refreshAirsidePayoutStatements } from "./services/airside-payouts.js";
+import { deliverAirsideVerificationEmails } from "./services/airside-verification-emails.js";
 import { backfillPauseMs } from "./services/backfill-pacing.js";
+import {
+	BATCH_REQUEST_CONCURRENCY,
+	createBatchLoopState,
+	drainBatchRequests,
+	logBatchError,
+	runBatchLoopIteration,
+} from "./services/batches.js";
 import { processNextBenchmarkRun } from "./services/benchmark-runs.js";
+import {
+	scheduleDailyModelVerifications,
+	modelVerificationConcurrency,
+} from "./services/daily-model-verifications.js";
 import {
 	runFollowUpEmailsLoop,
 	canSendFollowUp,
@@ -80,6 +93,7 @@ import {
 	runTenantStatsByokSplitBackfillStep,
 } from "./services/hourly-stats-backfill.js";
 import { checkModelErrorRateAlerts } from "./services/model-error-rate-alerts.js";
+import { deliverModelVerificationRegressions } from "./services/model-verification-regressions.js";
 import { processNextModelVerification } from "./services/model-verifications.js";
 import { processNotifications } from "./services/notifications.js";
 import {
@@ -99,7 +113,10 @@ import {
 	getModelHistoryRetentionCutoff,
 	MODEL_HISTORY_RETENTION_DAYS,
 } from "./services/stats-calculator.js";
-import { syncProvidersAndModels } from "./services/sync-models.js";
+import {
+	MODEL_SYNC_LOCK_KEY,
+	syncProvidersAndModels,
+} from "./services/sync-models.js";
 import {
 	processPendingVideoJobs,
 	processPendingWebhookDeliveries,
@@ -147,6 +164,9 @@ const STALE_TOPUP_PI_LOCK_KEY = "stale_topup_pi_cancel";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
 const MODEL_ERROR_RATE_ALERTS_LOCK_KEY = "model_error_rate_alerts";
+const AIRSIDE_PAYOUTS_LOCK_KEY = "airside_payout_statements";
+const AIRSIDE_PAYOUTS_INTERVAL_SECONDS =
+	Number(process.env.AIRSIDE_PAYOUTS_INTERVAL_SECONDS) || 3600;
 const ROUTING_BASELINE_BACKFILL_LOCK_KEY = "routing_baseline_backfill";
 const SOURCE_MODEL_STATS_BACKFILL_LOCK_KEY = "source_model_stats_backfill";
 const MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY =
@@ -155,6 +175,7 @@ const TENANT_STATS_BYOK_SPLIT_BACKFILL_LOCK_KEY =
 	"tenant_stats_byok_split_backfill";
 const PROJECT_STATS_LOCK_KEY = "project_stats_refresh";
 const LOCK_DURATION_MINUTES = 5;
+const MODEL_SYNC_LOCK_WAIT_MS = LOCK_DURATION_MINUTES * 60 * 1000;
 // LLM SDK: emit a wallet.low_balance webhook when a wallet's balance
 // crosses below this (USD) on a usage debit.
 const WALLET_LOW_BALANCE_THRESHOLD = 1;
@@ -1239,6 +1260,23 @@ export async function batchProcessLogs(): Promise<number> {
 			// not an option.
 			const isChatSource = isLoungeSource;
 
+			// Classify each distinct model once per batch at public prices, the
+			// same classification the gateway's premium gate uses.
+			const batchModelIds = new Set(
+				rows.flatMap((r) =>
+					r.used_model ? [usedModelBaseId(r.used_model)] : [],
+				),
+			);
+			const premiumModelIds = new Set(
+				(
+					await Promise.all(
+						[...batchModelIds].map(async (modelId) =>
+							(await isPremiumModelAfterDiscounts(modelId)) ? modelId : null,
+						),
+					)
+				).filter((modelId) => modelId !== null),
+			);
+
 			for (const raw of unprocessedLogs.rows) {
 				const row = schema.parse(raw);
 
@@ -1376,7 +1414,10 @@ export async function batchProcessLogs(): Promise<number> {
 					if (row.used_mode === "credits") {
 						addToBucket(
 							apiKeyCost,
-							Boolean(row.used_model && isPremiumUsedModel(row.used_model)),
+							Boolean(
+								row.used_model &&
+								premiumModelIds.has(usedModelBaseId(row.used_model)),
+							),
 						);
 					}
 				}
@@ -2508,6 +2549,57 @@ async function runVideoJobsLoop() {
 	}
 }
 
+// How long a stopping worker lets running batch requests finish before failing
+// them as interrupted. Requests can run up to 10 minutes, so a deployment that
+// wants no interrupted requests raises this together with its termination
+// grace period. stopWorker waits at least this long plus a margin.
+const BATCH_SHUTDOWN_DRAIN_MS =
+	(Number(process.env.BATCH_SHUTDOWN_DRAIN_SECONDS) || 10) * 1000;
+const STOP_MARGIN_MS = 5000;
+const BATCH_POLL_INTERVAL_MS =
+	(Number(process.env.BATCH_POLL_INTERVAL_SECONDS) || 2) * 1000;
+
+async function runBatchApiLoop() {
+	if (
+		process.env.HOSTED === "true" &&
+		!process.env.GATEWAY_BACKEND_URL?.trim()
+	) {
+		// Through the public load balancer the client IP header is overwritten,
+		// so batch requests would lose the creator's IP and fail IP rules.
+		logger.error(
+			"Batch API loop not started: GATEWAY_BACKEND_URL must point at the in-cluster gateway",
+		);
+		return;
+	}
+	activeLoops++;
+	logger.info(
+		`Starting batch API loop (concurrency: ${BATCH_REQUEST_CONCURRENCY})...`,
+	);
+	const state = createBatchLoopState();
+	try {
+		while (!isStopRequested()) {
+			try {
+				await runBatchLoopIteration(state);
+			} catch (error) {
+				logBatchError("loop", error);
+			}
+			await interruptibleSleep(BATCH_POLL_INTERVAL_MS);
+		}
+	} finally {
+		const interrupted = await drainBatchRequests(
+			state,
+			BATCH_SHUTDOWN_DRAIN_MS,
+		);
+		if (interrupted > 0) {
+			logger.warn(
+				`Batch API loop failed ${interrupted} interrupted request(s)`,
+			);
+		}
+		activeLoops--;
+		logger.info("Batch API loop stopped");
+	}
+}
+
 async function runModelVerificationLoop() {
 	activeLoops++;
 	const interval = MODEL_VERIFICATION_POLL_INTERVAL_SECONDS * 1000;
@@ -3088,24 +3180,7 @@ const WEBHOOK_DELIVERY_BATCH_SIZE = 50;
  * `X-LLMGateway-Signature: t=<unix>,v1=<hex hmac of "t.body">`, which
  * `@llmgateway/server`'s `webhooks.constructEvent` verifies.
  */
-/**
- * SSRF guard for an outbound webhook delivery: validate the URL is https + not
- * an internal literal, then resolve the host and reject if any resolved address
- * is private/reserved (DNS rebinding protection). Throws on an unsafe target.
- */
-async function assertSafeWebhookTarget(rawUrl: string): Promise<void> {
-	const url = assertSafeWebhookUrl(rawUrl);
-	const resolved = await lookup(url.hostname, { all: true });
-	for (const { address } of resolved) {
-		if (isPrivateOrReservedIp(address)) {
-			throw new Error(
-				`Webhook host ${url.hostname} resolves to a disallowed address (${address})`,
-			);
-		}
-	}
-}
-
-async function processWebhookDeliveries(): Promise<void> {
+export async function processWebhookDeliveries(): Promise<void> {
 	const lockAcquired = await acquireLock(WEBHOOK_DELIVERY_LOCK_KEY);
 	if (!lockAcquired) {
 		return;
@@ -3139,12 +3214,12 @@ async function processWebhookDeliveries(): Promise<void> {
 
 			const attempts = delivery.attempts + 1;
 			try {
-				// SSRF guard at delivery time: https + literal checks, plus resolve
-				// the host and reject if any address is private/reserved (defeats
-				// DNS rebinding between registration and delivery).
-				await assertSafeWebhookTarget(delivery.endpoint.url);
+				// SSRF guard at delivery time: https + literal checks here, then
+				// fetchSafeUserUrl rejects private/reserved addresses when the socket
+				// connects (no DNS rebinding window) and refuses redirects.
+				assertSafeWebhookUrl(delivery.endpoint.url);
 
-				const res = await fetch(delivery.endpoint.url, {
+				const res = await fetchSafeUserUrl(delivery.endpoint.url, {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
@@ -3431,6 +3506,38 @@ async function runModelErrorRateAlertsLoop() {
 	}
 }
 
+async function runAirsidePayoutsLoop() {
+	activeLoops++;
+	const interval = AIRSIDE_PAYOUTS_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting Airside payout statements loop (interval: ${AIRSIDE_PAYOUTS_INTERVAL_SECONDS} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock(AIRSIDE_PAYOUTS_LOCK_KEY)) {
+					try {
+						await refreshAirsidePayoutStatements();
+					} finally {
+						await releaseLock(AIRSIDE_PAYOUTS_LOCK_KEY);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in Airside payout statements loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(60_000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Airside payout statements loop stopped");
+	}
+}
+
 const DATA_STREAMS_LOCK_KEY = "data_streams";
 
 class DataStreamLeaseLost extends Error {}
@@ -3616,15 +3723,45 @@ export async function startWorker() {
 	resetShutdown();
 	logger.info("Starting worker application...");
 
-	// Initialize providers and models sync - must complete before other stats syncs
+	// Initialize providers and models sync - must complete before other stats syncs.
+	// Counted as a loop so a shutdown during startup waits for it before
+	// closing the database pool.
+	activeLoops++;
 	try {
-		await syncProvidersAndModels();
-		logger.info("Initial sync completed");
+		// Price alerts pause while this lock is held, so a sync that is only
+		// partly written is never reported as a price change.
+		// Wait for another worker's sync so two builds never write at once.
+		let syncLocked = await acquireLock(MODEL_SYNC_LOCK_KEY);
+		for (
+			let waited = 0;
+			!syncLocked && waited < MODEL_SYNC_LOCK_WAIT_MS && !isStopRequested();
+			waited += 5000
+		) {
+			await interruptibleSleep(5000);
+			syncLocked = await acquireLock(MODEL_SYNC_LOCK_KEY);
+		}
+		if (syncLocked) {
+			try {
+				await syncProvidersAndModels();
+			} finally {
+				await releaseLock(MODEL_SYNC_LOCK_KEY);
+			}
+			logger.info("Initial sync completed");
+		} else {
+			logger.warn("Skipping initial model sync because the lock is held");
+		}
 	} catch (error) {
 		logger.error(
 			"Error during initial sync",
 			error instanceof Error ? error : new Error(String(error)),
 		);
+	} finally {
+		activeLoops--;
+	}
+
+	if (isStopRequested()) {
+		logger.info("Stop requested during startup, not starting worker loops");
+		return;
 	}
 
 	void runHistoryStartupLoop();
@@ -3673,10 +3810,21 @@ export async function startWorker() {
 	logger.info(
 		"- API key expiration: runs every 5 minutes to disable keys whose TTL passed",
 	);
+	logger.info(
+		`- Airside payout statements: runs every ${AIRSIDE_PAYOUTS_INTERVAL_SECONDS} seconds to open and refresh last month's previews`,
+	);
 
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
-	void runModelVerificationLoop();
+	void runBatchApiLoop();
+	for (
+		let consumer = 0;
+		consumer < modelVerificationConcurrency();
+		consumer++
+	) {
+		void runModelVerificationLoop();
+	}
+	void runDailyModelVerificationLoop();
 	void runBenchmarkRunLoop();
 	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
@@ -3715,6 +3863,7 @@ export async function startWorker() {
 	void runMarginPayoutLoop();
 	void runNotificationsLoop();
 	void runModelErrorRateAlertsLoop();
+	void runAirsidePayoutsLoop();
 	void runDataStreamsLoop();
 	void runProviderKeyModelSyncLoop();
 	void runFollowUpEmailsLoop({
@@ -3741,7 +3890,7 @@ export async function stopWorker(): Promise<boolean> {
 	requestStop();
 
 	// Wait for all loops to finish by polling activeLoops counter
-	const maxWaitTime = 15000; // 15 seconds timeout
+	const maxWaitTime = Math.max(15000, BATCH_SHUTDOWN_DRAIN_MS + STOP_MARGIN_MS);
 	const pollInterval = 100; // 100ms per iteration
 	const startTime = Date.now();
 
@@ -3840,5 +3989,29 @@ export async function enforceRetentionPlanGating(
 		return 0;
 	} finally {
 		await releaseLock(RETENTION_PLAN_GATING_LOCK_KEY);
+	}
+}
+async function runDailyModelVerificationLoop() {
+	activeLoops++;
+	try {
+		while (!isStopRequested()) {
+			for (const service of [
+				scheduleDailyModelVerifications,
+				deliverModelVerificationRegressions,
+				deliverAirsideVerificationEmails,
+			]) {
+				try {
+					await service();
+				} catch (error) {
+					logger.error(
+						"Error in daily model verification loop",
+						error instanceof Error ? error : new Error(String(error)),
+					);
+				}
+			}
+			await interruptibleSleep(5 * 60 * 1000);
+		}
+	} finally {
+		activeLoops--;
 	}
 }

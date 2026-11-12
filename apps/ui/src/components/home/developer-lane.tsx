@@ -32,7 +32,6 @@ const CARRIERS: { id: keyof typeof dimensions; name: string }[] = [
 	{ id: "fireworks", name: "Fireworks" },
 	{ id: "deepinfra", name: "DeepInfra" },
 	{ id: "novita", name: "NovitaAI" },
-	{ id: "scx-ai-gp", name: "SCX.ai" },
 ];
 
 function logoHeight(id: keyof typeof dimensions) {
@@ -110,15 +109,17 @@ export function DeveloperLane({ migrations }: { migrations: MigrationLink[] }) {
 							{PLANS.map((plan) => (
 								<div
 									key={plan.name}
-									className="flex items-baseline justify-between gap-4 py-4"
+									className="grid grid-cols-[1fr_auto] items-baseline gap-x-4 py-4"
 								>
-									<div>
-										<dt className="font-semibold">{plan.name}</dt>
-										<dd className="text-sm text-muted-foreground">
-											{plan.note}
-										</dd>
-									</div>
-									<dd className="shrink-0 font-mono text-sm">{plan.price}</dd>
+									<dt className="col-start-1 row-start-1 font-semibold">
+										{plan.name}
+									</dt>
+									<dd className="col-start-1 row-start-2 text-sm text-muted-foreground">
+										{plan.note}
+									</dd>
+									<dd className="col-start-2 row-start-1 font-mono text-sm">
+										{plan.price}
+									</dd>
 								</div>
 							))}
 						</dl>
@@ -129,7 +130,7 @@ export function DeveloperLane({ migrations }: { migrations: MigrationLink[] }) {
 								auth
 								location="home_developers"
 								cta="get_api_key"
-								className="group inline-flex items-center gap-2 rounded-full bg-sky-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-sky-600/25 transition-colors hover:bg-sky-500"
+								className="group inline-flex items-center gap-2 rounded-full bg-sky-700 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-sky-700/25 transition-colors hover:bg-sky-800"
 							>
 								Get My API Key
 								<ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />

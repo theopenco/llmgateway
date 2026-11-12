@@ -13,7 +13,7 @@ import { logger } from "@llmgateway/logger";
 import { getProviderDefinition } from "@llmgateway/models";
 
 import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
-import { extractImages } from "./extract-images.js";
+import { extractImages, isGoogleOutputImagePart } from "./extract-images.js";
 import {
 	adjustGoogleCandidateTokens,
 	extractBedrockCacheCreationDetails,
@@ -659,7 +659,6 @@ export function transformStreamingToOpenai(
 		}
 
 		case "google-ai-studio":
-		case "glacier":
 		case "google-vertex":
 		case "quartz": {
 			const buildUsage = (
@@ -769,7 +768,7 @@ export function transformStreamingToOpenai(
 				const thoughtParts = parts.filter(
 					(part) => part.thought && typeof part.text === "string",
 				);
-				const hasImages = parts.some((part) => part.inlineData);
+				const hasImages = parts.some(isGoogleOutputImagePart);
 				const hasFunctionCalls = parts.some((part) => part.functionCall);
 
 				const hasThoughtSignature = parts.some(
@@ -1174,6 +1173,7 @@ export function transformStreamingToOpenai(
 					case "response.output_text.done":
 					case "response.reasoning_summary_text.done":
 					case "response.reasoning_summary_part.done":
+					case "response.reasoning_text.done":
 					case "response.web_search_call.in_progress":
 					case "response.web_search_call.searching":
 					case "response.web_search_call.completed": {
@@ -1264,8 +1264,10 @@ export function transformStreamingToOpenai(
 						break;
 					}
 
+					// DeepSeek streams raw reasoning (reasoning_text) instead of a summary.
 					case "response.reasoning_summary_part.added":
 					case "response.reasoning_summary_text.delta":
+					case "response.reasoning_text.delta":
 						transformedData = {
 							id: data.response?.id ?? `chatcmpl-${Date.now()}`,
 							object: "chat.completion.chunk",
@@ -1815,19 +1817,14 @@ export function transformStreamingToOpenai(
 		case "canopywave":
 		case "inference.net":
 		case "together-ai":
-		case "scx-ai":
-		case "scx-ai-gp":
 		case "deepinfra":
 		case "custom":
-		case "nanogpt":
 		case "bytedance":
 		case "minimax":
-		case "embercloud":
-		case "gonka24":
 		case "ranoai":
 		case "baidu":
-		case "consensusprotocol":
 		case "atria":
+		case "cloudflare":
 		case "xiaomi":
 		case "azure-ai-foundry":
 		case "vertex-openai":

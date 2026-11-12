@@ -52,6 +52,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import { MailPanel } from "./crm-mail";
+import { MeetingsPanel } from "./crm-meetings";
 import {
 	type CrmAccountDetail,
 	initials,
@@ -519,18 +521,22 @@ function ActivityFeed({
 										) : null}
 										{item.a.subject}
 									</p>
-									<button
-										type="button"
-										aria-label="Delete"
-										onClick={() =>
-											m.deleteActivity.mutate({
-												params: { path: { activityId: item.a.id } },
-											})
-										}
-										className="opacity-0 transition group-hover:opacity-100"
-									>
-										<Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-rose-600" />
-									</button>
+									{/* An inquiry's follow-up is its record of being answered;
+									    the API refuses to delete it. */}
+									{item.a.externalRef?.startsWith("lead:") ? null : (
+										<button
+											type="button"
+											aria-label="Delete"
+											onClick={() =>
+												m.deleteActivity.mutate({
+													params: { path: { activityId: item.a.id } },
+												})
+											}
+											className="opacity-0 transition group-hover:opacity-100"
+										>
+											<Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-rose-600" />
+										</button>
+									)}
 								</div>
 								{item.a.body ? (
 									<p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
@@ -1298,6 +1304,8 @@ export function CrmAccountView({ id }: { id: string }) {
 						<TabsTrigger value="people">
 							People · {data.people.length}
 						</TabsTrigger>
+						<TabsTrigger value="mail">Email</TabsTrigger>
+						<TabsTrigger value="meetings">Meetings</TabsTrigger>
 						<TabsTrigger value="usage">Usage</TabsTrigger>
 						<TabsTrigger value="inbound">
 							Inbound · {data.leads.length}
@@ -1334,6 +1342,12 @@ export function CrmAccountView({ id }: { id: string }) {
 								/>
 							))}
 						</div>
+					</TabsContent>
+					<TabsContent value="mail" className="mt-4">
+						<MailPanel accountId={a.id} people={data.people} />
+					</TabsContent>
+					<TabsContent value="meetings" className="mt-4">
+						<MeetingsPanel accountId={a.id} people={data.people} />
 					</TabsContent>
 					<TabsContent value="usage" className="mt-4">
 						<UsagePanel detail={data} />

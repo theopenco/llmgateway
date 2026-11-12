@@ -239,6 +239,26 @@ describe("validateProviderKey error reporting", () => {
 		expect(warnSpy).toHaveBeenCalled();
 	});
 
+	it("returns malformed key settings at warn level without calling upstream", async () => {
+		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+		const result = await validateProviderKey(
+			"cloudflare",
+			"cf-test",
+			undefined,
+			false,
+			{ cloudflare_account_id: "not-an-account-id" },
+		);
+
+		expect(result.valid).toBe(false);
+		expect(result.error).toContain("Cloudflare account ID is invalid");
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect(errorSpy).not.toHaveBeenCalled();
+		expect(warnSpy).toHaveBeenCalled();
+	});
+
 	it("falls back to status text when the body carries no message", async () => {
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(
 			new Response("not json", { status: 401, statusText: "Unauthorized" }),
@@ -291,6 +311,49 @@ describe("validateProviderKey model-specific probes", () => {
 			model: "text-embedding-3-small",
 		});
 	});
+
+	it.each([
+		{
+			name: "resource",
+			baseUrl: undefined,
+			options: { azure_resource: "my-resource" },
+			expected: "https://my-resource.openai.azure.com/openai/v1/embeddings",
+		},
+		{
+			name: "managed base URL over resource",
+			baseUrl: undefined,
+			options: {
+				env_config: {
+					baseUrl: "https://proxy.example.com/",
+					resource: "my-resource",
+				},
+			},
+			expected: "https://proxy.example.com/openai/v1/embeddings",
+		},
+		{
+			name: "key base URL over resource",
+			baseUrl: "https://byok.example.com",
+			options: { azure_resource: "my-resource" },
+			expected: "https://byok.example.com/openai/v1/embeddings",
+		},
+	])(
+		"probes Azure embeddings on the v1 API from the $name",
+		async ({ baseUrl, options, expected }) => {
+			const fetchMock = mockSuccess();
+
+			const result = await validateProviderKey(
+				"azure",
+				"azure-test",
+				baseUrl,
+				false,
+				options,
+				"text-embedding-3-small",
+			);
+
+			expect(result.valid).toBe(true);
+			expect(fetchMock.mock.calls[0][0]).toBe(expected);
+		},
+	);
 
 	it("probes an explicit OpenAI-compatible custom model", async () => {
 		const fetchMock = mockSuccess();
@@ -368,12 +431,12 @@ describe("validateProviderKey model-specific probes", () => {
 
 		const result = await validateProviderKey("typesafe", "ts-test");
 
-		expect(result).toEqual({ valid: true, model: "jev-1.13.0" });
+		expect(result).toEqual({ valid: true, model: "jev-1.14.0" });
 		expect(fetchMock.mock.calls[0][0]).toBe(
 			"https://api.typesafe.ai/v1/systemone",
 		);
 		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
-			model: "jev-1.13.0",
+			model: "jev-1.14.0",
 			state: "Hello",
 			questions: {
 				greeting: { type: "noul", instructions: "Is this a greeting?" },
@@ -724,3 +787,49 @@ describe("validateProviderKey credential hygiene", () => {
 		expect(logged).toContain("[REDACTED_TOKEN]");
 	});
 });
+async function testAzureEmbeddingDeploymentOverride(
+	deploymentName: string | undefined,
+	expectedModel: string,
+) {
+	const fetchMock = vi
+		.spyOn(globalThis, "fetch")
+		.mockImplementation(async (_url, init) => {
+			const body = JSON.parse(String(init?.body)) as { model: string };
+			return body.model === expectedModel
+				? new Response("{}", { status: 200 })
+				: new Response(
+						JSON.stringify({ error: { message: "DeploymentNotFound" } }),
+						{ status: 404 },
+					);
+		});
+	try {
+		const result = await validateProviderKey(
+			"azure",
+			"azure-test",
+			undefined,
+			false,
+			{ azure_resource: "my-resource", azure_deployment_name: deploymentName },
+			"text-embedding-3-small",
+		);
+		expect(result).toEqual({ valid: true, model: "text-embedding-3-small" });
+		expect(fetchMock).toHaveBeenCalledOnce();
+		expect(fetchMock.mock.calls[0]?.[0]).toBe(
+			"https://my-resource.openai.azure.com/openai/v1/embeddings",
+		);
+		expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+			input: "Hello",
+			model: expectedModel,
+		});
+	} finally {
+		vi.restoreAllMocks();
+	}
+}
+
+it.each([
+	["custom-embedding-deployment", "custom-embedding-deployment"],
+	["", "text-embedding-3-small"],
+	[undefined, "text-embedding-3-small"],
+])(
+	"validates the Azure embedding deployment override %s",
+	testAzureEmbeddingDeploymentOverride,
+);

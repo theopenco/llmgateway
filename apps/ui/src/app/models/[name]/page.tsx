@@ -17,6 +17,7 @@ import {
 	Mic,
 	ListOrdered,
 	Globe,
+	Layers,
 	Search,
 } from "lucide-react";
 import Link from "next/link";
@@ -29,7 +30,10 @@ import { CopyModelName } from "@/components/models/copy-model-name";
 import { DetailProviderCards } from "@/components/models/detail-provider-cards";
 import { GlobalDiscountBanner } from "@/components/models/global-discount-banner";
 import { ModelBenchmarks } from "@/components/models/model-benchmarks";
-import { ModelCtaButton } from "@/components/models/model-cta-button";
+import {
+	ModelCtaButton,
+	TryInLoungeLink,
+} from "@/components/models/model-cta-button";
 import { ModelFaqSection } from "@/components/models/model-faq";
 import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
@@ -37,6 +41,7 @@ import { ModelUsageStats } from "@/components/models/model-usage-stats";
 import { buildProviderTabBranding } from "@/components/models/provider-tab-branding";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { RelatedModels } from "@/components/models/related-models";
+import { VirtualModelBanner } from "@/components/models/virtual-model-banner";
 import { JsonLd } from "@/components/seo/json-ld";
 import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
@@ -49,6 +54,8 @@ import {
 import { fetchModelDiscounts, fetchProviders } from "@/lib/fetch-models";
 import { buildFaqSchema, buildModelFaqs } from "@/lib/model-faq";
 import { getCheapestOgMapping } from "@/lib/model-og";
+import { isLoungeChatModel } from "@/lib/model-utils";
+import { pageTitle } from "@/lib/page-title";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -56,9 +63,13 @@ import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
 	expandAllProviderRegions,
+	getBatchEndpoints,
 	type StabilityLevel,
+	getVirtualModelTarget,
 } from "@llmgateway/models";
 import {
+	BATCH_DOCS_URL,
+	batchSupportDescription,
 	formatPerUnitPrice,
 	getMinPerSecondPrice,
 	isMappingDeactivated,
@@ -76,13 +87,14 @@ export const revalidate = 60;
 export default async function ModelPage({ params }: PageProps) {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
+	const canonicalName = getVirtualModelTarget(decodedName)?.id ?? decodedName;
 
 	// Fetchers resolve to fallbacks, so an early notFound can leave them pending.
 	const modelDefPromise = findPublicModelDefinition(decodedName);
 	const pageDataPromise = Promise.all([
-		fetchModelDiscounts(decodedName),
+		fetchModelDiscounts(canonicalName),
 		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
-			params: { query: { modelId: decodedName } },
+			params: { query: { modelId: canonicalName } },
 		}),
 		fetchProviders(),
 	]);
@@ -134,7 +146,7 @@ export default async function ModelPage({ params }: PageProps) {
 		const globalDiscount = getEffectiveProviderDiscount(
 			allDiscounts,
 			provider.providerId,
-			decodedName,
+			canonicalName,
 		);
 		const baseInfo = providerInfo ?? apiProvider;
 		return {
@@ -175,7 +187,7 @@ export default async function ModelPage({ params }: PageProps) {
 
 	const currentModelDiscount = getBestDiscount(
 		allDiscounts,
-		decodedName,
+		canonicalName,
 		Array.from(new Set(activeProviders.map((p) => p.providerId))),
 	);
 	const currentModelDiscountProvider = currentModelDiscount?.provider
@@ -276,6 +288,11 @@ export default async function ModelPage({ params }: PageProps) {
 							Back to all models
 						</Link>
 					</div>
+					<VirtualModelBanner
+						target={modelDef.virtualModelTarget}
+						providers={modelDef.providers}
+						discounts={allDiscounts}
+					/>
 					<div className="mb-8">
 						<div className="flex items-center gap-3 mb-2 flex-wrap">
 							<h1 className="text-3xl md:text-4xl font-bold tracking-tight">
@@ -334,12 +351,21 @@ export default async function ModelPage({ params }: PageProps) {
 							/>
 
 							<ModelCtaButton
-								modelId={decodedName}
+								modelId={canonicalName}
 								output={modelDef.output}
 								size="sm"
 								className="gap-2"
 								iconClassName="h-3 w-3"
+								location="model_page"
 							/>
+
+							{isLoungeChatModel(modelDef, activeProviders) && (
+								<TryInLoungeLink
+									modelId={canonicalName}
+									location="model_page"
+									className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1 text-xs md:text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+								/>
+							)}
 
 							<Link
 								href={`/models/${encodeURIComponent(decodedName)}/uptime`}
@@ -349,7 +375,7 @@ export default async function ModelPage({ params }: PageProps) {
 								Live uptime &amp; insights
 							</Link>
 
-							<ModelUsageStats modelId={decodedName} />
+							<ModelUsageStats modelId={canonicalName} />
 						</div>
 
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
@@ -566,6 +592,8 @@ export default async function ModelPage({ params }: PageProps) {
 									icon: any;
 									label: string;
 									color: string;
+									href?: string;
+									title?: string;
 								}> = [];
 								const hasStreaming = visibleProviders.some((p) => p.streaming);
 								const hasVision = visibleProviders.some((p) => p.vision);
@@ -734,21 +762,53 @@ export default async function ModelPage({ params }: PageProps) {
 										color: "text-sky-500",
 									});
 								}
+								const batchEndpoints = Array.from(
+									new Set(
+										visibleProviders.flatMap((p) =>
+											getBatchEndpoints(p, modelDef),
+										),
+									),
+								);
+								if (batchEndpoints.length > 0) {
+									items.push({
+										key: "batch",
+										icon: Layers,
+										label: "Batch API",
+										color: "text-fuchsia-500",
+										href: BATCH_DOCS_URL,
+										title: batchSupportDescription(batchEndpoints),
+									});
+								}
 
-								return items.map(({ key, icon: Icon, label, color }) => (
-									<div
-										key={key}
-										className="inline-flex items-center gap-2 text-sm text-foreground"
-									>
-										<Icon className={`h-4 w-4 ${color}`} />
-										<span className="text-muted-foreground">{label}</span>
-									</div>
-								));
+								return items.map(
+									({ key, icon: Icon, label, color, href, title }) =>
+										href ? (
+											<a
+												key={key}
+												href={href}
+												target="_blank"
+												rel="noopener noreferrer"
+												title={title}
+												className="inline-flex items-center gap-2 text-sm text-foreground underline-offset-4 hover:underline"
+											>
+												<Icon className={`h-4 w-4 ${color}`} />
+												<span className="text-muted-foreground">{label}</span>
+											</a>
+										) : (
+											<div
+												key={key}
+												className="inline-flex items-center gap-2 text-sm text-foreground"
+											>
+												<Icon className={`h-4 w-4 ${color}`} />
+												<span className="text-muted-foreground">{label}</span>
+											</div>
+										),
+								);
 							})()}
 						</div>
 
 						<ModelRating
-							modelId={decodedName}
+							modelId={canonicalName}
 							initialData={ratingsData ?? undefined}
 						/>
 					</div>
@@ -795,7 +855,7 @@ export default async function ModelPage({ params }: PageProps) {
 
 					<div className="mb-8">
 						<ModelBenchmarks
-							modelId={decodedName}
+							modelId={canonicalName}
 							uploadedIcons={uploadedProviderIcons}
 						/>
 					</div>
@@ -836,10 +896,12 @@ export async function generateMetadata({
 
 	const title = `${model.name ?? model.id} — Pricing, Providers & Benchmarks`;
 	const pitch = `Use ${model.name ?? model.id} via one OpenAI-compatible API with live per-token pricing across providers.`;
-	const description =
-		model.description && model.description.length + pitch.length <= 250
-			? `${model.description} ${pitch}`
-			: (model.description ?? pitch);
+	const shortPitch = "Live per-token pricing across providers via one API.";
+	const description = !model.description
+		? pitch
+		: ([pitch, shortPitch]
+				.map((suffix) => `${model.description} ${suffix}`)
+				.find((candidate) => candidate.length <= 160) ?? model.description);
 
 	const primaryProvider =
 		getCheapestOgMapping(model, discounts)?.providerId ?? "default";
@@ -847,7 +909,7 @@ export async function generateMetadata({
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
 
 	return {
-		title,
+		title: pageTitle(title),
 		description,
 		alternates: {
 			canonical,

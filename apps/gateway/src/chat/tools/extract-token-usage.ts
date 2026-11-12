@@ -31,6 +31,20 @@ export function adjustGoogleCandidateTokens(
 	return candidatesTokenCount;
 }
 
+/** Image output tokens Google reports (and bills) in candidatesTokensDetails. */
+export function getGoogleImageOutputTokens(usageMetadata: any): number | null {
+	if (!Array.isArray(usageMetadata?.candidatesTokensDetails)) {
+		return null;
+	}
+	let tokens = 0;
+	for (const detail of usageMetadata.candidatesTokensDetails) {
+		if (detail?.modality === "IMAGE" && detail.tokenCount > 0) {
+			tokens += detail.tokenCount;
+		}
+	}
+	return tokens > 0 ? tokens : null;
+}
+
 export function extractBedrockCacheCreationDetails(usage: any): {
 	cacheCreation5mTokens: number | null;
 	cacheCreation1hTokens: number | null;
@@ -108,10 +122,10 @@ export function extractTokenUsage(
 	let audioInputTokens: number | null = null;
 	let cachedAudioInputTokens: number | null = null;
 	let imageInputTokens: number | null = null;
+	let imageOutputTokens: number | null = null;
 
 	switch (provider) {
 		case "google-ai-studio":
-		case "glacier":
 		case "google-vertex":
 		case "quartz":
 			if (data.usageMetadata) {
@@ -129,6 +143,7 @@ export function extractTokenUsage(
 						}
 					}
 				}
+				imageOutputTokens = getGoogleImageOutputTokens(data.usageMetadata);
 				if (Array.isArray(data.usageMetadata.cacheTokensDetails)) {
 					for (const detail of data.usageMetadata.cacheTokensDetails) {
 						if (detail?.modality === "AUDIO" && detail.tokenCount) {
@@ -357,5 +372,6 @@ export function extractTokenUsage(
 		audioInputTokens,
 		cachedAudioInputTokens,
 		imageInputTokens,
+		imageOutputTokens,
 	};
 }

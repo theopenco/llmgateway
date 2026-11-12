@@ -9,7 +9,7 @@ import { ShimmerButton } from "@/lib/components/shimmer-button";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
-import type { Variants } from "@/components/motion-wrapper";
+import type { Variants } from "framer-motion";
 
 const containerVariants: Variants = {
 	hidden: { opacity: 0 },
@@ -33,10 +33,9 @@ const itemVariants: Variants = {
 };
 
 // LazyMotion + m keep framer-motion's animation runtime out of the initial
-// bundle; the footer renders on ~70 marketing pages where Newsletter is the
-// only motion user.
+// bundle; the footer renders on ~70 marketing pages.
 const loadMotionFeatures = () =>
-	import("./newsletter-motion-features").then((mod) => mod.default);
+	import("@/components/motion-features").then((mod) => mod.default);
 
 const perks = [
 	{
@@ -96,10 +95,11 @@ export default function Newsletter() {
 								</div>
 								<div className="space-y-2">
 									<h3 className="font-display text-2xl font-bold tracking-tight text-foreground">
-										You&apos;re in!
+										One more step
 									</h3>
 									<p className="text-muted-foreground text-sm max-w-sm mx-auto leading-relaxed">
-										{subscribe.data?.message ?? "You're subscribed."}
+										{subscribe.data?.message ??
+											"Check your inbox to confirm your subscription."}
 									</p>
 								</div>
 							</m.div>

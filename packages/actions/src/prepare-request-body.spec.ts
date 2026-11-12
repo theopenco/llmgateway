@@ -16,6 +16,7 @@ import type {
 	OpenAIResponsesRequestBody,
 	ProviderCacheControlMode,
 	ProviderModelMapping,
+	WebSearchTool,
 } from "@llmgateway/models";
 
 /**
@@ -3440,53 +3441,6 @@ describe("prepareRequestBody - InclusionAI Ling-3.0-flash thinking", () => {
 	);
 });
 
-describe("prepareRequestBody - embercloud reasoning shape", () => {
-	// embercloud's documented request body uses a nested `reasoning` object
-	// (reasoning.enabled + reasoning.effort) — the flat OpenAI-style
-	// `reasoning_effort` field is not documented and is silently ignored
-	// (https://embercloud.ai/docs/request-body).
-	async function prepare(
-		effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
-	) {
-		return (await prepareRequestBody(
-			"embercloud",
-			"glm-5.2",
-			null,
-			"glm-5.2",
-			[{ role: "user", content: "Hello!" }],
-			false, // stream
-			undefined, // temperature
-			undefined, // max_tokens
-			undefined, // top_p
-			undefined, // frequency_penalty
-			undefined, // presence_penalty
-			undefined, // response_format
-			undefined, // tools
-			undefined, // tool_choice
-			effort, // reasoning_effort
-			true, // supportsReasoning
-		)) as any;
-	}
-
-	test("builds the nested reasoning object instead of flat reasoning_effort", async () => {
-		const requestBody = await prepare("high");
-		expect(requestBody.reasoning).toEqual({
-			enabled: true,
-			effort: "high",
-		});
-		expect(requestBody.reasoning_effort).toBeUndefined();
-	});
-
-	test("forwards the top declared tier through the nested shape", async () => {
-		const requestBody = await prepare("max");
-		expect(requestBody.reasoning).toEqual({
-			enabled: true,
-			effort: "max",
-		});
-		expect(requestBody.reasoning_effort).toBeUndefined();
-	});
-});
-
 describe("prepareRequestBody - Alibaba thinking", () => {
 	async function prepare(options: {
 		model: string;
@@ -6161,7 +6115,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 	test("should default missing parameters to a JSON Schema object for DeepSeek", async () => {
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
@@ -6197,7 +6151,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 	test("should rewrite parameters with type: null to type: object", async () => {
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
@@ -6238,7 +6192,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 		};
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
@@ -6950,6 +6904,64 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			],
 		});
 	});
+	test("sends text parts of an assistant message with tool calls as text blocks", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-6",
+			null,
+			"anthropic.claude-sonnet-4-6",
+			[
+				{ role: "user", content: "What is the weather in Berlin?" },
+				{
+					role: "assistant",
+					content: [
+						{ type: "text", text: "Let me check." },
+						{ type: "text", text: "   " },
+						{ type: "text", text: "One moment." },
+					],
+					tool_calls: [
+						{
+							id: "tool_1",
+							type: "function",
+							function: {
+								name: "get_weather",
+								arguments: JSON.stringify({ city: "Berlin" }),
+							},
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "tool_1",
+					content: JSON.stringify({ temperature: 17 }),
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const assistant = requestBody.messages[1];
+		expect(assistant.role).toBe("assistant");
+		expect(assistant.content[0]).toEqual({ text: "Let me check." });
+		expect(assistant.content[1]).toEqual({ text: "One moment." });
+		expect(assistant.content[2]).toEqual({
+			toolUse: {
+				toolUseId: "tool_1",
+				name: "get_weather",
+				input: { city: "Berlin" },
+			},
+		});
+	});
 	test("synthesizes toolConfig when history has tool blocks but request omits tools", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
@@ -7231,6 +7243,69 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 			budget,
 		);
 	});
+});
+
+describe("prepareRequestBody - Alibaba Wan 2.7 image size", () => {
+	async function prepareWanImageRequest(
+		content: BaseMessage["content"],
+		image_size: string,
+	) {
+		return (await prepareRequestBody(
+			"alibaba",
+			"wan-2-7-image-pro",
+			null,
+			"wan2.7-image-pro",
+			[{ role: "user", content }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			{ image_size },
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("forwards 4K for text-to-image", async () => {
+		const body = await prepareWanImageRequest("A teapot", "4K");
+		expect(body.parameters.size).toBe("4K");
+	});
+
+	const editContent: BaseMessage["content"] = [
+		{ type: "text", text: "Make it blue" },
+		{
+			type: "image_url",
+			image_url: { url: "https://example.com/teapot.png" },
+		},
+	];
+
+	test.each(["4K", "4096x4096", "3000x2000"])(
+		"rejects %s with an input image",
+		async (size) => {
+			await expect(prepareWanImageRequest(editContent, size)).rejects.toThrow(
+				"Wan 2.7 image edits support at most 2K",
+			);
+		},
+	);
+
+	test.each(["2K", "2048x2048", "1536x1024"])(
+		"forwards %s with an input image",
+		async (size) => {
+			const body = await prepareWanImageRequest(editContent, size);
+			expect(body.parameters.size).toBe(size.replace("x", "*"));
+		},
+	);
 });
 
 describe("prepareRequestBody - Alibaba cache_control", () => {
@@ -9393,10 +9468,16 @@ describe("prepareRequestBody - Xiaomi", () => {
 			false,
 		)) as any;
 
-		expect(requestBody.messages).toHaveLength(2);
+		expect(requestBody.messages).toHaveLength(3);
 		expect(requestBody.messages[0].content).toBe("describe this");
 		expect(requestBody.messages[1].role).toBe("tool");
 		expect(requestBody.messages[1].content).toBe("screenshot taken");
+		// The image moves to a user turn instead of being dropped.
+		expect(requestBody.messages[2].role).toBe("user");
+		expect(requestBody.messages[2].content).toContainEqual({
+			type: "image_url",
+			image_url: { url: "data:image/png;base64,abc" },
+		});
 	});
 
 	test("leaves tool message with plain string content unchanged", async () => {
@@ -9542,7 +9623,14 @@ describe("prepareRequestBody - Xiaomi", () => {
 			false,
 		)) as any;
 
-		expect(requestBody.messages[0].content).toBe("");
+		expect(requestBody.messages[0].content).toBe(
+			"The tool returned an image, attached in the next user message.",
+		);
+		expect(requestBody.messages[1].role).toBe("user");
+		expect(requestBody.messages[1].content).toContainEqual({
+			type: "image_url",
+			image_url: { url: "data:image/png;base64,abc" },
+		});
 	});
 
 	test("applies standard default params (stream_options, temperature, etc.)", async () => {
@@ -10001,7 +10089,7 @@ describe("prepareRequestBody - DashScope web search", () => {
 			webSearchTool,
 		) as Promise<any>;
 
-	test.each(["alibaba", "scx-ai-gp"])(
+	test.each(["alibaba"])(
 		"%s pairs enable_search with forced_search when forced",
 		async (provider) => {
 			const requestBody = await prepare(provider, "qwen3.8-max", {
@@ -10016,20 +10104,17 @@ describe("prepareRequestBody - DashScope web search", () => {
 		},
 	);
 
-	test.each(["alibaba", "scx-ai-gp"])(
-		"%s omits search_strategy",
-		async (provider) => {
-			const requestBody = await prepare(provider, "qwen3.8-max", {
-				type: "web_search",
-				forced: true,
-			});
+	test.each(["alibaba"])("%s omits search_strategy", async (provider) => {
+		const requestBody = await prepare(provider, "qwen3.8-max", {
+			type: "web_search",
+			forced: true,
+		});
 
-			// The Qwen max models 400 on the documented "agent" policy.
-			expect(requestBody.search_options.search_strategy).toBeUndefined();
-		},
-	);
+		// The Qwen max models 400 on the documented "agent" policy.
+		expect(requestBody.search_options.search_strategy).toBeUndefined();
+	});
 
-	test.each(["alibaba", "scx-ai-gp"])(
+	test.each(["alibaba"])(
 		"%s sends no search params for a merely offered tool",
 		async (provider) => {
 			// A chat client that leaves a web search toggle on attaches the tool to
@@ -10066,7 +10151,7 @@ describe("prepareRequestBody - DashScope web search", () => {
 		expect(requestBody.tools).toContainEqual({ type: "web_search" });
 	});
 
-	test.each(["alibaba", "scx-ai-gp"])(
+	test.each(["alibaba"])(
 		"%s sends no search params without a web_search tool",
 		async (provider) => {
 			const requestBody = await prepare(provider, "qwen3.8-max");
@@ -10075,6 +10160,91 @@ describe("prepareRequestBody - DashScope web search", () => {
 			expect(requestBody.search_options).toBeUndefined();
 		},
 	);
+});
+
+describe("prepareRequestBody - cache-only web search", () => {
+	const cachedOnly = {
+		type: "web_search",
+		external_web_access: false,
+	} as const;
+	const prepare = (
+		provider: string,
+		model: string,
+		useResponsesApi?: boolean,
+		webSearchTool: WebSearchTool = cachedOnly,
+	) =>
+		prepareRequestBody(
+			provider as any,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			webSearchTool,
+			undefined,
+			useResponsesApi,
+		) as Promise<any>;
+
+	test("openai forwards external_web_access on the Responses API", async () => {
+		const requestBody = await prepare("openai", "gpt-5");
+
+		expect(requestBody.tools).toEqual([
+			{ type: "web_search", external_web_access: false },
+		]);
+	});
+
+	test("openai drops it on Chat Completions, which has no cache-only mode", async () => {
+		const requestBody = await prepare("openai", "gpt-5", false);
+
+		expect(requestBody.tools).toBeUndefined();
+		expect(requestBody.web_search_options).toBeUndefined();
+	});
+
+	test.each([
+		["azure", "gpt-5"],
+		["anthropic", "claude-sonnet-4-6"],
+		["google-ai-studio", "gemini-2.5-flash"],
+	])(
+		"%s drops it instead of running a live search",
+		async (provider, model) => {
+			const requestBody = await prepare(provider, model);
+
+			expect(JSON.stringify(requestBody)).not.toMatch(
+				/web_search|googleSearch|google_search/,
+			);
+		},
+	);
+
+	test("live search is unchanged on a provider without cache-only mode", async () => {
+		const requestBody = await prepare(
+			"anthropic",
+			"claude-sonnet-4-6",
+			undefined,
+			{
+				type: "web_search",
+				external_web_access: true,
+			},
+		);
+
+		expect(JSON.stringify(requestBody.tools)).toContain("web_search");
+	});
 });
 
 describe("prepareRequestBody - declared web search format", () => {
@@ -10099,7 +10269,7 @@ describe("prepareRequestBody - declared web search format", () => {
 		return (prepareRequestBody as (...a: unknown[]) => Promise<any>)(...args);
 	};
 
-	test.each(["openai", "scx-ai-gp", "custom"])(
+	test.each(["openai", "custom"])(
 		"%s sends the tool shape, forcing with required",
 		async (provider) => {
 			const body = await prepare(
@@ -10116,7 +10286,7 @@ describe("prepareRequestBody - declared web search format", () => {
 		},
 	);
 
-	test.each(["openai", "scx-ai-gp", "custom"])(
+	test.each(["openai", "custom"])(
 		"%s sends web_search_options for an offered search",
 		async (provider) => {
 			const body = await prepare(
@@ -10386,6 +10556,143 @@ describe("prepareRequestBody - alibaba forced tool use", () => {
 	);
 });
 
+describe("prepareRequestBody - Baidu Kimi K3 empty text parts", () => {
+	test("drops empty text parts", async () => {
+		const requestBody = (await prepareRequestBody(
+			"baidu",
+			"kimi-k3",
+			null,
+			"qianfan-vl-v1",
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "describe this" },
+						{ type: "text", text: "" },
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+		)) as { messages: { content: unknown }[] };
+
+		expect(requestBody.messages[0].content).toEqual([
+			{ type: "text", text: "describe this" },
+		]);
+	});
+});
+
+describe("prepareRequestBody - fal image generation", () => {
+	async function prepareFalImageRequest(
+		model: string,
+		externalId: string,
+		imageConfig?: {
+			image_size?: string;
+			n?: number;
+			seed?: number;
+			output_format?: string;
+		},
+	) {
+		return (await prepareRequestBody(
+			"fal-ai",
+			model,
+			null,
+			externalId,
+			[
+				{ role: "user", content: "An earlier prompt" },
+				{ role: "assistant", content: "Image generated" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "A lighthouse at dusk" }],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			imageConfig,
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("sends the prompt with an explicit size, count, format and seed", async () => {
+		expect(
+			await prepareFalImageRequest(
+				"flux-2-klein-4b",
+				"fal-ai/flux-2/klein/4b",
+				{
+					image_size: "1536x1024",
+					n: 2,
+					seed: 7,
+					output_format: "webp",
+				},
+			),
+		).toEqual({
+			prompt: "A lighthouse at dusk",
+			image_size: { width: 1536, height: 1024 },
+			num_images: 2,
+			output_format: "webp",
+			seed: 7,
+		});
+	});
+
+	test("defaults to the 1024x1024 tier the catalogue bills without a size", async () => {
+		expect(
+			await prepareFalImageRequest("z-image-turbo", "fal-ai/z-image/turbo"),
+		).toEqual({
+			prompt: "A lighthouse at dusk",
+			image_size: { width: 1024, height: 1024 },
+		});
+	});
+
+	test("omits parameters Recraft does not accept", async () => {
+		expect(
+			await prepareFalImageRequest(
+				"recraft-v4.1-flash",
+				"recraft/v4.1/flash/text-to-image",
+				{ image_size: "1024x1536", n: 2, seed: 7, output_format: "png" },
+			),
+		).toEqual({
+			prompt: "A lighthouse at dusk",
+			image_size: { width: 1024, height: 1536 },
+		});
+	});
+
+	test("rejects sizes without a catalogue price", async () => {
+		await expect(
+			prepareFalImageRequest(
+				"flux-3-klein",
+				"blackforestlabs/flux-3/klein/text-to-image",
+				{
+					image_size: "4096x4096",
+				},
+			),
+		).rejects.toBeInstanceOf(RequestError);
+	});
+});
+
 describe("prepareRequestBody - bytedance prompt caching", () => {
 	async function prepare(provider: "bytedance" | "deepinfra", model: string) {
 		return (await prepareRequestBody(
@@ -10591,7 +10898,7 @@ describe("prepareRequestBody - parallel_tool_calls", () => {
 	});
 });
 
-describe("prepareRequestBody - tool strict and allowed_callers", () => {
+describe("prepareRequestBody - tool strict, allowed_callers and eager_input_streaming", () => {
 	const strictTool = {
 		type: "function" as const,
 		function: {
@@ -10605,12 +10912,14 @@ describe("prepareRequestBody - tool strict and allowed_callers", () => {
 			strict: true,
 		},
 		allowed_callers: ["code_execution"],
+		eager_input_streaming: true,
 	};
 
 	async function prepare(
 		provider: Parameters<typeof prepareRequestBody>[0],
 		model: string,
 		useResponsesApi = false,
+		stream = false,
 	) {
 		return (await prepareRequestBody(
 			provider,
@@ -10618,7 +10927,7 @@ describe("prepareRequestBody - tool strict and allowed_callers", () => {
 			null,
 			model,
 			[{ role: "user", content: "Weather in Paris?" }],
-			false,
+			stream,
 			undefined,
 			undefined,
 			undefined,
@@ -10642,33 +10951,79 @@ describe("prepareRequestBody - tool strict and allowed_callers", () => {
 		)) as unknown as Record<string, any>;
 	}
 
-	test("Anthropic takes strict and allowed_callers on the tool", async () => {
+	test("Anthropic takes strict, allowed_callers and eager_input_streaming on the tool", async () => {
 		const body = await prepare("anthropic", "claude-sonnet-4-6");
 		expect(body.tools[0]).toMatchObject({
 			name: "get_weather",
 			strict: true,
 			allowed_callers: ["code_execution"],
+			eager_input_streaming: true,
 		});
 	});
 
-	test("OpenAI chat completions keeps function.strict and drops allowed_callers", async () => {
+	test("OpenAI chat completions keeps function.strict and drops the Anthropic fields", async () => {
 		const body = await prepare("openai", "gpt-4o-mini");
 		expect(body.tools[0].function.strict).toBe(true);
 		expect(body.tools[0]).not.toHaveProperty("allowed_callers");
+		expect(body.tools[0]).not.toHaveProperty("eager_input_streaming");
 	});
 
 	test("OpenAI Responses API keeps strict on the flat tool", async () => {
 		const body = await prepare("openai", "gpt-5", true);
 		expect(body.tools[0]).toMatchObject({ name: "get_weather", strict: true });
 		expect(body.tools[0]).not.toHaveProperty("allowed_callers");
+		expect(body.tools[0]).not.toHaveProperty("eager_input_streaming");
 	});
 
-	test("Google drops both", async () => {
+	test("Bedrock Converse turns eager_input_streaming into the fine-grained tool streaming beta", async () => {
+		const body = await prepare("aws-bedrock", "claude-sonnet-4-6", false, true);
+		expect(body.toolConfig.tools[0].toolSpec).not.toHaveProperty(
+			"eager_input_streaming",
+		);
+		expect(body.additionalModelRequestFields.anthropic_beta).toEqual([
+			"fine-grained-tool-streaming-2025-05-14",
+		]);
+
+		const nonStreaming = await prepare("aws-bedrock", "claude-sonnet-4-6");
+		expect(
+			nonStreaming.additionalModelRequestFields?.anthropic_beta,
+		).toBeUndefined();
+	});
+
+	test("Bedrock Converse keeps buffered streaming unless every tool opts in", async () => {
+		const body = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-6",
+			null,
+			"claude-sonnet-4-6",
+			[{ role: "user", content: "Weather in Paris?" }],
+			true,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			[
+				strictTool,
+				{
+					...strictTool,
+					function: { ...strictTool.function, name: "get_time" },
+					eager_input_streaming: false,
+				},
+			],
+		)) as unknown as Record<string, any>;
+		expect(body.toolConfig.tools).toHaveLength(2);
+		expect(body.additionalModelRequestFields?.anthropic_beta).toBeUndefined();
+	});
+
+	test("Google drops all of them", async () => {
 		const body = await prepare("google-ai-studio", "gemini-2.5-flash");
 		const declaration = body.tools[0].functionDeclarations[0];
 		expect(declaration.name).toBe("get_weather");
 		expect(declaration).not.toHaveProperty("strict");
 		expect(declaration).not.toHaveProperty("allowed_callers");
+		expect(declaration).not.toHaveProperty("eager_input_streaming");
 	});
 });
 
@@ -11022,4 +11377,54 @@ describe("prepareRequestBody - custom provider cache_control forwarding", () => 
 
 		expect(markers(body).every((marker) => marker === undefined)).toBe(true);
 	});
+});
+
+describe("prepareRequestBody - Alibaba input_audio", () => {
+	async function prepare(data: string) {
+		return (await prepareRequestBody(
+			"alibaba",
+			"qwen3.8-omni-flash",
+			null,
+			"qwen3.8-omni-flash",
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "What do you hear?" },
+						{ type: "input_audio", input_audio: { data, format: "wav" } },
+					],
+				},
+			],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as {
+			messages: { content: { input_audio?: { data: string } }[] }[];
+		};
+	}
+
+	test("wraps bare base64 audio in a data URL", async () => {
+		const requestBody = await prepare("UklGRg==");
+		expect(requestBody.messages[0].content[1].input_audio).toEqual({
+			data: "data:;base64,UklGRg==",
+			format: "wav",
+		});
+	});
+
+	test.each(["data:audio/wav;base64,UklGRg==", "https://example.com/a.wav"])(
+		"forwards %s unchanged",
+		async (data) => {
+			const requestBody = await prepare(data);
+			expect(requestBody.messages[0].content[1].input_audio?.data).toBe(data);
+		},
+	);
 });

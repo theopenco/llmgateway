@@ -115,6 +115,13 @@ Click **Save** (the button enables once both required fields are filled), then c
 
 **Section 2 – Attributes & Claims**: the Entra defaults are fine. In **Microsoft Entra ID** mode, LLM Gateway reads email/name from the standard claim URIs Entra sends by default (`.../emailaddress`, `.../givenname`, `.../surname`, `.../name`), so you don't need to force the Name ID to be the email — just make sure users have a real `mail`/UPN.
 
+<Callout type="warn">
+	LLM Gateway identifies each user by the signed **Name ID** (Unique User
+	Identifier), which Entra sets to the UPN by default. Changing a user's `mail`
+	is safe. Changing the Name ID claim, or a user's UPN, signs them in as a new
+	account unless their email still matches the old one.
+</Callout>
+
 </Step>
 
 <Step>

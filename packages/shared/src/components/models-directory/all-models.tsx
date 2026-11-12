@@ -13,6 +13,7 @@ import {
 	Eye,
 	Gift,
 	Globe,
+	Layers,
 	MessageSquare,
 	Wrench,
 	Zap,
@@ -90,6 +91,8 @@ import {
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
+import { expandVirtualModels } from "@llmgateway/models";
+
 import {
 	matchesCapability,
 	matchesOutputCapabilities,
@@ -100,6 +103,7 @@ import {
 	formatPerSecondPriceLabel,
 	formatPerUnitPrice,
 } from "./format";
+import { hasBatchSupport } from "./mapping-capabilities";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
 import {
@@ -396,6 +400,13 @@ function computeCapabilities(
 			color: "text-sky-500",
 		});
 	}
+	if (hasBatchSupport(provider)) {
+		capabilities.push({
+			icon: Layers,
+			label: "Batch API",
+			color: "text-fuchsia-500",
+		});
+	}
 	return capabilities;
 }
 
@@ -419,6 +430,7 @@ const CAPABILITY_LABEL_BY_FILTER_KEY: Record<string, string> = {
 	decisions: "Decisions",
 	searchApi: "Search API",
 	webSearch: "Web Search",
+	batch: "Batch API",
 };
 
 function shouldShowStabilityWarning(
@@ -684,6 +696,25 @@ const ModelTableRow = React.memo(
 									{row.model.id}
 								</Link>
 							)}
+							{row.model.virtualModelTarget && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<Badge
+											variant="outline"
+											className="shrink-0 text-[10px]"
+											tabIndex={0}
+										>
+											Virtual
+										</Badge>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>
+											Currently {row.model.virtualModelTarget}. The served
+											version and pricing may change.
+										</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
 							{row.model.premium && (
 								<Tooltip>
 									<TooltipTrigger asChild>
@@ -693,8 +724,9 @@ const ModelTableRow = React.memo(
 									</TooltipTrigger>
 									<TooltipContent>
 										<p className="text-xs">
-											Premium tier / $5+/M input or $15+/M output. Subject to
-											the weekly fair-use allowance on DevPass plans.
+											Premium tier / $5+/M input or $15+/M output after public
+											discounts. Subject to the weekly fair-use allowance on
+											DevPass plans.
 										</p>
 									</TooltipContent>
 								</Tooltip>
@@ -1024,7 +1056,7 @@ const GRID_MODELS_PER_PAGE = 12;
 
 export function AllModels({
 	children,
-	models,
+	models: catalogue,
 	providers,
 	title,
 	description,
@@ -1039,6 +1071,7 @@ export function AllModels({
 	hideUseCaseFilter = false,
 	hideHeader = false,
 }: AllModelsProps) {
+	const models = useMemo(() => expandVirtualModels(catalogue), [catalogue]);
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
@@ -1130,6 +1163,7 @@ export function AllModels({
 			decisions: searchParams.get("decisions") === "true",
 			searchApi: searchParams.get("searchApi") === "true",
 			webSearch: searchParams.get("webSearch") === "true",
+			batch: searchParams.get("batch") === "true",
 			free: searchParams.get("free") === "true",
 			discounted: searchParams.get("discounted") === "true",
 		};
@@ -1472,6 +1506,14 @@ export function AllModels({
 				filters.capabilities.webSearch &&
 				!model.providerDetails.some((p) =>
 					matchesCapability("webSearch", p.provider),
+				)
+			) {
+				return false;
+			}
+			if (
+				filters.capabilities.batch &&
+				!model.providerDetails.some((p) =>
+					matchesCapability("batch", p.provider),
 				)
 			) {
 				return false;
@@ -1905,6 +1947,7 @@ export function AllModels({
 				decisions: false,
 				searchApi: false,
 				webSearch: false,
+				batch: false,
 				free: false,
 				discounted: false,
 			},
@@ -1941,6 +1984,7 @@ export function AllModels({
 			decisions: undefined,
 			searchApi: undefined,
 			webSearch: undefined,
+			batch: undefined,
 			free: undefined,
 			discounted: undefined,
 			page: undefined,
@@ -2249,6 +2293,12 @@ export function AllModels({
 									label: "Web Search",
 									icon: Globe,
 									color: "text-sky-500",
+								},
+								{
+									key: "batch",
+									label: "Batch API",
+									icon: Layers,
+									color: "text-fuchsia-500",
 								},
 								{
 									key: "free",
