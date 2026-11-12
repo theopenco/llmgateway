@@ -20,6 +20,9 @@ type MappingRow = typeof tables.modelProviderMapping.$inferSelect;
 
 export const DAILY_MODEL_VERIFICATION_PREFIX = "daily-verification:";
 
+/** A daily failure re-run on another managed key; see dailyKeyCheckId. */
+export const DAILY_KEY_CHECK_PREFIX = DAILY_MODEL_VERIFICATION_PREFIX + "key:";
+
 /** The worker's daily re-check of a live listing, not a carrier preflight. */
 export function isDailyModelVerification(job: { id: string }): boolean {
 	return job.id.startsWith(DAILY_MODEL_VERIFICATION_PREFIX);

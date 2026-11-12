@@ -7,7 +7,7 @@ import {
 	mappingTarget,
 	modelVerificationEnvironmentToken,
 } from "@llmgateway/actions";
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, like, tables } from "@llmgateway/db";
 import { models as catalogueModels } from "@llmgateway/models";
 
 import {
@@ -599,6 +599,85 @@ describe("verification regression delivery", () => {
 		expect(regressedVerificationChecks(current, [current, previous])).toEqual(
 			[],
 		);
+	});
+
+	async function secondKey(providerId: string) {
+		const keyId = randomUUID();
+		await db.insert(tables.providerKey).values({
+			id: keyId,
+			provider: providerId,
+			managed: true,
+			...encryptProviderKeyForStorage("second-provider-key", keyId, null),
+		});
+		return keyId;
+	}
+
+	it("re-runs a failure on the other managed key before alerting", async () => {
+		const { id, mapping } = await seed();
+		const keyId = await secondKey(mapping.providerId);
+		await scheduleDailyModelVerifications(now);
+		await baseline(await job(id));
+		await complete(id, "failed");
+		const fetcher = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(new Response(null, { status: 204 }));
+		expect(await deliverModelVerificationRegressions(now, fetcher)).toBe(0);
+		expect(fetcher).not.toHaveBeenCalled();
+		const queued = await db.query.providerModelVerification.findMany({
+			where: { id: { like: "daily-verification:key:%" } },
+		});
+		expect(queued.map((run) => run.target.providerKeyId)).toEqual([keyId]);
+		expect(queued[0].status).toBe("queued");
+		const runner = vi.fn(async (options) => {
+			expect(options.token === "second-provider-key").toBe(true);
+			return { passed: false, checks: [check("failed")], summary: "Failed" };
+		});
+		await processNextModelVerification(runner);
+		expect(runner).toHaveBeenCalledOnce();
+		expect(
+			await deliverModelVerificationRegressions(minutesAfterNow(6), fetcher),
+		).toBe(1);
+		const payload = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
+		expect(payload.embeds[0].title).toBe("Model verification regression");
+		expect(payload.embeds[0].fields[2].value).toContain(keyId);
+		expect(payload.embeds[0].fields[2].value).toContain(
+			(await job(id)).target.providerKeyId,
+		);
+	});
+
+	it("reports a key that fails where another key passes once per day", async () => {
+		const first = await seed();
+		const second = await seed("catalogue", first.mapping.providerId);
+		await secondKey(first.mapping.providerId);
+		await scheduleDailyModelVerifications(now);
+		for (const { id } of [first, second]) {
+			await baseline(await job(id));
+			await complete(id, "failed");
+		}
+		const fetcher = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(new Response(null, { status: 204 }));
+		expect(await deliverModelVerificationRegressions(now, fetcher)).toBe(0);
+		await db
+			.update(tables.providerModelVerification)
+			.set({ status: "passed", checks: [check("passed")], completedAt: now })
+			.where(
+				like(tables.providerModelVerification.id, "daily-verification:key:%"),
+			);
+		expect(
+			await deliverModelVerificationRegressions(minutesAfterNow(6), fetcher),
+		).toBe(1);
+		expect(fetcher).toHaveBeenCalledOnce();
+		const payload = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
+		expect(payload.embeds[0].title).toBe(
+			"Managed provider key failing verification",
+		);
+		expect(payload.embeds[0].fields[0].value).toBe(
+			(await job(first.id)).target.providerKeyId,
+		);
+		expect(
+			await deliverModelVerificationRegressions(minutesAfterNow(12), fetcher),
+		).toBe(0);
 	});
 });
 function additionalDailyTests() {

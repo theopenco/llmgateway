@@ -1,6 +1,8 @@
 import {
+	DAILY_KEY_CHECK_PREFIX,
 	createQueuedModelVerificationChecks,
 	isDailyModelVerification,
+	providerVerificationCredentialFingerprint,
 } from "@llmgateway/actions";
 import {
 	and,
@@ -11,6 +13,7 @@ import {
 	inArray,
 	isNull,
 	lt,
+	notLike,
 	or,
 	sql,
 	tables,
@@ -25,12 +28,17 @@ import {
 	sameVerificationDeclaration,
 	currentVerificationTarget,
 	sameVerificationCredential,
+	dailyKeyCheckId,
+	managedVerificationProviderKeys,
 } from "./daily-model-verifications.js";
 
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
 
 type Verification = typeof tables.providerModelVerification.$inferSelect;
+type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const RETRY_MS = 5 * 60 * 1000;
+// How long an alert waits for the other managed keys' re-runs to finish.
+const KEY_CHECK_WAIT_MS = 24 * 60 * 60 * 1000;
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const EPOCH = new Date(0);
 const progress = tables.aggregationProgress;
@@ -101,9 +109,21 @@ function publicIdentifier(value: string): string {
 	return value.replace(/[^a-zA-Z0-9._/: -]/g, "_").slice(0, 180);
 }
 
+function keyLabel(run: Verification): string {
+	return publicIdentifier(run.target.providerKeyId ?? run.credentialSource);
+}
+
+function keyResults(job: Verification, runs: Verification[]): string {
+	return [job, ...runs]
+		.map((run) => keyLabel(run) + " (" + run.status + ")")
+		.join(", ")
+		.slice(0, 1000);
+}
+
 export function modelVerificationRegressionPayload(
 	job: Verification,
 	checks: string[],
+	keyRuns: Verification[] = [],
 ) {
 	return {
 		allowed_mentions: { parse: [] },
@@ -124,12 +144,115 @@ export function modelVerificationRegressionPayload(
 						name: "Previously passing checks",
 						value: checks.join(", ").slice(0, 1000),
 					},
+					{ name: "Failing on every key", value: keyResults(job, keyRuns) },
 					{ name: "Verification", value: job.id },
 				],
 				timestamp: job.completedAt?.toISOString(),
 			},
 		],
 	};
+}
+
+/** One managed key fails checks another managed key passes. */
+export function managedKeyFailurePayload(
+	job: Verification,
+	checks: string[],
+	keyRuns: Verification[],
+) {
+	return {
+		allowed_mentions: { parse: [] },
+		embeds: [
+			{
+				title: "Managed provider key failing verification",
+				description: publicIdentifier(job.target.providerId),
+				fields: [
+					{ name: "Key", value: keyLabel(job) },
+					{
+						name: "First failing mapping",
+						value:
+							publicIdentifier(job.target.modelName) +
+							" (" +
+							(publicIdentifier(job.target.region ?? "default") || "default") +
+							")",
+					},
+					{ name: "Failing checks", value: checks.join(", ").slice(0, 1000) },
+					{ name: "Keys", value: keyResults(job, keyRuns) },
+					{ name: "Verification", value: job.id },
+				],
+				timestamp: job.completedAt?.toISOString(),
+			},
+		],
+	};
+}
+
+/**
+ * A managed daily run only proves its own key. Queue the same checks on every
+ * other managed key that serves the mapping, so a broken key is not reported
+ * as a broken model.
+ */
+async function queueKeyChecks(
+	job: Verification,
+	tx: Transaction,
+	queue: boolean,
+): Promise<Verification[]> {
+	const keyId = job.target.providerKeyId;
+	if (
+		job.credentialSource !== "managed" ||
+		!keyId ||
+		!job.modelProviderMappingId
+	) {
+		return [];
+	}
+	const keys = await managedVerificationProviderKeys(
+		{ ...job.target, providerKeyId: undefined },
+		tx,
+	);
+	const runs: Verification[] = [];
+	for (const key of keys) {
+		if (key.id === keyId) {
+			continue;
+		}
+		const id = dailyKeyCheckId(
+			job.modelProviderMappingId,
+			key.id,
+			job.createdAt,
+		);
+		const target = {
+			...job.target,
+			providerKeyId: key.id,
+			credentialFingerprint: providerVerificationCredentialFingerprint(key),
+			gatewayExecutionVersion: undefined,
+		};
+		if (queue) {
+			await tx
+				.insert(verifications)
+				.values({
+					id,
+					modelProviderMappingId: job.modelProviderMappingId,
+					initiatedBy: "admin",
+					target,
+					checks: createQueuedModelVerificationChecks(target),
+					credentialSource: "managed",
+				})
+				.onConflictDoNothing();
+		}
+		const run = await tx.query.providerModelVerification.findFirst({
+			where: { id: { eq: id } },
+		});
+		if (run) {
+			runs.push(run);
+		}
+	}
+	return runs;
+}
+
+function passesCheck(run: Verification, id: string): boolean {
+	return run.checks.some(
+		(check) =>
+			check.id === id &&
+			check.status === "passed" &&
+			!check.probes?.some((probe) => probe.status === "failed"),
+	);
 }
 
 /** Durable retry/outbox state uses the existing job progress table, never the result row. */
@@ -162,6 +285,7 @@ export async function deliverModelVerificationRegressions(
 					isNotNull(progress.refreshedAt),
 				),
 				sql`${verifications.id} LIKE 'daily-verification:%'`,
+				notLike(verifications.id, DAILY_KEY_CHECK_PREFIX + "%"),
 				isNull(progress.finalizedAt),
 				or(isNull(progress.refreshedAt), lt(progress.refreshedAt, now)),
 			),
@@ -256,6 +380,7 @@ export async function deliverModelVerificationRegressions(
 								),
 							),
 							inArray(verifications.status, ["passed", "failed"]),
+							notLike(verifications.id, DAILY_KEY_CHECK_PREFIX + "%"),
 						),
 					)
 					.orderBy(
@@ -275,18 +400,82 @@ export async function deliverModelVerificationRegressions(
 				await finish();
 				return 0;
 			}
+			const retryLater = async (ms: number) => {
+				await tx
+					.update(progress)
+					.set({ refreshedAt: new Date(now.getTime() + ms) })
+					.where(
+						and(eq(progress.job, key), eq(progress.bucketTimestamp, EPOCH)),
+					);
+			};
+			const waiting =
+				now.getTime() - job.createdAt.getTime() < KEY_CHECK_WAIT_MS;
+			const keyRuns = await queueKeyChecks(job, tx, waiting);
+			if (
+				waiting &&
+				keyRuns.some(
+					(run) => run.status === "queued" || run.status === "running",
+				)
+			) {
+				await retryLater(RETRY_MS);
+				return 0;
+			}
+			// A model regression must fail on every key; otherwise the key is broken.
+			const everyKey = checks.filter(
+				(id) => !keyRuns.some((run) => passesCheck(run, id)),
+			);
+			let keyAlert: string | undefined;
+			if (!everyKey.length) {
+				keyAlert =
+					"daily-verification-key-alert:" +
+					job.createdAt.toISOString().slice(0, 10) +
+					":" +
+					job.target.providerKeyId;
+				await tx
+					.insert(progress)
+					.values({ job: keyAlert, bucketTimestamp: EPOCH })
+					.onConflictDoNothing();
+				const [keyState] = await tx
+					.select()
+					.from(progress)
+					.where(
+						and(
+							eq(progress.job, keyAlert),
+							eq(progress.bucketTimestamp, EPOCH),
+						),
+					)
+					.for("update");
+				if (keyState?.finalizedAt) {
+					await finish();
+					return 0;
+				}
+			}
+			const payload = keyAlert
+				? managedKeyFailurePayload(job, checks, keyRuns)
+				: modelVerificationRegressionPayload(job, everyKey, keyRuns);
 			let retryMs = RETRY_MS;
 			try {
 				const response = await fetchImplementation(webhook, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(modelVerificationRegressionPayload(job, checks)),
+					body: JSON.stringify(payload),
 					signal: AbortSignal.timeout(5000),
 					redirect: "error",
 				});
 				await response.body?.cancel();
 				if (response.ok) {
 					await finish();
+					if (keyAlert) {
+						await tx
+							.update(progress)
+							.set({ finalizedAt: now, refreshedAt: now })
+							.where(
+								and(
+									eq(progress.job, keyAlert),
+									eq(progress.bucketTimestamp, EPOCH),
+								),
+							);
+					}
 					return 1;
 				}
 				const retryAfter = response.headers.get("retry-after");
@@ -307,10 +496,7 @@ export async function deliverModelVerificationRegressions(
 					verificationId: job.id,
 				});
 			}
-			await tx
-				.update(progress)
-				.set({ refreshedAt: new Date(now.getTime() + retryMs) })
-				.where(and(eq(progress.job, key), eq(progress.bucketTimestamp, EPOCH)));
+			await retryLater(retryMs);
 			return 0;
 		});
 	}
