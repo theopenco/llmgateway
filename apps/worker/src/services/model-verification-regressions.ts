@@ -456,34 +456,44 @@ export async function deliverModelVerificationRegressions(
 					return RETRY_MS;
 				}
 			};
+			// Only a finished re-run is evidence about its key.
+			const finished = keyRuns.filter(
+				(run) => run.status === "passed" || run.status === "failed",
+			);
 			// A model regression must fail on every key; otherwise the key is broken.
 			const everyKey = checks.filter(
-				(id) => !keyRuns.some((run) => passesCheck(run, id)),
+				(id) => !finished.some((run) => passesCheck(run, id)),
 			);
+			const keyOnly = checks.filter((id) => !everyKey.includes(id));
+			const alerts: { id: string; payload: unknown }[] = [];
 			if (everyKey.length) {
-				const retryMs = await send(
-					modelVerificationRegressionPayload(job, everyKey, keyRuns),
-				);
-				if (!retryMs) {
-					await finish();
-					return 1;
-				}
-				await retryLater(retryMs);
-				return 0;
+				alerts.push({
+					id: "daily-verification-model-alert:" + job.id,
+					payload: modelVerificationRegressionPayload(job, everyKey, finished),
+				});
 			}
-			// Alert each failing key once per day, the daily key and any alternate.
-			let sent = 0;
-			let retryMs = 0;
-			for (const run of [job, ...keyRuns]) {
-				const failed = checks.filter((id) => !passesCheck(run, id));
+			// Alert each key failing a check another key passes, once per day.
+			for (const run of [job, ...finished]) {
+				const failed = keyOnly.filter((id) => !passesCheck(run, id));
 				if (!failed.length || !run.target.providerKeyId) {
 					continue;
 				}
-				const keyAlert =
-					"daily-verification-key-alert:" +
-					job.createdAt.toISOString().slice(0, 10) +
-					":" +
-					run.target.providerKeyId;
+				alerts.push({
+					id:
+						"daily-verification-key-alert:" +
+						job.createdAt.toISOString().slice(0, 10) +
+						":" +
+						run.target.providerKeyId,
+					payload: managedKeyFailurePayload(
+						run,
+						failed,
+						[job, ...finished].filter((other) => other !== run),
+					),
+				});
+			}
+			let sent = 0;
+			let retryMs = 0;
+			for (const { id: keyAlert, payload } of alerts) {
 				await tx
 					.insert(progress)
 					.values({ job: keyAlert, bucketTimestamp: EPOCH })
@@ -501,13 +511,7 @@ export async function deliverModelVerificationRegressions(
 				if (keyState?.finalizedAt) {
 					continue;
 				}
-				const delay = await send(
-					managedKeyFailurePayload(
-						run,
-						failed,
-						[job, ...keyRuns].filter((other) => other !== run),
-					),
-				);
+				const delay = await send(payload);
 				if (delay) {
 					retryMs = Math.max(retryMs, delay);
 					continue;
