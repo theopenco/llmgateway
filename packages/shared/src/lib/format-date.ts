@@ -327,6 +327,18 @@ export function shiftDayKey(dayKey: string, days: number): string {
 	)}-${pad(shifted.getUTCDate())}`;
 }
 
+/** Whether `value` is a real "YYYY-MM-DD" calendar day. */
+export function isDayKey(value: string | null | undefined): value is string {
+	if (!value || !DAY_RE.test(value)) {
+		return false;
+	}
+	const parsed = new Date(`${value}T00:00:00Z`);
+	return (
+		!Number.isNaN(parsed.getTime()) &&
+		parsed.toISOString().slice(0, 10) === value
+	);
+}
+
 /**
  * The display helper for datetimes.
  *

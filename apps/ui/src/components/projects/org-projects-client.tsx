@@ -66,6 +66,7 @@ import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import { isDayKey } from "@llmgateway/shared";
 import {
 	formatCompactNumber,
 	formatNumber,
@@ -85,17 +86,6 @@ const DAY_MS = 86_400_000;
 
 /** Longer windows (e.g. "All time") read better as "in period" than "2000d". */
 const MAX_RELATIVE_LABEL_DAYS = 366;
-
-function isDayKey(value: string | null): value is string {
-	if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-		return false;
-	}
-	const parsed = new Date(`${value}T00:00:00Z`);
-	return (
-		!Number.isNaN(parsed.getTime()) &&
-		parsed.toISOString().slice(0, 10) === value
-	);
-}
 
 function dayCount(from: string, to: string) {
 	return (

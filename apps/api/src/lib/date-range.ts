@@ -1,6 +1,14 @@
 import { HTTPException } from "hono/http-exception";
+import { z } from "zod";
 
 import { formatInTimeZone, zonedTimeToUtc } from "@/utils/timezone.js";
+
+import { isDayKey } from "@llmgateway/shared";
+
+export const dayKeyField = z
+	.string()
+	.regex(/^\d{4}-\d{2}-\d{2}$/, { message: "Expected YYYY-MM-DD" })
+	.refine(isDayKey, { message: "Not a calendar date" });
 
 // Daily buckets are padded one calendar day at a time, so cap the window to a
 // year to keep the response bounded and — crucially — to keep the returned

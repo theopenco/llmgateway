@@ -158,6 +158,7 @@ export {
 	formatDateTime,
 	formatDayKey,
 	formatZoneName,
+	isDayKey,
 	isDayString,
 	isNaiveDateTimeString,
 	shiftDayKey,

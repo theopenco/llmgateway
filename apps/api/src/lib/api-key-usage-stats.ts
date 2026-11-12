@@ -1,4 +1,12 @@
-import { and, apiKeyHourlyStats, db, gte, inArray, sql } from "@llmgateway/db";
+import {
+	and,
+	apiKeyHourlyStats,
+	db,
+	gte,
+	inArray,
+	lte,
+	sql,
+} from "@llmgateway/db";
 
 export const apiKeyUsagePeriods = ["24h", "7d", "30d", "90d", "all"] as const;
 
@@ -14,22 +22,28 @@ const periodDurationMs: Record<Exclude<ApiKeyUsagePeriod, "all">, number> = {
 	"90d": 90 * DAY_MS,
 };
 
-/** Start of the first hourly bucket inside the period, or null for all time. */
-export function apiKeyUsagePeriodStart(
+/** Hourly buckets whose start falls in [start, end]; no end means up to now. */
+export interface ApiKeyUsageWindow {
+	start: Date;
+	end?: Date;
+}
+
+/** Window from the first hourly bucket inside the period, or null for all time. */
+export function apiKeyUsagePeriodWindow(
 	period: ApiKeyUsagePeriod,
 	now: Date = new Date(),
-): Date | null {
+): ApiKeyUsageWindow | null {
 	if (period === "all") {
 		return null;
 	}
 	const start = now.getTime() - periodDurationMs[period];
-	return new Date(start - (start % HOUR_MS));
+	return { start: new Date(start - (start % HOUR_MS)) };
 }
 
 export interface ApiKeyUsageStats {
-	/** Spend inside the period; null for all time (callers use apiKey.usage). */
+	/** Spend inside the window; null for all time (callers use apiKey.usage). */
 	periodUsage: string | null;
-	/** Requests inside the period; null for all time. */
+	/** Requests inside the window; null for all time. */
 	periodRequestCount: number | null;
 	/** Start of the latest hour with at least one request. */
 	lastUsedAt: Date | null;
@@ -41,18 +55,15 @@ export interface ApiKeyUsageStats {
  */
 export async function getApiKeyUsageStats(
 	apiKeyIds: string[],
-	period: ApiKeyUsagePeriod,
-	now: Date = new Date(),
+	window: ApiKeyUsageWindow | null,
 ): Promise<Map<string, ApiKeyUsageStats>> {
 	const stats = new Map<string, ApiKeyUsageStats>();
 	if (!apiKeyIds.length) {
 		return stats;
 	}
 
-	const periodStart = apiKeyUsagePeriodStart(period, now);
-
 	const [periodRows, lastUsedRows] = await Promise.all([
-		periodStart
+		window
 			? db
 					.select({
 						apiKeyId: apiKeyHourlyStats.apiKeyId,
@@ -63,7 +74,10 @@ export async function getApiKeyUsageStats(
 					.where(
 						and(
 							inArray(apiKeyHourlyStats.apiKeyId, apiKeyIds),
-							gte(apiKeyHourlyStats.hourTimestamp, periodStart),
+							gte(apiKeyHourlyStats.hourTimestamp, window.start),
+							window.end
+								? lte(apiKeyHourlyStats.hourTimestamp, window.end)
+								: undefined,
 						),
 					)
 					.groupBy(apiKeyHourlyStats.apiKeyId)
@@ -90,10 +104,8 @@ export async function getApiKeyUsageStats(
 	for (const row of lastUsedRows.rows) {
 		const periodRow = periodByKey.get(row.api_key_id);
 		stats.set(row.api_key_id, {
-			periodUsage: periodStart ? (periodRow?.cost ?? "0") : null,
-			periodRequestCount: periodStart
-				? Number(periodRow?.requestCount ?? 0)
-				: null,
+			periodUsage: window ? (periodRow?.cost ?? "0") : null,
+			periodRequestCount: window ? Number(periodRow?.requestCount ?? 0) : null,
 			lastUsedAt: row.last_used_at ? new Date(row.last_used_at) : null,
 		});
 	}

@@ -1,7 +1,8 @@
-import { parseApiKeyUsagePeriod } from "@/components/api-keys/api-key-usage-period";
+import { getInitialApiKeyUsageQuery } from "@/components/api-keys/api-key-usage-period-server";
 import { ApiKeysClient } from "@/components/api-keys/api-keys-client";
 import { fetchServerData } from "@/lib/server-api";
 
+import type { ApiKeyUsageSearchParams } from "@/components/api-keys/api-key-usage-period-server";
 import type { ApiKeysResponse } from "@/components/api-keys/api-keys-list";
 
 export default async function OrganizationApiKeysPage({
@@ -9,17 +10,17 @@ export default async function OrganizationApiKeysPage({
 	searchParams,
 }: {
 	params: Promise<{ orgId: string }>;
-	searchParams: Promise<{ period?: string | string[] }>;
+	searchParams: Promise<ApiKeyUsageSearchParams>;
 }) {
 	const [{ orgId }, query] = await Promise.all([params, searchParams]);
-	const period = parseApiKeyUsagePeriod(query.period);
+	const usageQuery = await getInitialApiKeyUsageQuery(query);
 
 	const initialData = await fetchServerData<ApiKeysResponse>(
 		"GET",
 		"/keys/api",
 		{
 			params: {
-				query: { organizationId: orgId, period },
+				query: { organizationId: orgId, ...usageQuery },
 			},
 		},
 	);
@@ -28,7 +29,7 @@ export default async function OrganizationApiKeysPage({
 		<ApiKeysClient
 			scope="organization"
 			initialData={initialData ?? undefined}
-			initialPeriod={period}
+			initialUsageQuery={usageQuery}
 		/>
 	);
 }
