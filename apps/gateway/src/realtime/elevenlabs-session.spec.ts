@@ -381,4 +381,30 @@ describe("ElevenLabsRealtimeProxySession", () => {
 		expect(upstream.sent).toHaveLength(1);
 		session.shutdown(1000, "test");
 	});
+
+	it("does not cache an authorization a charge overtook", async () => {
+		let release!: () => void;
+		const { clientSends, upstreamSends, chunk, session } = createSession();
+		clientSends(chunk(3200, { commit: true }));
+		await flush();
+		upstreamSends({ message_type: "committed_transcript", text: "a" });
+		await flush();
+		vi.mocked(availableCredits).mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					release = () => resolve(new Decimal(10));
+				}),
+		);
+		clientSends(chunk(3200));
+		await flush();
+		upstreamSends({ message_type: "committed_transcript", text: "b" });
+		await flush();
+		release();
+		await flush();
+		const calls = vi.mocked(authorizeAccount).mock.calls.length;
+		clientSends(chunk(3200));
+		await flush();
+		expect(vi.mocked(authorizeAccount).mock.calls.length).toBe(calls + 1);
+		session.shutdown(1000, "test");
+	});
 });

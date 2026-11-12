@@ -141,6 +141,9 @@ export class ElevenLabsRealtimeProxySession {
 	// When audio was last authorized; null forces a check before the next chunk.
 	private authorizedAt: number | null = null;
 	private rateLimitCounted = false;
+	// Incremented by every charge, so an authorization that a charge overtook
+	// is not cached.
+	private chargeGeneration = 0;
 
 	private finalized = false;
 	private closing = false;
@@ -418,6 +421,7 @@ export class ElevenLabsRealtimeProxySession {
 		) {
 			return true;
 		}
+		const generation = this.chargeGeneration;
 		const authorization = await authorizeAccount({
 			preflight: this.preflight,
 			gatewayToken: this.gatewayToken,
@@ -446,7 +450,8 @@ export class ElevenLabsRealtimeProxySession {
 		if (this.finalized || this.closing) {
 			return false;
 		}
-		this.authorizedAt = Date.now();
+		this.authorizedAt =
+			generation === this.chargeGeneration ? Date.now() : null;
 		return true;
 	}
 
@@ -628,6 +633,7 @@ export class ElevenLabsRealtimeProxySession {
 			return;
 		}
 		this.authorizedAt = null;
+		this.chargeGeneration += 1;
 		if (this.sessionSpend.greaterThanOrEqualTo(maxSessionSpendUsd())) {
 			this.refuse(
 				"session_spend_limit",
