@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { logger } from "@llmgateway/logger";
 import { resendFetch, type ResendCall } from "@llmgateway/shared/resend-api";
 
@@ -10,6 +12,20 @@ export interface ContactOwner {
 	email: string;
 	emailVerified: boolean;
 }
+
+// A contact as read before a move. Without its `unsubscribed` the move stops:
+// guessing would bring an unsubscribed member back as subscribed.
+const storedContact = z.object({
+	unsubscribed: z.boolean(),
+	first_name: z.string().nullish(),
+	last_name: z.string().nullish(),
+	properties: z
+		.record(
+			z.string(),
+			z.object({ value: z.union([z.string(), z.number()]).nullable() }),
+		)
+		.nullish(),
+});
 
 export interface ContactFields {
 	name?: string | null;
@@ -152,9 +168,9 @@ export async function moveResendContact(
 			logger.debug("No Resend contact to move", { email: from });
 			return;
 		}
-		const contact = (await (await expectResendOk(current)).json()) as {
-			unsubscribed?: boolean;
-		};
+		const contact = storedContact.parse(
+			await (await expectResendOk(current)).json(),
+		);
 		const target = await send("GET", resendContactPath(to));
 		if (target.status === 404) {
 			const topics = await listAll<{ id: string; subscription: string }>(
@@ -165,11 +181,27 @@ export async function moveResendContact(
 				send,
 				`${oldPath}/segments`,
 			);
+			// The account's name and properties win; what it does not set is
+			// carried over from the old contact.
+			const account = toBody(fields);
+			const properties = {
+				...Object.fromEntries(
+					Object.entries(contact.properties ?? {}).flatMap(
+						([key, { value }]) => (value === null ? [] : [[key, value]]),
+					),
+				),
+				...account.properties,
+			};
 			await expectResendOk(
 				await send("POST", "/contacts", {
 					email: to,
-					...toBody(fields),
-					unsubscribed: contact.unsubscribed === true,
+					...(!fields.name &&
+						contact.first_name && { first_name: contact.first_name }),
+					...(!fields.name &&
+						contact.last_name && { last_name: contact.last_name }),
+					...account,
+					...(Object.keys(properties).length > 0 && { properties }),
+					unsubscribed: contact.unsubscribed,
 					...(topics.length > 0 && {
 						topics: topics.map(({ id, subscription }) => ({
 							id,

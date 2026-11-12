@@ -2,6 +2,9 @@ export interface FakeContact {
 	unsubscribed: boolean;
 	topics: Record<string, string>;
 	segments: string[];
+	firstName?: string;
+	lastName?: string;
+	properties?: Record<string, string | number>;
 }
 
 export interface FakeContacts {
@@ -14,7 +17,19 @@ export interface FakeContacts {
 	failure?: "down" | "rate-limited";
 	/** Only calls with this method fail; every call when unset. */
 	failOn?: string;
+	/** Changes what a contact lookup answers. */
+	tamper?: (contact: Record<string, unknown>) => unknown;
 	fetch: typeof fetch;
+}
+
+interface CreateBody {
+	email: string;
+	first_name?: string;
+	last_name?: string;
+	unsubscribed?: boolean;
+	properties?: Record<string, string | number>;
+	topics?: { id: string; subscription: string }[];
+	segments?: { id: string }[];
 }
 
 function json(data: unknown, status = 200): Response {
@@ -52,30 +67,28 @@ export function fakeResendContacts(passThrough: typeof fetch): FakeContacts {
 					429,
 				);
 			}
-			const [, resource, rawEmail, child] = url.pathname.split("/");
+			const [, resource, rawEmail, child, childId] = url.pathname.split("/");
 			if (resource !== "contacts") {
 				throw new Error(`Unexpected request: ${method} ${url.pathname}`);
 			}
 			if (method === "POST" && !rawEmail) {
-				const body = JSON.parse(String(init?.body)) as {
-					email: string;
-					unsubscribed?: boolean;
-					topics?: { id: string; subscription: string }[];
-					segments?: { id: string }[];
-				};
+				const body = JSON.parse(String(init?.body)) as CreateBody;
 				if (fake.contacts.has(body.email)) {
 					return json(
 						{ statusCode: 409, message: "Contact already exists" },
 						409,
 					);
 				}
-				fake.created.push(body);
+				fake.created.push({ ...body });
 				fake.contacts.set(body.email, {
 					unsubscribed: body.unsubscribed === true,
 					topics: Object.fromEntries(
 						(body.topics ?? []).map((topic) => [topic.id, topic.subscription]),
 					),
 					segments: (body.segments ?? []).map((segment) => segment.id),
+					...(body.first_name && { firstName: body.first_name }),
+					...(body.last_name && { lastName: body.last_name }),
+					...(body.properties && { properties: body.properties }),
 				});
 				return json({ object: "contact", id: body.email });
 			}
@@ -88,11 +101,20 @@ export function fakeResendContacts(passThrough: typeof fetch): FakeContacts {
 				);
 			}
 			if (method === "GET" && !child) {
-				return json({
+				const body = {
 					object: "contact",
 					email: address,
+					first_name: contact.firstName ?? null,
+					last_name: contact.lastName ?? null,
 					unsubscribed: contact.unsubscribed,
-				});
+					properties: Object.fromEntries(
+						Object.entries(contact.properties ?? {}).map(([key, value]) => [
+							key,
+							{ value, type: typeof value },
+						]),
+					),
+				};
+				return json(fake.tamper?.(body) ?? body);
 			}
 			if (method === "GET" && child === "topics") {
 				return json({
@@ -105,6 +127,16 @@ export function fakeResendContacts(passThrough: typeof fetch): FakeContacts {
 					has_more: false,
 				});
 			}
+			if (method === "PATCH" && child === "topics") {
+				const topics = JSON.parse(String(init?.body)) as {
+					id: string;
+					subscription: string;
+				}[];
+				for (const topic of topics) {
+					contact.topics[topic.id] = topic.subscription;
+				}
+				return json({ object: "contact_topics", id: address });
+			}
 			if (method === "GET" && child === "segments") {
 				return json({
 					object: "list",
@@ -112,11 +144,22 @@ export function fakeResendContacts(passThrough: typeof fetch): FakeContacts {
 					has_more: false,
 				});
 			}
+			if (method === "POST" && child === "segments" && childId) {
+				if (contact.segments.includes(childId)) {
+					return json(
+						{ statusCode: 409, message: "Contact is already in the segment" },
+						409,
+					);
+				}
+				contact.segments.push(childId);
+				return json({ id: childId });
+			}
 			if (method === "PATCH" && !child) {
-				fake.updated.push({
-					email: address,
-					body: JSON.parse(String(init?.body)),
-				});
+				const body = JSON.parse(String(init?.body)) as {
+					unsubscribed?: boolean;
+				};
+				fake.updated.push({ email: address, body });
+				contact.unsubscribed = body.unsubscribed ?? contact.unsubscribed;
 				return json({ object: "contact", id: address });
 			}
 			if (method === "DELETE" && !child) {

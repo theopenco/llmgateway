@@ -916,20 +916,56 @@ describe("email change confirmation", () => {
 			return await confirm(confirmationToken());
 		}
 
-		it("moves a member to the new address with their subscriptions", async () => {
+		/** What the test account writes on a contact it moves. */
+		const fromAccount = {
+			firstName: "Test",
+			lastName: "User",
+			properties: { onboarding_completed: "false" },
+		};
+
+		it("moves a member to the new address with their subscriptions and properties", async () => {
 			const subscriber = member({
 				topics: { newsletter: "opt_in", product: "opt_out" },
 				segments: ["weekly"],
+				firstName: "Old",
+				lastName: "Name",
+				properties: {
+					company_name: "Acme",
+					seats: 12,
+					onboarding_completed: "true",
+				},
 			});
 			list.contacts.set(oldEmail, subscriber);
 
 			expect((await changeEmail()).status).toBe(200);
 			expect(Object.fromEntries(list.contacts)).toEqual({
-				[newEmail]: subscriber,
+				[newEmail]: {
+					...subscriber,
+					...fromAccount,
+					properties: {
+						company_name: "Acme",
+						seats: 12,
+						onboarding_completed: "false",
+					},
+				},
 			});
-			expect(list.created).toMatchObject([
-				{ first_name: "Test", last_name: "User" },
-			]);
+		});
+
+		it("keeps the contact's own name for an account without one", async () => {
+			await db
+				.update(tables.user)
+				.set({ name: null })
+				.where(eq(tables.user.id, "test-user-id"));
+			list.contacts.set(
+				oldEmail,
+				member({ firstName: "Old", lastName: "Name" }),
+			);
+
+			expect((await changeEmail()).status).toBe(200);
+			expect(list.contacts.get(newEmail)).toMatchObject({
+				firstName: "Old",
+				lastName: "Name",
+			});
 		});
 
 		it("keeps a member who unsubscribed unsubscribed", async () => {
@@ -937,10 +973,20 @@ describe("email change confirmation", () => {
 
 			expect((await changeEmail()).status).toBe(200);
 			expect(Object.fromEntries(list.contacts)).toEqual({
-				[newEmail]: member({ unsubscribed: true }),
+				[newEmail]: member({ unsubscribed: true, ...fromAccount }),
 			});
 			expect(list.created[0]).not.toHaveProperty("topics");
 			expect(list.created[0]).not.toHaveProperty("segments");
+		});
+
+		it("leaves a member in place when their unsubscribe cannot be read", async () => {
+			list.contacts.set(oldEmail, member({ unsubscribed: true }));
+			list.tamper = ({ unsubscribed: _unsubscribed, ...contact }) => contact;
+
+			expect((await changeEmail()).status).toBe(200);
+			expect(Object.fromEntries(list.contacts)).toEqual({
+				[oldEmail]: member({ unsubscribed: true }),
+			});
 		});
 
 		it("adds nobody who was not a member", async () => {
