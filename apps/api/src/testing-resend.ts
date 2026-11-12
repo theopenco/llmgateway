@@ -67,7 +67,7 @@ export function fakeResendContacts(passThrough: typeof fetch): FakeContacts {
 					429,
 				);
 			}
-			const [, resource, rawEmail, child, childId] = url.pathname.split("/");
+			const [, resource, rawEmail, child] = url.pathname.split("/");
 			if (resource !== "contacts") {
 				throw new Error(`Unexpected request: ${method} ${url.pathname}`);
 			}
@@ -127,16 +127,6 @@ export function fakeResendContacts(passThrough: typeof fetch): FakeContacts {
 					has_more: false,
 				});
 			}
-			if (method === "PATCH" && child === "topics") {
-				const topics = JSON.parse(String(init?.body)) as {
-					id: string;
-					subscription: string;
-				}[];
-				for (const topic of topics) {
-					contact.topics[topic.id] = topic.subscription;
-				}
-				return json({ object: "contact_topics", id: address });
-			}
 			if (method === "GET" && child === "segments") {
 				return json({
 					object: "list",
@@ -144,22 +134,11 @@ export function fakeResendContacts(passThrough: typeof fetch): FakeContacts {
 					has_more: false,
 				});
 			}
-			if (method === "POST" && child === "segments" && childId) {
-				if (contact.segments.includes(childId)) {
-					return json(
-						{ statusCode: 409, message: "Contact is already in the segment" },
-						409,
-					);
-				}
-				contact.segments.push(childId);
-				return json({ id: childId });
-			}
 			if (method === "PATCH" && !child) {
-				const body = JSON.parse(String(init?.body)) as {
-					unsubscribed?: boolean;
-				};
-				fake.updated.push({ email: address, body });
-				contact.unsubscribed = body.unsubscribed ?? contact.unsubscribed;
+				fake.updated.push({
+					email: address,
+					body: JSON.parse(String(init?.body)),
+				});
 				return json({ object: "contact", id: address });
 			}
 			if (method === "DELETE" && !child) {

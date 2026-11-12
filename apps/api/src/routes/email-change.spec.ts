@@ -968,6 +968,41 @@ describe("email change confirmation", () => {
 			});
 		});
 
+		it("takes a one-word account name whole, without the contact's last name", async () => {
+			await db
+				.update(tables.user)
+				.set({ name: "Ada" })
+				.where(eq(tables.user.id, "test-user-id"));
+			list.contacts.set(
+				oldEmail,
+				member({ firstName: "Old", lastName: "Name" }),
+			);
+
+			expect((await changeEmail()).status).toBe(200);
+			expect(list.created[0]).toMatchObject({ first_name: "Ada" });
+			expect(list.created[0]).not.toHaveProperty("last_name");
+		});
+
+		it("carries the properties it can read and still moves the member", async () => {
+			list.contacts.set(oldEmail, member());
+			list.tamper = (contact) => ({
+				...contact,
+				properties: {
+					company_name: { value: "Acme", type: "string" },
+					unset: { value: null, type: "string" },
+					flag: { value: true, type: "boolean" },
+					flat: "x",
+				},
+			});
+
+			expect((await changeEmail()).status).toBe(200);
+			expect([...list.contacts.keys()]).toEqual([newEmail]);
+			expect(list.created[0].properties).toEqual({
+				company_name: "Acme",
+				onboarding_completed: "false",
+			});
+		});
+
 		it("keeps a member who unsubscribed unsubscribed", async () => {
 			list.contacts.set(oldEmail, member({ unsubscribed: true }));
 

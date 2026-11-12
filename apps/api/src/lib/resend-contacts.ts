@@ -14,18 +14,45 @@ export interface ContactOwner {
 }
 
 // A contact as read before a move. Without its `unsubscribed` the move stops:
-// guessing would bring an unsubscribed member back as subscribed.
+// guessing would bring an unsubscribed member back as subscribed. Names and
+// properties are carried where they can be read and never stop a move.
 const storedContact = z.object({
 	unsubscribed: z.boolean(),
-	first_name: z.string().nullish(),
-	last_name: z.string().nullish(),
-	properties: z
-		.record(
-			z.string(),
-			z.object({ value: z.union([z.string(), z.number()]).nullable() }),
-		)
-		.nullish(),
+	first_name: z.unknown(),
+	last_name: z.unknown(),
+	properties: z.unknown(),
 });
+const storedProperty = z.object({
+	value: z.union([z.string(), z.number()]).nullish(),
+});
+
+/** A lookup's `{ key: { value } }` as the `{ key: value }` a create takes. */
+function carriedProperties(
+	properties: unknown,
+	email: string,
+): Record<string, string | number> {
+	const carried: Record<string, string | number> = {};
+	const unread: string[] = [];
+	for (const [key, entry] of Object.entries(properties ?? {})) {
+		const { success, data } = storedProperty.safeParse(entry);
+		if (!success) {
+			unread.push(key);
+		} else if (data.value !== null && data.value !== undefined) {
+			carried[key] = data.value;
+		}
+	}
+	if (unread.length > 0) {
+		logger.warn("Resend contact properties left behind by a move", {
+			email,
+			properties: unread,
+		});
+	}
+	return carried;
+}
+
+function ownName(value: unknown): string | undefined {
+	return typeof value === "string" && value ? value : undefined;
+}
 
 export interface ContactFields {
 	name?: string | null;
@@ -185,20 +212,16 @@ export async function moveResendContact(
 			// carried over from the old contact.
 			const account = toBody(fields);
 			const properties = {
-				...Object.fromEntries(
-					Object.entries(contact.properties ?? {}).flatMap(
-						([key, { value }]) => (value === null ? [] : [[key, value]]),
-					),
-				),
+				...carriedProperties(contact.properties, from),
 				...account.properties,
 			};
+			const firstName = ownName(contact.first_name);
+			const lastName = ownName(contact.last_name);
 			await expectResendOk(
 				await send("POST", "/contacts", {
 					email: to,
-					...(!fields.name &&
-						contact.first_name && { first_name: contact.first_name }),
-					...(!fields.name &&
-						contact.last_name && { last_name: contact.last_name }),
+					...(!fields.name && firstName && { first_name: firstName }),
+					...(!fields.name && lastName && { last_name: lastName }),
 					...account,
 					...(Object.keys(properties).length > 0 && { properties }),
 					unsubscribed: contact.unsubscribed,
