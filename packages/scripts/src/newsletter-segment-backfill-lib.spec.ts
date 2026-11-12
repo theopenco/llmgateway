@@ -172,7 +172,16 @@ test("a write run refuses a local or empty database", () => {
 	};
 
 	expect(() => assertSafeToApply(remote)).not.toThrow();
-	for (const databaseHost of ["localhost", "127.0.0.1", "::1"]) {
+	expect(() =>
+		assertSafeToApply({ ...remote, databaseHost: "10.127.0.1" }),
+	).not.toThrow();
+	for (const databaseHost of [
+		"localhost",
+		"127.0.0.1",
+		"127.0.0.2",
+		"127.255.255.254",
+		"::1",
+	]) {
 		expect(() => assertSafeToApply({ ...remote, databaseHost })).toThrow(
 			`DATABASE_URL points at ${databaseHost}`,
 		);

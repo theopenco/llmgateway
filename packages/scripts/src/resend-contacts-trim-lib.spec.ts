@@ -22,7 +22,8 @@ import {
 // a list made for a past notice protects; it misses an account or a
 // suppression because the address differs in case, or picks the wrong one of
 // two accounts at an address; it removes every copy of a duplicated address,
-// the copy that carries the opt-out, or a contact the listing returned twice;
+// the copy that carries the opt-out, a contact the listing returned twice, or
+// the last copy once the one it duplicated is gone;
 // a count-only run deletes; an apply run deletes a group it was not given or
 // more than its maximum; it reads only the first page of contacts, of the
 // segment or of the suppression list; a failed read, a row of another shape,
@@ -95,7 +96,8 @@ function fakeResend(world: World): ResendRequest {
 
 	return async (method, path) => {
 		const url = new URL(path, "https://api.resend.com");
-		const [, resource, id, child] = url.pathname.split("/");
+		const [, resource, rawId, child] = url.pathname.split("/");
+		const id = rawId && decodeURIComponent(rawId);
 		if (
 			world.failOn &&
 			`${method} ${url.pathname}${url.search}`.startsWith(world.failOn)
@@ -424,6 +426,60 @@ test("a duplicated address keeps one copy: the protected one, else the oldest", 
 	expect(result.removed.duplicate).toBe(3);
 });
 
+test("a duplicate whose kept copy is deleted meanwhile is the copy that stays", async () => {
+	const shared = { email: "twin@example.com" };
+	const state = world([
+		entry("twin-oldest", { ...shared, created_at: "2026-06-01 10:00:00+00" }),
+		entry("twin-newer", { ...shared, created_at: "2026-06-02 10:00:00+00" }),
+	]);
+	state.afterDelete = (id) => {
+		if (id === "bounced") {
+			state.contacts = state.contacts.filter(
+				(contact) => contact.id !== "twin-oldest",
+			);
+		}
+	};
+
+	const result = await run(state, {
+		apply: true,
+		accounts: accounts([account("twin@example.com")]),
+	});
+
+	expect(ids(state)).toEqual([...KEPT, "twin-newer"]);
+	expect(result.removed.duplicate).toBe(0);
+});
+
+test("a kept copy that cannot be looked up stops the run with its duplicate in place", async () => {
+	const shared = { email: "twin@example.com" };
+	const state = world([
+		entry("twin-oldest", { ...shared, created_at: "2026-06-01 10:00:00+00" }),
+		entry("twin-newer", { ...shared, created_at: "2026-06-02 10:00:00+00" }),
+	]);
+	state.failOn = "GET /contacts/twin-oldest";
+
+	await expect(
+		run(state, {
+			apply: true,
+			remove: ["duplicate"],
+			accounts: accounts([account("twin@example.com")]),
+		}),
+	).rejects.toBeInstanceOf(TrimStopped);
+	expect(state.deleted).toEqual([]);
+});
+
+test("an id with a slash still addresses one contact", async () => {
+	const state = world([entry("odd/id", { email: "odd@example.com" })]);
+	state.suppressed.push("odd@example.com");
+
+	await run(state, {
+		apply: true,
+		accounts: accounts([account("odd@example.com")]),
+	});
+
+	expect(ids(state)).toEqual(KEPT);
+	expect(state.deleted).toContain("odd/id");
+});
+
 test("a contact the listing returns twice is not its own duplicate", async () => {
 	const state = world();
 	state.listedTwice = "keep-reachable";
@@ -565,6 +621,18 @@ test.each([
 		"a page that does not say whether more follow",
 		(pathname: string, { has_more: more, ...body }: Record<string, unknown>) =>
 			pathname === "/suppressions" ? body : { ...body, has_more: more },
+	],
+	[
+		"a contact row with an empty id",
+		(pathname: string, body: Record<string, unknown>) =>
+			pathname === "/contacts"
+				? {
+						...body,
+						data: (body.data as FakeContact[]).map((row) =>
+							row.id === "flagged" ? { ...row, id: "" } : row,
+						),
+					}
+				: body,
 	],
 	[
 		"a contact read without its unsubscribe",

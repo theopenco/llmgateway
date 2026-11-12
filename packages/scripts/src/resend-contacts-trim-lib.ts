@@ -80,7 +80,7 @@ export class TrimStopped extends Error {
 
 // Both protections read these rows, so a row of another shape stops the run
 // instead of reading as "not unsubscribed" or "not opted in".
-const idSchema = z.object({ id: z.string() });
+const idSchema = z.object({ id: z.string().min(1) });
 const contactSchema = idSchema.extend({
 	email: z.string(),
 	unsubscribed: z.boolean(),
@@ -186,15 +186,17 @@ function isOlder(a: Contact, b: Contact): boolean {
 /**
  * One verdict per contact. Protection wins over every reason to remove, and an
  * address keeps one copy: a protected one, else its oldest reachable one.
+ * `keepers` names, for each duplicate, the copy it duplicates.
  */
 function sortContacts(
 	contacts: Iterable<Contact>,
 	protectedIds: ReadonlySet<string>,
 	suppressed: ReadonlySet<string>,
 	accounts: ReadonlyMap<string, AccountRow>,
-): Map<string, Kept | TrimGroup> {
+): { verdicts: Map<string, Kept | TrimGroup>; keepers: Map<string, string> } {
 	const verdicts = new Map<string, Kept | TrimGroup>();
-	const protectedAddresses = new Set<string>();
+	const keepers = new Map<string, string>();
+	const protectedAddresses = new Map<string, string>();
 	const reachable = new Map<string, Contact[]>();
 	for (const contact of contacts) {
 		const address = normalizeEmail(contact.email);
@@ -204,7 +206,9 @@ function sortContacts(
 				contact.id,
 				contact.unsubscribed ? "unsubscribed" : "segment",
 			);
-			protectedAddresses.add(address);
+			if (!protectedAddresses.has(address)) {
+				protectedAddresses.set(address, contact.id);
+			}
 		} else if (suppressed.has(address)) {
 			verdicts.set(contact.id, "suppressed");
 		} else if (!account) {
@@ -216,16 +220,20 @@ function sortContacts(
 		}
 	}
 	for (const [address, copies] of reachable) {
-		const keeper = protectedAddresses.has(address)
-			? undefined
-			: copies.reduce((oldest, copy) =>
-					isOlder(copy, oldest) ? copy : oldest,
-				);
+		const keeperId =
+			protectedAddresses.get(address) ??
+			copies.reduce((oldest, copy) => (isOlder(copy, oldest) ? copy : oldest))
+				.id;
 		for (const copy of copies) {
-			verdicts.set(copy.id, copy === keeper ? "reachable" : "duplicate");
+			if (copy.id === keeperId) {
+				verdicts.set(copy.id, "reachable");
+			} else {
+				verdicts.set(copy.id, "duplicate");
+				keepers.set(copy.id, keeperId);
+			}
 		}
 	}
-	return verdicts;
+	return { verdicts, keepers };
 }
 
 /** A wrong id would list nothing and switch a protection off without a sign. */
@@ -247,19 +255,40 @@ function isMissing(error: unknown): boolean {
 	return error instanceof ResendError && error.status === 404;
 }
 
+function contactPath(id: string): string {
+	return `/contacts/${encodeURIComponent(id)}`;
+}
+
+async function isStillThere(
+	request: ResendRequest,
+	id: string,
+): Promise<boolean> {
+	try {
+		await request("GET", contactPath(id));
+		return true;
+	} catch (error) {
+		if (isMissing(error)) {
+			return false;
+		}
+		throw error;
+	}
+}
+
 /**
  * The last look at a candidate, right before its delete: a newsletter opt-in,
- * an account that became reachable (for the two account groups) or an
- * unsubscribe since the listing keeps it. The unsubscribe is read last, one
- * call before the delete, because the opt-out is what a delete must not lose.
- * A contact the app deleted meanwhile is gone, not an error.
+ * an account that became reachable (for the two account groups), a duplicate
+ * whose kept copy is gone, or an unsubscribe since the listing keeps it. The
+ * unsubscribe is read last, one call before the delete, because the opt-out is
+ * what a delete must not lose. A contact the app deleted meanwhile is gone,
+ * not an error.
  */
 async function settle(
 	input: TrimInput,
 	contact: Contact,
 	group: TrimGroup,
+	keeperId: string | undefined,
 ): Promise<"unsubscribed" | "optedIn" | "reachable" | "gone" | "remove"> {
-	const path = `/contacts/${contact.id}`;
+	const path = contactPath(contact.id);
 	try {
 		for await (const topic of list(
 			input.request,
@@ -275,6 +304,10 @@ async function settle(
 			if (accounts.some(isReachable)) {
 				return "reachable";
 			}
+		}
+		// With its kept copy gone, a duplicate is the address's only contact.
+		if (keeperId && !(await isStillThere(input.request, keeperId))) {
+			return "reachable";
 		}
 		const current = await input.request("GET", path);
 		if (stateSchema.parse(await current.json()).unsubscribed) {
@@ -390,7 +423,7 @@ export async function trimContacts(input: TrimInput): Promise<TrimResult> {
 		suppressed.add(normalizeEmail(row.email));
 	}
 
-	const verdicts = sortContacts(
+	const { verdicts, keepers } = sortContacts(
 		contacts.values(),
 		protectedIds,
 		suppressed,
@@ -440,7 +473,12 @@ export async function trimContacts(input: TrimInput): Promise<TrimResult> {
 	let checked = 0;
 	try {
 		for (const { contact, group } of candidates) {
-			const outcome = await settle(input, contact, group);
+			const outcome = await settle(
+				input,
+				contact,
+				group,
+				keepers.get(contact.id),
+			);
 			if (outcome === "gone") {
 				result.gone++;
 			} else if (outcome === "remove") {

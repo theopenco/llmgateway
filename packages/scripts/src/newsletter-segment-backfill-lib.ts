@@ -8,7 +8,8 @@ const MS_PER_SECOND = 1000;
 export const PACE_MS = 200;
 /** How often a long scan reports its counts. */
 export const PROGRESS_EVERY = 500;
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+const LOCAL_HOSTS = new Set(["localhost", "::1", "[::1]"]);
+const IPV4_LOOPBACK = /^127(\.\d{1,3}){3}$/;
 
 /** One Resend call that resolves with the response of a successful request. */
 export type ResendRequest = (
@@ -55,7 +56,9 @@ export function assertProductionDatabase(
 	databaseHost: string,
 	allowLocalDatabase: boolean,
 ): void {
-	if (LOCAL_HOSTS.has(databaseHost) && !allowLocalDatabase) {
+	const local =
+		LOCAL_HOSTS.has(databaseHost) || IPV4_LOOPBACK.test(databaseHost);
+	if (local && !allowLocalDatabase) {
 		throw new Error(
 			`DATABASE_URL points at ${databaseHost}; --apply needs the production database (pass --allow-local-database if this is a tunnel to it)`,
 		);
