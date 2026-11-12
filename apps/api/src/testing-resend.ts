@@ -19,6 +19,8 @@ export interface FakeContacts {
 	failOn?: string;
 	/** Changes what a contact lookup answers. */
 	tamper?: (contact: Record<string, unknown>) => unknown;
+	/** When set, a create with a property outside this list is refused. */
+	definedProperties?: string[];
 	fetch: typeof fetch;
 }
 
@@ -77,6 +79,22 @@ export function fakeResendContacts(passThrough: typeof fetch): FakeContacts {
 					return json(
 						{ statusCode: 409, message: "Contact already exists" },
 						409,
+					);
+				}
+				const defined = fake.definedProperties;
+				if (
+					defined &&
+					Object.keys(body.properties ?? {}).some(
+						(key) => !defined.includes(key),
+					)
+				) {
+					return json(
+						{
+							statusCode: 422,
+							name: "validation_error",
+							message: "Property not found",
+						},
+						422,
 					);
 				}
 				fake.created.push({ ...body });

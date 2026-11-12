@@ -210,32 +210,44 @@ export async function moveResendContact(
 			);
 			// The account's name and properties win; what it does not set is
 			// carried over from the old contact.
-			const account = toBody(fields);
+			const { properties: accountProperties, ...accountName } = toBody(fields);
 			const properties = {
 				...carriedProperties(contact.properties, from),
-				...account.properties,
+				...accountProperties,
 			};
 			const firstName = ownName(contact.first_name);
 			const lastName = ownName(contact.last_name);
-			await expectResendOk(
-				await send("POST", "/contacts", {
-					email: to,
-					...(!fields.name && firstName && { first_name: firstName }),
-					...(!fields.name && lastName && { last_name: lastName }),
-					...account,
-					...(Object.keys(properties).length > 0 && { properties }),
-					unsubscribed: contact.unsubscribed,
-					...(topics.length > 0 && {
-						topics: topics.map(({ id, subscription }) => ({
-							id,
-							subscription,
-						})),
-					}),
-					...(segments.length > 0 && {
-						segments: segments.map(({ id }) => ({ id })),
-					}),
+			const body = {
+				email: to,
+				...(!fields.name && firstName && { first_name: firstName }),
+				...(!fields.name && lastName && { last_name: lastName }),
+				...accountName,
+				unsubscribed: contact.unsubscribed,
+				...(topics.length > 0 && {
+					topics: topics.map(({ id, subscription }) => ({
+						id,
+						subscription,
+					})),
 				}),
+				...(segments.length > 0 && {
+					segments: segments.map(({ id }) => ({ id })),
+				}),
+			};
+			const hasProperties = Object.keys(properties).length > 0;
+			let created = await send(
+				"POST",
+				"/contacts",
+				hasProperties ? { ...body, properties } : body,
 			);
+			if (created.status === 422 && hasProperties) {
+				// A property the list refuses must not cost a member their place.
+				logger.warn("Resend refused a moved contact's properties", {
+					email: from,
+					properties: Object.keys(properties),
+				});
+				created = await send("POST", "/contacts", body);
+			}
+			await expectResendOk(created);
 		} else {
 			await expectResendOk(target);
 		}

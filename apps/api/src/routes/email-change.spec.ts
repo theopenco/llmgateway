@@ -1003,6 +1003,23 @@ describe("email change confirmation", () => {
 			});
 		});
 
+		it("moves a member without their properties when the list refuses one", async () => {
+			list.definedProperties = ["company_name"];
+			list.contacts.set(
+				oldEmail,
+				member({ unsubscribed: true, properties: { company_name: "Acme" } }),
+			);
+
+			expect((await changeEmail()).status).toBe(200);
+			expect(Object.fromEntries(list.contacts)).toEqual({
+				[newEmail]: member({
+					unsubscribed: true,
+					firstName: "Test",
+					lastName: "User",
+				}),
+			});
+		});
+
 		it("keeps a member who unsubscribed unsubscribed", async () => {
 			list.contacts.set(oldEmail, member({ unsubscribed: true }));
 
