@@ -3,7 +3,12 @@ import { EventEmitter } from "node:events";
 import { Decimal } from "decimal.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { authorizeAccount } from "./account-gate.js";
+import {
+	checkProviderRateLimit,
+	peekProviderRateLimit,
+} from "@/lib/provider-rate-limit.js";
+
+import { authorizeAccount, availableCredits } from "./account-gate.js";
 import {
 	closeRealtimeSessionRecord,
 	recordRealtimeTranscription,
@@ -20,6 +25,7 @@ vi.mock("./account-gate.js", () => ({
 
 vi.mock("@/lib/provider-rate-limit.js", () => ({
 	checkProviderRateLimit: vi.fn(async () => ({ allowed: true })),
+	peekProviderRateLimit: vi.fn(async () => ({ allowed: true })),
 }));
 
 vi.mock("@llmgateway/db", async (importOriginal) => ({
@@ -53,9 +59,15 @@ class FakeSocket extends EventEmitter {
 
 	public ping(): void {}
 
-	public pause(): void {}
+	public paused = false;
 
-	public resume(): void {}
+	public pause(): void {
+		this.paused = true;
+	}
+
+	public resume(): void {
+		this.paused = false;
+	}
 
 	public close(code: number, reason?: string): void {
 		this.readyState = 3;
@@ -275,5 +287,67 @@ describe("ElevenLabsRealtimeProxySession", () => {
 			code: 1011,
 			reason: "billing_unavailable",
 		});
+	});
+
+	it("counts one provider request per session and peeks at checkpoints", async () => {
+		const { clientSends, upstreamSends, chunk, session } = createSession();
+		clientSends(chunk(3200, { commit: true }));
+		await flush();
+		upstreamSends({ message_type: "committed_transcript", text: "a" });
+		await flush();
+		clientSends(chunk(3200, { commit: true }));
+		await flush();
+		upstreamSends({ message_type: "committed_transcript", text: "b" });
+		await flush();
+		expect(checkProviderRateLimit).toHaveBeenCalledTimes(1);
+		expect(peekProviderRateLimit).toHaveBeenCalledTimes(2);
+		expect(billedSeconds()).toEqual([0.1, 0.1]);
+		session.shutdown(1000, "test");
+	});
+
+	it("checks credits before forwarding the first chunk", async () => {
+		vi.mocked(availableCredits).mockResolvedValueOnce(new Decimal(0));
+		const { client, upstream, clientSends, chunk, clientMessages } =
+			createSession();
+		clientSends(chunk(3200));
+		await flush();
+		expect(upstream.sent).toEqual([]);
+		expect(clientMessages()[0]).toMatchObject({ code: "insufficient_credits" });
+		expect(client.closed[0]?.code).toBe(1008);
+		expect(recordRealtimeTranscription).not.toHaveBeenCalled();
+	});
+
+	it("does not bill audio it could not forward", async () => {
+		const { client, upstream, clientSends, chunk, clientMessages } =
+			createSession();
+		upstream.readyState = 3;
+		clientSends(chunk(32_000));
+		client.emit("close");
+		await flush();
+		expect(clientMessages()[0]).toMatchObject({ code: "upstream_unavailable" });
+		expect(recordRealtimeTranscription).not.toHaveBeenCalled();
+	});
+
+	it("pauses the client while too many frames are queued", async () => {
+		let release!: () => void;
+		vi.mocked(authorizeAccount).mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					release = () =>
+						resolve({ ok: true, organization: {} } as Awaited<
+							ReturnType<typeof authorizeAccount>
+						>);
+				}),
+		);
+		const { client, clientSends, chunk, session } = createSession();
+		for (let i = 0; i < 4; i++) {
+			clientSends(chunk(1024 * 1024));
+		}
+		expect(client.paused).toBe(true);
+		await flush();
+		release();
+		await flush();
+		expect(client.paused).toBe(false);
+		session.shutdown(1000, "test");
 	});
 });

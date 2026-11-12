@@ -1,7 +1,10 @@
 import { Decimal } from "decimal.js";
 import { WebSocket } from "ws";
 
-import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
+import {
+	checkProviderRateLimit,
+	peekProviderRateLimit,
+} from "@/lib/provider-rate-limit.js";
 
 import { getEffectiveDiscount } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -73,6 +76,16 @@ function buildGatewayError(code: string, message: string): string {
 	});
 }
 
+function frameSize(data: RawData): number {
+	if (Buffer.isBuffer(data)) {
+		return data.length;
+	}
+	if (Array.isArray(data)) {
+		return data.reduce((sum, b) => sum + b.length, 0);
+	}
+	return data.byteLength;
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -130,7 +143,13 @@ export class ElevenLabsRealtimeProxySession {
 	private clientAlive = true;
 	private upstreamAlive = true;
 	private readonly timers: NodeJS.Timeout[] = [];
-	private backpressurePoller: NodeJS.Timeout | null = null;
+	// One poller per direction, so a slow client and a slow upstream are each
+	// throttled.
+	private readonly backpressurePollers = new Map<WebSocket, NodeJS.Timeout>();
+	// Reasons the client socket is paused; it resumes when none remain.
+	private readonly clientPauses = new Set<string>();
+	// Bytes of client frames received but not yet handled.
+	private queuedClientBytes = 0;
 	private clientQueue: Promise<void> = Promise.resolve();
 	private upstreamQueue: Promise<void> = Promise.resolve();
 
@@ -148,8 +167,21 @@ export class ElevenLabsRealtimeProxySession {
 		this.onClosed = options.onClosed;
 
 		this.client.on("message", (data, isBinary) => {
+			// Frames wait here while authorization or billing runs; stop reading
+			// once too many are queued.
+			const size = frameSize(data);
+			this.queuedClientBytes += size;
+			if (this.queuedClientBytes > maxBufferedBytes()) {
+				this.pauseClient("queue");
+			}
 			this.clientQueue = this.clientQueue
-				.then(() => this.handleClientMessage(data, isBinary))
+				.then(() => this.handleClientMessage(data, isBinary, size))
+				.finally(() => {
+					this.queuedClientBytes -= size;
+					if (this.queuedClientBytes <= maxBufferedBytes() / 4) {
+						this.resumeClient("queue");
+					}
+				})
 				.catch((error: unknown) => {
 					logger.error(
 						"Failed to handle ElevenLabs realtime client message; closing session",
@@ -262,12 +294,8 @@ export class ElevenLabsRealtimeProxySession {
 	private async handleClientMessage(
 		data: RawData,
 		isBinary: boolean,
+		size: number,
 	): Promise<void> {
-		const size = Buffer.isBuffer(data)
-			? data.length
-			: Array.isArray(data)
-				? data.reduce((sum, b) => sum + b.length, 0)
-				: data.byteLength;
 		this.bytesIn += size;
 
 		if (isBinary) {
@@ -349,15 +377,20 @@ export class ElevenLabsRealtimeProxySession {
 			return;
 		}
 
-		const audioBytes = Buffer.from(message.audio_base_64, "base64").length;
-		this.unbilledAudioBytes += audioBytes;
-		this.forwardToUpstream(
+		const forwarded = this.forwardToUpstream(
 			JSON.stringify({
 				...message,
 				sample_rate: this.config.sampleRate,
 				commit: message.commit === true,
 			}),
 		);
+		if (!forwarded) {
+			return;
+		}
+		this.unbilledAudioBytes += Buffer.from(
+			message.audio_base_64,
+			"base64",
+		).length;
 
 		if (this.unbilledSeconds() >= BILLING_INTERVAL_SECONDS) {
 			if (await this.billAudio()) {
@@ -367,8 +400,9 @@ export class ElevenLabsRealtimeProxySession {
 	}
 
 	/**
-	 * Authorize the session's input stream once, then rely on the post-billing
-	 * gates to stop it when the account no longer clears them.
+	 * Authorize the session's input stream once — account, credits, and one
+	 * provider rate-limit request for the session — then rely on the
+	 * post-billing gates to stop it when the account no longer clears them.
 	 */
 	private async authorizeAudio(): Promise<boolean> {
 		await this.postBillingGate;
@@ -394,8 +428,63 @@ export class ElevenLabsRealtimeProxySession {
 			}
 			return false;
 		}
+		if (
+			!(await this.creditsRemain(authorization.organization)) ||
+			!(await this.rateLimitAllows(checkProviderRateLimit))
+		) {
+			return false;
+		}
+		if (this.finalized || this.closing) {
+			return false;
+		}
 		this.authorized = true;
 		return true;
+	}
+
+	/** Close the session when the organization has no credits left. */
+	private async creditsRemain(
+		organization: Parameters<typeof availableCredits>[1],
+	): Promise<boolean> {
+		if (this.preflight.usedMode !== "credits") {
+			return true;
+		}
+		const available = await availableCredits(
+			this.preflight.project.organizationId,
+			organization,
+		);
+		if (available !== null && available.lessThanOrEqualTo(0)) {
+			this.refuse(
+				"insufficient_credits",
+				"Organization has insufficient credits to continue this session.",
+			);
+			void this.settleAndShutdown(1008, "insufficient_credits");
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Close the session when the provider rate limit is exhausted. The session
+	 * counts as one provider request: it is counted when audio is first
+	 * authorized and only peeked at billing checkpoints.
+	 */
+	private async rateLimitAllows(
+		check: typeof checkProviderRateLimit | typeof peekProviderRateLimit,
+	): Promise<boolean> {
+		const rateLimit = await check(
+			this.preflight.project.organizationId,
+			this.preflight.match.mapping.providerId,
+			this.preflight.match.modelId,
+		);
+		if (rateLimit.allowed) {
+			return true;
+		}
+		this.refuse(
+			"rate_limit_exceeded",
+			`Provider rate limit exceeded${rateLimit.retryAfter ? `; retry after ${rateLimit.retryAfter}s` : ""}.`,
+		);
+		void this.settleAndShutdown(1008, "rate_limit_exceeded");
+		return false;
 	}
 
 	// --- Upstream → client ---
@@ -559,33 +648,10 @@ export class ElevenLabsRealtimeProxySession {
 			return;
 		}
 
-		if (this.preflight.usedMode === "credits") {
-			const available = await availableCredits(
-				this.preflight.project.organizationId,
-				authorization.organization,
-			);
-			if (available !== null && available.lessThanOrEqualTo(0)) {
-				this.refuse(
-					"insufficient_credits",
-					"Organization has insufficient credits to continue this session.",
-				);
-				void this.settleAndShutdown(1008, "insufficient_credits");
-				return;
-			}
+		if (!(await this.creditsRemain(authorization.organization))) {
+			return;
 		}
-
-		const rateLimit = await checkProviderRateLimit(
-			this.preflight.project.organizationId,
-			this.preflight.match.mapping.providerId,
-			this.preflight.match.modelId,
-		);
-		if (!rateLimit.allowed) {
-			this.refuse(
-				"rate_limit_exceeded",
-				`Provider rate limit exceeded${rateLimit.retryAfter ? `; retry after ${rateLimit.retryAfter}s` : ""}.`,
-			);
-			void this.settleAndShutdown(1008, "rate_limit_exceeded");
-		}
+		await this.rateLimitAllows(peekProviderRateLimit);
 	}
 
 	/** Refuse further audio and log it like a rejected HTTP request. */
@@ -640,9 +706,10 @@ export class ElevenLabsRealtimeProxySession {
 			clearInterval(timer);
 			clearTimeout(timer);
 		}
-		if (this.backpressurePoller) {
-			clearInterval(this.backpressurePoller);
+		for (const poller of this.backpressurePollers.values()) {
+			clearInterval(poller);
 		}
+		this.backpressurePollers.clear();
 
 		try {
 			if (
@@ -693,7 +760,8 @@ export class ElevenLabsRealtimeProxySession {
 		this.applyBackpressure(this.client, this.upstream);
 	}
 
-	private forwardToUpstream(text: string): void {
+	/** Returns false when the frame could not be sent. */
+	private forwardToUpstream(text: string): boolean {
 		if (this.upstream.readyState !== WebSocket.OPEN) {
 			this.sendToClientRaw(
 				buildGatewayError(
@@ -701,10 +769,40 @@ export class ElevenLabsRealtimeProxySession {
 					"The upstream realtime connection is no longer available.",
 				),
 			);
-			return;
+			return false;
 		}
 		this.upstream.send(text);
 		this.applyBackpressure(this.upstream, this.client);
+		return true;
+	}
+
+	private pauseClient(reason: string): void {
+		if (this.clientPauses.size === 0) {
+			this.client.pause();
+		}
+		this.clientPauses.add(reason);
+	}
+
+	private resumeClient(reason: string): void {
+		if (this.clientPauses.delete(reason) && this.clientPauses.size === 0) {
+			this.client.resume();
+		}
+	}
+
+	private pauseSource(source: WebSocket): void {
+		if (source === this.client) {
+			this.pauseClient("backpressure");
+		} else {
+			source.pause();
+		}
+	}
+
+	private resumeSource(source: WebSocket): void {
+		if (source === this.client) {
+			this.resumeClient("backpressure");
+		} else {
+			source.resume();
+		}
 	}
 
 	/**
@@ -713,37 +811,38 @@ export class ElevenLabsRealtimeProxySession {
 	 * session if it never does).
 	 */
 	private applyBackpressure(destination: WebSocket, source: WebSocket): void {
-		if (this.backpressurePoller) {
+		if (this.backpressurePollers.has(destination)) {
 			return;
 		}
 		if (destination.bufferedAmount <= maxBufferedBytes()) {
 			return;
 		}
-		source.pause();
+		this.pauseSource(source);
 		const startedAt = Date.now();
-		this.backpressurePoller = setInterval(() => {
-			if (this.finalized) {
-				if (this.backpressurePoller) {
-					clearInterval(this.backpressurePoller);
-					this.backpressurePoller = null;
-				}
-				return;
+		const stop = () => {
+			const poller = this.backpressurePollers.get(destination);
+			if (poller) {
+				clearInterval(poller);
+				this.backpressurePollers.delete(destination);
 			}
-			if (destination.bufferedAmount <= maxBufferedBytes() / 4) {
-				source.resume();
-				if (this.backpressurePoller) {
-					clearInterval(this.backpressurePoller);
-					this.backpressurePoller = null;
+		};
+		this.backpressurePollers.set(
+			destination,
+			setInterval(() => {
+				if (this.finalized) {
+					stop();
+					return;
 				}
-				return;
-			}
-			if (Date.now() - startedAt > backpressureTimeoutMs()) {
-				if (this.backpressurePoller) {
-					clearInterval(this.backpressurePoller);
-					this.backpressurePoller = null;
+				if (destination.bufferedAmount <= maxBufferedBytes() / 4) {
+					stop();
+					this.resumeSource(source);
+					return;
 				}
-				void this.settleAndShutdown(1011, "backpressure_timeout");
-			}
-		}, 100);
+				if (Date.now() - startedAt > backpressureTimeoutMs()) {
+					stop();
+					void this.settleAndShutdown(1011, "backpressure_timeout");
+				}
+			}, 100),
+		);
 	}
 }
