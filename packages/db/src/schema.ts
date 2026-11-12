@@ -619,6 +619,17 @@ export const referral = snakeCase.table(
 	],
 );
 
+/**
+ * Every transaction type that records money going back to a customer.
+ * `credit_refund` is a credit top-up refund (and every refund recorded before
+ * `subscription_refund` existed); `subscription_refund` is a plan refund. Any
+ * query that nets or aggregates refunds must match both.
+ */
+export const REFUND_TRANSACTION_TYPES = [
+	"credit_refund",
+	"subscription_refund",
+] as const;
+
 export const transaction = snakeCase.table(
 	"transaction",
 	{
@@ -638,6 +649,10 @@ export const transaction = snakeCase.table(
 				"subscription_end",
 				"credit_topup",
 				"credit_refund",
+				// Refund of a plan/subscription charge (dev plan, chat plan, legacy
+				// subscription) — recorded for revenue reporting only; never touches
+				// organization.credits, unlike credit_refund.
+				"subscription_refund",
 				"credit_gift",
 				// Credits granted by an administrator against a payment that was
 				// received outside Stripe (wire transfer, crypto, …). Unlike

@@ -124,6 +124,8 @@ export function TransactionsClient({
 				return "Credit Top-up";
 			case "credit_refund":
 				return "Credit Refund";
+			case "subscription_refund":
+				return "Subscription Refund";
 			case "subscription_start":
 				return "Subscription Start";
 			case "subscription_renewal":
