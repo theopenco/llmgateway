@@ -94,11 +94,13 @@ which identifies it in `pg_stat_activity`.
 | `DATABASE_APPLICATION_NAME`               | `<service>/<hostname>`             | Overrides the session's `application_name`                               |
 | `METRICS_PORT`                            | gateway `9090`; API and worker off | Port serving Prometheus `/metrics`, including `db_pool_*` pool occupancy |
 
-On the gateway and API, `/` and `/livez` never touch Postgres or Redis: point
-readiness at `/` and liveness at `/livez`, so a database or Redis incident
-neither restarts healthy pods nor removes them all from the load balancer. For
-external monitoring, `/health/deep` checks Postgres and Redis and returns 503
-when either is unreachable.
+On the gateway and API, point readiness at `/` and liveness at `/livez`.
+After boot, `/` returns 503 until one Postgres query and one Redis ping
+succeed, so a release that cannot reach them never replaces healthy pods. From
+then on neither endpoint touches Postgres or Redis, so a database or Redis
+incident neither restarts healthy pods nor removes them from the load balancer.
+For external monitoring, `/health/deep` checks Postgres and Redis and returns
+503 when either is unreachable.
 
 ## Admin dashboard access
 

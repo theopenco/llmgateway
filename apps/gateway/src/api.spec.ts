@@ -19,7 +19,7 @@ import { GATEWAY_CONTENT_FILTER_MESSAGE } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { lowerMidConversationBlocks } from "./anthropic/content-blocks.js";
-import { app } from "./app.js";
+import { app, healthChecker } from "./app.js";
 import {
 	getTrackedKeyMetrics,
 	isTrackedKeyHealthy,
@@ -51,6 +51,18 @@ describe("api", () => {
 		expect(data).toHaveProperty("message", "OK");
 		expect(data).toHaveProperty("version");
 		expect(data).not.toHaveProperty("health");
+	});
+
+	test("/ answers 503 until the startup check has passed", async () => {
+		const isReady = vi.spyOn(healthChecker, "isReady").mockReturnValue(false);
+		try {
+			const res = await app.request("/");
+			expect(res.status).toBe(503);
+			expect(await res.json()).not.toHaveProperty("version");
+		} finally {
+			isReady.mockRestore();
+		}
+		expect((await app.request("/")).status).toBe(200);
 	});
 
 	test("/livez answers without touching dependencies", async () => {

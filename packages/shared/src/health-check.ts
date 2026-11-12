@@ -2,18 +2,6 @@ export function getAppVersion(): string {
 	return process.env.APP_VERSION ?? "v0.0.0-unknown";
 }
 
-/**
- * Shares one in-flight run of `fn` between concurrent callers, so an
- * unauthenticated health endpoint cannot stack dependency queries.
- */
-export function singleFlight<T>(fn: () => Promise<T>): () => Promise<T> {
-	let inflight: Promise<T> | undefined;
-	return () =>
-		(inflight ??= fn().finally(() => {
-			inflight = undefined;
-		}));
-}
-
 export interface HealthCheckResult {
 	status: "ok" | "error";
 	redis: {
@@ -30,6 +18,21 @@ export interface HealthCheckOptions {
 	timeoutMs?: number;
 }
 
+export interface ReadinessGateOptions extends HealthCheckOptions {
+	retryMs?: number;
+}
+
+type Dependency = "redis" | "database";
+
+interface PendingCall {
+	call: Promise<unknown>;
+	startedAt: number;
+}
+
+// A call still pending after this long is abandoned, so a hung socket cannot
+// keep the check failing once the dependency has recovered.
+const ABANDON_PENDING_AFTER_MS = 30_000;
+
 export interface HealthCheckDependencies {
 	redisClient: {
 		ping: () => Promise<string>;
@@ -42,6 +45,7 @@ export interface HealthCheckDependencies {
 		};
 	};
 	logger: {
+		info: (message: string) => void;
 		error: (message: string, error?: object | Error | undefined) => void;
 	};
 }
@@ -53,7 +57,72 @@ export interface HealthResponse {
 }
 
 export class HealthChecker {
-	public constructor(private dependencies: HealthCheckDependencies) {}
+	private ready = true;
+	private pending: Partial<Record<Dependency, PendingCall>> = {};
+
+	public constructor(
+		private dependencies: HealthCheckDependencies,
+		private defaults: HealthCheckOptions = {},
+	) {}
+
+	/** False only between `gateReadiness` and its first passing check. */
+	public isReady(): boolean {
+		return this.ready;
+	}
+
+	/**
+	 * Closes readiness until Postgres and Redis answer once, then leaves it open
+	 * for the life of the process: a release that cannot reach them never goes
+	 * Ready, and a later outage never pulls a running pod. Returns a function
+	 * that stops the retries.
+	 */
+	public gateReadiness(options: ReadinessGateOptions = {}): () => void {
+		const { retryMs = 5000, ...checkOptions } = options;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let stopped = false;
+		this.ready = false;
+		const attempt = async () => {
+			const { status } = await this.performHealthChecks(checkOptions);
+			if (stopped) {
+				return;
+			}
+			if (status === "ok") {
+				this.ready = true;
+				this.dependencies.logger.info("Startup dependency check passed");
+				return;
+			}
+			timer = setTimeout(() => void attempt(), retryMs);
+		};
+		void attempt();
+		return () => {
+			stopped = true;
+			clearTimeout(timer);
+		};
+	}
+
+	/**
+	 * One call per dependency at a time. A call that outlives its timeout stays
+	 * shared until it settles, so a stalled dependency cannot stack more.
+	 */
+	private shared(
+		dependency: Dependency,
+		start: () => Promise<unknown>,
+	): Promise<unknown> {
+		const current = this.pending[dependency];
+		if (current && Date.now() - current.startedAt < ABANDON_PENDING_AFTER_MS) {
+			return current.call;
+		}
+		const entry: PendingCall = {
+			startedAt: Date.now(),
+			call: new Promise((resolve) => resolve(start())).finally(() => {
+				if (this.pending[dependency] === entry) {
+					this.pending[dependency] = undefined;
+				}
+			}),
+		};
+		this.pending[dependency] = entry;
+		return entry.call;
+	}
 
 	private withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 		let timer: ReturnType<typeof setTimeout> | undefined;
@@ -71,7 +140,7 @@ export class HealthChecker {
 	public async performHealthChecks(
 		options: HealthCheckOptions = {},
 	): Promise<HealthCheckResult> {
-		const { timeoutMs = 3000 } = options;
+		const timeoutMs = options.timeoutMs ?? this.defaults.timeoutMs ?? 3000;
 		const { redisClient, db, logger } = this.dependencies;
 
 		const health: HealthCheckResult = {
@@ -81,11 +150,16 @@ export class HealthChecker {
 		};
 
 		const [redis, database] = await Promise.allSettled([
-			this.withTimeout(redisClient.ping(), timeoutMs),
+			this.withTimeout(
+				this.shared("redis", () => redisClient.ping()),
+				timeoutMs,
+			),
 			// One column, so the check tests connectivity, not the row shape the
 			// running release expects.
 			this.withTimeout(
-				db.query.user.findFirst({ columns: { id: true } }),
+				this.shared("database", () =>
+					db.query.user.findFirst({ columns: { id: true } }),
+				),
 				timeoutMs,
 			),
 		]);

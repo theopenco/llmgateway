@@ -16,7 +16,7 @@ import {
 	createRequestLifecycleMiddleware,
 } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
-import { getAppVersion, HealthChecker, singleFlight } from "@llmgateway/shared";
+import { getAppVersion, HealthChecker } from "@llmgateway/shared";
 import {
 	getClientIpFromContext,
 	getClientIpHeaderName,
@@ -253,15 +253,13 @@ app.get("/livez", (c) => c.json({ status: "ok" }));
 // Deep health for external monitoring: checks Postgres and Redis. Readiness
 // uses `/`, so a dependency outage or a schema the running release cannot
 // read never pulls every pod out of the load balancer.
-const deepHealthChecker = new HealthChecker({ redisClient, db, logger });
-const deepHealthCheck = singleFlight(() =>
-	deepHealthChecker.performHealthChecks({
-		timeoutMs: Number(process.env.DEEP_HEALTH_CHECK_TIMEOUT_MS) || 5000,
-	}),
+export const healthChecker = new HealthChecker(
+	{ redisClient, db, logger },
+	{ timeoutMs: Number(process.env.DEEP_HEALTH_CHECK_TIMEOUT_MS) || 5000 },
 );
 app.get("/health/deep", async (c) => {
-	const { response, statusCode } = deepHealthChecker.createHealthResponse(
-		await deepHealthCheck(),
+	const { response, statusCode } = healthChecker.createHealthResponse(
+		await healthChecker.performHealthChecks(),
 	);
 	return c.json(response, statusCode as 200 | 503);
 });
@@ -285,15 +283,26 @@ const root = createRoute({
 				},
 			},
 			description:
-				"Health check response. Touches no dependencies; `/health/deep` checks Postgres and Redis.",
+				"Health check response. Once Postgres and Redis have answered after boot it touches no dependencies; `/health/deep` checks them on every call.",
+		},
+		503: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }).openapi({}),
+				},
+			},
+			description: "Starting: Postgres and Redis have not answered since boot.",
 		},
 	},
 });
 
-app.openapi(root, (c) =>
+app.openapi(root, (c) => {
+	if (!healthChecker.isReady()) {
+		return c.json({ message: "Starting: waiting for Postgres and Redis" }, 503);
+	}
 	// Echo the address this service resolves for the caller so a deployment can
 	// be checked against a known client IP before any per-IP limit is relied on.
-	c.json(
+	return c.json(
 		{
 			message: "OK",
 			version: getAppVersion(),
@@ -301,8 +310,8 @@ app.openapi(root, (c) =>
 			clientIpHeader: getClientIpHeaderName(),
 		},
 		200,
-	),
-);
+	);
+});
 
 app.route("/stripe", stripeRoutes);
 

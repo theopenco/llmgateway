@@ -1,6 +1,6 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 
-import { app } from "./index.js";
+import { app, healthChecker } from "./index.js";
 
 test("/ answers without touching dependencies", async () => {
 	const res = await app.request("/");
@@ -9,6 +9,18 @@ test("/ answers without touching dependencies", async () => {
 	expect(data).toHaveProperty("message", "OK");
 	expect(data).toHaveProperty("version");
 	expect(data).not.toHaveProperty("health");
+});
+
+test("/ answers 503 until the startup check has passed", async () => {
+	const isReady = vi.spyOn(healthChecker, "isReady").mockReturnValue(false);
+	try {
+		const res = await app.request("/");
+		expect(res.status).toBe(503);
+		expect(await res.json()).not.toHaveProperty("version");
+	} finally {
+		isReady.mockRestore();
+	}
+	expect((await app.request("/")).status).toBe(200);
 });
 
 test("/health/deep checks the database and Redis", async () => {

@@ -122,9 +122,9 @@ export {
 export {
 	getAppVersion,
 	HealthChecker,
-	singleFlight,
 	type HealthCheckResult,
 	type HealthCheckOptions,
+	type ReadinessGateOptions,
 	type HealthCheckDependencies,
 	type HealthResponse,
 } from "./health-check.js";
