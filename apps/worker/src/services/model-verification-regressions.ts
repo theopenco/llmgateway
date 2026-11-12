@@ -194,33 +194,37 @@ async function queueKeyChecks(
 	job: Verification,
 	tx: Transaction,
 	queue: boolean,
-): Promise<Verification[]> {
+): Promise<{ runs: Verification[]; pending: boolean }> {
 	const keyId = job.target.providerKeyId;
 	if (
 		job.credentialSource !== "managed" ||
 		!keyId ||
 		!job.modelProviderMappingId
 	) {
-		return [];
+		return { runs: [], pending: false };
 	}
 	const keys = await managedVerificationProviderKeys(
 		{ ...job.target, providerKeyId: undefined },
 		tx,
 	);
 	const runs: Verification[] = [];
+	let pending = false;
 	for (const key of keys) {
 		if (key.id === keyId) {
 			continue;
 		}
+		const credentialFingerprint =
+			providerVerificationCredentialFingerprint(key);
+		// The fingerprint keeps a rotated key from reusing its old result.
 		const id = dailyKeyCheckId(
 			job.modelProviderMappingId,
-			key.id,
+			key.id + ":" + credentialFingerprint,
 			job.createdAt,
 		);
 		const target = {
 			...job.target,
 			providerKeyId: key.id,
-			credentialFingerprint: providerVerificationCredentialFingerprint(key),
+			credentialFingerprint,
 			gatewayExecutionVersion: undefined,
 		};
 		if (queue) {
@@ -241,9 +245,13 @@ async function queueKeyChecks(
 		});
 		if (run) {
 			runs.push(run);
+			pending ||= run.status === "queued" || run.status === "running";
+		} else {
+			// One active run per mapping: this key queues once the current run ends.
+			pending = true;
 		}
 	}
-	return runs;
+	return { runs, pending };
 }
 
 function passesCheck(run: Verification, id: string): boolean {
@@ -410,27 +418,72 @@ export async function deliverModelVerificationRegressions(
 			};
 			const waiting =
 				now.getTime() - job.createdAt.getTime() < KEY_CHECK_WAIT_MS;
-			const keyRuns = await queueKeyChecks(job, tx, waiting);
-			if (
-				waiting &&
-				keyRuns.some(
-					(run) => run.status === "queued" || run.status === "running",
-				)
-			) {
+			const { runs: keyRuns, pending } = await queueKeyChecks(job, tx, waiting);
+			if (waiting && pending) {
 				await retryLater(RETRY_MS);
 				return 0;
 			}
+			const send = async (payload: unknown) => {
+				try {
+					const response = await fetchImplementation(webhook, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify(payload),
+						signal: AbortSignal.timeout(5000),
+						redirect: "error",
+					});
+					await response.body?.cancel();
+					if (response.ok) {
+						return 0;
+					}
+					logger.warn("Model verification alert delivery failed", {
+						verificationId: job.id,
+						status: response.status,
+					});
+					const retryAfter = response.headers.get("retry-after");
+					const seconds = Number(retryAfter);
+					const delay = Number.isFinite(seconds)
+						? seconds * 1000
+						: Date.parse(retryAfter ?? "") - now.getTime();
+					return Number.isFinite(delay)
+						? Math.max(RETRY_MS, Math.min(delay, RETENTION_MS))
+						: RETRY_MS;
+				} catch {
+					// Fetch errors can contain the secret webhook URL; never log them.
+					logger.warn("Model verification alert delivery failed", {
+						verificationId: job.id,
+					});
+					return RETRY_MS;
+				}
+			};
 			// A model regression must fail on every key; otherwise the key is broken.
 			const everyKey = checks.filter(
 				(id) => !keyRuns.some((run) => passesCheck(run, id)),
 			);
-			let keyAlert: string | undefined;
-			if (!everyKey.length) {
-				keyAlert =
+			if (everyKey.length) {
+				const retryMs = await send(
+					modelVerificationRegressionPayload(job, everyKey, keyRuns),
+				);
+				if (!retryMs) {
+					await finish();
+					return 1;
+				}
+				await retryLater(retryMs);
+				return 0;
+			}
+			// Alert each failing key once per day, the daily key and any alternate.
+			let sent = 0;
+			let retryMs = 0;
+			for (const run of [job, ...keyRuns]) {
+				const failed = checks.filter((id) => !passesCheck(run, id));
+				if (!failed.length || !run.target.providerKeyId) {
+					continue;
+				}
+				const keyAlert =
 					"daily-verification-key-alert:" +
 					job.createdAt.toISOString().slice(0, 10) +
 					":" +
-					job.target.providerKeyId;
+					run.target.providerKeyId;
 				await tx
 					.insert(progress)
 					.values({ job: keyAlert, bucketTimestamp: EPOCH })
@@ -446,58 +499,36 @@ export async function deliverModelVerificationRegressions(
 					)
 					.for("update");
 				if (keyState?.finalizedAt) {
-					await finish();
-					return 0;
+					continue;
 				}
+				const delay = await send(
+					managedKeyFailurePayload(
+						run,
+						failed,
+						[job, ...keyRuns].filter((other) => other !== run),
+					),
+				);
+				if (delay) {
+					retryMs = Math.max(retryMs, delay);
+					continue;
+				}
+				sent++;
+				await tx
+					.update(progress)
+					.set({ finalizedAt: now, refreshedAt: now })
+					.where(
+						and(
+							eq(progress.job, keyAlert),
+							eq(progress.bucketTimestamp, EPOCH),
+						),
+					);
 			}
-			const payload = keyAlert
-				? managedKeyFailurePayload(job, checks, keyRuns)
-				: modelVerificationRegressionPayload(job, everyKey, keyRuns);
-			let retryMs = RETRY_MS;
-			try {
-				const response = await fetchImplementation(webhook, {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(payload),
-					signal: AbortSignal.timeout(5000),
-					redirect: "error",
-				});
-				await response.body?.cancel();
-				if (response.ok) {
-					await finish();
-					if (keyAlert) {
-						await tx
-							.update(progress)
-							.set({ finalizedAt: now, refreshedAt: now })
-							.where(
-								and(
-									eq(progress.job, keyAlert),
-									eq(progress.bucketTimestamp, EPOCH),
-								),
-							);
-					}
-					return 1;
-				}
-				const retryAfter = response.headers.get("retry-after");
-				const seconds = Number(retryAfter);
-				const delay = Number.isFinite(seconds)
-					? seconds * 1000
-					: Date.parse(retryAfter ?? "") - now.getTime();
-				if (Number.isFinite(delay)) {
-					retryMs = Math.max(RETRY_MS, Math.min(delay, RETENTION_MS));
-				}
-				logger.warn("Model verification alert delivery failed", {
-					verificationId: job.id,
-					status: response.status,
-				});
-			} catch {
-				// Fetch errors can contain the secret webhook URL; never log them.
-				logger.warn("Model verification alert delivery failed", {
-					verificationId: job.id,
-				});
+			if (retryMs) {
+				await retryLater(retryMs);
+			} else {
+				await finish();
 			}
-			await retryLater(retryMs);
-			return 0;
+			return sent;
 		});
 	}
 	return delivered;
