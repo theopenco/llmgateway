@@ -159,6 +159,45 @@ describe("Models API", () => {
 		expect(sonnet.pricing.prompt).toBe(sonnet.providers[0].pricing.prompt);
 	});
 
+	test("GET /v1/models lists virtual aliases as entries mirroring their target", async () => {
+		const [canonicalRes, mappedRes] = await Promise.all([
+			app.request("/v1/models"),
+			app.request("/v1/models?mapped=true"),
+		]);
+		const canonical = (await canonicalRes.json()).data;
+		const mapped = (await mappedRes.json()).data;
+		const byId = (data: { id: string }[], id: string) =>
+			data.find((m) => m.id === id) as Record<string, unknown> | undefined;
+
+		const ids = canonical.map((m: { id: string }) => m.id);
+		expect(new Set(ids).size).toBe(ids.length);
+
+		const target = byId(canonical, "deepseek-v4.1-flash-1017");
+		const alias = byId(canonical, "deepseek-v4.1-flash-latest");
+		expect(target).toBeDefined();
+		expect(alias).toEqual({
+			...target,
+			id: "deepseek-v4.1-flash-latest",
+			name: "deepseek-v4.1-flash-latest",
+			display_name: "deepseek-v4.1-flash-latest",
+			aliases: undefined,
+			virtual_model_target: "deepseek-v4.1-flash-1017",
+		});
+
+		const mappedTarget = byId(mapped, "deepinfra/deepseek-v4.1-flash-1017");
+		const mappedAlias = byId(mapped, "deepinfra/deepseek-v4.1-flash-latest");
+		expect(mappedTarget).toBeDefined();
+		expect(mappedAlias).toMatchObject({
+			pricing: mappedTarget!.pricing,
+			providers: mappedTarget!.providers,
+			display_name: "deepseek-v4.1-flash-latest (DeepInfra)",
+			virtual_model_target: "deepinfra/deepseek-v4.1-flash-1017",
+		});
+
+		// Non-virtual aliases stay on their model only.
+		expect(byId(canonical, "gpt-realtime-2025-08-28")).toBeUndefined();
+	});
+
 	test("GET /v1/models exposes min_cacheable_tokens on provider mappings that define it", async () => {
 		const res = await app.request("/v1/models");
 		expect(res.status).toBe(200);
@@ -204,7 +243,9 @@ describe("Models API", () => {
 		const now = new Date();
 		const definitionById = new Map(modelsList.map((m) => [m.id, m]));
 		for (const model of json.data) {
-			const definition = definitionById.get(model.id);
+			const definition = definitionById.get(
+				model.virtual_model_target ?? model.id,
+			);
 			expect(definition).toBeDefined();
 			const limits = (definition!.providers as ProviderModelMapping[])
 				.filter((p) => !(p.deactivatedAt && now > p.deactivatedAt))
@@ -315,7 +356,9 @@ describe("Models API", () => {
 		};
 
 		for (const model of json.data) {
-			const definition = definitionById.get(model.id);
+			const definition = definitionById.get(
+				model.virtual_model_target ?? model.id,
+			);
 			expect(definition).toBeDefined();
 			const mappings = definition!.providers as ProviderModelMapping[];
 
@@ -499,7 +542,9 @@ describe("Models API", () => {
 		const definitionById = new Map(modelsList.map((m) => [m.id, m]));
 
 		for (const model of json.data) {
-			const definition = definitionById.get(model.id);
+			const definition = definitionById.get(
+				model.virtual_model_target ?? model.id,
+			);
 			expect(definition).toBeDefined();
 			const mappings = definition!.providers as ProviderModelMapping[];
 
@@ -557,7 +602,9 @@ describe("Models API", () => {
 			// no deprecated-only mapping with a JSON flag exists in the catalog
 			// today, so that branch is covered by this loop's semantics.
 			for (const model of json.data) {
-				const definition = definitionById.get(model.id);
+				const definition = definitionById.get(
+					model.virtual_model_target ?? model.id,
+				);
 				expect(definition).toBeDefined();
 				const servable = (
 					definition!.providers as ProviderModelMapping[]
