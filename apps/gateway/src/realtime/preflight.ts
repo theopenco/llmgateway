@@ -225,8 +225,9 @@ async function runRealtimePreflightInner(
 				: `Realtime model not found: ${input.requestedModel}`,
 		);
 	}
-	// Transcription sessions speak the OpenAI realtime protocol end to end;
-	// the Gemini session implementation has no transcription-only mode.
+	// Transcription sessions speak the OpenAI realtime protocol end to end
+	// (ElevenLabs its own); the Gemini session implementation has no
+	// transcription-only mode.
 	if (
 		sessionType === "transcription" &&
 		match.mapping.providerId === "google-ai-studio"

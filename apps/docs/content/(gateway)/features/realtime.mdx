@@ -330,6 +330,49 @@ committed; audio that has already produced transcript deltas is committed by
 the gateway on disconnect and ahead of an `input_audio_buffer.clear`, so it is
 billed like any other turn.
 
+### ElevenLabs Scribe Live
+
+ElevenLabs realtime transcription models (such as `scribe-v3-live`) open a
+transcription session in **ElevenLabs' own realtime speech-to-text
+protocol** rather than the OpenAI event protocol. ElevenLabs configures the
+session at connection time, so its parameters go in the URL next to `model`:
+
+```
+wss://api.llmgateway.io/v1/realtime?model=scribe-v3-live&audio_format=pcm_16000&commit_strategy=vad
+```
+
+Authenticate as for any realtime session (an `Authorization` header, or a
+client secret minted with `session.type: "transcription"`). Then send
+`input_audio_chunk` messages and receive `session_started`,
+`partial_transcript` and `committed_transcript` messages as described in the
+[ElevenLabs realtime API reference](https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-speech-to-text-realtime):
+
+```json
+{
+	"message_type": "input_audio_chunk",
+	"audio_base_64": "<base64 PCM>",
+	"commit": false,
+	"sample_rate": 16000
+}
+```
+
+- Supported URL parameters: `audio_format` (default `pcm_16000`),
+  `language_code`, `secondary_languages`, `commit_strategy`, the VAD settings,
+  `include_timestamps`, `include_language_detection`, `no_verbatim`,
+  `multilang_mode`, `diarize`, `filter_background_audio`,
+  `keepalive_interval_ms` and `enable_logging`. Any other parameter is
+  rejected with HTTP 400.
+- Add-ons ElevenLabs bills separately — `keyterms`, `transcript_edit`,
+  `entity_detection` and `entity_redaction` — are rejected with
+  `unsupported_parameter`.
+- `sample_rate` must match `audio_format`; set the format in the URL.
+- ElevenLabs bills every second of audio sent, silences included. The gateway
+  meters the audio it forwards and bills it at the model's hourly rate before
+  each committed transcript is delivered, every 30 seconds of uncommitted
+  audio, and when the session closes.
+- Gateway errors arrive as `{"message_type": "error", "source": "llmgateway"}`
+  messages with a `code`.
+
 ## Image Input
 
 Realtime mappings with vision support accept `input_image` content in

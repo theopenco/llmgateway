@@ -28,6 +28,8 @@ import {
 	getClientSecretRecord,
 } from "./client-secrets.js";
 import { connectUpstream, discardUpstream } from "./connect-upstream.js";
+import { ElevenLabsRealtimeProxySession } from "./elevenlabs-session.js";
+import { buildElevenLabsRealtimeConfig } from "./elevenlabs.js";
 import { RealtimeConnectError } from "./errors.js";
 import { GeminiRealtimeProxySession } from "./gemini-session.js";
 import { acquireRealtimeLease, releaseRealtimeLease } from "./leases.js";
@@ -35,6 +37,7 @@ import { runRealtimePreflight } from "./preflight.js";
 import { RealtimeProxySession } from "./session.js";
 
 import type { RealtimeMappingMatch } from "./catalog.js";
+import type { ElevenLabsRealtimeConfig } from "./elevenlabs.js";
 import type {
 	RealtimePreflightResult,
 	RealtimeSessionType,
@@ -460,6 +463,19 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				}
 			}
 
+			// ElevenLabs sessions are configured by connection query parameters,
+			// validated here so a bad one is an HTTP 400 rather than an upstream
+			// close.
+			let elevenLabsConfig: ElevenLabsRealtimeConfig | undefined;
+			if (preflight.match.mapping.providerId === "elevenlabs") {
+				const result = buildElevenLabsRealtimeConfig(url.searchParams);
+				if (!result.ok) {
+					await reject(400, result.code, result.message);
+					return;
+				}
+				elevenLabsConfig = result.config;
+			}
+
 			const sessionRecord = await createRealtimeSessionRecord(
 				preflight,
 				requestedModel!,
@@ -520,7 +536,9 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 
 			let upstream: WebSocket;
 			try {
-				upstream = await connectUpstream(preflight);
+				upstream = await connectUpstream(preflight, {
+					query: elevenLabsConfig?.query,
+				});
 			} catch (error) {
 				await releaseRealtimeLease(lease);
 				await abortSession("upstream_connect_failed");
@@ -592,10 +610,26 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 			try {
 				wss.handleUpgrade(req, socket, head, (clientSocket) => {
 					upgraded = true;
-					// Gemini Live speaks its own wire protocol end to end, so it gets a
-					// sibling session implementation rather than protocol translation.
-					const session: ShutdownableSession =
-						preflight.match.mapping.providerId === "google-ai-studio"
+					// Gemini Live and ElevenLabs Scribe Live speak their own wire
+					// protocols end to end, so they get sibling session implementations
+					// rather than protocol translation.
+					const session: ShutdownableSession = elevenLabsConfig
+						? new ElevenLabsRealtimeProxySession({
+								clientSocket,
+								upstreamSocket: upstream,
+								preflight,
+								config: elevenLabsConfig,
+								gatewayToken: token!,
+								requestedModel: requestedModel!,
+								sessionRecordId: sessionRecord.id,
+								lease,
+								source,
+								userAgent: req.headers["user-agent"],
+								onClosed: (closed) => {
+									sessions.delete(closed);
+								},
+							})
+						: preflight.match.mapping.providerId === "google-ai-studio"
 							? new GeminiRealtimeProxySession({
 									clientSocket,
 									upstreamSocket: upstream,

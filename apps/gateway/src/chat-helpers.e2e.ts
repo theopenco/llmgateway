@@ -903,7 +903,16 @@ export const transcriptionModels = models
 // realtime-transcription.e2e.ts, applying the same TEST_MODELS/TEST_PROVIDERS,
 // deactivation, env-var, and stability filters as transcriptionModels.
 export const realtimeTranscriptionModels = realtimeTestCases(
-	(provider) => provider.realtimeTranscription === true,
+	(provider) =>
+		provider.realtimeTranscription === true &&
+		provider.providerId !== "elevenlabs",
+);
+
+// ElevenLabs Scribe Live sessions speak ElevenLabs' own realtime protocol.
+export const elevenLabsRealtimeTranscriptionModels = realtimeTestCases(
+	(provider) =>
+		provider.realtimeTranscription === true &&
+		provider.providerId === "elevenlabs",
 );
 
 // Speech-to-speech realtime mappings that speak the OpenAI realtime protocol
