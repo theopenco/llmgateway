@@ -153,6 +153,10 @@ const modelSchema = z.object({
 			"Human-readable model label, mirroring `name`. Anthropic-format clients such as Claude Code read this field when populating their model picker from gateway model discovery.",
 	}),
 	aliases: z.array(z.string()).optional(),
+	virtual_model_target: z.string().optional().openapi({
+		description:
+			"Set on virtual alias entries (e.g. `…-latest`): the model id this alias currently serves. The entry mirrors that model, and requests naming the alias route and bill against it.",
+	}),
 	created: z.number().optional(),
 	description: z.string().optional(),
 	family: z.string(),
@@ -511,7 +515,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 						}
 						return true;
 					})
-					.map((provider: ProviderModelMapping) => {
+					.flatMap((provider: ProviderModelMapping) => {
 						const providerDef = providers.find(
 							(p) => p.id === provider.providerId,
 						);
@@ -541,7 +545,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 							| "search"
 						)[] = model.output ?? ["text"];
 
-						return {
+						const entry = {
 							id:
 								provider.providerId === "custom"
 									? model.id
@@ -586,13 +590,17 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 							deactivated_at: provider.deactivatedAt?.toISOString(),
 							stability: provider.stability ?? model.stability,
 						};
+						return withVirtualAliasEntries(entry, model.id, {
+							idPrefix: `${provider.providerId}/`,
+							nameSuffix: ` (${providerDef?.name ?? provider.providerId})`,
+						});
 					}),
 			);
 
 			return c.json({ data: mappedData });
 		}
 
-		const modelData = filteredModels.map((model: ModelDefinition) => {
+		const modelData = filteredModels.flatMap((model: ModelDefinition) => {
 			// Determine input modalities (if model supports images)
 			const inputModalities: (
 				"text" | "image" | "video" | "embedding" | "audio"
@@ -635,7 +643,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 				modelDiscountOf,
 			);
 
-			return {
+			const entry = {
 				id: model.id,
 				name: model.name ?? model.id,
 				display_name: model.name ?? model.id,
@@ -696,6 +704,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 				),
 				stability: model.stability,
 			};
+			return withVirtualAliasEntries(entry, model.id);
 		});
 
 		return c.json({ data: modelData });
@@ -707,6 +716,50 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 		throw new HTTPException(500, { message: "Internal server error" });
 	}
 });
+
+// Virtual aliases (`aliasesAreVirtual`, e.g. "…-latest") per catalogue model.
+// Routing accepts them like model ids, resolving each to the first model that
+// lists it unless it is itself a model id (`getVirtualModelTarget`).
+const virtualAliasesByModelId = (() => {
+	const modelIds = new Set<string>(modelsList.map((model) => model.id));
+	const claimed = new Set<string>();
+	const owned = new Map<string, string[]>();
+	for (const model of modelsList as readonly ModelDefinition[]) {
+		if (!model.aliasesAreVirtual) {
+			continue;
+		}
+		for (const alias of model.aliases ?? []) {
+			if (modelIds.has(alias) || claimed.has(alias)) {
+				continue;
+			}
+			claimed.add(alias);
+			owned.set(model.id, [...(owned.get(model.id) ?? []), alias]);
+		}
+	}
+	return owned;
+})();
+
+// The entry followed by a copy per virtual alias of its model, so clients can
+// discover and select the alias like any other model. Mirrors the models
+// directory (`expandVirtualModels`): the alias is the id and name.
+function withVirtualAliasEntries<T extends { id: string; name: string }>(
+	entry: T,
+	modelId: string,
+	{ idPrefix = "", nameSuffix = "" } = {},
+): (T & { virtual_model_target?: string })[] {
+	const aliases = virtualAliasesByModelId.get(modelId) ?? [];
+	return [
+		entry,
+		...aliases.map((alias) => ({
+			...entry,
+			id: `${idPrefix}${alias}`,
+			name: `${alias}${nameSuffix}`,
+			display_name: `${alias}${nameSuffix}`,
+			aliases: undefined,
+			virtual_model_target: entry.id,
+		})),
+	];
+}
 
 // Serialize a provider mapping into the public `providers` entry shape shared
 // by the aggregated and mapped views.
