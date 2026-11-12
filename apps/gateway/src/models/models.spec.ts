@@ -178,8 +178,8 @@ describe("Models API", () => {
 		expect(alias).toEqual({
 			...target,
 			id: "deepseek-v4.1-flash-latest",
-			name: "deepseek-v4.1-flash-latest",
-			display_name: "deepseek-v4.1-flash-latest",
+			name: "DeepSeek V4.1 Flash Latest",
+			display_name: "DeepSeek V4.1 Flash Latest",
 			aliases: undefined,
 			virtual_model_target: "deepseek-v4.1-flash-1017",
 		});
@@ -190,7 +190,7 @@ describe("Models API", () => {
 		expect(mappedAlias).toMatchObject({
 			pricing: mappedTarget!.pricing,
 			providers: mappedTarget!.providers,
-			display_name: "deepseek-v4.1-flash-latest (DeepInfra)",
+			display_name: "DeepSeek V4.1 Flash Latest (DeepInfra)",
 			virtual_model_target: "deepinfra/deepseek-v4.1-flash-1017",
 		});
 

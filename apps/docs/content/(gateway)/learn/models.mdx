@@ -48,8 +48,9 @@ the alias is updated. Use the linked versioned model ID to pin a specific cut.
 Browse available aliases in the live [models directory](https://llmgateway.io/models).
 
 `GET /v1/models` also lists each alias as its own entry (`provider/alias` with
-`mapped=true`), mirroring the current cut's fields. Its `virtual_model_target`
-names that cut.
+`mapped=true`), mirroring the current cut's fields. Its name is the alias made
+readable (`deepseek-v4.1-flash-latest` → "DeepSeek V4.1 Flash Latest"), and its
+`virtual_model_target` names that cut.
 
 Requests may name the alias, bare or as `provider/alias`; they route, bill and
 log against the current cut. IAM, compliance, spend and rate limits apply to
