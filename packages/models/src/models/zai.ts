@@ -183,6 +183,7 @@ export const zaiModels = [
 			{
 				providerId: "cloudflare",
 				externalId: "@cf/zai-org/glm-5.3-flash",
+				deactivatedAt: new Date("2026-11-20"),
 				inputPrice: "0.15e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "0.5e-6",

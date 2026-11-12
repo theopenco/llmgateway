@@ -20,8 +20,17 @@ import {
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
 
-import { mappingTarget } from "@llmgateway/actions";
-import { db, desc, eq, inArray, isNotNull, and, tables } from "@llmgateway/db";
+import { DAILY_KEY_CHECK_PREFIX, mappingTarget } from "@llmgateway/actions";
+import {
+	db,
+	desc,
+	eq,
+	inArray,
+	isNotNull,
+	and,
+	notLike,
+	tables,
+} from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
@@ -314,9 +323,16 @@ adminModelVerifications.openapi(listLatestVerifications, async (c) => {
 				])
 				.from(tables.providerModelVerification)
 				.where(
-					inArray(
-						tables.providerModelVerification.modelProviderMappingId,
-						mappings.map((mapping) => mapping.id),
+					and(
+						inArray(
+							tables.providerModelVerification.modelProviderMappingId,
+							mappings.map((mapping) => mapping.id),
+						),
+						// Another key's re-run of a daily failure is not the mapping's health.
+						notLike(
+							tables.providerModelVerification.id,
+							DAILY_KEY_CHECK_PREFIX + "%",
+						),
 					),
 				)
 				.orderBy(

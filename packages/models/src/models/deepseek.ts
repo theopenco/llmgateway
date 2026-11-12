@@ -623,6 +623,7 @@ export const deepseekModels = [
 			{
 				providerId: "cloudflare",
 				externalId: "@cf/deepseek-ai/deepseek-v4-pro-0813",
+				deactivatedAt: new Date("2026-11-20"),
 				inputPrice: "1.32e-6",
 				cachedInputPrice: "0.044e-6",
 				outputPrice: "3.96e-6",
@@ -1279,6 +1280,7 @@ export const deepseekModels = [
 			{
 				providerId: "cloudflare",
 				externalId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+				deactivatedAt: new Date("2026-11-20"),
 				inputPrice: "0.44e-6",
 				cachedInputPrice: "0.014e-6",
 				outputPrice: "1.32e-6",

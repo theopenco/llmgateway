@@ -4,11 +4,7 @@ import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import {
-	apiAuth as auth,
-	deleteResendContact,
-	updateResendContact,
-} from "@/auth/config.js";
+import { apiAuth as auth } from "@/auth/config.js";
 import {
 	MAX_PASSWORD_LENGTH,
 	MIN_PASSWORD_LENGTH,
@@ -18,6 +14,10 @@ import {
 	tearDownSoleMemberOrganizations,
 } from "@/lib/account-deletion.js";
 import { requestEmailChange } from "@/lib/email-change.js";
+import {
+	deleteResendContact,
+	updateResendContact,
+} from "@/lib/resend-contacts.js";
 import { getAdminRole } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
 import { notifyUserAccountDeleted } from "@/utils/discord.js";
@@ -451,9 +451,8 @@ user.openapi(updateUser, async (c) => {
 		.where(eq(tables.user.id, authUser.id))
 		.returning();
 
-	// Sync name to Resend if email is verified (contact exists in Resend)
-	if (updatedUser.emailVerified && updateData.name !== undefined) {
-		await updateResendContact(updatedUser.email, { name: updateData.name });
+	if (updateData.name !== undefined) {
+		await updateResendContact(updatedUser, { name: updateData.name });
 	}
 
 	const adminRole = getAdminRole(updatedUser);
@@ -755,7 +754,7 @@ user.openapi(deleteUser, async (c) => {
 		forfeitedCredits,
 	});
 
-	await deleteResendContact(userRecord.email);
+	await deleteResendContact(userRecord);
 
 	for (const cookie of signOutResult.headers.getSetCookie()) {
 		c.header("set-cookie", cookie, { append: true });
@@ -847,12 +846,9 @@ user.openapi(completeOnboarding, async (c) => {
 
 	const authInfo = await getUserAuthInfo(authUser.id);
 
-	// Update Resend contact if email is verified (contact exists in Resend)
-	if (updatedUser.emailVerified) {
-		await updateResendContact(updatedUser.email, {
-			attributes: { onboarding_completed: true },
-		});
-	}
+	await updateResendContact(updatedUser, {
+		attributes: { onboarding_completed: true },
+	});
 
 	const adminRole = getAdminRole(updatedUser);
 
