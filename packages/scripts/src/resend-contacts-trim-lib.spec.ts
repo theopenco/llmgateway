@@ -68,6 +68,8 @@ interface World {
 	afterDelete?: (id: string) => void;
 	/** Runs once a contact's topics have been served. */
 	afterTopics?: (id: string) => void;
+	/** Runs once a single contact has been served. */
+	afterContact?: (id: string) => void;
 }
 
 function json(data: unknown, status = 200): Response {
@@ -158,7 +160,9 @@ function fakeResend(world: World): ResendRequest {
 				email: contact.email,
 				unsubscribed: contact.unsubscribed,
 			};
-			return json(world.tamper?.(url.pathname, body) ?? body);
+			const response = json(world.tamper?.(url.pathname, body) ?? body);
+			world.afterContact?.(contact.id);
+			return response;
 		}
 		if (method === "GET" && child === "topics") {
 			const response = page(
@@ -447,6 +451,51 @@ test("a duplicate whose kept copy is deleted meanwhile is the copy that stays", 
 
 	expect(ids(state)).toEqual([...KEPT, "twin-newer"]);
 	expect(result.removed.duplicate).toBe(0);
+});
+
+test("a duplicate whose protected copy is deleted meanwhile is the copy that stays", async () => {
+	const shared = { email: "left@example.com" };
+	const state = world([
+		entry("left-subscribed", shared),
+		entry("left-unsubscribed", { ...shared, unsubscribed: true }),
+	]);
+	state.afterDelete = (id) => {
+		if (id === "bounced") {
+			state.contacts = state.contacts.filter(
+				(contact) => contact.id !== "left-unsubscribed",
+			);
+		}
+	};
+
+	await run(state, {
+		apply: true,
+		accounts: accounts([account("left@example.com")]),
+	});
+
+	expect(ids(state)).toEqual([...KEPT, "left-subscribed"]);
+});
+
+test("a duplicate's unsubscribe is read after its kept copy, last before the delete", async () => {
+	const shared = { email: "twin@example.com" };
+	const state = world([
+		entry("twin-oldest", { ...shared, created_at: "2026-06-01 10:00:00+00" }),
+		entry("twin-newer", { ...shared, created_at: "2026-06-02 10:00:00+00" }),
+	]);
+	state.afterContact = (id) => {
+		if (id === "twin-oldest") {
+			state.contacts.find(
+				(contact) => contact.id === "twin-newer",
+			)!.unsubscribed = true;
+		}
+	};
+
+	const result = await run(state, {
+		apply: true,
+		accounts: accounts([account("twin@example.com")]),
+	});
+
+	expect(ids(state)).toEqual([...KEPT, "twin-oldest", "twin-newer"]);
+	expect(result.kept.unsubscribed).toBe(2);
 });
 
 test("a kept copy that cannot be looked up stops the run with its duplicate in place", async () => {

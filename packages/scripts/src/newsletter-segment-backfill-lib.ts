@@ -56,8 +56,11 @@ export function assertProductionDatabase(
 	databaseHost: string,
 	allowLocalDatabase: boolean,
 ): void {
-	const local =
-		LOCAL_HOSTS.has(databaseHost) || IPV4_LOOPBACK.test(databaseHost);
+	// As the URL parser reads it, so LOCALHOST, 127.1 or 0x7f.0.0.1 count too.
+	const host = URL.canParse(`http://${databaseHost}`)
+		? new URL(`http://${databaseHost}`).hostname
+		: databaseHost;
+	const local = LOCAL_HOSTS.has(host) || IPV4_LOOPBACK.test(host);
 	if (local && !allowLocalDatabase) {
 		throw new Error(
 			`DATABASE_URL points at ${databaseHost}; --apply needs the production database (pass --allow-local-database if this is a tunnel to it)`,

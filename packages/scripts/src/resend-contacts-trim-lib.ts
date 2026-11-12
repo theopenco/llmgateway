@@ -305,7 +305,7 @@ async function settle(
 				return "reachable";
 			}
 		}
-		// With its kept copy gone, a duplicate is the address's only contact.
+		// With its kept copy gone, a duplicate may be the address's last contact.
 		if (keeperId && !(await isStillThere(input.request, keeperId))) {
 			return "reachable";
 		}

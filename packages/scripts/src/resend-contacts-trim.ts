@@ -16,12 +16,14 @@
  * Each candidate gets a last look right before its delete: its newsletter
  * opt-in and its unsubscribe are read again, and either keeps it. For the two
  * account groups its account is read again too, and a reachable one keeps it.
- * A delete cannot be undone and the script keeps no record of it, so export
- * the contacts first if you may want them back.
+ * A duplicate is kept when the copy it duplicates is gone by then. A delete
+ * cannot be undone and the script keeps no record of it, so export the
+ * contacts first if you may want them back.
  *
  * It lists every contact, newsletter member and suppression, then makes two
- * calls per candidate (plus a database read for the two account groups) and
- * one more per delete, at most five a second. Running it again is safe.
+ * calls per candidate (three for a duplicate, plus a database read for the two
+ * account groups) and one more per delete, at most five a second. Running it
+ * again is safe.
  *
  * Usage:
  *   # count each group and print the flags for a write run

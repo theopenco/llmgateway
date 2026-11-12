@@ -177,9 +177,13 @@ test("a write run refuses a local or empty database", () => {
 	).not.toThrow();
 	for (const databaseHost of [
 		"localhost",
+		"LOCALHOST",
 		"127.0.0.1",
 		"127.0.0.2",
 		"127.255.255.254",
+		"127.1",
+		"2130706433",
+		"0x7f.0.0.1",
 		"::1",
 	]) {
 		expect(() => assertSafeToApply({ ...remote, databaseHost })).toThrow(
