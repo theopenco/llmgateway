@@ -15,7 +15,7 @@ Last updated: 2026-10-31
 
 ## Economics
 
-- Listing on llmgateway.io costs a one-time, non-refundable $2,500 fee per provider company, charged via Stripe before a claim is approved. Providers we already work with can skip it with an invite code entered during onboarding. Self-hosted deployments without a configured fee list for free.
+- Listing on llmgateway.io costs a one-time, non-refundable $5,000 fee per provider company, charged via Stripe before a claim is approved. Providers we already work with can skip it with an invite code entered during onboarding. Self-hosted deployments without a configured fee list for free.
 - There is no recurring platform fee and no minimum volume. You share margin only on traffic you actually win.
 - A listing covers your team: owners can invite up to 10 crew members to the console.
 - You set the gateway margin you accept and an optional routing discount; changes are filed for review and change how your models are scored once approved.

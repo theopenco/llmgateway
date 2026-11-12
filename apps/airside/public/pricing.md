@@ -6,7 +6,7 @@ Last updated: 2026-11-11
 
 ## Listing a carrier
 
-- Price: a one-time $2,500 listing fee per provider company on llmgateway.io, charged via Stripe, payable before a claim is approved. Non-refundable, including if the claim is later rejected or revoked. (Self-hosted deployments without a configured fee list for free.)
+- Price: a one-time $5,000 listing fee per provider company on llmgateway.io, charged via Stripe, payable before a claim is approved. Non-refundable, including if the claim is later rejected or revoked. (Self-hosted deployments without a configured fee list for free.)
 - Providers we already work with can skip the fee with an invite code we share with them — entered during onboarding instead of paying.
 - Recurring platform fee: none.
 - Minimum volume or revenue commitment: none.
