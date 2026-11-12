@@ -818,6 +818,80 @@ describe("verification regression delivery", () => {
 		expect(embeds[1].fields[2].value).toBe("basic");
 	});
 
+	it("alerts an alternate key failing a check outside the regression", async () => {
+		const { id, mapping } = await seed();
+		const second = await secondKey(mapping.providerId);
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ streaming: true })
+			.where(eq(tables.modelProviderMapping.id, mapping.id));
+		await scheduleDailyModelVerifications(now);
+		const both = (
+			basic: "passed" | "failed",
+			streaming: "passed" | "failed",
+		) => [
+			check(basic),
+			{ id: "streaming", label: "Streaming", status: streaming },
+		];
+		const current = await job(id);
+		const target = { ...current.target, gatewayExecutionVersion: 1 };
+		await db.insert(tables.providerModelVerification).values({
+			id: randomUUID(),
+			modelProviderMappingId: mapping.id,
+			initiatedBy: "admin",
+			target,
+			checks: both("passed", "passed"),
+			status: "passed",
+			credentialSource: "managed",
+			createdAt: new Date(now.getTime() - day),
+			completedAt: new Date(now.getTime() - day),
+		});
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				status: "failed",
+				target,
+				checks: both("failed", "passed"),
+				createdAt: now,
+				completedAt: now,
+			})
+			.where(eq(tables.providerModelVerification.id, id));
+		const fetcher = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(new Response(null, { status: 204 }));
+		expect(await deliverModelVerificationRegressions(now, fetcher)).toBe(0);
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				status: "failed",
+				checks: both("passed", "failed"),
+				completedAt: now,
+			})
+			.where(
+				like(tables.providerModelVerification.id, "daily-verification:key:%"),
+			);
+		expect(
+			await deliverModelVerificationRegressions(minutesAfterNow(6), fetcher),
+		).toBe(2);
+		const embeds = fetcher.mock.calls.map(
+			(call) => JSON.parse(String(call[1]?.body)).embeds[0],
+		);
+		expect(
+			embeds.map((embed) => [
+				embed.title,
+				embed.fields[0].value,
+				embed.fields[2].value,
+			]),
+		).toEqual([
+			[
+				"Managed provider key failing verification",
+				current.target.providerKeyId,
+				"basic",
+			],
+			["Managed provider key failing verification", second, "streaming"],
+		]);
+	});
+
 	it("reports a key that fails where another key passes once per day", async () => {
 		const first = await seed();
 		const second = await seed("catalogue", first.mapping.providerId);

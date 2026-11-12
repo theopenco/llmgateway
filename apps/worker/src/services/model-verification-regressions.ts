@@ -464,7 +464,10 @@ export async function deliverModelVerificationRegressions(
 			const everyKey = checks.filter(
 				(id) => !finished.some((run) => passesCheck(run, id)),
 			);
-			const keyOnly = checks.filter((id) => !everyKey.includes(id));
+			const runs = [job, ...finished];
+			const checkIds = [
+				...new Set(runs.flatMap((run) => run.checks.map((check) => check.id))),
+			];
 			const alerts: { id: string; payload: unknown }[] = [];
 			if (everyKey.length) {
 				alerts.push({
@@ -473,8 +476,12 @@ export async function deliverModelVerificationRegressions(
 				});
 			}
 			// Alert each key failing a check another key passes, once per day.
-			for (const run of [job, ...finished]) {
-				const failed = keyOnly.filter((id) => !passesCheck(run, id));
+			for (const run of runs) {
+				const failed = checkIds.filter(
+					(id) =>
+						!passesCheck(run, id) &&
+						runs.some((other) => other !== run && passesCheck(other, id)),
+				);
 				if (!failed.length || !run.target.providerKeyId) {
 					continue;
 				}
@@ -487,7 +494,7 @@ export async function deliverModelVerificationRegressions(
 					payload: managedKeyFailurePayload(
 						run,
 						failed,
-						[job, ...finished].filter((other) => other !== run),
+						runs.filter((other) => other !== run),
 					),
 				});
 			}
