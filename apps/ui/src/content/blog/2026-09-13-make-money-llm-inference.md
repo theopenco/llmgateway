@@ -84,7 +84,7 @@ Raise the landing fee to 30% and you keep $812 from the same traffic, but you en
 
 Listing on llmgateway.io carries a one-time, non-refundable **$5,000 listing fee** per provider company, paid through Stripe during onboarding and due before your claim is approved. Providers we already work with receive an invite code that waives it. There is no subscription and no minimum volume: after the fee, you only share the landing fee on traffic you actually win. One fee covers up to 10 crew members and as many carriers as your company operates. Self-hosted deployments with no fee configured list for free.
 
-Against that fee, the calculation is simple. At the worked example's rates and a 20% landing fee, the listing pays for itself once you have served roughly 2.7 months of that traffic. A busier deployment or a higher-priced model gets there faster.
+Against that fee, the calculation is simple. At the worked example's rates and a 20% landing fee, the listing pays for itself once you have served roughly 5.4 months of that traffic. A busier deployment or a higher-priced model gets there faster.
 
 ## Set up your listing in five steps
 
