@@ -2105,6 +2105,13 @@ export async function prepareRequestBody(
 			if (openaiImageRequest.output_format) {
 				formData.append("output_format", openaiImageRequest.output_format);
 			}
+			if (openaiImageRequest.svg) {
+				formData.append("svg[model]", openaiImageRequest.svg.model);
+				const effort = openaiImageRequest.svg.reasoning?.effort;
+				if (effort) {
+					formData.append("svg[reasoning][effort]", effort);
+				}
+			}
 			if (openaiImageRequest.output_compression !== undefined) {
 				formData.append(
 					"output_compression",
