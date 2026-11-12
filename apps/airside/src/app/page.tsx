@@ -38,7 +38,7 @@ const STEPS = [
 	{
 		icon: ShieldCheck,
 		title: "Verify your domain",
-		body: "Sign up with your company email. Verify ownership through your API or website domain. Settle the one-time $2,500 listing fee — or a partner invite code — then submit your carrier claim for review.",
+		body: "Sign up with your company email. Verify ownership through your API or website domain. Settle the one-time $5,000 listing fee — or a partner invite code — then submit your carrier claim for review.",
 	},
 	{
 		icon: PlaneTakeoff,
@@ -101,7 +101,7 @@ const FAQ: {
 	{
 		id: "listing-cost",
 		q: "What does listing cost?",
-		a: "A one-time $2,500 listing fee per provider company, paid via Stripe during onboarding and due before your claim is approved — non-refundable, and waived with an invite code if we already work with you. No subscription, no minimum volume: once listed you only share the gateway margin you accept on traffic you win.",
+		a: "A one-time $5,000 listing fee per provider company, paid via Stripe during onboarding and due before your claim is approved — non-refundable, and waived with an invite code if we already work with you. No subscription, no minimum volume: once listed you only share the gateway margin you accept on traffic you win.",
 	},
 	{
 		id: "getting-paid",
@@ -227,7 +227,7 @@ export default function LandingPage() {
 											className="border-primary-foreground/40 h-5 w-px border-l border-dashed"
 										/>
 										<span className="font-mono text-xs font-normal tracking-widest">
-											$2,500
+											$5,000
 										</span>
 									</Link>
 								</Button>
@@ -236,7 +236,7 @@ export default function LandingPage() {
 								</Button>
 							</div>
 							<p className="text-muted-foreground mt-4 font-mono text-xs">
-								Self-serve. Verified by your email domain. One-time $2,500
+								Self-serve. Verified by your email domain. One-time $5,000
 								listing fee — you're listed once we approve your claim.
 							</p>
 						</div>
@@ -445,13 +445,13 @@ export default function LandingPage() {
 										className="border-primary-foreground/40 h-5 w-px border-l border-dashed"
 									/>
 									<span className="font-mono text-xs font-normal tracking-widest">
-										$2,500
+										$5,000
 									</span>
 								</Link>
 							</Button>
 						</div>
 						<p className="text-muted-foreground mt-4 font-mono text-xs">
-							One-time $2,500 listing fee, due before approval — after that you
+							One-time $5,000 listing fee, due before approval — after that you
 							only share margin on traffic you win.
 						</p>
 					</div>

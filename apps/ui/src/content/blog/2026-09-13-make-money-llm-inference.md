@@ -11,7 +11,7 @@ faqs:
   - question: "How do inference providers get paid through LLM Gateway?"
     answer: "Developers are billed at your filed price, less any discount you chose to offer. You keep that billed traffic less the landing fee you accept, which is 20% by default and adjustable between 5% and 50%. The console reports traffic; the settlement schedule is set in a written agreement with LLM Gateway."
   - question: "What does it cost to sell inference through Airside?"
-    answer: "A one-time, non-refundable $2,500 listing fee per provider company, paid through Stripe before your claim is approved. Providers LLM Gateway already works with receive an invite code that waives it. There is no subscription, no minimum volume, and no charge on traffic you do not serve. Self-hosted deployments with no fee configured list for free."
+    answer: "A one-time, non-refundable $5,000 listing fee per provider company, paid through Stripe before your claim is approved. Providers LLM Gateway already works with receive an invite code that waives it. There is no subscription, no minimum volume, and no charge on traffic you do not serve. Self-hosted deployments with no fee configured list for free."
   - question: "Is a lower price the only way to win routed traffic?"
     answer: "No. Price carries the heaviest routing weight, but uptime is nearly as heavy, and a deployment below 95% uptime is penalized quadratically. Verified capabilities, a cached-input price, throughput, and time to first token all change which provider wins a request."
 image:
@@ -82,7 +82,7 @@ Raise the landing fee to 30% and you keep $812 from the same traffic, but you en
 
 ## What it costs to get listed
 
-Listing on llmgateway.io carries a one-time, non-refundable **$2,500 listing fee** per provider company, paid through Stripe during onboarding and due before your claim is approved. Providers we already work with receive an invite code that waives it. There is no subscription and no minimum volume: after the fee, you only share the landing fee on traffic you actually win. One fee covers up to 10 crew members and as many carriers as your company operates. Self-hosted deployments with no fee configured list for free.
+Listing on llmgateway.io carries a one-time, non-refundable **$5,000 listing fee** per provider company, paid through Stripe during onboarding and due before your claim is approved. Providers we already work with receive an invite code that waives it. There is no subscription and no minimum volume: after the fee, you only share the landing fee on traffic you actually win. One fee covers up to 10 crew members and as many carriers as your company operates. Self-hosted deployments with no fee configured list for free.
 
 Against that fee, the calculation is simple. At the worked example's rates and a 20% landing fee, the listing pays for itself once you have served roughly 2.7 months of that traffic. A busier deployment or a higher-priced model gets there faster.
 
