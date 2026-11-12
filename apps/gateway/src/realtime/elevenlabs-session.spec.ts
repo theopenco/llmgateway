@@ -3,10 +3,7 @@ import { EventEmitter } from "node:events";
 import { Decimal } from "decimal.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-	checkProviderRateLimit,
-	peekProviderRateLimit,
-} from "@/lib/provider-rate-limit.js";
+import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
 
 import { authorizeAccount, availableCredits } from "./account-gate.js";
 import {
@@ -25,7 +22,6 @@ vi.mock("./account-gate.js", () => ({
 
 vi.mock("@/lib/provider-rate-limit.js", () => ({
 	checkProviderRateLimit: vi.fn(async () => ({ allowed: true })),
-	peekProviderRateLimit: vi.fn(async () => ({ allowed: true })),
 }));
 
 vi.mock("@llmgateway/db", async (importOriginal) => ({
@@ -289,7 +285,7 @@ describe("ElevenLabsRealtimeProxySession", () => {
 		});
 	});
 
-	it("counts one provider request per session and peeks at checkpoints", async () => {
+	it("counts one provider request and reauthorizes after each charge", async () => {
 		const { clientSends, upstreamSends, chunk, session } = createSession();
 		clientSends(chunk(3200, { commit: true }));
 		await flush();
@@ -300,7 +296,8 @@ describe("ElevenLabsRealtimeProxySession", () => {
 		upstreamSends({ message_type: "committed_transcript", text: "b" });
 		await flush();
 		expect(checkProviderRateLimit).toHaveBeenCalledTimes(1);
-		expect(peekProviderRateLimit).toHaveBeenCalledTimes(2);
+		expect(authorizeAccount).toHaveBeenCalledTimes(2);
+		expect(availableCredits).toHaveBeenCalledTimes(2);
 		expect(billedSeconds()).toEqual([0.1, 0.1]);
 		session.shutdown(1000, "test");
 	});
@@ -348,6 +345,40 @@ describe("ElevenLabsRealtimeProxySession", () => {
 		release();
 		await flush();
 		expect(client.paused).toBe(false);
+		session.shutdown(1000, "test");
+	});
+
+	it("reauthorizes once the cached authorization expires", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			const { clientSends, chunk, session } = createSession();
+			clientSends(chunk(320));
+			await flush();
+			clientSends(chunk(320));
+			await flush();
+			expect(authorizeAccount).toHaveBeenCalledTimes(1);
+			vi.setSystemTime(Date.now() + 5001);
+			clientSends(chunk(320));
+			await flush();
+			expect(authorizeAccount).toHaveBeenCalledTimes(2);
+			session.shutdown(1000, "test");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("refuses audio without closing when the balance is unreadable", async () => {
+		vi.mocked(availableCredits).mockResolvedValueOnce(null);
+		const { client, upstream, clientSends, chunk, clientMessages, session } =
+			createSession();
+		clientSends(chunk(320));
+		await flush();
+		expect(upstream.sent).toEqual([]);
+		expect(clientMessages()[0]).toMatchObject({ code: "gate_unavailable" });
+		expect(client.closed).toEqual([]);
+		clientSends(chunk(320));
+		await flush();
+		expect(upstream.sent).toHaveLength(1);
 		session.shutdown(1000, "test");
 	});
 });

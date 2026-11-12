@@ -1,10 +1,7 @@
 import { Decimal } from "decimal.js";
 import { WebSocket } from "ws";
 
-import {
-	checkProviderRateLimit,
-	peekProviderRateLimit,
-} from "@/lib/provider-rate-limit.js";
+import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
 
 import { getEffectiveDiscount } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -48,6 +45,13 @@ const pingIntervalMs = () =>
  * commits still clears the account gates regularly.
  */
 const BILLING_INTERVAL_SECONDS = 30;
+
+/**
+ * Audio is forwarded on a cached authorization for at most this long, and
+ * never past a charge, so a revoked key or exhausted balance stops egress
+ * within seconds.
+ */
+const REAUTHORIZE_INTERVAL_MS = 5000;
 
 /** Upstream events that close a transcript segment. */
 const COMMIT_EVENTS = new Set([
@@ -134,9 +138,9 @@ export class ElevenLabsRealtimeProxySession {
 	private billedSegments = 0;
 	// Billing runs one at a time, from either socket's queue.
 	private billingQueue: Promise<boolean> = Promise.resolve(true);
-	// Set while the post-billing gates run; audio waits for the verdict.
-	private postBillingGate: Promise<void> = Promise.resolve();
-	private authorized = false;
+	// When audio was last authorized; null forces a check before the next chunk.
+	private authorizedAt: number | null = null;
+	private rateLimitCounted = false;
 
 	private finalized = false;
 	private closing = false;
@@ -400,16 +404,18 @@ export class ElevenLabsRealtimeProxySession {
 	}
 
 	/**
-	 * Authorize the session's input stream once — account, credits, and one
-	 * provider rate-limit request for the session — then rely on the
-	 * post-billing gates to stop it when the account no longer clears them.
+	 * Authorize audio before it reaches the provider: account and credits at
+	 * most every REAUTHORIZE_INTERVAL_MS and after every charge, plus one
+	 * provider rate-limit request for the whole session.
 	 */
 	private async authorizeAudio(): Promise<boolean> {
-		await this.postBillingGate;
 		if (this.finalized || this.closing) {
 			return false;
 		}
-		if (this.authorized) {
+		if (
+			this.authorizedAt !== null &&
+			Date.now() - this.authorizedAt < REAUTHORIZE_INTERVAL_MS
+		) {
 			return true;
 		}
 		const authorization = await authorizeAccount({
@@ -428,16 +434,19 @@ export class ElevenLabsRealtimeProxySession {
 			}
 			return false;
 		}
-		if (
-			!(await this.creditsRemain(authorization.organization)) ||
-			!(await this.rateLimitAllows(checkProviderRateLimit))
-		) {
+		if (!(await this.creditsRemain(authorization.organization))) {
 			return false;
+		}
+		if (!this.rateLimitCounted) {
+			if (!(await this.rateLimitAllows())) {
+				return false;
+			}
+			this.rateLimitCounted = true;
 		}
 		if (this.finalized || this.closing) {
 			return false;
 		}
-		this.authorized = true;
+		this.authorizedAt = Date.now();
 		return true;
 	}
 
@@ -452,7 +461,14 @@ export class ElevenLabsRealtimeProxySession {
 			this.preflight.project.organizationId,
 			organization,
 		);
-		if (available !== null && available.lessThanOrEqualTo(0)) {
+		if (available === null) {
+			this.refuse(
+				"gate_unavailable",
+				"Unable to verify account state; audio is temporarily not accepted.",
+			);
+			return false;
+		}
+		if (available.lessThanOrEqualTo(0)) {
 			this.refuse(
 				"insufficient_credits",
 				"Organization has insufficient credits to continue this session.",
@@ -465,13 +481,10 @@ export class ElevenLabsRealtimeProxySession {
 
 	/**
 	 * Close the session when the provider rate limit is exhausted. The session
-	 * counts as one provider request: it is counted when audio is first
-	 * authorized and only peeked at billing checkpoints.
+	 * counts as one provider request, counted when audio is first authorized.
 	 */
-	private async rateLimitAllows(
-		check: typeof checkProviderRateLimit | typeof peekProviderRateLimit,
-	): Promise<boolean> {
-		const rateLimit = await check(
+	private async rateLimitAllows(): Promise<boolean> {
+		const rateLimit = await checkProviderRateLimit(
 			this.preflight.project.organizationId,
 			this.preflight.match.mapping.providerId,
 			this.preflight.match.modelId,
@@ -607,51 +620,21 @@ export class ElevenLabsRealtimeProxySession {
 	}
 
 	/**
-	 * Re-run the account gates after a charge. Audio waits for the verdict so
-	 * a session that just lost its authorization cannot stream past it.
+	 * After a charge: close the session at its spend limit, and require a
+	 * fresh authorization (account and credits) before the next chunk.
 	 */
 	private afterBilling(): void {
 		if (this.finalized || this.closing) {
 			return;
 		}
-		this.postBillingGate = this.enforceLimits().catch((error: unknown) => {
-			logger.error(
-				"ElevenLabs realtime post-billing gate failed; closing session",
-				error as Error,
-			);
-			this.shutdown(1011, "internal_error");
-		});
-	}
-
-	private async enforceLimits(): Promise<void> {
+		this.authorizedAt = null;
 		if (this.sessionSpend.greaterThanOrEqualTo(maxSessionSpendUsd())) {
 			this.refuse(
 				"session_spend_limit",
 				`This session has reached its spend limit ($${maxSessionSpendUsd()}). Reconnect to start a new session.`,
 			);
 			void this.settleAndShutdown(1008, "session_spend_limit");
-			return;
 		}
-
-		const authorization = await authorizeAccount({
-			preflight: this.preflight,
-			gatewayToken: this.gatewayToken,
-			requestedModel: this.requestedModel,
-			match: this.preflight.match,
-		});
-		if (!authorization.ok) {
-			if (authorization.severity === "transient") {
-				return;
-			}
-			this.refuse(authorization.code, authorization.message);
-			void this.settleAndShutdown(1008, authorization.code);
-			return;
-		}
-
-		if (!(await this.creditsRemain(authorization.organization))) {
-			return;
-		}
-		await this.rateLimitAllows(peekProviderRateLimit);
 	}
 
 	/** Refuse further audio and log it like a rejected HTTP request. */
