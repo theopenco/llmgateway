@@ -834,7 +834,7 @@ describe("verification regression delivery", () => {
 			{ id: "streaming", label: "Streaming", status: streaming },
 		];
 		const current = await job(id);
-		const target = { ...current.target, gatewayExecutionVersion: 1 };
+		const target = { ...current.target, gatewayExecutionVersion: 1 as const };
 		await db.insert(tables.providerModelVerification).values({
 			id: randomUUID(),
 			modelProviderMappingId: mapping.id,
