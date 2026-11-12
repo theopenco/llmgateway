@@ -296,9 +296,17 @@ export const healthChecker = new HealthChecker(
 	{
 		// Ping both the main and the storage Redis; either failing marks the
 		// gateway unhealthy (they may be the same instance via env fallback).
+		// Wait for both to settle so the shared call covers a stalled ping.
 		redisClient: {
 			ping: async () => {
-				await Promise.all([redisClient.ping(), storageRedisClient.ping()]);
+				const results = await Promise.allSettled([
+					redisClient.ping(),
+					storageRedisClient.ping(),
+				]);
+				const failed = results.find((result) => result.status === "rejected");
+				if (failed) {
+					throw failed.reason;
+				}
 				return "PONG";
 			},
 		},
