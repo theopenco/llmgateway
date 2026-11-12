@@ -26,6 +26,14 @@ const upstreamHandshakeTimeoutMs = () =>
 const GEMINI_LIVE_PATH =
 	"/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
 
+export interface UpstreamConnectOptions {
+	/**
+	 * Provider session parameters forwarded on the upstream URL, for providers
+	 * configured at connection time (ElevenLabs).
+	 */
+	query?: URLSearchParams;
+}
+
 export interface UpstreamTarget {
 	url: string;
 	headers: Record<string, string>;
@@ -38,6 +46,7 @@ export interface UpstreamTarget {
  */
 export function resolveUpstreamTarget(
 	preflight: RealtimePreflightResult,
+	options: UpstreamConnectOptions = {},
 ): UpstreamTarget {
 	const providerId = preflight.match.mapping.providerId as Provider;
 
@@ -68,6 +77,18 @@ export function resolveUpstreamTarget(
 				// connections; the `key` query parameter is deliberately not used.
 				"x-goog-api-key": preflight.upstreamToken,
 			},
+		};
+	}
+
+	if (providerId === "elevenlabs") {
+		// Scribe Live is configured by query parameters; the gateway validated
+		// them before connecting (buildElevenLabsRealtimeConfig).
+		const baseUrl = credentialBaseUrl ?? "https://api.elevenlabs.io";
+		const query = new URLSearchParams(options.query);
+		query.set("model_id", preflight.match.mapping.externalId);
+		return {
+			url: `${baseUrl.replace(/^http/, "ws")}/v1/speech-to-text/realtime?${query.toString()}`,
+			headers: { "xi-api-key": preflight.upstreamToken },
 		};
 	}
 
@@ -130,8 +151,9 @@ export function resolveUpstreamTarget(
  */
 export async function connectUpstream(
 	preflight: RealtimePreflightResult,
+	options: UpstreamConnectOptions = {},
 ): Promise<WebSocket> {
-	const target = resolveUpstreamTarget(preflight);
+	const target = resolveUpstreamTarget(preflight, options);
 	const guardTenantTarget =
 		Boolean(preflight.providerKey) && isProviderUrlGuardEnabled();
 	if (guardTenantTarget) {

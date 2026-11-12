@@ -159,4 +159,30 @@ export const elevenlabsModels = [
 			},
 		],
 	},
+	{
+		id: "scribe-v3-live",
+		name: "Scribe v3 Live",
+		description:
+			"ElevenLabs' most accurate realtime speech-to-text model, with turn prediction and live diarization across 90+ languages. Served through the gateway's /v1/realtime WebSocket endpoint in ElevenLabs' native realtime protocol, billed per hour of audio sent.",
+		family: "elevenlabs",
+		output: ["text"],
+		releasedAt: new Date("2026-11-10"),
+		providers: [
+			{
+				providerId: "elevenlabs",
+				externalId: "scribe_v3_live",
+				inputPrice: "0",
+				outputPrice: "0",
+				inputAudioHourPrice: "0.22",
+				requestPrice: "0",
+				streaming: false,
+				vision: false,
+				audio: true,
+				tools: false,
+				jsonOutput: false,
+				realtimeTranscription: true,
+				test: "skip",
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];
