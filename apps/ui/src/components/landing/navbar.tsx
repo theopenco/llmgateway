@@ -2,6 +2,7 @@
 
 import {
 	Activity,
+	BarChart3,
 	Blocks,
 	BookOpen,
 	Bot,
@@ -11,6 +12,7 @@ import {
 	ChevronDown,
 	Clock,
 	Code,
+	FileSearch,
 	GitCompare,
 	Gift,
 	Github,
@@ -331,6 +333,22 @@ export const Navbar = ({
 			icon: Calculator,
 			gradient:
 				"hover:from-green-500/20 hover:to-emerald-600/30 hover:shadow-green-500/10 group-hover/product:text-green-500 dark:group-hover/product:text-green-400",
+		},
+		{
+			title: "Savings Audit",
+			href: "/savings-audit",
+			description: "Check a usage export against the cheapest providers.",
+			icon: FileSearch,
+			gradient:
+				"hover:from-lime-500/20 hover:to-green-600/30 hover:shadow-lime-500/10 group-hover/product:text-lime-500 dark:group-hover/product:text-lime-400",
+		},
+		{
+			title: "State of LLM Usage",
+			href: "/state-of-llm-usage",
+			description: "The annual report on real model traffic.",
+			icon: BarChart3,
+			gradient:
+				"hover:from-indigo-500/20 hover:to-violet-600/30 hover:shadow-indigo-500/10 group-hover/product:text-indigo-500 dark:group-hover/product:text-indigo-400",
 		},
 		{
 			title: "Referral Program",
