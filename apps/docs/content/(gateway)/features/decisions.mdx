@@ -52,6 +52,9 @@ Providers list their own decision models through
 | `predicate` | Whether a condition is true          | `probability`: 0 to 1                                            |
 | `choice`    | One option from `choices` you define | `choice`, `probabilities` per option, `confidence`               |
 | `score`     | A rating across ordered `levels`     | `score` (can land between levels), `probabilities`, `confidence` |
+| `box`       | Where a target is in an image        | `box` (`top`, `bottom`, `left`, `right`), `confidence`           |
+
+`box` is not part of OpenAI's API; see [Bounding boxes](#bounding-boxes).
 
 Answers come back in the order you asked, echoing each question's `name`. A
 question the model declines returns `{ "type": "refusal", "name": … }` while
@@ -199,6 +202,49 @@ request fits TypeSafe's body limit; TypeSafe rejects images under 280 or over
 1568 pixels per side. Requests with images run in TypeSafe's long-context mode
 (262k tokens). TypeSafe treats image input as experimental.
 
+## Bounding boxes
+
+A `box` question finds one target in the input image and answers with the
+smallest box around it. It takes `instructions` only, needs an `input_image`
+part, and works on models that support it, currently TypeSafe's `jev-1.14.0`;
+other models reject it with a 400.
+
+```json
+{
+	"model": "jev-1.14.0",
+	"input": [
+		{
+			"role": "user",
+			"content": [
+				{ "type": "input_image", "image_url": "data:image/jpeg;base64,…" }
+			]
+		}
+	],
+	"questions": [
+		{
+			"type": "predicate",
+			"name": "has_mug",
+			"instructions": "Is there a mug?"
+		},
+		{ "type": "box", "name": "mug", "instructions": "the coffee mug" }
+	]
+}
+```
+
+```json
+{
+	"type": "box",
+	"name": "mug",
+	"box": { "top": 0.25, "bottom": 0.82, "left": 0.44, "right": 0.84 },
+	"confidence": 0.92
+}
+```
+
+Each edge is a fraction of the image's height (`top`, `bottom`) or width
+(`left`, `right`), measured from the top-left corner; multiply by the image's
+size in pixels to crop. There is no "not found" answer, so pair the box with a
+`predicate` asking whether the target is there.
+
 <Callout type="info">
 	Decision models are billed on input tokens only — the input plus every
 	question. There is no output, cache-read or cache-write charge.
@@ -225,6 +271,7 @@ without changing models.
 | `noul` question                   | `predicate` question                                    |
 | `choice` `criteria` record        | `choices`: `[{ value, description }]`                   |
 | `score` `criteria` list           | `levels`: `[{ label, description }]`                    |
+| `box` question                    | `box` question with a `name`                            |
 | `answers` map keyed by id         | `answers` array in question order, with `name`          |
 | `noul` answer                     | `probability`                                           |
 | `probabilities` record            | `probabilities` array of `{ value, probability }`       |

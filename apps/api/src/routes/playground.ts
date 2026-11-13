@@ -260,11 +260,19 @@ const decisionQuestionSchema = z.discriminatedUnion("type", [
 ]);
 
 const decisionAnswerSchema = z.object({
-	type: z.enum(["predicate", "choice", "score", "refusal"]),
+	type: z.enum(["predicate", "choice", "score", "box", "refusal"]),
 	name: z.string().nullable().optional(),
 	probability: z.number().optional(),
 	choice: decisionChoiceValueSchema.optional(),
 	score: z.number().optional(),
+	box: z
+		.object({
+			top: z.number(),
+			bottom: z.number(),
+			left: z.number(),
+			right: z.number(),
+		})
+		.optional(),
 	probabilities: z
 		.array(
 			z.object({

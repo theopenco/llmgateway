@@ -41,27 +41,57 @@ function pngChunk(type: string, data: Buffer): Buffer {
 	return Buffer.concat([length, body, crc]);
 }
 
-/** A solid RGB PNG; Jev rejects images under 280 pixels per side. */
-function solidPngDataUrl(size: number, rgb: [number, number, number]): string {
+type Rgb = [number, number, number];
+
+/**
+ * A square RGB PNG; Jev rejects images under 280 pixels per side. `paint`
+ * gives each pixel's colour.
+ */
+function pngDataUrl(
+	size: number,
+	paint: (x: number, y: number) => Rgb,
+): string {
 	const header = Buffer.alloc(13);
 	header.writeUInt32BE(size, 0);
 	header.writeUInt32BE(size, 4);
 	header[8] = 8; // bit depth
 	header[9] = 2; // truecolor
-	const row = Buffer.concat([
-		Buffer.from([0]),
-		Buffer.alloc(size * 3, Buffer.from(rgb)),
-	]);
+	const rows = Array.from({ length: size }, (_, y) =>
+		Buffer.from([
+			0,
+			...Array.from({ length: size }, (_, x) => paint(x, y)).flat(),
+		]),
+	);
 	const png = Buffer.concat([
 		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
 		pngChunk("IHDR", header),
-		pngChunk("IDAT", deflateSync(Buffer.concat(Array(size).fill(row)))),
+		pngChunk("IDAT", deflateSync(Buffer.concat(rows))),
 		pngChunk("IEND", Buffer.alloc(0)),
 	]);
 	return `data:image/png;base64,${png.toString("base64")}`;
 }
 
-const RED_PNG_DATA_URL = solidPngDataUrl(400, [220, 20, 20]);
+const RED: Rgb = [220, 20, 20];
+const WHITE: Rgb = [255, 255, 255];
+const RED_PNG_DATA_URL = pngDataUrl(400, () => RED);
+
+/** Where the red rectangle sits in BOX_PNG_DATA_URL, as fractions of its size. */
+const RED_RECT = { left: 0.5, right: 0.9, top: 0.25, bottom: 0.75 };
+const BOX_PNG_DATA_URL = pngDataUrl(400, (x, y) =>
+	x >= RED_RECT.left * 400 &&
+	x < RED_RECT.right * 400 &&
+	y >= RED_RECT.top * 400 &&
+	y < RED_RECT.bottom * 400
+		? RED
+		: WHITE,
+);
+
+/** Asserts a box answer lands near RED_RECT. */
+function expectRedRectBox(box: Record<string, number>) {
+	for (const edge of ["left", "right", "top", "bottom"] as const) {
+		expect(Math.abs(box[edge] - RED_RECT[edge]), edge).toBeLessThan(0.15);
+	}
+}
 
 describe("e2e decisions", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
@@ -225,4 +255,83 @@ describe("e2e decisions", getConcurrentTestOptions(), () => {
 		// cost thousands.
 		expect(json.usage.input_tokens).toBeLessThan(1500);
 	});
+
+	const boxModels = decisionModels.filter(
+		({ provider }) => provider.decisionBoxQuestions,
+	);
+
+	test.each(boxModels)(
+		"decisions box $model",
+		getTestOptions(),
+		async ({ model }) => {
+			const requestId = generateTestRequestId();
+			const res = await app.request("/v1/decisions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": requestId,
+					"x-no-fallback": "true",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model,
+					input: [
+						{
+							role: "user",
+							content: [{ type: "input_image", image_url: BOX_PNG_DATA_URL }],
+						},
+					],
+					questions: [
+						{
+							type: "box",
+							name: "rect",
+							instructions: "the red rectangle in the image",
+						},
+					],
+				}),
+			});
+
+			const json = await res.json();
+			if (logMode) {
+				console.log("decisions box response:", JSON.stringify(json, null, 2));
+			}
+			expect(res.status, JSON.stringify(json)).toBe(200);
+			expect(json.answers[0]).toMatchObject({ type: "box", name: "rect" });
+			expectRedRectBox(json.answers[0].box);
+			expect(json.answers[0].confidence).toBeGreaterThanOrEqual(0);
+
+			const log = await validateLogByRequestId(requestId);
+			expect(log.apiOrigin).toBe("decisions");
+			expect(Number(log.cost)).toBeGreaterThan(0);
+		},
+	);
+
+	test.each(boxModels)(
+		"systemone box $model",
+		getTestOptions(),
+		async ({ model }) => {
+			const res = await app.request("/v1/systemone", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-no-fallback": "true",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model,
+					state: {
+						photo: { type: "image_url", image_url: { url: BOX_PNG_DATA_URL } },
+					},
+					questions: {
+						rect: { type: "box", instructions: "the red rectangle in `photo`" },
+					},
+				}),
+			});
+
+			const json = await res.json();
+			expect(res.status, JSON.stringify(json)).toBe(200);
+			expect(json.answers.rect.type).toBe("box");
+			expectRedRectBox(json.answers.rect.box);
+		},
+	);
 });

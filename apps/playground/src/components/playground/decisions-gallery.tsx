@@ -189,7 +189,8 @@ function AnswerCard({
 	index: number;
 }) {
 	const type =
-		question?.type ?? (answer.type === "refusal" ? null : answer.type);
+		question?.type ??
+		(answer.type === "refusal" || answer.type === "box" ? null : answer.type);
 	const headline = decisionAnswerHeadline(answer, question);
 	return (
 		<div className="rounded-lg border bg-card p-3 space-y-3">

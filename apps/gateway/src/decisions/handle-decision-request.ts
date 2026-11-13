@@ -348,6 +348,8 @@ export interface DecisionEndpoint {
 	unsupportedModelHint?: string;
 	/** The request carries image input. */
 	hasImageInput?: boolean;
+	/** The request asks a `box` question. */
+	hasBoxQuestion?: boolean;
 	/**
 	 * Throw an HTTPException(400) for input the provider can't take.
 	 * `safetyIdentifier` is the authenticating API key's abuse-attribution id.
@@ -518,6 +520,19 @@ export async function handleDecisionRequest(
 		throw new HTTPException(400, {
 			message: `Model ${requestedModel} accepts text input only; remove the input_image parts.`,
 		});
+	}
+
+	if (endpoint.hasBoxQuestion) {
+		if (!decisionMapping.decisionBoxQuestions) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} does not answer box questions.`,
+			});
+		}
+		if (!endpoint.hasImageInput) {
+			throw new HTTPException(400, {
+				message: "A box question needs an image in the request.",
+			});
+		}
 	}
 
 	// Translate only once the caller is allowed to use the model, so a denied

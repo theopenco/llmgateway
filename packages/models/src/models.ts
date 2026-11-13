@@ -905,6 +905,12 @@ export interface ProviderModelMapping {
 	 */
 	decisions?: boolean;
 	/**
+	 * Whether this decision model answers `box` questions: where a target is in
+	 * an image input, as a bounding box. Requests with a box question are
+	 * rejected on mappings without it.
+	 */
+	decisionBoxQuestions?: boolean;
+	/**
 	 * Whether this model uses a dedicated web search API that returns ranked
 	 * results instead of generated text. When true, requests are routed to the
 	 * gateway's /v1/search endpoint and billed per request via requestPrice.
