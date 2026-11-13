@@ -154,6 +154,13 @@ async function seedBook() {
 		},
 		{
 			...lead,
+			id: "crm-l6",
+			name: "Una Unconfirmed",
+			email: "una@unconfirmed.io",
+			spamFilterStatus: "unconfirmed",
+		},
+		{
+			...lead,
 			id: "crm-l5",
 			name: "Archie",
 			email: "archie@archived.io",

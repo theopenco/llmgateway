@@ -1,11 +1,6 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
-
 import { expectResendOk, resendContactPath } from "@/lib/resend-contacts.js";
+import { signLinkToken, verifyLinkToken } from "@/lib/signed-token.js";
 
-import {
-	getApiKeyHashSecret,
-	getApiKeyHashSecrets,
-} from "@llmgateway/shared/api-key-hash";
 import {
 	POSTAL_ADDRESS,
 	escapeHtml,
@@ -13,7 +8,6 @@ import {
 } from "@llmgateway/shared/email-unsubscribe";
 import { resendFetch } from "@llmgateway/shared/resend-api";
 
-const TOKEN_VERSION = "v1";
 const TOKEN_DOMAIN = "newsletter-confirm";
 const TOKEN_TTL_DAYS = 7;
 const TOKEN_TTL_MS = TOKEN_TTL_DAYS * 86_400_000;
@@ -28,58 +22,26 @@ export interface NewsletterTarget {
 	segmentId: string | undefined;
 }
 
-function sign(payload: string, secret: string): string {
-	return createHmac("sha256", secret)
-		.update(`${TOKEN_DOMAIN}:${payload}`)
-		.digest("base64url");
-}
-
 export function signNewsletterToken(
 	email: string,
 	now: Date = new Date(),
 ): string {
-	const payload = Buffer.from(
-		JSON.stringify({
-			e: normalizeEmail(email),
-			x: now.getTime() + TOKEN_TTL_MS,
-		}),
-	).toString("base64url");
-	return `${TOKEN_VERSION}.${payload}.${sign(payload, getApiKeyHashSecret())}`;
+	return signLinkToken(
+		TOKEN_DOMAIN,
+		{ e: normalizeEmail(email) },
+		now.getTime() + TOKEN_TTL_MS,
+	);
 }
 
 /**
  * The address a confirmation link was issued for, or null when the token is
- * forged, malformed or expired. Checked against every keyring entry so
- * rotating the secret keeps links already in inboxes working.
+ * forged, malformed or expired.
  */
 export function verifyNewsletterToken(
 	token: string,
 	now: Date = new Date(),
 ): string | null {
-	const parts = token.split(".");
-	const [version, payload, signature] = parts;
-	if (
-		parts.length !== 3 ||
-		version !== TOKEN_VERSION ||
-		!payload ||
-		!signature
-	) {
-		return null;
-	}
-	const provided = Buffer.from(signature);
-	const matches = getApiKeyHashSecrets().some((secret) => {
-		const expected = Buffer.from(sign(payload, secret));
-		return (
-			provided.length === expected.length && timingSafeEqual(provided, expected)
-		);
-	});
-	if (!matches) {
-		return null;
-	}
-	const decoded = JSON.parse(
-		Buffer.from(payload, "base64url").toString("utf8"),
-	) as { e: string; x: number };
-	return decoded.x > now.getTime() ? decoded.e : null;
+	return verifyLinkToken<{ e: string }>(TOKEN_DOMAIN, token, now)?.e ?? null;
 }
 
 export function buildNewsletterConfirmUrl(token: string): string {
