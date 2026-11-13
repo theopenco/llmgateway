@@ -415,6 +415,7 @@ import {
 import {
 	assertDevPlanDailyCapNotExceeded,
 	assertDevPlanPremiumCapNotExceeded,
+	buildByokKeyFilter,
 	buildDevPlanCreditLimitError,
 	formatUsedModelForDisplay,
 	getAvailableCredits,
@@ -5467,7 +5468,7 @@ chat.openapi(completions, async (c) => {
 					usedProvider,
 					modelInfo.id || usedInternalModel,
 					undefined,
-					undefined,
+					buildByokKeyFilter(modelInfo.id || usedInternalModel),
 					undefined,
 					modelInfo.id || usedInternalModel,
 				);
@@ -6636,7 +6637,7 @@ chat.openapi(completions, async (c) => {
 					requestedProvider,
 					modelInfo.id || usedInternalModel,
 					undefined,
-					undefined,
+					buildByokKeyFilter(modelInfo.id || usedInternalModel),
 					undefined,
 					modelInfo.id || usedInternalModel,
 				);
@@ -7072,6 +7073,11 @@ chat.openapi(completions, async (c) => {
 	const serviceTierKeyFilter = isRequestedServiceTier(service_tier)
 		? providerKeySupportsServiceTier
 		: undefined;
+	// Skip keys whose allowedModels exclude the model, like the retry path.
+	const byokKeyFilter = buildByokKeyFilter(
+		usedInternalModel,
+		serviceTierKeyFilter,
+	);
 	if (
 		project.mode === "credits" &&
 		(usedProvider === "custom" || usedProvider === "llmgateway")
@@ -7116,7 +7122,7 @@ chat.openapi(completions, async (c) => {
 				usedProvider,
 				usedInternalModel,
 				undefined,
-				serviceTierKeyFilter,
+				byokKeyFilter,
 				providerKeyRateLimitExemption,
 				usedInternalModel,
 			);
@@ -7128,7 +7134,7 @@ chat.openapi(completions, async (c) => {
 				usedProvider,
 				{
 					customProviderName,
-					filter: serviceTierKeyFilter,
+					filter: byokKeyFilter,
 					rateLimitExemption: providerKeyRateLimitExemption,
 					model: usedInternalModel,
 				},
@@ -7296,7 +7302,7 @@ chat.openapi(completions, async (c) => {
 				usedProvider,
 				usedInternalModel,
 				undefined,
-				serviceTierKeyFilter,
+				byokKeyFilter,
 				providerKeyRateLimitExemption,
 				usedInternalModel,
 			);

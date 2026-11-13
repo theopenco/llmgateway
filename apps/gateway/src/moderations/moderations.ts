@@ -73,6 +73,11 @@ import type { Context } from "hono";
  */
 export const MODERATION_REQUEST_PRICE = 0.00001;
 const MODERATION_MODEL_ID = "openai-moderation";
+
+// Moderation runs a fixed pseudo-model outside the catalogue that no
+// allowedModels list can name (see applicableRuleTypes in lib/iam.ts), so a
+// model-restricted key is not excluded from it.
+const moderationKeyFilter = (): boolean => true;
 const DEFAULT_UPSTREAM_MODERATION_MODEL = "omni-moderation-latest";
 const CANONICAL_MODERATION_MODEL = formatUsedModelForDisplay(
 	"openai",
@@ -514,6 +519,8 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			project.organizationId,
 			"openai",
 			upstreamModel,
+			undefined,
+			moderationKeyFilter,
 		);
 		if (!providerKey) {
 			throw new HTTPException(400, {
@@ -546,6 +553,8 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			project.organizationId,
 			"openai",
 			upstreamModel,
+			undefined,
+			moderationKeyFilter,
 		);
 		if (providerKey) {
 			usedToken = readProviderKey(providerKey);

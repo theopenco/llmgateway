@@ -65,6 +65,10 @@ vi.mock("@llmgateway/actions", () => ({ readProviderKey: vi.fn() }));
 vi.mock("@llmgateway/db", async () => ({
 	getEffectiveProviders: async () =>
 		(await import("@llmgateway/models")).providers,
+	providerKeyAllowsModel: (
+		allowedModels: string[] | null | undefined,
+		modelId: string,
+	) => !allowedModels?.length || allowedModels.includes(modelId),
 }));
 vi.mock("@llmgateway/guardrails", () => ({ logViolation: vi.fn() }));
 
@@ -135,6 +139,20 @@ describe("realtime ASR compliance preflight", () => {
 			"gpt-4o-mini-transcribe",
 		);
 		vi.mocked(validateRequestModelAccess).mockResolvedValue({ allowed: true });
+	});
+
+	it("restricts ASR to the selected credential's allowed models", async () => {
+		vi.mocked(resolvePlatformCredential).mockResolvedValueOnce({
+			token: "test-token",
+			configIndex: 0,
+			managedKey: {
+				id: "managed-key-id",
+				allowedModels: ["gpt-realtime", "gpt-4o-transcribe"],
+			},
+		} as unknown as Awaited<ReturnType<typeof resolvePlatformCredential>>);
+		expect((await connect()).allowedTranscriptionModelIds).toEqual([
+			"gpt-4o-transcribe",
+		]);
 	});
 
 	it.each(["organization", "key"] as const)(

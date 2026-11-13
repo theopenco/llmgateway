@@ -9,6 +9,7 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
+import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -644,6 +645,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (!providerKey) {
 				throw new HTTPException(400, {
@@ -663,6 +665,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 
 			const platformCredential = await resolvePlatformCredential(providerId, {
 				selectionScope: upstreamModel,
+				model: modelDefId,
 				variant: envVariant,
 				region: undefined,
 				requiresServiceTier: false,
@@ -679,6 +682,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (providerKey) {
 				usedToken = readProviderKey(providerKey);
@@ -694,6 +698,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 
 				const platformCredential = await resolvePlatformCredential(providerId, {
 					selectionScope: upstreamModel,
+					model: modelDefId,
 					variant: envVariant,
 					region: undefined,
 					requiresServiceTier: false,

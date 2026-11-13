@@ -9,6 +9,7 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
+import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -542,6 +543,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				providerId as Provider,
 				{
 					selectionScope: upstreamModel,
+					model: modelDefId,
 					variant: envVariant,
 					region: undefined,
 					requiresServiceTier: false,
@@ -561,6 +563,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (!providerKeyInner) {
 				throw new HTTPException(400, {
@@ -585,6 +588,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (providerKeyInner) {
 				usedToken = readProviderKey(providerKeyInner);
