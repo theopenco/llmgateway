@@ -374,6 +374,7 @@ import {
 	exclusionReason,
 	getProviderFilterReasons,
 	mergeFilteredProvider,
+	preferDeclaredReasoningEffortProviders,
 	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 } from "./tools/provider-filter-reasons.js";
@@ -966,7 +967,11 @@ function filterEligibleModelProviders(
 	// candidates when another mapping of the same model can honour it — dropping
 	// the last candidate would fail a request that works today (downgraded to
 	// "auto" by prepareRequestBody).
-	return preferToolChoiceCapableProviders(eligible, options, filteredOut);
+	return preferToolChoiceCapableProviders(
+		preferDeclaredReasoningEffortProviders(eligible, options, filteredOut),
+		options,
+		filteredOut,
+	);
 }
 
 interface ContentFilterRoutingDecision {
@@ -4893,13 +4898,18 @@ chat.openapi(completions, async (c) => {
 			// A dynamic route has already fixed the model, so treat its providers like
 			// pinned-model candidates: prefer mappings that honour tool_choice, but keep
 			// the downgrade-to-auto fallback when none do.
+			const effortSuitableProviders = preferDeclaredReasoningEffortProviders(
+				suitableProviders,
+				autoFilterOpts,
+				filteredOutForModel,
+			);
 			const toolChoiceSuitableProviders = dynamicRouteSelection
 				? preferToolChoiceCapableProviders(
-						suitableProviders,
+						effortSuitableProviders,
 						autoFilterOpts,
 						filteredOutForModel,
 					)
-				: suitableProviders;
+				: effortSuitableProviders;
 			const deduplicatedSuitableProviders =
 				await keepCheapestCustomRoutingMapping(
 					dropLowUptimeCustomProviders(

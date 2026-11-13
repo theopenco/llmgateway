@@ -381,6 +381,44 @@ describe("reasoning-effort provider routing", () => {
 		expect(captured).toEqual([]);
 	});
 
+	test.each(["medium", "none"] as const)(
+		"prefers a carrier that declares %s over a cheaper undeclared one",
+		async (effort) => {
+			await setup();
+			await db
+				.update(tables.modelProviderMapping)
+				.set({ reasoningEfforts: null })
+				.where(eq(tables.modelProviderMapping.providerId, restrictedProvider));
+			await clearCache();
+			const res = await request("deepseek-v4.1-flash-1017", effort);
+			expect(res.status, await res.text()).toBe(200);
+			expect(captured).toEqual([{ provider: capableProvider, effort }]);
+			const log = await waitForLogByRequestId("effort-request");
+			expect(log?.routingMetadata?.filteredProviders).toContainEqual(
+				expect.objectContaining({
+					providerId: restrictedProvider,
+					codes: expect.arrayContaining(["reasoning_effort"]),
+				}),
+			);
+		},
+	);
+
+	test("falls back to an undeclared carrier when no carrier declares the effort", async () => {
+		await setup();
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ reasoningEfforts: null })
+			.where(eq(tables.modelProviderMapping.providerId, restrictedProvider));
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ reasoningEfforts: ["low"] })
+			.where(eq(tables.modelProviderMapping.providerId, capableProvider));
+		await clearCache();
+		const res = await request("deepseek-v4.1-flash-1017", "max");
+		expect(res.status, await res.text()).toBe(200);
+		expect(captured).toEqual([{ provider: restrictedProvider, effort: "max" }]);
+	});
+
 	test("keeps streaming requests on an effort-compatible carrier", async () => {
 		await setup();
 		const res = await request("deepseek-v4.1-flash-1017", "medium", {

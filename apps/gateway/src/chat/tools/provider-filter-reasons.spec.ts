@@ -10,6 +10,7 @@ import {
 	exclusionReason,
 	getProviderFilterReasons,
 	mergeFilteredProvider,
+	preferDeclaredReasoningEffortProviders,
 	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 	type FilteredProvider,
@@ -664,5 +665,79 @@ describe("declared reasoning efforts", () => {
 				)
 				.map((provider) => provider.region),
 		).toEqual(["eu-west-1"]);
+	});
+});
+
+describe("preferDeclaredReasoningEffortProviders", () => {
+	const undeclared = mapping({ providerId: "undeclared", reasoning: true });
+	const declared = mapping({
+		providerId: "declared",
+		reasoning: true,
+		reasoningEfforts: ["none", "medium"],
+	});
+
+	it("prefers a mapping that declares the requested effort", () => {
+		const filteredOut: FilteredProvider[] = [];
+		expect(
+			preferDeclaredReasoningEffortProviders(
+				[undeclared, declared],
+				{ reasoningEffort: "medium" },
+				filteredOut,
+			),
+		).toEqual([declared]);
+		expect(filteredOut).toEqual([
+			{
+				providerId: "undeclared",
+				reasons: [
+					"Does not declare support for the requested reasoning effort",
+				],
+				codes: ["reasoning_effort"],
+			},
+		]);
+	});
+
+	it("counts a non-reasoning mapping as declaring none", () => {
+		const plain = mapping({ providerId: "plain", reasoning: false });
+		expect(
+			preferDeclaredReasoningEffortProviders([undeclared, plain], {
+				reasoningEffort: "none",
+			}),
+		).toEqual([plain]);
+	});
+
+	it("keeps undeclared mappings when no mapping declares the effort", () => {
+		const filteredOut: FilteredProvider[] = [];
+		expect(
+			preferDeclaredReasoningEffortProviders(
+				[undeclared],
+				{ reasoningEffort: "max" },
+				filteredOut,
+			),
+		).toEqual([undeclared]);
+		expect(filteredOut).toEqual([]);
+	});
+
+	it("does not record a provider that still serves through another region", () => {
+		const undeclaredRegion = mapping({
+			...undeclared,
+			providerId: "declared",
+			region: "us",
+		});
+		const declaredRegion = mapping({ ...declared, region: "eu" });
+		const filteredOut: FilteredProvider[] = [];
+		expect(
+			preferDeclaredReasoningEffortProviders(
+				[undeclaredRegion, declaredRegion],
+				{ reasoningEffort: "medium" },
+				filteredOut,
+			),
+		).toEqual([declaredRegion]);
+		expect(filteredOut).toEqual([]);
+	});
+
+	it("passes the list through without an effort", () => {
+		expect(
+			preferDeclaredReasoningEffortProviders([undeclared, declared], {}),
+		).toEqual([undeclared, declared]);
 	});
 });
