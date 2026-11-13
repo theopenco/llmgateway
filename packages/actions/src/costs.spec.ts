@@ -2233,6 +2233,46 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputCost).toBeCloseTo(16384 * (3.8 / 1e6), 10);
 	});
 
+	it("bills a lowercase minimax-h3-image tier at its token count when usage is missing", async () => {
+		const result = await calculateCosts(
+			"minimax-h3-image",
+			"minimax",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"2k",
+			0,
+		);
+
+		expect(result.imageOutputTokens).toBe(4096);
+	});
+
+	it("keeps the estimated text charge on a minimax-h3-image edit without usage", async () => {
+		const result = await calculateCosts(
+			"minimax-h3-image",
+			"minimax",
+			null,
+			null,
+			null,
+			null,
+			{ prompt: "Make it blue" },
+			null,
+			1,
+			"1K",
+			1,
+		);
+
+		expect(result.promptTokens).toBeGreaterThan(0);
+		expect(result.imageInputTokens).toBe(560);
+		const textCost = (result.promptTokens ?? 0) * (2.3 / 1e6);
+		const imageCost = 560 * (1.5 / 1e6);
+		expect(result.inputCost).toBeCloseTo(textCost + imageCost, 10);
+	});
+
 	it("bills hy-image-v3.5-preview at the 4K token count when usage is missing", async () => {
 		const result = await calculateCosts(
 			"hy-image-v3.5-preview",
