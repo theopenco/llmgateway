@@ -1,10 +1,10 @@
-# CRM integrations (Gmail, Calendly)
+# CRM integrations (Gmail, Google Calendar)
 
-The admin CRM (`/crm` in `ee/admin`) reads and sends mail and lists booked
-calls for an account without leaving the account page. Connections are made
+The admin CRM (`/crm` in `ee/admin`) reads and sends mail and lists
+meetings for an account without leaving the account page. Connections are made
 once at `/crm/settings` and stored in `crm_integration`, sealed with the
 connector cipher (`GATEWAY_API_KEY_HASH_SECRET` keyring). Mail sent from the
-CRM and every Calendly event with an account contact land in the account's
+CRM and every held meeting with an account contact land in the account's
 activity feed (`crm_activity.external_ref` keeps them idempotent).
 
 ## Gmail
@@ -36,6 +36,12 @@ activity feed (`crm_activity.external_ref` keeps them idempotent).
   matched to a CRM account through its attendees (corporate domain, contact,
   member or lead email). Unmatched companies can be added as prospects from
   the briefing.
+- The account's Meetings tab searches every connected calendar for events
+  with the account's people (a year back to 90 days ahead) and mirrors held
+  ones into the activity feed, keyed on the event's iCalUID.
+- Calendly bookings need no separate integration: Calendly writes them into
+  the host's Google calendar, so connect the host's mailbox. Events that
+  appear on several connected calendars are shown once (same iCalUID).
 - A briefing (`/crm/calls/<integration>/<event>`) composes the account record,
   the attendees' contact and platform data, email threads with them and recent
   activity.
@@ -50,19 +56,3 @@ activity feed (`crm_activity.external_ref` keeps them idempotent).
 - Config: `CRM_RESEARCH_GATEWAY_API_KEY` (a gateway API key on the company
   org; falls back to `SUPPORT_CHAT_API_KEY`) and `CRM_RESEARCH_MODEL`
   (default `openai/gpt-5.2`, any model with native web search).
-
-## Calendly
-
-- Each admin pastes a personal access token (Calendly → Integrations → API &
-  webhooks). The CRM verifies it with `GET /users/me`, lists the user's active
-  event types as booking links (prefilled with the contact's name and email),
-  and lists `scheduled_events` filtered by each contact's email.
-- On connect it tries to create a user-scoped webhook subscription for
-  `invitee.created` / `invitee.canceled` pointing at
-  `{API_URL}/public/crm-webhooks/calendly` with a random signing key. Webhooks
-  need a paid Calendly plan; without one, meetings sync whenever an admin
-  opens the account's Meetings tab.
-- The webhook endpoint is unauthenticated and verifies the
-  `Calendly-Webhook-Signature` header (`t=…,v1=…`, 5-minute replay window)
-  against every stored signing key before touching the database. Invitees
-  that match no CRM account are ignored.

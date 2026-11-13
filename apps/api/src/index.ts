@@ -25,7 +25,6 @@ import {
 import { redisClient } from "./auth/config.js";
 import { authHandler } from "./auth/handler.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
-import { crmWebhooks } from "./routes/admin-crm-integrations.js";
 import { beacon } from "./routes/beacon.js";
 import { cliSkills } from "./routes/cli-skills.js";
 import { emailChange } from "./routes/email-change.js";
@@ -350,7 +349,6 @@ app.route("/public/discounts", publicDiscounts);
 app.route("/public/contact", publicContact);
 app.route("/public/newsletter", publicNewsletter);
 app.route("/public/unsubscribe", publicUnsubscribe);
-app.route("/public/crm-webhooks", crmWebhooks);
 app.route("/public/chat-support", publicChatSupport);
 app.route("/public/chats/share", publicChatShares);
 app.route("/public/cli-auth", publicCliAuth);

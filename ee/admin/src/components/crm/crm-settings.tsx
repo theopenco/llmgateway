@@ -4,12 +4,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
 	ArrowLeft,
 	CalendarDays,
-	ExternalLink,
 	Mail,
 	Plus,
 	Trash2,
 	Users,
-	Webhook,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -17,8 +15,6 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useApi } from "@/lib/fetch-client";
@@ -92,16 +88,8 @@ function ConnectionRow({
 					{row.displayName ? `${row.displayName} · ` : ""}
 					<span className="font-mono font-medium">{row.accountEmail}</span>
 					{row.provider === "calendly" ? (
-						<span
-							className={cn(
-								"inline-flex items-center gap-1 rounded px-1.5 py-px text-[10px] font-semibold uppercase",
-								row.webhook
-									? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-									: "bg-muted text-muted-foreground",
-							)}
-						>
-							<Webhook className="h-3 w-3" />
-							{row.webhook ? "live webhook" : "sync on open"}
+						<span className="rounded bg-muted px-1.5 py-px text-[10px] font-semibold uppercase text-muted-foreground">
+							Calendly · no longer used, disconnect
 						</span>
 					) : null}
 					{row.provider === "gmail" ? (
@@ -123,20 +111,6 @@ function ConnectionRow({
 				<p className="mt-0.5 text-xs text-muted-foreground">
 					Connected by {row.mine ? "you" : (row.ownerEmail ?? "a teammate")} on{" "}
 					{shortDate(row.createdAt)}
-					{row.schedulingUrl ? (
-						<>
-							{" · "}
-							<a
-								href={row.schedulingUrl}
-								target="_blank"
-								rel="noreferrer"
-								className="inline-flex items-center gap-0.5 hover:text-foreground"
-							>
-								booking page
-								<ExternalLink className="h-3 w-3" />
-							</a>
-						</>
-					) : null}
 				</p>
 			</div>
 			<div className="flex items-center gap-4">
@@ -195,7 +169,9 @@ function GmailConnect({ available }: { available: boolean }) {
 						Sign in with the Google account whose mail and calendar you want in
 						the CRM. For a delegated inbox such as contact@, sign in as that
 						account itself; Google does not expose delegated mail to the API.
-						Reconnecting an existing mailbox adds calendar access.
+						Reconnecting an existing mailbox adds calendar access. Connect the
+						mailbox of whoever hosts Calendly calls: Calendly writes bookings
+						into that calendar.
 					</p>
 					{!available ? (
 						<p className="mt-2 rounded-md bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300">
@@ -220,74 +196,6 @@ function GmailConnect({ available }: { available: boolean }) {
 					</div>
 				</div>
 			</div>
-		</section>
-	);
-}
-
-function CalendlyConnect({ onConnected }: { onConnected: () => void }) {
-	const { $api } = useIntegrations();
-	const [token, setToken] = useState("");
-	const [shared, setShared] = useState(true);
-	const connect = $api.useMutation("post", "/admin/crm/integrations/calendly", {
-		onSuccess: (row) => {
-			toast.success(`Calendly connected for ${row.accountEmail}`);
-			setToken("");
-			onConnected();
-		},
-		meta: { errorMessage: "Calendly rejected the token" },
-	});
-	return (
-		<section className="rounded-xl border border-border/70 bg-card p-4">
-			<form
-				className="flex items-start gap-3"
-				onSubmit={(e) => {
-					e.preventDefault();
-					if (token.trim().length >= 20) {
-						connect.mutate({ body: { token: token.trim(), shared } });
-					}
-				}}
-			>
-				<ProviderIcon provider="calendly" />
-				<div className="flex-1">
-					<h3 className="text-sm font-semibold">Connect Calendly</h3>
-					<p className="mt-1 text-xs text-muted-foreground">
-						Paste a personal access token from Calendly → Integrations → API
-						&amp; webhooks. Booked and canceled calls with account contacts show
-						up on the account and in its activity feed; on paid Calendly plans a
-						webhook keeps them live.
-					</p>
-					<div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto] md:items-end">
-						<div>
-							<Label htmlFor="calendly-token" className="text-xs">
-								Personal access token
-							</Label>
-							<Input
-								id="calendly-token"
-								className="mt-1 font-mono text-xs"
-								type="password"
-								autoComplete="off"
-								placeholder="eyJraWQiOi…"
-								value={token}
-								onChange={(e) => setToken(e.target.value)}
-							/>
-						</div>
-						<div className="flex items-center gap-4">
-							<label className="flex items-center gap-2 text-xs">
-								<Switch checked={shared} onCheckedChange={setShared} />
-								<span>Team can offer my links</span>
-							</label>
-							<Button
-								size="sm"
-								type="submit"
-								disabled={token.trim().length < 20 || connect.isPending}
-							>
-								<Plus className="h-4 w-4" />
-								Connect
-							</Button>
-						</div>
-					</div>
-				</div>
-			</form>
 		</section>
 	);
 }
@@ -331,8 +239,8 @@ export function CrmSettings() {
 				</h1>
 				<p className="mt-1 max-w-xl text-sm text-muted-foreground">
 					Mailboxes and calendars the CRM reads and writes. Every connected
-					mailbox shows threads with account contacts to the whole team; sending
-					and booking links follow the sharing switch.
+					mailbox shows threads and meetings with account contacts to the whole
+					team; sending follows the sharing switch.
 				</p>
 			</header>
 
@@ -360,15 +268,7 @@ export function CrmSettings() {
 					Add
 				</h2>
 				<GmailConnect available={query.data?.gmailAvailable ?? false} />
-				<CalendlyConnect onConnected={refresh} />
 			</section>
-
-			{query.data ? (
-				<p className="text-[11px] text-muted-foreground">
-					Calendly webhook endpoint:{" "}
-					<code className="font-mono">{query.data.calendlyWebhookUrl}</code>
-				</p>
-			) : null}
 		</div>
 	);
 }
