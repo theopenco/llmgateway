@@ -800,4 +800,38 @@ export const minimaxModels = [
 			},
 		],
 	},
+	{
+		id: "minimax-h3-image",
+		name: "MiniMax H3 Image",
+		description:
+			"MiniMax's open-weight image generation and editing model, with built-in prompt enhancement, 1 to 16 reference images, and output up to 4K.",
+		family: "minimax",
+		output: ["image"],
+		releasedAt: new Date("2026-11-10"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "minimax",
+				externalId: "MiniMax-H3-Image",
+				inputPrice: "2.3e-6",
+				outputPrice: "0",
+				imageInputPrice: "1.5e-6",
+				imageOutputPrice: "3.8e-6",
+				imageOutputTokensByResolution: {
+					"1K": 4096,
+					"2K": 4096,
+					"4K": 16384,
+					default: 16384,
+				},
+				requestPrice: "0",
+				contextSize: 32000,
+				maxOutput: 16384,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];

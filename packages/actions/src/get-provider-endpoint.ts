@@ -1157,12 +1157,16 @@ export function getProviderEndpoint(
 			}
 			return `${url}/v1/chat/completions`;
 		}
+		case "minimax":
+			if (imageGenerations) {
+				return `${url}/v1/images/generations`;
+			}
+			return `${url}/v1/chat/completions`;
 		case "baidu":
 		case "deepseek":
 		case "moonshot":
 		case "nebius":
 		case "canopywave":
-		case "minimax":
 		case "xiaomi":
 		case "ranoai":
 		case "atria":

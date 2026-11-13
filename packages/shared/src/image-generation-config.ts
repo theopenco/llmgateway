@@ -81,6 +81,21 @@ const REVE_ASPECT_RATIOS: AspectRatio[] = [
 	"4:3",
 ];
 
+// MiniMax H3 Image accepts ratios between 1:3 and 3:1.
+const MINIMAX_H3_IMAGE_ASPECT_RATIOS: AspectRatio[] = [
+	"auto",
+	"1:1",
+	"16:9",
+	"9:16",
+	"4:3",
+	"3:4",
+	"3:2",
+	"2:3",
+	"5:4",
+	"4:5",
+	"21:9",
+];
+
 export function getModelImageConfig(model: string) {
 	const lower = model.toLowerCase();
 
@@ -188,7 +203,9 @@ export function getModelImageConfig(model: string) {
 
 	const supportedAspectRatios: AspectRatio[] | undefined = isReve
 		? REVE_ASPECT_RATIOS
-		: undefined;
+		: lower.includes("minimax-h3-image")
+			? MINIMAX_H3_IMAGE_ASPECT_RATIOS
+			: undefined;
 
 	return {
 		usesPixelDimensions,
@@ -248,6 +265,9 @@ function getMaxInputImages(lowerModel: string): number {
 	}
 	if (lowerModel.includes("hy-image")) {
 		return 20;
+	}
+	if (lowerModel.includes("minimax-h3-image")) {
+		return 16;
 	}
 	if (lowerModel.includes("qwen-image-2.1")) {
 		return 10;

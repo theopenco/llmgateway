@@ -747,6 +747,7 @@ export async function calculateCosts(
 		(provider === "openai" ||
 			provider === "azure" ||
 			provider === "xai" ||
+			provider === "minimax" ||
 			(isGoogleProvider && imageInputTokensReported));
 	let cachedImageTokens = 0;
 	if (

@@ -8952,13 +8952,14 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Switch xAI image generation endpoint to /edits when input images are present
+	// Switch xAI / MiniMax image generation endpoint to /edits when input images are present
 	if (
 		isImageGeneration &&
-		usedProvider === "xai" &&
 		url &&
 		!(requestBody instanceof FormData) &&
-		("image" in requestBody || "images" in requestBody)
+		((usedProvider === "xai" &&
+			("image" in requestBody || "images" in requestBody)) ||
+			(usedProvider === "minimax" && "images" in requestBody))
 	) {
 		url = url.replace("/v1/images/generations", "/v1/images/edits");
 	}
@@ -9178,10 +9179,11 @@ chat.openapi(completions, async (c) => {
 		}
 		if (
 			isImageGeneration &&
-			usedProvider === "xai" &&
 			url &&
 			!(requestBody instanceof FormData) &&
-			("image" in requestBody || "images" in requestBody)
+			((usedProvider === "xai" &&
+				("image" in requestBody || "images" in requestBody)) ||
+				(usedProvider === "minimax" && "images" in requestBody))
 		) {
 			url = url.replace("/v1/images/generations", "/v1/images/edits");
 		}
