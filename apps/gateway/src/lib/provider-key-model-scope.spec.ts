@@ -43,10 +43,6 @@ const jsonRequests: [string, Record<string, unknown>][] = [
 		{ model: "openai/text-embedding-3-large", input: "Key scope regression" },
 	],
 	[
-		"/v1/moderations",
-		{ model: "omni-moderation-latest", input: "Key scope regression" },
-	],
-	[
 		"/v1/audio/speech",
 		{ model: "openai/tts-1", input: "Key scope regression", voice: "alloy" },
 	],

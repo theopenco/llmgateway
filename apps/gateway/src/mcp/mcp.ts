@@ -27,7 +27,11 @@ import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { getAuthenticatedReadAccess } from "@/lib/gateway-read-access.js";
 import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
-import { resolveMcpBearerToken, resolveRequestBaseUrl } from "@/mcp/oauth.js";
+import {
+	isMcpBearerTokenActive,
+	resolveMcpBearerToken,
+	resolveRequestBaseUrl,
+} from "@/mcp/oauth.js";
 import { getMcpGatewayUrl } from "@/mcp/request-url.js";
 import { registerUsageTools } from "@/mcp/usage-tools.js";
 import { isAllowedOrigin, parseAllowedOrigins } from "@/middleware/cors.js";
@@ -1114,14 +1118,41 @@ async function processMcpRequest(
 	}
 }
 
+interface SseConnection {
+	controller: ReadableStreamDefaultController;
+	apiKey: string;
+	// The credential that opened the stream; deliveries stop once it is revoked.
+	bearerToken: string;
+}
+
 // Store active SSE connections for message routing
-const sseConnections = new Map<
-	string,
-	{
-		controller: ReadableStreamDefaultController;
-		apiKey: string;
+const sseConnections = new Map<string, SseConnection>();
+
+/**
+ * Delivers a message on a session's stream, or closes the stream when the
+ * credential that opened it no longer stands for an active API key.
+ */
+async function deliverSseMessage(
+	sessionId: string,
+	connection: SseConnection,
+	data: unknown,
+): Promise<void> {
+	if (
+		!(await isMcpBearerTokenActive(connection.bearerToken, connection.apiKey))
+	) {
+		sseConnections.delete(sessionId);
+		try {
+			connection.controller.close();
+		} catch (error) {
+			// Already closed by the client.
+			if (!(error instanceof TypeError)) {
+				throw error;
+			}
+		}
+		return;
 	}
->();
+	sendSseEvent(connection.controller, "message", data);
+}
 
 /**
  * Send SSE event to a connection
@@ -1420,7 +1451,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		const stream = new ReadableStream({
 			start(controller) {
 				// Store the connection with apiKey for ownership validation
-				sseConnections.set(sessionId!, { controller, apiKey });
+				sseConnections.set(sessionId!, { controller, apiKey, bearerToken });
 
 				// Send initial endpoint event with the absolute URL
 				sendSseEvent(controller, "endpoint", mcpEndpointUrl);
@@ -1516,7 +1547,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 
 					// If valid SSE connection exists (same apiKey), also send via SSE
 					if (validSseConnection) {
-						sendSseEvent(validSseConnection.controller, "message", response);
+						await deliverSseMessage(sessionId, validSseConnection, response);
 					}
 				}
 
@@ -1530,7 +1561,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 
 			// If valid SSE connection exists (same apiKey), also send via SSE
 			if (validSseConnection) {
-				sendSseEvent(validSseConnection.controller, "message", response);
+				await deliverSseMessage(sessionId, validSseConnection, response);
 			}
 
 			return c.json(response, 200, {

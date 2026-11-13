@@ -9,7 +9,6 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
-import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
 import { shouldRetryAlternateKey } from "@/chat/tools/retry-with-fallback.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import {
@@ -74,6 +73,11 @@ import type { Context } from "hono";
  */
 export const MODERATION_REQUEST_PRICE = 0.00001;
 const MODERATION_MODEL_ID = "openai-moderation";
+
+// Moderation runs a fixed pseudo-model outside the catalogue that no
+// allowedModels list can name (see applicableRuleTypes in lib/iam.ts), so a
+// model-restricted key is not excluded from it.
+const moderationKeyFilter = (): boolean => true;
 const DEFAULT_UPSTREAM_MODERATION_MODEL = "omni-moderation-latest";
 const CANONICAL_MODERATION_MODEL = formatUsedModelForDisplay(
 	"openai",
@@ -516,7 +520,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			"openai",
 			upstreamModel,
 			undefined,
-			buildByokKeyFilter(MODERATION_MODEL_ID),
+			moderationKeyFilter,
 		);
 		if (!providerKey) {
 			throw new HTTPException(400, {
@@ -536,7 +540,6 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 		const platformCredential = await resolvePlatformCredential("openai", {
 			selectionScope: upstreamModel,
-			model: MODERATION_MODEL_ID,
 			variant: envVariant,
 			region: undefined,
 			requiresServiceTier: false,
@@ -551,7 +554,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			"openai",
 			upstreamModel,
 			undefined,
-			buildByokKeyFilter(MODERATION_MODEL_ID),
+			moderationKeyFilter,
 		);
 		if (providerKey) {
 			usedToken = readProviderKey(providerKey);
@@ -566,7 +569,6 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 			const platformCredential = await resolvePlatformCredential("openai", {
 				selectionScope: upstreamModel,
-				model: MODERATION_MODEL_ID,
 				variant: envVariant,
 				region: undefined,
 				requiresServiceTier: false,
@@ -662,7 +664,6 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			triedManagedKeyIds.add(managedKey.id);
 			const next = await resolvePlatformCredential("openai", {
 				selectionScope: upstreamModel,
-				model: MODERATION_MODEL_ID,
 				variant: envVariant,
 				region: undefined,
 				requiresServiceTier: false,

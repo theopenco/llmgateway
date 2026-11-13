@@ -12,7 +12,7 @@ import { z } from "zod";
 import { findApiKeyByToken } from "@/lib/cached-queries.js";
 
 import { redisClient } from "@llmgateway/cache";
-import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
+import { getApiKeyHashSecrets } from "@llmgateway/shared/api-key-hash";
 
 import type { ServerTypes } from "@/vars.js";
 import type { OpenAPIHono } from "@hono/zod-openapi";
@@ -26,8 +26,11 @@ import type { Context } from "hono";
  * random opaque values; the API key never leaves the server. State lives in
  * Redis under HMAC-derived names, and the API key is stored only sealed with a
  * key derived from the credential that unlocks it (client secret, access token
- * or refresh token), so a Redis read alone cannot recover it. Every use
- * re-validates the API key, so rotating or deleting it revokes all grants.
+ * or refresh token), so a Redis read alone cannot recover it. Writes use the
+ * current gateway secret; reads accept every keyring secret so a secret
+ * rotation keeps existing grants. Every use re-validates the API key and the
+ * client registration, so deactivating the key or deleting the registration
+ * stops its tokens.
  */
 
 const SCOPE = "mcp:tools mcp:resources mcp:prompts";
@@ -56,30 +59,41 @@ const codeRecordSchema = z.object({
 	codeChallenge: z.string(),
 	redirectUri: z.string(),
 });
-const refreshRecordSchema = z.object({
+/** Access and refresh tokens: bound to a client, API key sealed per token. */
+const grantRecordSchema = z.object({
 	clientId: z.string(),
 	sealedApiKey: z.string(),
 });
 
 type ClientRecord = z.infer<typeof clientRecordSchema>;
 
+/** Redis keys for a value under every keyring secret, current first. */
+function stateKeys(kind: StateKind, value: string): string[] {
+	return getApiKeyHashSecrets().map((secret) => {
+		// Input is a random OAuth credential, not a password.
+		// lgtm[js/insufficient-password-hash]
+		const digest = createHmac("sha256", secret)
+			.update(`mcp-oauth:${kind}:${value}`)
+			.digest("hex");
+		return `mcp-oauth:${kind}:${digest}`;
+	});
+}
+
+/** The Redis key new state is written under (current secret). */
 function stateKey(kind: StateKind, value: string): string {
-	const digest = createHmac("sha256", getApiKeyHashSecret())
-		.update(`mcp-oauth:${kind}:${value}`)
-		.digest("hex");
-	return `mcp-oauth:${kind}:${digest}`;
+	return stateKeys(kind, value)[0]!;
 }
 
 function newCredential(prefix: string): string {
 	return `${prefix}${randomBytes(32).toString("base64url")}`;
 }
 
-function sealingKey(credential: string): Buffer {
+function sealingKey(credential: string, secret: string): Buffer {
 	return Buffer.from(
 		hkdfSync(
 			"sha256",
 			Buffer.from(credential, "utf8"),
-			Buffer.from(getApiKeyHashSecret(), "utf8"),
+			Buffer.from(secret, "utf8"),
 			Buffer.from(SEAL_INFO, "utf8"),
 			32,
 		),
@@ -88,7 +102,11 @@ function sealingKey(credential: string): Buffer {
 
 function seal(apiKey: string, credential: string): string {
 	const iv = randomBytes(12);
-	const cipher = createCipheriv("aes-256-gcm", sealingKey(credential), iv);
+	const cipher = createCipheriv(
+		"aes-256-gcm",
+		sealingKey(credential, getApiKeyHashSecrets()[0]!),
+		iv,
+	);
 	const ciphertext = Buffer.concat([
 		cipher.update(apiKey, "utf8"),
 		cipher.final(),
@@ -98,7 +116,10 @@ function seal(apiKey: string, credential: string): string {
 		.join(".");
 }
 
-/** The sealed API key, or null when the credential does not unlock it. */
+/**
+ * The sealed API key, or null when the credential does not unlock it under any
+ * keyring secret.
+ */
 function unseal(sealed: string, credential: string): string | null {
 	const [iv, tag, ciphertext] = sealed
 		.split(".")
@@ -106,28 +127,41 @@ function unseal(sealed: string, credential: string): string | null {
 	if (!iv || !tag || !ciphertext) {
 		return null;
 	}
-	const decipher = createDecipheriv("aes-256-gcm", sealingKey(credential), iv);
-	decipher.setAuthTag(tag);
-	try {
-		return Buffer.concat([
-			decipher.update(ciphertext),
-			decipher.final(),
-		]).toString("utf8");
-	} catch {
-		// GCM authentication failed: wrong credential.
-		return null;
+	for (const secret of getApiKeyHashSecrets()) {
+		const decipher = createDecipheriv(
+			"aes-256-gcm",
+			sealingKey(credential, secret),
+			iv,
+		);
+		decipher.setAuthTag(tag);
+		try {
+			return Buffer.concat([
+				decipher.update(ciphertext),
+				decipher.final(),
+			]).toString("utf8");
+		} catch {
+			// GCM authentication failed: wrong credential or older secret.
+		}
 	}
+	return null;
 }
 
+/** Reads (or with `consume`, atomically takes) a record under any secret. */
 async function readRecord<T>(
-	key: string,
+	kind: StateKind,
+	value: string,
 	schema: z.ZodType<T>,
 	consume = false,
 ): Promise<T | null> {
-	const raw = consume
-		? await redisClient.getdel(key)
-		: await redisClient.get(key);
-	return raw === null ? null : schema.parse(JSON.parse(raw));
+	for (const key of stateKeys(kind, value)) {
+		const raw = consume
+			? await redisClient.getdel(key)
+			: await redisClient.get(key);
+		if (raw !== null) {
+			return schema.parse(JSON.parse(raw));
+		}
+	}
+	return null;
 }
 
 async function isUsableApiKey(apiKey: string): Promise<boolean> {
@@ -146,7 +180,8 @@ async function isUsableApiKey(apiKey: string): Promise<boolean> {
 /**
  * The API key a bearer credential stands for: an OAuth access token resolves
  * through its server-side grant, anything else is taken as the API key itself.
- * Null when an access token is unknown, expired or revoked.
+ * Null when an access token is unknown, expired, revoked, or its client
+ * registration was deleted.
  */
 export async function resolveMcpBearerToken(
 	token: string,
@@ -154,8 +189,28 @@ export async function resolveMcpBearerToken(
 	if (!token.startsWith(ACCESS_TOKEN_PREFIX)) {
 		return token;
 	}
-	const sealed = await redisClient.get(stateKey("access", token));
-	return sealed === null ? null : unseal(sealed, token);
+	const grant = await readRecord("access", token, grantRecordSchema);
+	if (
+		!grant ||
+		!(await readRecord("client", grant.clientId, clientRecordSchema))
+	) {
+		return null;
+	}
+	return unseal(grant.sealedApiKey, token);
+}
+
+/**
+ * Whether a bearer credential still stands for `apiKey` and that key is
+ * usable. Long-lived streams re-check this before each delivery.
+ */
+export async function isMcpBearerTokenActive(
+	token: string,
+	apiKey: string,
+): Promise<boolean> {
+	return (
+		(await resolveMcpBearerToken(token)) === apiKey &&
+		(await isUsableApiKey(apiKey))
+	);
 }
 
 function isLoopbackHost(hostname: string): boolean {
@@ -282,10 +337,7 @@ async function oauthAuthorizeHandler(c: Context): Promise<Response> {
 	}
 
 	// Validate the redirect before anything is sent to it.
-	const client = await readRecord(
-		stateKey("client", clientId),
-		clientRecordSchema,
-	);
+	const client = await readRecord("client", clientId, clientRecordSchema);
 	if (!client) {
 		return oauthError(
 			c,
@@ -383,10 +435,7 @@ async function authenticateClient(
 	if (!clientId || !clientSecret) {
 		return null;
 	}
-	const client = await readRecord(
-		stateKey("client", clientId),
-		clientRecordSchema,
-	);
+	const client = await readRecord("client", clientId, clientRecordSchema);
 	const apiKey = client ? unseal(client.sealedApiKey, clientSecret) : null;
 	return client && apiKey ? { client, apiKey } : null;
 }
@@ -400,7 +449,7 @@ async function issueTokens(
 	const accessToken = newCredential(ACCESS_TOKEN_PREFIX);
 	await redisClient.set(
 		stateKey("access", accessToken),
-		seal(apiKey, accessToken),
+		JSON.stringify({ clientId, sealedApiKey: seal(apiKey, accessToken) }),
 		"EX",
 		ACCESS_TOKEN_TTL_SECONDS,
 	);
@@ -463,11 +512,7 @@ async function oauthTokenHandler(c: Context): Promise<Response> {
 	let apiKey = authenticated.apiKey;
 	if (grantType === "authorization_code") {
 		// Single use: the code is gone whether or not the exchange succeeds.
-		const code = await readRecord(
-			stateKey("code", params.code!),
-			codeRecordSchema,
-			true,
-		);
+		const code = await readRecord("code", params.code!, codeRecordSchema, true);
 		if (
 			!code ||
 			code.clientId !== clientId ||
@@ -485,8 +530,9 @@ async function oauthTokenHandler(c: Context): Promise<Response> {
 		// Rotated on every use.
 		const refreshToken = params.refresh_token!;
 		const record = await readRecord(
-			stateKey("refresh", refreshToken),
-			refreshRecordSchema,
+			"refresh",
+			refreshToken,
+			grantRecordSchema,
 			true,
 		);
 		const refreshedKey =
@@ -515,13 +561,26 @@ async function oauthTokenHandler(c: Context): Promise<Response> {
 	);
 }
 
-/** Token revocation (RFC 7009): holding a token is enough to revoke it. */
+/**
+ * Token revocation (RFC 7009). The client authenticates and may revoke only its
+ * own tokens; an unknown or foreign token still answers 200.
+ */
 async function oauthRevokeHandler(c: Context): Promise<Response> {
-	const { token } = await readParams(c);
+	const params = await readParams(c);
+	const { clientId, clientSecret } = readClientCredentials(c, params);
+	if (!clientId || !(await authenticateClient(clientId, clientSecret))) {
+		return oauthError(c, "invalid_client", "Invalid client credentials", 401);
+	}
+	const { token } = params;
 	if (!token) {
 		return oauthError(c, "invalid_request", "Missing token");
 	}
-	await redisClient.del(stateKey("access", token), stateKey("refresh", token));
+	for (const kind of ["access", "refresh"] as const) {
+		const grant = await readRecord(kind, token, grantRecordSchema);
+		if (grant?.clientId === clientId) {
+			await redisClient.del(...stateKeys(kind, token));
+		}
+	}
 	return c.body(null, 200);
 }
 
@@ -627,7 +686,9 @@ async function oauthDeleteClientHandler(c: Context): Promise<Response> {
 	) {
 		return oauthError(c, "invalid_client", "Invalid client credentials", 401);
 	}
-	await redisClient.del(stateKey("client", clientId));
+	// Its access tokens stop resolving and its refresh tokens can no longer be
+	// redeemed, because both require the registration.
+	await redisClient.del(...stateKeys("client", clientId));
 	return c.body(null, 204);
 }
 

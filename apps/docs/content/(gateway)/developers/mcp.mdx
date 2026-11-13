@@ -496,7 +496,7 @@ For applications that prefer OAuth authentication, LLM Gateway's MCP server impl
 
 Register with your API key (`api_key` in the body or `Authorization: Bearer`). The response holds a random `client_id` and `client_secret`; authenticate to the token endpoint with them (HTTP Basic or form fields). Access tokens are opaque, last one hour, and are used as `Authorization: Bearer` on `/mcp`. Refresh tokens rotate on every use.
 
-Registrations expire after 30 days. Delete one earlier with `DELETE /oauth/register/{client_id}` and the client credentials as HTTP Basic. Deactivating or deleting the API key revokes every token issued for it.
+Revoke a token at `/oauth/revoke` with the client credentials. Registrations expire after 30 days; delete one earlier with `DELETE /oauth/register/{client_id}` and the client credentials as HTTP Basic, which also stops its tokens. Tokens stop working while their API key is inactive and work again if it is reactivated before they expire; delete the API key to revoke them permanently.
 
 ## Enabling Local Image Saving
 

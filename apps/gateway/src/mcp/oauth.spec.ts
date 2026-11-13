@@ -10,7 +10,10 @@ import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harne
 import { redisClient } from "@llmgateway/cache";
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import {
+	getApiKeyHashSecret,
+	hashApiKeyForStorage,
+} from "@llmgateway/shared/api-key-hash";
 
 const API_KEY = "test-token";
 const REDIRECT_URI = "http://127.0.0.1:53682/callback";
@@ -143,6 +146,7 @@ describe("MCP OAuth", () => {
 
 	afterEach(() => {
 		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
 	});
 
 	test.each([
@@ -292,15 +296,60 @@ describe("MCP OAuth", () => {
 		expect((await token(refresh)).status).toBe(400);
 	});
 
-	test("revoked access tokens stop working", async () => {
-		const { tokens } = await completeFlow();
-		const response = await app.request("/oauth/revoke", {
-			method: "POST",
-			headers: { "Content-Type": "application/x-www-form-urlencoded" },
-			body: new URLSearchParams({ token: tokens.access_token! }).toString(),
+	test("revocation requires the owning client", async () => {
+		const { client, tokens } = await completeFlow();
+		const other = await register();
+		const revoke = (params: Record<string, string>) =>
+			app.request("/oauth/revoke", {
+				method: "POST",
+				headers: { "Content-Type": "application/x-www-form-urlencoded" },
+				body: new URLSearchParams(params).toString(),
+			});
+
+		const token = tokens.access_token!;
+		expect((await revoke({ token })).status).toBe(401);
+		expect(
+			(
+				await revoke({
+					token,
+					client_id: client.client_id,
+					client_secret: "wrong-secret",
+				})
+			).status,
+		).toBe(401);
+		const foreign = await revoke({
+			token,
+			client_id: other.client_id,
+			client_secret: other.client_secret,
 		});
-		expect(response.status).toBe(200);
-		expect(await callMcp(tokens.access_token!)).toBe(401);
+		expect(foreign.status).toBe(200);
+		expect(await callMcp(token)).toBe(200);
+
+		const own = await revoke({
+			token,
+			client_id: client.client_id,
+			client_secret: client.client_secret,
+		});
+		expect(own.status).toBe(200);
+		expect(await callMcp(token)).toBe(401);
+	});
+
+	test("grants survive a hash-secret rotation", async () => {
+		const previousSecret = getApiKeyHashSecret();
+		const { client, tokens } = await completeFlow();
+		vi.stubEnv(
+			"GATEWAY_API_KEY_HASH_SECRET",
+			`secret-after-rotation,${previousSecret}`,
+		);
+		expect(await callMcp(tokens.access_token!)).toBe(200);
+		const refreshed = await token({
+			grant_type: "refresh_token",
+			refresh_token: tokens.refresh_token!,
+			client_id: client.client_id,
+			client_secret: client.client_secret,
+		});
+		expect(refreshed.status).toBe(200);
+		expect(await callMcp(refreshed.body.access_token!)).toBe(200);
 	});
 
 	test("deactivating the API key revokes every grant", async () => {
@@ -322,7 +371,7 @@ describe("MCP OAuth", () => {
 	});
 
 	test("a client can delete its registration", async () => {
-		const client = await register();
+		const { client, tokens } = await completeFlow();
 		const basic = (secret: string) =>
 			`Basic ${Buffer.from(`${client.client_id}:${secret}`).toString("base64")}`;
 		const path = `/oauth/register/${client.client_id}`;
@@ -338,6 +387,17 @@ describe("MCP OAuth", () => {
 			headers: { Authorization: basic(client.client_secret) },
 		});
 		expect(deleted.status).toBe(204);
+		expect(await callMcp(tokens.access_token!)).toBe(401);
+		expect(
+			(
+				await token({
+					grant_type: "refresh_token",
+					refresh_token: tokens.refresh_token!,
+					client_id: client.client_id,
+					client_secret: client.client_secret,
+				})
+			).status,
+		).toBe(401);
 
 		const response = await app.request(
 			`/oauth/authorize?${new URLSearchParams({

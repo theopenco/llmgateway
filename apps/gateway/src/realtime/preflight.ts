@@ -26,6 +26,7 @@ import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 
 import { readProviderKey } from "@llmgateway/actions";
+import { providerKeyAllowsModel } from "@llmgateway/db";
 import { getRequestedModelAlias } from "@llmgateway/models";
 
 import {
@@ -490,7 +491,11 @@ async function runRealtimePreflightInner(
 		// Only an organization-owned BYOK key means the org pays the provider
 		// directly. A platform-managed credential still bills as credits.
 		usedMode: providerKey ? "api-keys" : "credits",
-		allowedTranscriptionModelIds,
+		// The session pins transcription on the same upstream credential, so only
+		// models that credential may serve are offered.
+		allowedTranscriptionModelIds: allowedTranscriptionModelIds.filter((id) =>
+			providerKeyAllowsModel((providerKey ?? managedKey)?.allowedModels, id),
+		),
 		clientIp: input.clientIp,
 		safetyIdentifier: forwardedSafetyIdentifier(
 			managedKey,
