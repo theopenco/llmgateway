@@ -9,9 +9,9 @@ activity feed (`crm_activity.external_ref` keeps them idempotent).
 
 ## Gmail
 
-- OAuth client: `CRM_GOOGLE_CLIENT_ID` / `CRM_GOOGLE_CLIENT_SECRET`, falling
-  back to `LOUNGE_GOOGLE_CLIENT_ID` / `LOUNGE_GOOGLE_CLIENT_SECRET`. The
-  client needs `{API_URL}/admin/crm/integrations/gmail/callback` among its
+- OAuth client: `CRM_GOOGLE_CLIENT_ID` / `CRM_GOOGLE_CLIENT_SECRET` (no
+  fallback to the Lounge client, which lacks the CRM callback). The client
+  needs `{API_URL}/admin/crm/integrations/gmail/callback` among its
   redirect URIs, the Gmail API enabled, and the `gmail.readonly` and
   `gmail.send` scopes on the consent screen. Both scopes are restricted, so
   keep the consent screen **Internal** (Workspace users only): no verification

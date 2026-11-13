@@ -30,12 +30,8 @@ const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
 
 export function googleClient() {
 	return {
-		clientId:
-			process.env.CRM_GOOGLE_CLIENT_ID?.trim() ||
-			process.env.LOUNGE_GOOGLE_CLIENT_ID?.trim(),
-		clientSecret:
-			process.env.CRM_GOOGLE_CLIENT_SECRET?.trim() ||
-			process.env.LOUNGE_GOOGLE_CLIENT_SECRET?.trim(),
+		clientId: process.env.CRM_GOOGLE_CLIENT_ID?.trim(),
+		clientSecret: process.env.CRM_GOOGLE_CLIENT_SECRET?.trim(),
 	};
 }
 

@@ -1247,9 +1247,9 @@ export const crmActivity = snakeCase.table(
 		dueAt: timestamp(),
 		completedAt: timestamp(),
 		// Idempotency key for activities created from another record:
-		// `gmail:<messageId>` for mail sent from the CRM, `calendly:<eventUri>`
-		// for scheduled meetings, `lead:<submissionId>` for an inquiry's
-		// follow-up, so repeated syncs and webhooks never duplicate.
+		// `gmail:<messageId>` for mail sent from the CRM, `gcal:<uid>` for
+		// held meetings, `lead:<submissionId>` for an inquiry's follow-up, so
+		// repeated syncs never duplicate.
 		externalRef: text(),
 	},
 	(table) => [
@@ -1263,8 +1263,7 @@ export const crmActivity = snakeCase.table(
 	],
 );
 
-// "calendly" rows are legacy: nothing reads them, they can only be disconnected.
-export const CRM_INTEGRATION_PROVIDERS = ["gmail", "calendly"] as const;
+export const CRM_INTEGRATION_PROVIDERS = ["gmail"] as const;
 export type CrmIntegrationProvider = (typeof CRM_INTEGRATION_PROVIDERS)[number];
 
 // A mailbox connected to the CRM by an admin. Credentials are sealed with the
@@ -1284,11 +1283,9 @@ export const crmIntegration = snakeCase.table(
 		userId: text()
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
-		// Mailbox address (or the legacy Calendly account email).
+		// Mailbox address.
 		accountEmail: text().notNull(),
 		displayName: text(),
-		// Legacy Calendly user URI; Gmail leaves it null.
-		externalId: text(),
 		credentials: text().notNull(),
 		shared: boolean().notNull().default(false),
 	},
