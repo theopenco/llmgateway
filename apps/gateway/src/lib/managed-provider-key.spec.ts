@@ -224,6 +224,31 @@ describe("findManagedProviderKey", () => {
 		expect(availability.usable).not.toContain("alibaba");
 	});
 
+	/**
+	 * An unpinned Alibaba credential still runs in one region — the default —
+	 * so it serves that region only and never stands in for another one.
+	 */
+	it("treats an unpinned credential with no global region as its default region", async () => {
+		await insertManaged({ id: "alibaba-unpinned", provider: "alibaba" });
+
+		expect((await findManagedProviderKey("alibaba"))?.id).toBe(
+			"alibaba-unpinned",
+		);
+		expect(
+			(await findManagedProviderKey("alibaba", { region: "singapore" }))?.id,
+		).toBe("alibaba-unpinned");
+		expect(
+			await findManagedProviderKey("alibaba", { region: "us-virginia" }),
+		).toBeUndefined();
+
+		const availability = await findManagedProviderAvailability();
+		expect(availability.usable).not.toContain("alibaba");
+		expect(availability.defaultRegionUsable).toContain("alibaba");
+		expect(availability.pinnedRegions.get("alibaba")).toEqual(
+			new Set(["singapore"]),
+		);
+	});
+
 	it("does not serve a region-less request from a non-default region", async () => {
 		await insertManaged({
 			id: "alibaba-beijing",

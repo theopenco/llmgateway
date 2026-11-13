@@ -150,7 +150,8 @@ Managed credentials cover the same axes as the environment variables they replac
   as the comma-separated env lists.
 - A per-credential audience (all organizations / enterprise plans / DevPass and
   Chat plans), mirroring the `__ENTERPRISE` and `__PLANS` suffixes below.
-- An optional region, mirroring the `{ENV_VAR}__{REGION}` overrides.
+- A region, mirroring the `{ENV_VAR}__{REGION}` overrides. Required for
+  providers with no global region, optional otherwise.
 - An optional list of allowed models, for accounts that only have part of the
   provider's catalogue enabled. For providers where models are deployed per
   account (Azure and AWS Bedrock), the worker tests the remaining testable models once a
@@ -163,7 +164,8 @@ A request that resolves no region is served from the provider's default region,
 so it is served by a region-agnostic credential or by one pinned to that default
 region. Providers whose keys are region-scoped — those with no global region, so
 every credential belongs to exactly one region — are therefore fully covered by
-one credential per region, with no region-agnostic credential needed. Providers
+one credential per region. A credential for such a provider must pin its region;
+one stored without a region counts as pinned to the default region. Providers
 whose key works across every region (AWS Bedrock) are stricter: a region on the
 credential scopes it to that region only, and a request for another region fails
 rather than borrowing it.
