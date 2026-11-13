@@ -2116,6 +2116,8 @@ export const alibabaModels = [
 				externalId: "qwen3.8-27b",
 				inputPrice: "0.5e-6",
 				cachedInputPrice: "0.1e-6",
+				cacheReadInputPrice: "0.05e-6",
+				cacheWriteInputPrice: "0.625e-6",
 				outputPrice: "3e-6",
 				regions: [{ id: "singapore" }],
 				requestPrice: "0",
