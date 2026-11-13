@@ -134,7 +134,8 @@ export function CreateProviderKeyDialog({
 				: selectedProviderDef?.regionConfig?.defaultRegion)) ??
 		"";
 
-	// Regions with a workspace-dedicated host (Alibaba Frankfurt) offer the
+	// Regions with a workspace-dedicated host (Alibaba Frankfurt, Hong Kong,
+	// Tokyo) offer the
 	// field so a credential can use its own endpoint instead of the shared,
 	// trial-grade one. It is only mandatory where no shared host exists.
 	const workspaceIdRegion =

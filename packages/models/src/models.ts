@@ -278,6 +278,11 @@ export interface ProviderRegion {
 	 */
 	streaming?: boolean | "only";
 	/**
+	 * Web search support override for this region.
+	 * When absent, falls back to the mapping-level webSearch.
+	 */
+	webSearch?: boolean;
+	/**
 	 * Test skip/only for this specific region.
 	 * When absent, falls back to the mapping-level test.
 	 */
