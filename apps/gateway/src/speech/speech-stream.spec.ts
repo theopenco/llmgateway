@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { waitForPendingWork as drainPendingWork } from "@/lib/pending-work.js";
-import { prepareSpeechStream } from "@/speech/speech-stream.js";
+import {
+	prepareSpeechStream,
+	SPEECH_DELIVERY_STALL_MS,
+} from "@/speech/speech-stream.js";
 
 const encode = (text: string) => new TextEncoder().encode(text);
 const event = (data: unknown) => `data: ${JSON.stringify(data)}\n\n`;
@@ -350,11 +353,16 @@ function speechStreamTests() {
 			const stream = setup(source, { clientSse });
 			const reader = (await stream.result).getReader();
 			await reader.read();
+			vi.useFakeTimers();
 			const generatedAudioBytes = 6 * 256 * 1024;
 			for (let index = 0; index < 6; index++) {
 				source.controller.enqueue(encode(delta("a".repeat(256 * 1024))));
 			}
 			source.controller.enqueue(encode(done));
+			await vi.advanceTimersByTimeAsync(SPEECH_DELIVERY_STALL_MS - 1);
+			expect(stream.onSettled).not.toHaveBeenCalled();
+			await vi.advanceTimersByTimeAsync(1);
+			vi.useRealTimers();
 			await vi.waitFor(() => expect(stream.onSettled).toHaveBeenCalledTimes(1));
 			await expect(reader.read()).rejects.toThrow("downstream buffer limit");
 			expect(await drainPendingWork(1000)).toBe(0);
@@ -367,6 +375,43 @@ function speechStreamTests() {
 					outputTokens: 42,
 					audioBytes: 5 + generatedAudioBytes,
 					responseBytes: clientSse ? encode(delta()).length : 5,
+				}),
+			);
+		},
+	);
+
+	test.each([false, true])(
+		"paces upstream to a slow client beyond the buffer limit (SSE %s)",
+		async (clientSse) => {
+			const source = upstream();
+			const audio = "a".repeat(256 * 1024);
+			for (let index = 0; index < 6; index++) {
+				source.controller.enqueue(encode(delta(audio)));
+			}
+			source.controller.enqueue(encode(done));
+			const stream = setup(source, { clientSse });
+			const reader = (await stream.result).getReader();
+			let received = 0;
+			for (;;) {
+				const chunk = await reader.read();
+				if (chunk.done) {
+					break;
+				}
+				received += chunk.value.length;
+				await new Promise((resolve) => setTimeout(resolve, 5));
+			}
+			expect(received).toBe(
+				clientSse
+					? encode(delta(audio).repeat(6) + done).length
+					: 6 * audio.length,
+			);
+			expect(await drainPendingWork(1000)).toBe(0);
+			expect(stream.onSettled).toHaveBeenCalledExactlyOnceWith(
+				expect.objectContaining({
+					inputTokens: 7,
+					outputTokens: 42,
+					canceled: false,
+					error: null,
 				}),
 			);
 		},
@@ -407,10 +452,13 @@ function speechStreamTests() {
 		const stream = setup(source);
 		const reader = (await stream.result).getReader();
 		await reader.read();
+		vi.useFakeTimers();
 		for (let index = 0; index < 1026; index++) {
 			source.controller.enqueue(encode(delta("x")));
 		}
 		source.controller.enqueue(encode(done));
+		await vi.advanceTimersByTimeAsync(SPEECH_DELIVERY_STALL_MS);
+		vi.useRealTimers();
 		await vi.waitFor(() => expect(stream.onSettled).toHaveBeenCalledTimes(1));
 		await expect(reader.read()).rejects.toThrow("downstream buffer limit");
 		expect(stream.onSettled).toHaveBeenCalledExactlyOnceWith(

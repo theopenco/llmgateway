@@ -65,6 +65,11 @@ export function encodeSpeechEvents(
 
 export class SpeechStreamError extends Error {}
 
+const SPEECH_BUFFER_BYTES = 1024 * 1024;
+const SPEECH_BUFFER_CHUNKS = 1024;
+/** How long a full delivery buffer waits for a connected client to read. */
+export const SPEECH_DELIVERY_STALL_MS = 10_000;
+
 function usageTokenCount(value: unknown): number | null {
 	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
 		? value
@@ -288,6 +293,7 @@ export async function prepareSpeechStream(options: {
 			output.enqueue(chunk);
 			delivered();
 			delivered = undefined;
+			wake();
 		}
 		if (sourceDone && !buffered.length) {
 			outputClosed = true;
@@ -296,6 +302,33 @@ export async function prepareSpeechStream(options: {
 			delivered = undefined;
 			finishDelivery();
 		}
+	}
+	const bufferFull = (size: number) =>
+		buffered.length > 0 &&
+		(bufferedBytes + size > SPEECH_BUFFER_BYTES ||
+			buffered.length >= SPEECH_BUFFER_CHUNKS);
+	/**
+	 * Pauses the upstream while a slow client drains the buffer. Returns false
+	 * once the client reads nothing for SPEECH_DELIVERY_STALL_MS.
+	 */
+	async function waitForBufferSpace(size: number): Promise<boolean> {
+		while (!outputClosed && bufferFull(size)) {
+			const progressed = await new Promise<boolean>((resolve) => {
+				const timer = setTimeout(
+					() => resolve(false),
+					SPEECH_DELIVERY_STALL_MS,
+				);
+				wake = () => {
+					clearTimeout(timer);
+					resolve(true);
+				};
+			});
+			wake = () => {};
+			if (!progressed) {
+				return outputClosed || !bufferFull(size);
+			}
+		}
+		return true;
 	}
 	const onAbort = () => {
 		// The handler may abort the upstream before our client listener runs; a
@@ -436,19 +469,16 @@ export async function prepareSpeechStream(options: {
 			let chunk = first;
 			while (!chunk.done) {
 				if (options.upstreamSse) {
-					// Parse billing events independently of delivery. Bound both payload
-					// bytes and queue bookkeeping, then error delivery and drain usage.
+					// A slow client paces the upstream through a bounded buffer. One that
+					// stops reading fails delivery while usage drains for billing.
 					if (!outputClosed) {
-						if (
-							bufferedBytes + chunk.value.length > 1024 * 1024 ||
-							buffered.length >= 1024
-						) {
+						if (!(await waitForBufferSpace(chunk.value.length))) {
 							stats.canceled = true;
 							stats.error = new SpeechStreamError(
 								"Speech response exceeded the downstream buffer limit",
 							);
 							stopDelivery(stats.error);
-						} else {
+						} else if (!outputClosed) {
 							buffered.push(chunk.value);
 							bufferedBytes += chunk.value.length;
 							flush();
