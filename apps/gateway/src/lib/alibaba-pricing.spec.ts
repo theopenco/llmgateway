@@ -23,6 +23,11 @@ const PUBLISHED_OFF_RATIO_CACHE_PRICES: Record<
 	// $2/M input, but $0.25/M implicit hits (0.125x) and $0.17/M explicit hits
 	// (0.085x). Explicit cache creation still follows the usual 1.25x.
 	"qwen3.8-max": { cachedInputPrice: 0.25e-6, cacheReadInputPrice: 0.17e-6 },
+	// Listed with qwen3.8-max in the cache-ratio exceptions at the same $2/M input.
+	"qwen3.8-2.4t-a95b": {
+		cachedInputPrice: 0.25e-6,
+		cacheReadInputPrice: 0.17e-6,
+	},
 	// $0.15/M input, but $0.016/M for both implicit and explicit hits (0.107x)
 	// and $0.2/M creation (1.33x) — every cache rate is off-ratio here.
 	"qwen3.8-flash": {
