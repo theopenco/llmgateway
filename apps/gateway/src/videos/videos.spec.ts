@@ -361,6 +361,60 @@ describe("videos", () => {
 		});
 	});
 
+	test("/v1/videos routes AtlasCloud KLING v3.0 1080p requests to the Pro upstream model", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0",
+				prompt: "Animate this product shot with a slow camera push",
+				size: "1080x1920",
+				seconds: 5,
+				audio: false,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		expect(created.model).toBe("atlascloud/kling-v3-0");
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob?.usedModel).toBe("kwaivgi/kling-v3.0-pro/image-to-video");
+
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.requestBody).toMatchObject({
+			model: "kwaivgi/kling-v3.0-pro/image-to-video",
+			duration: 5,
+			aspect_ratio: "9:16",
+			sound: false,
+		});
+	});
+
 	test("/v1/videos routes AtlasCloud KLING v3.0 Pro frames to the Pro upstream model", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
