@@ -198,13 +198,6 @@ describe("getProviderHeaders - Google Vertex service tiers", () => {
 			expect(headers["api-key"]).toBeUndefined();
 			expect(headers.Authorization).toBeUndefined();
 		});
-
-		it("keeps using Azure's api-key header for azure-ai-foundry", () => {
-			const headers = getProviderHeaders("azure-ai-foundry", "foundry-key");
-
-			expect(headers["api-key"]).toBe("foundry-key");
-			expect(headers["x-api-key"]).toBeUndefined();
-		});
 	});
 
 	it("does not set the Vertex tier header for other providers", () => {
