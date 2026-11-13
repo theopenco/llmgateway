@@ -515,10 +515,7 @@ describe("managed provider credentials", () => {
 	 * provider's default region, so the credential pinned to that region is the
 	 * one that serves it. Falling through to "no managed credential" 500s every
 	 * region-less request the moment the last region-agnostic credential goes
-	 * away. Uses `qwen3.8-flash`, whose Singapore and Frankfurt entries carry no
-	 * per-region pricing, so the request genuinely resolves no region — a model with
-	 * regional variants routes over those instead (see the cheapest-region test
-	 * below).
+	 * away. Uses `qwen3.8-flash`, which Singapore serves at the mapping-level price.
 	 */
 	test("serves a region-less request from the default-region credential", async () => {
 		await seedApiKey();
@@ -540,6 +537,9 @@ describe("managed provider credentials", () => {
 		// Bare model id: no provider prefix and no `:region` suffix.
 		const res = await completions("qwen3.8-flash");
 		expect(res.status).toBe(200);
+		const logs = await waitForLogs(1);
+		// Served from the default region.
+		expect(logs[0].usedModel).toBe("alibaba/qwen3.8-flash:singapore");
 
 		expect(captured).toHaveLength(1);
 		expect(captured[0].url).toContain("dashscope-intl.aliyuncs.com");

@@ -37,6 +37,43 @@ const PUBLISHED_OFF_RATIO_CACHE_PRICES: Record<
 	},
 };
 
+// Regional deployments priced off-ratio, keyed `<externalId>:<region>`. The
+// Global-scope rows publish their own rounded cache rates.
+const QWEN38_MAX_GLOBAL = {
+	cachedInputPrice: 0.206e-6,
+	cacheReadInputPrice: 0.137e-6,
+};
+const QWEN38_FLASH_GLOBAL = {
+	cachedInputPrice: 0.014e-6,
+	cacheReadInputPrice: 0.014e-6,
+	cacheWriteInputPrice: 0.177e-6,
+};
+const PUBLISHED_OFF_RATIO_REGIONAL_CACHE_PRICES: Record<
+	string,
+	(typeof PUBLISHED_OFF_RATIO_CACHE_PRICES)[string]
+> = {
+	"qwen3.8-max:eu-frankfurt": QWEN38_MAX_GLOBAL,
+	"qwen3.8-max:cn-beijing": QWEN38_MAX_GLOBAL,
+	"qwen3.8-max:ap-tokyo": QWEN38_MAX_GLOBAL,
+	"qwen3.8-2.4t-a95b:cn-beijing": QWEN38_MAX_GLOBAL,
+	"qwen3.8-flash:cn-beijing": QWEN38_FLASH_GLOBAL,
+	"qwen3.8-flash:ap-tokyo": QWEN38_FLASH_GLOBAL,
+};
+
+function expectedRegionalCacheRate(
+	externalId: string,
+	region: string,
+	field: "cachedInputPrice" | "cacheReadInputPrice" | "cacheWriteInputPrice",
+	inputPrice: string,
+	multiplier: number,
+) {
+	return (
+		PUBLISHED_OFF_RATIO_REGIONAL_CACHE_PRICES[`${externalId}:${region}`]?.[
+			field
+		] ?? Number(inputPrice) * multiplier
+	);
+}
+
 function expectedCacheRate(
 	externalId: string,
 	field: "cachedInputPrice" | "cacheReadInputPrice" | "cacheWriteInputPrice",
@@ -152,7 +189,13 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 						provider.externalId,
 						`region "${region.id}" cacheWriteInputPrice (5m)`,
 						region.cacheWriteInputPrice,
-						Number(region.inputPrice) * FIVE_MIN_WRITE_MULTIPLIER,
+						expectedRegionalCacheRate(
+							provider.externalId,
+							region.id,
+							"cacheWriteInputPrice",
+							region.inputPrice!,
+							FIVE_MIN_WRITE_MULTIPLIER,
+						),
 					);
 				}
 				for (const tier of region.pricingTiers ?? []) {
@@ -223,7 +266,13 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 						provider.externalId,
 						`region "${region.id}" cachedInputPrice (implicit hit)`,
 						region.cachedInputPrice!,
-						Number(region.inputPrice) * IMPLICIT_READ_MULTIPLIER,
+						expectedRegionalCacheRate(
+							provider.externalId,
+							region.id,
+							"cachedInputPrice",
+							region.inputPrice!,
+							IMPLICIT_READ_MULTIPLIER,
+						),
 					);
 				}
 				for (const tier of region.pricingTiers ?? []) {
@@ -285,7 +334,13 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 						provider.externalId,
 						`region "${region.id}" cacheReadInputPrice (explicit hit)`,
 						region.cacheReadInputPrice,
-						Number(region.inputPrice) * EXPLICIT_READ_MULTIPLIER,
+						expectedRegionalCacheRate(
+							provider.externalId,
+							region.id,
+							"cacheReadInputPrice",
+							region.inputPrice!,
+							EXPLICIT_READ_MULTIPLIER,
+						),
 					);
 				}
 				for (const tier of region.pricingTiers ?? []) {
