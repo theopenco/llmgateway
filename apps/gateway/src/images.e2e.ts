@@ -88,7 +88,7 @@ const imageTestCases = filteredModels
 	});
 
 // Image cases bill per image, so they run on request or when TEST_MODELS names
-// image mappings explicitly (as the e2e workflow's test_models input does).
+// image mappings explicitly.
 const testImageMode =
 	process.env.TEST_IMAGE_MODE === "true" ||
 	(specifiedModels !== null && imageTestCases.length > 0);
