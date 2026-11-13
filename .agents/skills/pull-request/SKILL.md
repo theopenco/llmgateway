@@ -1,6 +1,6 @@
 ---
 name: pull-request
-description: Create, update, illustrate, and hand off pull requests in this repo. Use when opening a PR, pushing a branch for review, writing or revising a PR title/description, embedding a screenshot or image in a PR body, triggering e2e CI on a PR, or whenever the user mentions "PR", "pull request", "open a PR", "update the PR", or "attach a screenshot to the PR".
+description: Create, update, illustrate, and hand off pull requests in this repo. Use when opening a PR, pushing a branch for review, writing or revising a PR title/description, embedding a screenshot or image in a PR body, or whenever the user mentions "PR", "pull request", "open a PR", "update the PR", or "attach a screenshot to the PR".
 ---
 
 # Pull requests
@@ -156,13 +156,6 @@ Why it is shaped this way:
   `git push origin --delete assets/pr-<n>`.
 
 Use the `verify` skill to launch an isolated stack and capture the screenshot.
-
-## CI
-
-The e2e workflow does **not** run automatically on PRs — e2e spends real money on provider API calls. Trigger it on demand by commenting `/e2e` on the PR (maintainers/collaborators only, and only for branches in this repository, not forks), or via `workflow_dispatch`. Use it only for generic gateway code changes whose
-effect across models needs checking. NEVER comment `/e2e` on PRs that add or
-edit model mappings: run those locally scoped with `TEST_MODELS`, or dispatch
-with `test_models` and `full_mode` when local credentials are missing (`add-model` skill).
 
 ## Auto-merge means ship it
 

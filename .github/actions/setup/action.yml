@@ -8,7 +8,7 @@ runs:
       shell: bash
       run: |
         set -eu
-        # .tool-versions comes from the checked-out ref, which for e2e is an
+        # .tool-versions comes from the checked-out ref, which may be an
         # untrusted PR head. Take a single line and strip everything outside
         # [A-Za-z0-9.-] so a crafted file cannot inject extra GITHUB_ENV entries.
         read_version() {

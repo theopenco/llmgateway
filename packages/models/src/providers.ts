@@ -2148,6 +2148,19 @@ export function getRegionScopedDefaultRegion(
 }
 
 /**
+ * The region a platform credential actually serves. A provider with no global
+ * region (Alibaba) sends an unpinned credential's traffic to its default
+ * region, so such a credential is treated as pinned there; elsewhere an
+ * unpinned credential stays region-agnostic (null).
+ */
+export function getEffectiveCredentialRegion(
+	providerId: ProviderId | string,
+	region: string | null | undefined,
+): string | null {
+	return region || getRegionScopedDefaultRegion(providerId) || null;
+}
+
+/**
  * Whether a region's preferred endpoint is completed with a per-credential
  * workspace id. The workspace id is worth collecting for such a region even
  * when a shared fallback exists, so the UI asks for it here.

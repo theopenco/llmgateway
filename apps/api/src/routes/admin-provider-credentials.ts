@@ -86,6 +86,7 @@ import {
 	getProviderEnvExclusiveGroups,
 	getProviderEnvExclusiveViolations,
 	getProviderEnvKeys,
+	getRegionScopedDefaultRegion,
 	providers,
 } from "@llmgateway/models";
 import {
@@ -288,6 +289,11 @@ const catalogEntrySchema = z.object({
 	regions: z.array(z.object({ id: z.string(), label: z.string() })),
 	/** Region used when a credential does not pin one. Null when not region-scoped. */
 	defaultRegion: z.string().nullable(),
+	/**
+	 * Whether a credential must pin a region: the provider has no global region,
+	 * so each key belongs to exactly one (Alibaba).
+	 */
+	regionRequired: z.boolean(),
 	configKeys: z.array(configKeySchema),
 	/**
 	 * Groups of settings where exactly one member must be supplied. The form
@@ -448,10 +454,22 @@ async function validateConfig(
  * A credential's region selects which region's traffic it serves, so it only
  * means anything for a provider whose catalogue declares regions, and only for
  * a region that catalogue actually lists. Anything else would produce a
- * credential that silently never matches a request.
+ * credential that silently never matches a request. `required` (create and
+ * region edits) also rejects an unpinned credential for a provider with no
+ * global region.
  */
-function validateRegion(provider: string, region: string | null): void {
+function validateRegion(
+	provider: string,
+	region: string | null,
+	{ required = false }: { required?: boolean } = {},
+): void {
 	if (!region) {
+		const defaultRegion = getRegionScopedDefaultRegion(provider);
+		if (required && defaultRegion) {
+			throw new HTTPException(400, {
+				message: `${provider} has no global region, so each credential must pin the region its key belongs to (unpinned traffic runs in ${defaultRegion})`,
+			});
+		}
 		return;
 	}
 
@@ -781,6 +799,7 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				apiKeyEnvConfigured: apiKeyEnvCounts.default > 0,
 				regions,
 				defaultRegion: regionConfig?.defaultRegion ?? null,
+				regionRequired: getRegionScopedDefaultRegion(provider.id) !== undefined,
 				apiKeyEnvCounts,
 				envCredentials,
 				configKeys: getManagedCredentialConfigKeys(provider.id),
@@ -822,6 +841,7 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				apiKeyEnvConfigured: false,
 				regions: [],
 				defaultRegion: null,
+				regionRequired: false,
 				apiKeyEnvCounts: countEnvCredentialsByVariant([]),
 				envCredentials: [],
 				configKeys: [],
@@ -2053,7 +2073,7 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 	const region = body.region?.trim() || null;
 
 	await validateConfig(body.provider, config);
-	validateRegion(body.provider, region);
+	validateRegion(body.provider, region, { required: true });
 	await validateManagedAllowedModels(
 		body.provider,
 		allowedModels,
@@ -2233,7 +2253,7 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	}
 
 	if (body.region !== undefined) {
-		validateRegion(existing.provider, region);
+		validateRegion(existing.provider, region, { required: true });
 	}
 
 	if (body.allowedModels !== undefined) {

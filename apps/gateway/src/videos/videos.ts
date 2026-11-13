@@ -1717,8 +1717,13 @@ function getAtlasCloudVideoModelName(
 		return `${baseModelName}/${taskName}`;
 	}
 
+	// KLING v3.0 splits into 720p (std), 1080p (pro), and 4k upstream models.
 	if (videoSize.resolution === "4k") {
 		return `kwaivgi/kling-v3.0-4k/${taskName}`;
+	}
+
+	if (videoSize.resolution === "1080p") {
+		return `kwaivgi/kling-v3.0-pro/${taskName}`;
 	}
 
 	return `kwaivgi/kling-v3.0-std/${taskName}`;
