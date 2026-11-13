@@ -246,7 +246,7 @@ export {
 	LOUNGE_SOURCE,
 } from "./lounge-source.js";
 
-export { MARKETING_STATS } from "./marketing.js";
+export { ENTERPRISE_BOOKING_URL, MARKETING_STATS } from "./marketing.js";
 
 export {
 	type DiscordEmbed,

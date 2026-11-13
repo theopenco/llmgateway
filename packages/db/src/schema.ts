@@ -1263,13 +1263,14 @@ export const crmActivity = snakeCase.table(
 	],
 );
 
+// "calendly" rows are legacy: nothing reads them, they can only be disconnected.
 export const CRM_INTEGRATION_PROVIDERS = ["gmail", "calendly"] as const;
 export type CrmIntegrationProvider = (typeof CRM_INTEGRATION_PROVIDERS)[number];
 
-// A mailbox or Calendly user connected to the CRM by an admin. Credentials
-// are sealed with the connector cipher; `shared` lets other admins send mail
-// or offer booking links from it (contact@ is shared, personal inboxes are
-// not). Threads with CRM contacts are readable from every connection.
+// A mailbox connected to the CRM by an admin. Credentials are sealed with the
+// connector cipher; `shared` lets other admins send mail from it (contact@ is
+// shared, personal inboxes are not). Threads and meetings with CRM contacts
+// are readable from every connection.
 export const crmIntegration = snakeCase.table(
 	"crm_integration",
 	{
@@ -1283,10 +1284,10 @@ export const crmIntegration = snakeCase.table(
 		userId: text()
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
-		// Mailbox address or Calendly account email.
+		// Mailbox address (or the legacy Calendly account email).
 		accountEmail: text().notNull(),
 		displayName: text(),
-		// Calendly user URI; Gmail leaves it null.
+		// Legacy Calendly user URI; Gmail leaves it null.
 		externalId: text(),
 		credentials: text().notNull(),
 		shared: boolean().notNull().default(false),

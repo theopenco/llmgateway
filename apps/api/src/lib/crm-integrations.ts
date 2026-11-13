@@ -27,7 +27,6 @@ const GOOGLE_AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN = "https://oauth2.googleapis.com/token";
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
 const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
-const CALENDLY_API = "https://api.calendly.com";
 
 export function googleClient() {
 	return {
@@ -52,13 +51,6 @@ export function gmailCallbackUrl(): string {
 	).toString();
 }
 
-export function calendlyWebhookUrl(): string {
-	return new URL(
-		"/public/crm-webhooks/calendly",
-		process.env.API_URL ?? "http://localhost:4002",
-	).toString();
-}
-
 const gmailCredentialsSchema = z.object({
 	accessToken: z.string(),
 	refreshToken: z.string(),
@@ -69,29 +61,12 @@ const gmailCredentialsSchema = z.object({
 });
 type GmailCredentials = z.infer<typeof gmailCredentialsSchema>;
 
-const calendlyCredentialsSchema = z.object({
-	token: z.string(),
-	organizationUri: z.string(),
-	schedulingUrl: z.string().optional(),
-	webhookUri: z.string().optional(),
-	signingKey: z.string().optional(),
-});
-type CalendlyCredentials = z.infer<typeof calendlyCredentialsSchema>;
-
 export function sealCredentials(id: string, value: unknown): string {
 	return sealConnector(value, CREDENTIAL_OWNER, id);
 }
 
 function openGmailCredentials(row: CrmIntegrationRow): GmailCredentials {
 	return gmailCredentialsSchema.parse(
-		openConnector(row.credentials, CREDENTIAL_OWNER, row.id),
-	);
-}
-
-export function openCalendlyCredentials(
-	row: CrmIntegrationRow,
-): CalendlyCredentials {
-	return calendlyCredentialsSchema.parse(
 		openConnector(row.credentials, CREDENTIAL_OWNER, row.id),
 	);
 }
@@ -712,6 +687,7 @@ export async function sendGmail(
 
 const calendarEventSchema = z.object({
 	id: z.string(),
+	iCalUID: z.string().optional(),
 	status: z.string().optional(),
 	summary: z.string().optional(),
 	description: z.string().optional(),
@@ -770,6 +746,9 @@ export interface CrmCalendarEvent {
 	integrationId: string;
 	calendar: string;
 	eventId: string;
+	// iCalUID plus start: the same meeting on several calendars shares it,
+	// while each occurrence of a recurring meeting keeps its own.
+	uid: string;
 	summary: string;
 	description: string | null;
 	startAt: string;
@@ -789,6 +768,7 @@ function serializeCalendarEvent(
 	const allDay = !event.start.dateTime;
 	const toIso = (value: string | undefined) =>
 		value ? new Date(value).toISOString() : new Date(0).toISOString();
+	const startAt = toIso(event.start.dateTime ?? event.start.date);
 	const video = event.conferenceData?.entryPoints?.find(
 		(e) => e.entryPointType === "video" && e.uri,
 	)?.uri;
@@ -796,9 +776,10 @@ function serializeCalendarEvent(
 		integrationId: row.id,
 		calendar: row.accountEmail,
 		eventId: event.id,
+		uid: `${event.iCalUID ?? event.id}|${startAt}`,
 		summary: event.summary?.trim() || "(no title)",
 		description: event.description ? htmlToText(event.description) : null,
-		startAt: toIso(event.start.dateTime ?? event.start.date),
+		startAt,
 		endAt: toIso(event.end.dateTime ?? event.end.date),
 		allDay,
 		joinUrl: event.hangoutLink ?? video ?? null,
@@ -850,28 +831,44 @@ async function calendarRequest(
 	return await response.json();
 }
 
+const CALENDAR_PAGE_SIZE = 250;
+const CALENDAR_MAX_PAGES = 4;
+
 export async function listCalendarEvents(
 	row: CrmIntegrationRow,
 	range: { from: Date; to: Date },
-	max = 100,
+	options: { q?: string } = {},
 ): Promise<CrmCalendarEvent[]> {
 	const token = await gmailAccessToken(row);
-	const parsed = z
-		.object({ items: z.array(calendarEventSchema).optional() })
-		.parse(
-			await calendarRequest(
-				token,
-				"/calendars/primary/events",
-				new URLSearchParams({
-					timeMin: range.from.toISOString(),
-					timeMax: range.to.toISOString(),
-					singleEvents: "true",
-					orderBy: "startTime",
-					maxResults: String(max),
-				}),
-			),
-		);
-	return (parsed.items ?? [])
+	const items: z.infer<typeof calendarEventSchema>[] = [];
+	let pageToken: string | undefined;
+	for (let page = 0; page < CALENDAR_MAX_PAGES; page++) {
+		const query = new URLSearchParams({
+			timeMin: range.from.toISOString(),
+			timeMax: range.to.toISOString(),
+			singleEvents: "true",
+			orderBy: "startTime",
+			maxResults: String(CALENDAR_PAGE_SIZE),
+		});
+		if (options.q) {
+			query.set("q", options.q);
+		}
+		if (pageToken) {
+			query.set("pageToken", pageToken);
+		}
+		const parsed = z
+			.object({
+				items: z.array(calendarEventSchema).optional(),
+				nextPageToken: z.string().optional(),
+			})
+			.parse(await calendarRequest(token, "/calendars/primary/events", query));
+		items.push(...(parsed.items ?? []));
+		pageToken = parsed.nextPageToken;
+		if (!pageToken) {
+			break;
+		}
+	}
+	return items
 		.filter((e) => e.status !== "cancelled")
 		.map((e) => serializeCalendarEvent(row, e));
 }
@@ -1018,347 +1015,68 @@ export function stripInlineCitations(text: string): string {
 		.trim();
 }
 
-// --- Calendly -------------------------------------------------------------
+// --- Meetings -----------------------------------------------------------
 
-async function calendlyRequest(
-	token: string,
-	path: string,
-	init?: RequestInit & { query?: URLSearchParams },
-): Promise<unknown> {
-	const url = new URL(`${CALENDLY_API}${path}`);
-	if (init?.query) {
-		url.search = init.query.toString();
-	}
-	const response = await externalFetch(url, {
-		method: init?.method ?? "GET",
-		headers: {
-			Authorization: `Bearer ${token}`,
-			Accept: "application/json",
-			...(init?.body ? { "Content-Type": "application/json" } : {}),
-		},
-		body: init?.body,
-	});
-	if (response.status === 401) {
-		throw new HTTPException(409, {
-			message: "Calendly rejected the token. Reconnect Calendly.",
-		});
-	}
-	if (response.status === 204) {
-		return null;
-	}
-	if (!response.ok) {
-		const detail = await response.text().catch(() => "");
-		logger.warn("CRM Calendly request failed", {
-			path,
-			status: response.status,
-			detail: detail.slice(0, 300),
-		});
-		throw new HTTPException(502, {
-			message: `Calendly request failed (${response.status})`,
-		});
-	}
-	return await response.json();
-}
-
-const calendlyUserSchema = z.object({
-	resource: z.object({
-		uri: z.string(),
-		name: z.string(),
-		email: z.string(),
-		scheduling_url: z.string(),
-		current_organization: z.string(),
-	}),
-});
-
-export async function calendlyMe(token: string) {
-	const parsed = calendlyUserSchema.safeParse(
-		await calendlyRequest(token, "/users/me"),
-	);
-	if (!parsed.success) {
-		throw new HTTPException(502, {
-			message: "Calendly returned an unexpected user profile",
-		});
-	}
-	return parsed.data.resource;
-}
-
-const eventTypeSchema = z.object({
-	uri: z.string(),
-	name: z.string(),
-	slug: z.string().nullable().optional(),
-	scheduling_url: z.string(),
-	duration: z.number(),
-	active: z.boolean(),
-	kind: z.string().optional(),
-});
-
-export interface CrmBookingLink {
-	integrationId: string;
-	owner: string;
-	name: string;
-	duration: number;
-	url: string;
-}
-
-export async function listCalendlyEventTypes(
-	row: CrmIntegrationRow,
-): Promise<CrmBookingLink[]> {
-	if (!row.externalId) {
-		return [];
-	}
-	const credentials = openCalendlyCredentials(row);
-	const parsed = z.object({ collection: z.array(eventTypeSchema) }).parse(
-		await calendlyRequest(credentials.token, "/event_types", {
-			query: new URLSearchParams({
-				user: row.externalId,
-				active: "true",
-				count: "50",
-			}),
-		}),
-	);
-	return parsed.collection.map((t) => ({
-		integrationId: row.id,
-		owner: row.displayName ?? row.accountEmail,
-		name: t.name,
-		duration: t.duration,
-		url: t.scheduling_url,
-	}));
-}
-
-const scheduledEventSchema = z.object({
-	uri: z.string(),
-	name: z.string().nullable(),
-	status: z.enum(["active", "canceled"]),
-	start_time: z.string(),
-	end_time: z.string(),
-	location: z
-		.object({
-			type: z.string().optional(),
-			location: z.string().nullable().optional(),
-			join_url: z.string().nullable().optional(),
-		})
-		.nullable()
-		.optional(),
-	event_memberships: z
-		.array(z.object({ user_email: z.string().optional() }))
-		.optional(),
-});
-export type CalendlyScheduledEvent = z.infer<typeof scheduledEventSchema>;
-
-export interface CrmMeeting {
-	integrationId: string;
-	host: string;
-	eventUri: string;
-	name: string;
-	status: "active" | "canceled";
-	startAt: string;
-	endAt: string;
-	location: string | null;
-	joinUrl: string | null;
-	inviteeEmail: string;
-}
-
-export function meetingFromEvent(
-	row: Pick<CrmIntegrationRow, "id" | "displayName" | "accountEmail">,
-	event: CalendlyScheduledEvent,
-	inviteeEmail: string,
-): CrmMeeting {
-	return {
-		integrationId: row.id,
-		host: row.displayName ?? row.accountEmail,
-		eventUri: event.uri,
-		name: event.name ?? "Meeting",
-		status: event.status,
-		startAt: event.start_time,
-		endAt: event.end_time,
-		location: event.location?.location ?? event.location?.type ?? null,
-		joinUrl: event.location?.join_url ?? null,
-		inviteeEmail: inviteeEmail.toLowerCase(),
-	};
-}
-
-export async function listCalendlyMeetings(
+/**
+ * Calendar events with any of the given people, across the connected
+ * calendar. Calendly and other schedulers write bookings into the host's
+ * Google calendar, so this covers them too.
+ */
+export async function listCalendarMeetings(
 	row: CrmIntegrationRow,
 	emails: string[],
-): Promise<CrmMeeting[]> {
-	if (!row.externalId || !emails.length) {
-		return [];
-	}
-	const credentials = openCalendlyCredentials(row);
-	const results = await Promise.all(
-		emails.slice(0, 15).map(async (email) => {
-			const parsed = z
-				.object({ collection: z.array(scheduledEventSchema) })
-				.parse(
-					await calendlyRequest(credentials.token, "/scheduled_events", {
-						query: new URLSearchParams({
-							user: row.externalId!,
-							invitee_email: email,
-							sort: "start_time:desc",
-							count: "20",
-						}),
-					}),
-				);
-			return parsed.collection.map((e) => meetingFromEvent(row, e, email));
-		}),
+	range: { from: Date; to: Date },
+): Promise<CrmCalendarEvent[]> {
+	const wanted = new Set(emails.map((e) => e.toLowerCase()));
+	const lists = await Promise.all(
+		[...wanted]
+			.slice(0, 15)
+			.map((email) => listCalendarEvents(row, range, { q: email })),
 	);
 	const seen = new Set<string>();
-	return results.flat().filter((m) => {
-		if (seen.has(m.eventUri)) {
+	return lists.flat().filter((event) => {
+		if (seen.has(event.uid)) {
 			return false;
 		}
-		seen.add(m.eventUri);
-		return true;
+		seen.add(event.uid);
+		return event.attendees.some((a) => wanted.has(a.email));
 	});
 }
 
-export async function createCalendlyWebhook(input: {
-	token: string;
-	userUri: string;
-	organizationUri: string;
-	signingKey: string;
-}): Promise<string | undefined> {
-	try {
-		const created = await calendlyRequest(
-			input.token,
-			"/webhook_subscriptions",
-			{
-				method: "POST",
-				body: JSON.stringify({
-					url: calendlyWebhookUrl(),
-					events: ["invitee.created", "invitee.canceled"],
-					organization: input.organizationUri,
-					user: input.userUri,
-					scope: "user",
-					signing_key: input.signingKey,
-				}),
-			},
-		);
-		return z.object({ resource: z.object({ uri: z.string() }) }).parse(created)
-			.resource.uri;
-	} catch (error) {
-		// Webhooks need a paid Calendly plan; the CRM falls back to syncing
-		// meetings whenever the account is opened.
-		logger.info("Calendly webhook subscription not created", {
-			error: error instanceof Error ? error.message : String(error),
-		});
-		return undefined;
-	}
-}
-
-export async function deleteCalendlyWebhook(
-	token: string,
-	webhookUri: string,
-): Promise<void> {
-	const uuid = webhookUri.split("/").pop();
-	if (!uuid) {
-		return;
-	}
-	try {
-		await calendlyRequest(
-			token,
-			`/webhook_subscriptions/${encodeURIComponent(uuid)}`,
-			{ method: "DELETE" },
-		);
-	} catch (error) {
-		logger.info("Calendly webhook subscription not deleted", {
-			error: error instanceof Error ? error.message : String(error),
-		});
-	}
-}
-
-export function verifyCalendlySignature(
-	rawBody: string,
-	signatureHeader: string | undefined,
-	signingKey: string,
-	now = Date.now(),
-): boolean {
-	if (!signatureHeader) {
-		return false;
-	}
-	const parts = new Map(
-		signatureHeader.split(",").map((kv) => {
-			const [k, ...rest] = kv.trim().split("=");
-			return [k, rest.join("=")] as const;
-		}),
-	);
-	const t = parts.get("t");
-	const v1 = parts.get("v1");
-	if (!t || !v1 || !/^\d+$/.test(t) || !/^[a-f0-9]{64}$/.test(v1)) {
-		return false;
-	}
-	const signedAt = Number(t) * 1000;
-	if (Math.abs(now - signedAt) > 5 * 60_000) {
-		return false;
-	}
-	const expected = createHmac("sha256", signingKey)
-		.update(`${t}.${rawBody}`)
-		.digest();
-	return timingSafeEqual(expected, Buffer.from(v1, "hex"));
-}
-
-export function signCalendlyPayload(
-	rawBody: string,
-	signingKey: string,
-	now = Date.now(),
-): string {
-	const t = Math.floor(now / 1000);
-	const v1 = createHmac("sha256", signingKey)
-		.update(`${t}.${rawBody}`)
-		.digest("hex");
-	return `t=${t},v1=${v1}`;
-}
-
-export const calendlyWebhookSchema = z.object({
-	event: z.enum(["invitee.created", "invitee.canceled"]),
-	created_by: z.string().optional(),
-	payload: z.object({
-		email: z.string(),
-		name: z.string().nullable().optional(),
-		scheduled_event: scheduledEventSchema,
-	}),
-});
-
 export function meetingActivity(
-	meeting: CrmMeeting,
-	inviteeName?: string | null,
+	event: CrmCalendarEvent,
+	contact: { email: string; name?: string | null },
 ) {
-	const when = new Date(meeting.startAt);
+	const when = new Date(event.startAt);
 	const minutes = Math.round(
-		(new Date(meeting.endAt).getTime() - when.getTime()) / 60_000,
+		(new Date(event.endAt).getTime() - when.getTime()) / 60_000,
 	);
-	const who = inviteeName
-		? `${inviteeName} <${meeting.inviteeEmail}>`
-		: meeting.inviteeEmail;
-	const lines = [
-		`${meeting.status === "canceled" ? "Canceled" : "Scheduled"} via Calendly with ${who}`,
-		`${when.toISOString().replace("T", " ").slice(0, 16)} UTC · ${minutes} min · hosted by ${meeting.host}`,
-	];
-	if (meeting.joinUrl) {
-		lines.push(meeting.joinUrl);
-	} else if (meeting.location) {
-		lines.push(meeting.location);
-	}
+	const who = contact.name
+		? `${contact.name} <${contact.email}>`
+		: contact.email;
 	return {
-		subject: `${meeting.status === "canceled" ? "Canceled: " : ""}${meeting.name}`,
-		body: lines.join("\n"),
-		externalRef: `calendly:${meeting.eventUri}`,
+		subject: event.summary,
+		body: [
+			`Met with ${who}`,
+			`${when.toISOString().replace("T", " ").slice(0, 16)} UTC · ${minutes} min · on ${event.calendar}`,
+		].join("\n"),
+		externalRef: `gcal:${event.uid}`,
 	};
 }
 
 const sqlExternalRefNotNull = sql`external_ref IS NOT NULL`;
 
 /**
- * Mirrors a Calendly event into the account's activity feed, keyed on the
- * event URI so re-syncs and webhooks update the same row (a cancellation
- * rewrites the subject instead of adding a second entry).
+ * Mirrors a held meeting into the account's activity feed, keyed on the
+ * event's uid so re-syncs and the same event on several calendars update one
+ * row.
  */
 export async function upsertMeetingActivity(
 	accountId: string,
-	meeting: CrmMeeting,
-	inviteeName?: string | null,
+	event: CrmCalendarEvent,
+	contact: { email: string; name?: string | null },
 ): Promise<void> {
-	const fields = meetingActivity(meeting, inviteeName);
+	const fields = meetingActivity(event, contact);
 	await db
 		.insert(tables.crmActivity)
 		.values({
@@ -1366,9 +1084,9 @@ export async function upsertMeetingActivity(
 			kind: "meeting",
 			subject: fields.subject,
 			body: fields.body,
-			contactEmail: meeting.inviteeEmail,
+			contactEmail: contact.email,
 			authorEmail: null,
-			createdAt: new Date(meeting.startAt),
+			createdAt: new Date(event.startAt),
 			externalRef: fields.externalRef,
 		})
 		.onConflictDoUpdate({
@@ -1377,7 +1095,7 @@ export async function upsertMeetingActivity(
 			set: {
 				subject: fields.subject,
 				body: fields.body,
-				createdAt: new Date(meeting.startAt),
+				createdAt: new Date(event.startAt),
 			},
 		});
 }
