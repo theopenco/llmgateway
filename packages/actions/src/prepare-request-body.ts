@@ -1076,26 +1076,35 @@ function stripUnsupportedSchemaProperties(
 	return cleaned;
 }
 
-const GOOGLE_THINKING_LEVELS = ["minimal", "low", "medium", "high"] as const;
+const GOOGLE_THINKING_LEVELS = [
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+] as const;
 
 /**
- * Maps a reasoning effort to a Gemini 3+ `thinkingLevel`. Google has no tier
- * above high, and models reject levels they do not support (e.g. `minimal` on
- * Gemini 3.7+ Flash and Pro), so an undeclared level rises to the next
- * declared one, as the budget fallback used to resolve it upstream.
+ * Maps a reasoning effort to a Gemini 3+ `thinkingLevel`. Models reject levels
+ * they do not support (e.g. `minimal` on Gemini 3.7+ Flash and Pro, `xhigh`
+ * before Gemini 4 Hydrogen), so an undeclared level rises to the next declared
+ * one, capped at the highest declared level. `xhigh` is sent only when the
+ * mapping declares it.
  */
 function getGoogleThinkingLevel(
 	effort: string,
 	declared: ReasoningEffort[] | undefined,
 ): string {
-	// xhigh and max share the top level.
+	// max shares the top level.
 	const level =
-		GOOGLE_THINKING_LEVELS.find((l) => l === effort) ?? ("high" as const);
+		effort === "max"
+			? ("xhigh" as const)
+			: (GOOGLE_THINKING_LEVELS.find((l) => l === effort) ?? ("high" as const));
 	const supported = GOOGLE_THINKING_LEVELS.filter((l) =>
-		declared?.length ? declared.includes(l) : true,
+		declared?.length ? declared.includes(l) : l !== "xhigh",
 	);
 	if (supported.length === 0) {
-		return level;
+		return level === "xhigh" ? "high" : level;
 	}
 	const index = GOOGLE_THINKING_LEVELS.indexOf(level);
 	return (

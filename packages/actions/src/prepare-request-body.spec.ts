@@ -4963,6 +4963,11 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			// minimal is undeclared (and 400s) on 3.8 Flash and Pro.
 			{ model: "gemini-3.8-flash", effort: "minimal", expected: "low" },
 			{ model: "gemini-3.1-pro-preview", effort: "minimal", expected: "low" },
+			// xhigh is sent only where declared.
+			{ model: "gemini-3.6-flash", effort: "xhigh", expected: "high" },
+			{ model: "gemini-4-hydrogen", effort: "xhigh", expected: "xhigh" },
+			{ model: "gemini-4-hydrogen", effort: "max", expected: "xhigh" },
+			{ model: "gemini-4-hydrogen", effort: "minimal", expected: "low" },
 		] as const;
 
 		for (const { model, effort, expected } of cases) {
