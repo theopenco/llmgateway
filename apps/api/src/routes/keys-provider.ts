@@ -143,8 +143,6 @@ export const providerKeySchema = z.object({
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
 			azure_validation_model: z.string().optional(),
 			azure_deployment_name: z.string().optional(),
-			azure_ai_foundry_resource: z.string().optional(),
-			azure_ai_foundry_api_version: z.string().optional(),
 			azure_anthropic_resource: z.string().optional(),
 			alibaba_region: z
 				.enum([
@@ -504,8 +502,6 @@ const createProviderKeySchema = z.object({
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
 			azure_validation_model: azurePathSegmentSchema.optional(),
 			azure_deployment_name: azurePathSegmentSchema.optional(),
-			azure_ai_foundry_resource: azureResourceSchema.optional(),
-			azure_ai_foundry_api_version: azurePathSegmentSchema.optional(),
 			azure_anthropic_resource: azureResourceSchema.optional(),
 			alibaba_region: z
 				.enum([

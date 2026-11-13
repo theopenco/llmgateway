@@ -450,7 +450,6 @@ export function CreateProviderKeyDialog({
 			setAzureApiVersion("2024-10-21");
 			setAzureDeploymentType("ai-foundry");
 			setAzureValidationModel("gpt-4o-mini");
-
 			setCloudflareAccountId("");
 			setSelectedRegion("");
 			setAlibabaWorkspaceId("");

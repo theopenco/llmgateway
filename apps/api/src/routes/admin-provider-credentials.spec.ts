@@ -3551,6 +3551,7 @@ describe("managed credential Airside listings", () => {
 		const provider = catalogueProviders.find(
 			(entry) =>
 				entry.id !== "custom" &&
+				!entry.retired &&
 				Object.keys(entry.env.required).every((key) => key === "apiKey") &&
 				!catalogueModels.some((model) =>
 					(model.providers as readonly ProviderModelMapping[]).some(

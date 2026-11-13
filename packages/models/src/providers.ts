@@ -1263,9 +1263,7 @@ export const providers: ProviderDefinition[] = [
 		website: "https://azure.microsoft.com/en-us/products/ai-foundry",
 		statusPageUrl: "https://status.ai.azure.com",
 		announcement:
-			"Legacy mappings retire on 2026-11-07. Use Azure with the AI Foundry deployment type.",
-		apiKeyInstructions:
-			"The resource name can be found in your Azure AI Foundry base URL: https://<resource-name>.services.ai.azure.com",
+			"Retired on 2026-11-07. Use Azure with the AI Foundry deployment type.",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
 		priority: 1.5,
 		termsUrl: "https://www.microsoft.com/licensing/terms",

@@ -11,9 +11,6 @@ const originalVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
 const originalVertexProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 const originalVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
 const originalVertexTokenType = process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE;
-const originalAzureFoundryResource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
-const originalAzureFoundryApiVersion =
-	process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
 const originalXiaomiBaseUrl = process.env.LLM_XIAOMI_BASE_URL;
 const originalRunpodBaseUrl = process.env.LLM_RUNPOD_BASE_URL;
 const originalOpenaiBaseUrl = process.env.LLM_OPENAI_BASE_URL;
@@ -53,19 +50,6 @@ afterEach(() => {
 		delete process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE;
 	} else {
 		process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = originalVertexTokenType;
-	}
-
-	if (originalAzureFoundryResource === undefined) {
-		delete process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
-	} else {
-		process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE = originalAzureFoundryResource;
-	}
-
-	if (originalAzureFoundryApiVersion === undefined) {
-		delete process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
-	} else {
-		process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION =
-			originalAzureFoundryApiVersion;
 	}
 
 	if (originalXiaomiBaseUrl === undefined) {

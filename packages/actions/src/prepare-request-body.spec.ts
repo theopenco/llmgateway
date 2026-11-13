@@ -3060,13 +3060,13 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 	);
 
 	test("strips none for an OpenAI-compatible mapping that does not declare it", async () => {
-		// grok-4-3 via azure-ai-foundry speaks a non-allowlisted provider and
+		// grok-4-1-fast-reasoning via xai speaks a non-allowlisted provider and
 		// its catalog entry omits `none` from reasoningEfforts. The mapping
 		// must be the authority: with `none` undeclared, the value is
 		// normalized away instead of forwarded to a provider that may 4xx.
 		const requestBody = await prepare({
-			provider: "azure-ai-foundry",
-			model: "grok-4-3",
+			provider: "xai",
+			model: "grok-4-1-fast-reasoning",
 		});
 		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
@@ -3226,8 +3226,8 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 		// xAI mappings that declare reasoning: true but previously omitted
 		// reasoning_effort from supportedParameters, silently dropping any
 		// effort value before the request was built (#3436, #3403).
-		["azure-ai-foundry", "grok-4-3", "medium"],
-		["azure-ai-foundry", "grok-4-1-fast-reasoning", "high"],
+		["azure", "grok-4-3", "medium"],
+		["azure", "grok-4-1-fast-reasoning", "high"],
 		["xai", "grok-4", "high"],
 	];
 
@@ -8023,42 +8023,6 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				expect(requestBody.messages[3].reasoning).toBe(reasoningLeft);
 			},
 		);
-	});
-
-	describe("azure-ai-foundry", () => {
-		test("keeps Grok 4.3 as Azure Foundry chat completions", async () => {
-			const requestBody = (await prepareRequestBody(
-				"azure-ai-foundry",
-				"grok-4-3",
-				null,
-				"grok-4.3",
-				[{ role: "user", content: "Hello!" }],
-				true,
-				0.2,
-				8192,
-				0.9,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				"medium",
-				true,
-			)) as unknown as Record<string, unknown>;
-
-			expect(requestBody.model).toBe("grok-4.3");
-			expect(requestBody.messages).toEqual([
-				{ role: "user", content: "Hello!" },
-			]);
-			expect(requestBody.stream).toBe(true);
-			expect(requestBody.stream_options).toEqual({ include_usage: true });
-			expect(requestBody.temperature).toBe(0.2);
-			expect(requestBody.max_tokens).toBe(8192);
-			expect(requestBody.max_completion_tokens).toBeUndefined();
-			expect(requestBody.top_p).toBe(0.9);
-			expect(requestBody.reasoning_effort).toBe("medium");
-			expect(requestBody.inferenceConfig).toBeUndefined();
-		});
 	});
 
 	describe("openai (Responses API)", () => {

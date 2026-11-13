@@ -273,7 +273,7 @@ describe("prepareRequestBody - Azure Grok remote images", () => {
 	beforeEach(() => {
 		processImageUrl.mockReset();
 	});
-	test.each(["azure", "azure-ai-foundry"] as const)(
+	test.each(["azure"] as const)(
 		"inlines remote images through the guarded fetch on %s",
 		async (provider) => {
 			processImageUrl.mockResolvedValue({

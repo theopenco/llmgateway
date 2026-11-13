@@ -1563,7 +1563,6 @@ function providerEnvOptionsForTests(
 		// path, which Google pins to us-central1; global-only models 404 there.
 		return { google_vertex_project_id: process.env.LLM_GOOGLE_CLOUD_PROJECT };
 	}
-
 	if (
 		providerId === "azure-anthropic" &&
 		process.env.LLM_AZURE_ANTHROPIC_RESOURCE

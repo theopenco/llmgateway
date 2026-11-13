@@ -2182,8 +2182,6 @@ export interface ProviderKeyOptions {
 	azure_deployment_type?: "openai" | "ai-foundry";
 	azure_validation_model?: string;
 	azure_deployment_name?: string;
-	azure_ai_foundry_resource?: string;
-	azure_ai_foundry_api_version?: string;
 	azure_anthropic_resource?: string;
 	alibaba_region?:
 		| "singapore"
