@@ -35,6 +35,7 @@ import {
 	isPremiumModelAfterDiscounts,
 	log,
 	type LogInsertData,
+	type QueuedLogData,
 	lt,
 	organization,
 	resolveVerifiedOrgRecipient,
@@ -42,6 +43,7 @@ import {
 	sql,
 	tables,
 } from "@llmgateway/db";
+import { recordLogPersistLag } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
 import {
@@ -2216,6 +2218,23 @@ function recordLogInsertSuccess(): void {
 	logInsertCircuit.nextAttemptAt = 0;
 }
 
+// Records each row's queue-to-commit lag and returns a log-line suffix with
+// the batch average and max.
+function recordPersistLag(enqueuedAts: number[], persistedAt: number): string {
+	if (enqueuedAts.length === 0) {
+		return "";
+	}
+	let total = 0;
+	let max = 0;
+	for (const enqueuedAt of enqueuedAts) {
+		const lagMs = Math.max(0, persistedAt - enqueuedAt);
+		recordLogPersistLag(lagMs / 1000);
+		total += lagMs;
+		max = Math.max(max, lagMs);
+	}
+	return `, lag avg ${Math.round(total / enqueuedAts.length)}ms max ${max}ms`;
+}
+
 // Returns the number of messages successfully inserted, so the drain loop can
 // decide whether to sleep (partial batch) or immediately fetch the next batch
 // (full batch, queue likely still backed up).
@@ -2236,8 +2255,12 @@ export async function processLogQueue(): Promise<number> {
 		// The gateway decides what to persist: it strips request/response payload
 		// fields before publishing for orgs that don't retain data, so the worker
 		// inserts the queued rows with no per-batch org retention lookup.
-		const logData = message.map((i) => {
-			const data = JSON.parse(i) as LogInsertData;
+		const enqueuedAts: number[] = [];
+		const logData = message.map((i): LogInsertData => {
+			const { enqueuedAt, ...data } = JSON.parse(i) as QueuedLogData;
+			if (typeof enqueuedAt === "number") {
+				enqueuedAts.push(enqueuedAt);
+			}
 			// Failed requests can still carry fractional limits into integer columns.
 			if (typeof data.maxTokens === "number") {
 				data.maxTokens = Math.ceil(data.maxTokens);
@@ -2254,10 +2277,11 @@ export async function processLogQueue(): Promise<number> {
 			try {
 				const insertStart = Date.now();
 				await db.insert(log).values(logData);
-				const insertMs = Date.now() - insertStart;
+				const persistedAt = Date.now();
+				const insertMs = persistedAt - insertStart;
 				recordLogInsertSuccess();
 				logger.info(
-					`Processed log batch: ${message.length} rows (insert ${insertMs}ms)`,
+					`Processed log batch: ${message.length} rows (insert ${insertMs}ms${recordPersistLag(enqueuedAts, persistedAt)})`,
 				);
 				return message.length; // Success, exit function
 			} catch (insertError) {

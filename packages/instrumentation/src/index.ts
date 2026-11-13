@@ -162,6 +162,8 @@ export {
 	getMetricsContentType,
 	setMetricsServiceName,
 	registerDbPoolMetrics,
+	logPersistLag,
+	recordLogPersistLag,
 	startMetricsServer,
 	type ChatCompletionMetrics,
 	type DbPoolStats,
