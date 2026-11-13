@@ -1399,9 +1399,6 @@ export async function findManagedProviderAvailability(
 		if (modelId && !providerKeyAllowsModel(row.allowedModels, modelId)) {
 			continue;
 		}
-		if (rateLimited.has(row.id)) {
-			continue;
-		}
 		const existing = byProvider.get(row.provider);
 		if (existing) {
 			existing.push(row);
@@ -1417,10 +1414,13 @@ export async function findManagedProviderAvailability(
 		const variantMatches = candidates.filter(
 			(key) => key.variant === effectiveVariant,
 		);
-		const byVariant =
+		// Pick the variant before dropping capped credentials, as selection
+		// does, so a capped variant is not reported as served by another.
+		const byVariant = (
 			variantMatches.length > 0
 				? variantMatches
-				: candidates.filter((key) => key.variant === "default");
+				: candidates.filter((key) => key.variant === "default")
+		).filter((key) => !rateLimited.has(key.id));
 
 		const regions = byVariant.map((key) =>
 			getEffectiveCredentialRegion(provider, key.region),

@@ -949,6 +949,27 @@ describe("managed credential per-model rate limits", () => {
 		).toBe(0);
 	});
 
+	it("does not advertise a capped variant as served by the default one", async () => {
+		await insertManaged({
+			id: "enterprise-key",
+			variant: "enterprise",
+			modelRateLimits: { "gpt-5.2": { maxRpm: 1 } },
+		});
+		await insertManaged({ id: "default-key" });
+		await fillModelWindow("enterprise-key", "gpt-5.2");
+
+		// Selection stays on the enterprise variant, so neither may count it usable.
+		expect(
+			(await findManagedProviderAvailability("enterprise", "gpt-5.2")).usable,
+		).not.toContain("openai");
+		expect(
+			await findManagedProviderKey("openai", {
+				variant: "enterprise",
+				model: "gpt-5.2",
+			}),
+		).toBeUndefined();
+	});
+
 	it("answers 429 when caps alone exhaust the credentials for the model", async () => {
 		await insertManaged({
 			id: "only-key",
