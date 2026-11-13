@@ -74,8 +74,10 @@ request fails before reaching a provider.
 
 `none` can use a non-reasoning mapping; a reasoning mapping with declared efforts
 must explicitly accept `none`. Mappings without declared efforts retain the
-legacy reasoning-capability check. See the live [models page](https://llmgateway.io/models)
-for each deployment's supported efforts.
+legacy reasoning-capability check, but rank behind mappings that declare the
+requested effort: they serve it only when no declared mapping remains. See the
+live [models page](https://llmgateway.io/models) for each deployment's supported
+efforts.
 
 ## Global Provider Rate Limits
 

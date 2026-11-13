@@ -266,55 +266,11 @@ describe("reasoning-effort provider routing", () => {
 			const modelId =
 				mode === "auto" ? "claude-haiku-4-5" : "deepseek-v4.1-flash-1017";
 			await setup(modelId);
-			if (mode === "smart") {
-				await db
-					.update(tables.project)
-					.set({
-						smartRoutingConfig: { classifier: "none", models: [modelId] },
-					})
-					.where(eq(tables.project.id, "project-id"));
-			}
-			if (mode === "dynamic") {
-				await harness.setOrganizationPlan("enterprise");
-				const graph: DynamicRouteGraph = {
-					entry: "model",
-					nodes: [
-						{
-							id: "model",
-							type: "model",
-							model: modelId,
-							providers: [restrictedProvider, capableProvider],
-						},
-					],
-				};
-				await db.insert(tables.dynamicRoute).values({
-					id: "effort-route",
-					projectId: "project-id",
-					name: "effort-route",
-					enabled: true,
-					draftGraph: graph,
-				});
-				await db.insert(tables.dynamicRouteVersion).values({
-					id: "effort-version",
-					routeId: "effort-route",
-					version: 1,
-					graph,
-				});
-				await db
-					.update(tables.dynamicRoute)
-					.set({ publishedVersionId: "effort-version" })
-					.where(eq(tables.dynamicRoute.id, "effort-route"));
-			}
+			await configureMode(mode, modelId);
 			await clearCache();
-			const res = await request(
-				mode === "bare"
-					? modelId
-					: mode === "dynamic"
-						? "dynamic/effort-route"
-						: mode,
-				"medium",
-				{ nested: mode === "smart" },
-			);
+			const res = await request(routedModel(mode, modelId), "medium", {
+				nested: mode === "smart",
+			});
 			expect(res.status, await res.text()).toBe(200);
 			expect(captured).toEqual([
 				{ provider: capableProvider, effort: "medium" },
@@ -334,6 +290,56 @@ describe("reasoning-effort provider routing", () => {
 			).not.toBe(true);
 		},
 	);
+
+	function routedModel(mode: string, modelId: string) {
+		return mode === "bare"
+			? modelId
+			: mode === "dynamic"
+				? "dynamic/effort-route"
+				: mode;
+	}
+
+	async function configureMode(mode: string, modelId: string) {
+		if (mode === "smart") {
+			await db
+				.update(tables.project)
+				.set({
+					smartRoutingConfig: { classifier: "none", models: [modelId] },
+				})
+				.where(eq(tables.project.id, "project-id"));
+		}
+		if (mode === "dynamic") {
+			await harness.setOrganizationPlan("enterprise");
+			const graph: DynamicRouteGraph = {
+				entry: "model",
+				nodes: [
+					{
+						id: "model",
+						type: "model",
+						model: modelId,
+						providers: [restrictedProvider, capableProvider],
+					},
+				],
+			};
+			await db.insert(tables.dynamicRoute).values({
+				id: "effort-route",
+				projectId: "project-id",
+				name: "effort-route",
+				enabled: true,
+				draftGraph: graph,
+			});
+			await db.insert(tables.dynamicRouteVersion).values({
+				id: "effort-version",
+				routeId: "effort-route",
+				version: 1,
+				graph,
+			});
+			await db
+				.update(tables.dynamicRoute)
+				.set({ publishedVersionId: "effort-version" })
+				.where(eq(tables.dynamicRoute.id, "effort-route"));
+		}
+	}
 
 	test("honours the effort on DevPass provider selection", async () => {
 		await setup(undefined, true);
@@ -380,6 +386,68 @@ describe("reasoning-effort provider routing", () => {
 		expect(res.status, await res.text()).toBe(400);
 		expect(captured).toEqual([]);
 	});
+
+	test.each(["medium", "none"] as const)(
+		"prefers a carrier that declares %s over a cheaper undeclared one",
+		async (effort) => {
+			await setup();
+			await db
+				.update(tables.modelProviderMapping)
+				.set({ reasoningEfforts: null })
+				.where(eq(tables.modelProviderMapping.providerId, restrictedProvider));
+			await clearCache();
+			const res = await request("deepseek-v4.1-flash-1017", effort);
+			expect(res.status, await res.text()).toBe(200);
+			expect(captured).toEqual([{ provider: capableProvider, effort }]);
+			const log = await waitForLogByRequestId("effort-request");
+			expect(log?.routingMetadata?.filteredProviders).toContainEqual(
+				expect.objectContaining({
+					providerId: restrictedProvider,
+					codes: expect.arrayContaining(["reasoning_effort"]),
+				}),
+			);
+		},
+	);
+
+	test("falls back to an undeclared carrier when no carrier declares the effort", async () => {
+		await setup();
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ reasoningEfforts: null })
+			.where(eq(tables.modelProviderMapping.providerId, restrictedProvider));
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ reasoningEfforts: ["low"] })
+			.where(eq(tables.modelProviderMapping.providerId, capableProvider));
+		await clearCache();
+		const res = await request("deepseek-v4.1-flash-1017", "max");
+		expect(res.status, await res.text()).toBe(200);
+		expect(captured).toEqual([{ provider: restrictedProvider, effort: "max" }]);
+	});
+
+	test.each(["bare", "auto", "smart", "dynamic"] as const)(
+		"retries an undeclared carrier when every declared one fails during %s routing",
+		async (mode) => {
+			const modelId =
+				mode === "auto" ? "claude-haiku-4-5" : "deepseek-v4.1-flash-1017";
+			await setup(modelId);
+			await configureMode(mode, modelId);
+			await db
+				.update(tables.modelProviderMapping)
+				.set({ reasoningEfforts: null })
+				.where(eq(tables.modelProviderMapping.providerId, restrictedProvider));
+			await clearCache();
+			failingProvider = capableProvider;
+			const res = await request(routedModel(mode, modelId), "high", {
+				nested: mode === "smart",
+			});
+			expect(res.status, await res.text()).toBe(200);
+			expect(captured).toEqual([
+				{ provider: capableProvider, effort: "high" },
+				{ provider: restrictedProvider, effort: "high" },
+			]);
+		},
+	);
 
 	test("keeps streaming requests on an effort-compatible carrier", async () => {
 		await setup();

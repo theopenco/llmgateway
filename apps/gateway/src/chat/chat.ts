@@ -376,6 +376,7 @@ import {
 	exclusionReason,
 	getProviderFilterReasons,
 	mergeFilteredProvider,
+	preferDeclaredReasoningEffortProviders,
 	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 } from "./tools/provider-filter-reasons.js";
@@ -877,12 +878,15 @@ function filterEligibleModelProviders(
 		toolChoice?: ToolChoiceType;
 		maxTokens?: number;
 		reasoningEffort?: string;
+		reasoningPinnedProvider?: string;
 		n?: number;
 		stream?: boolean;
 		/** Unpinned routing only: smallest context window still eligible. */
 		contextTierMinSize?: number;
 	},
 	filteredOut?: FilteredProvider[],
+	/** Collects mappings the reasoning-effort ranking demoted (retry targets). */
+	effortDemoted?: ProviderModelMapping[],
 ): ProviderModelMapping[] {
 	const eligible = availableModelProviders.filter((provider) => {
 		if (
@@ -968,7 +972,18 @@ function filterEligibleModelProviders(
 	// candidates when another mapping of the same model can honour it — dropping
 	// the last candidate would fail a request that works today (downgraded to
 	// "auto" by prepareRequestBody).
-	return preferToolChoiceCapableProviders(eligible, options, filteredOut);
+	const effortRanked = preferDeclaredReasoningEffortProviders(
+		eligible,
+		options,
+		filteredOut,
+	);
+	effortDemoted?.push(
+		...eligible.filter(
+			(provider) =>
+				provider.providerId !== "custom" && !effortRanked.includes(provider),
+		),
+	);
+	return preferToolChoiceCapableProviders(effortRanked, options, filteredOut);
 }
 
 interface ContentFilterRoutingDecision {
@@ -2679,14 +2694,15 @@ chat.openapi(completions, async (c) => {
 	const providerRoutingScoreMultiplierResolver =
 		createProviderRoutingScoreMultiplierResolver();
 
-	// Candidates demoted by hybrid keyed-provider preference stay in the scores
-	// as last-resort retry targets: their worst-rank score keeps them behind
-	// every keyed candidate, but the retry loop can still escape to them when a
-	// BYOK key fails and the provider has no env credential to fall back to.
-	const appendHybridDemotedProviderScores = async (
+	// Candidates demoted by hybrid keyed-provider preference or the
+	// reasoning-effort ranking stay in the scores as last-resort retry targets:
+	// their worst-rank score keeps them behind every preferred candidate, but the
+	// retry loop can still escape to them when those fail.
+	const appendDemotedProviderScores = async (
 		metadata: RoutingMetadata,
 		demotedCandidates: ProviderModelMapping[],
 		modelId: string,
+		hybridDemoted = true,
 	) => {
 		const seenProviderIds = new Set(
 			metadata.providerScores.map((score) => score.providerId),
@@ -2716,7 +2732,7 @@ chat.openapi(completions, async (c) => {
 				price: price.toNumber(),
 				discount: discount.toNumber(),
 				cacheSupported: providerSupportsCaching(candidate),
-				hybrid_demoted: true,
+				...(hybridDemoted ? { hybrid_demoted: true } : {}),
 			});
 			offset++;
 		}
@@ -4512,6 +4528,9 @@ chat.openapi(completions, async (c) => {
 
 		let selectedModel: ModelDefinition | undefined;
 		let selectedProviders: ProviderModelMapping[] = [];
+		// Per model: mappings the reasoning-effort preference ranked out, kept as
+		// last-resort retry targets for the selected model.
+		const effortDemotedByModel = new Map<string, ProviderModelMapping[]>();
 		let selectedFilteredProviders: Array<{
 			providerId: string;
 			reasons: string[];
@@ -4546,6 +4565,7 @@ chat.openapi(completions, async (c) => {
 			toolChoice: tool_choice,
 			strictToolChoice: !dynamicRouteSelection,
 			reasoningEffort: reasoning_effort,
+			reasoningPinnedProvider: reasoningPin?.provider,
 			reasoningMaxTokens: reasoning_max_tokens,
 			reasoningMode: reasoning_mode,
 			noReasoning: no_reasoning,
@@ -4907,13 +4927,26 @@ chat.openapi(completions, async (c) => {
 			// A dynamic route has already fixed the model, so treat its providers like
 			// pinned-model candidates: prefer mappings that honour tool_choice, but keep
 			// the downgrade-to-auto fallback when none do.
+			const effortSuitableProviders = preferDeclaredReasoningEffortProviders(
+				suitableProviders,
+				autoFilterOpts,
+				filteredOutForModel,
+			);
 			const toolChoiceSuitableProviders = dynamicRouteSelection
 				? preferToolChoiceCapableProviders(
-						suitableProviders,
+						effortSuitableProviders,
 						autoFilterOpts,
 						filteredOutForModel,
 					)
-				: suitableProviders;
+				: effortSuitableProviders;
+			effortDemotedByModel.set(
+				modelDef.id,
+				suitableProviders.filter(
+					(provider) =>
+						provider.providerId !== "custom" &&
+						!effortSuitableProviders.includes(provider),
+				),
+			);
 			const deduplicatedSuitableProviders =
 				await keepCheapestCustomRoutingMapping(
 					dropLowUptimeCustomProviders(
@@ -5165,6 +5198,12 @@ chat.openapi(completions, async (c) => {
 					...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
 					...filteredProvidersMetadata(selectedFilteredProviders),
 				};
+				await appendDemotedProviderScores(
+					routingMetadata,
+					effortDemotedByModel.get(selectedModel.id) ?? [],
+					selectedModel.id,
+					false,
+				);
 			} else {
 				// Fallback to first available provider if price comparison fails
 				usedProvider = selectedProviders[0].providerId;
@@ -5250,7 +5289,11 @@ chat.openapi(completions, async (c) => {
 		if (selectedModel) {
 			modelInfo = {
 				...selectedModel,
-				providers: providerAgnosticSelectedProviders,
+				// Effort-demoted mappings stay reachable as last-resort retry targets.
+				providers: [
+					...providerAgnosticSelectedProviders,
+					...(effortDemotedByModel.get(selectedModel.id) ?? []),
+				],
 			};
 		} else {
 			// Fallback case: look up the default model definition
@@ -5460,6 +5503,7 @@ chat.openapi(completions, async (c) => {
 					toolChoice: tool_choice,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
+					reasoningPinnedProvider: reasoningPin?.provider,
 					n,
 					stream,
 				},
@@ -5784,7 +5828,7 @@ chat.openapi(completions, async (c) => {
 							const preferredCandidateSet = new Set(
 								preferredCandidatesForRouting,
 							);
-							await appendHybridDemotedProviderScores(
+							await appendDemotedProviderScores(
 								routingMetadata,
 								candidatesForRouting.filter(
 									(candidate) => !preferredCandidateSet.has(candidate),
@@ -5901,6 +5945,7 @@ chat.openapi(completions, async (c) => {
 						toolChoice: tool_choice,
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
+						reasoningPinnedProvider: reasoningPin?.provider,
 						n,
 						stream,
 						contextTierMinSize: getContextTierMinSize(
@@ -6061,7 +6106,7 @@ chat.openapi(completions, async (c) => {
 								const preferredBetterUptimeSet = new Set(
 									preferredBetterUptimeProviders,
 								);
-								await appendHybridDemotedProviderScores(
+								await appendDemotedProviderScores(
 									routingMetadata,
 									betterUptimeProviders.filter(
 										(candidate) => !preferredBetterUptimeSet.has(candidate),
@@ -6171,16 +6216,19 @@ chat.openapi(completions, async (c) => {
 				toolChoice: tool_choice,
 				maxTokens: max_tokens,
 				reasoningEffort: reasoning_effort,
+				reasoningPinnedProvider: reasoningPin?.provider,
 				contextTierMinSize: getContextTierMinSize(
 					routedModelId,
 					modelInfo.providers,
 				),
 			};
 			const filteredOutProvidersDirect: FilteredProvider[] = [];
+			const effortDemotedProviders: ProviderModelMapping[] = [];
 			const eligibleModelProviders = filterEligibleModelProviders(
 				preparedModelProviders,
 				{ ...eligibilityOptions, n, stream },
 				filteredOutProvidersDirect,
+				effortDemotedProviders,
 			);
 			const availableModelProviders = await keepCheapestCustomRoutingMapping(
 				dropLowUptimeCustomProviders(
@@ -6499,7 +6547,7 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 					{
-						await appendHybridDemotedProviderScores(
+						await appendDemotedProviderScores(
 							routingMetadata,
 							contentFilterPreferredProviders.filter(
 								(candidate) =>
@@ -6507,6 +6555,12 @@ chat.openapi(completions, async (c) => {
 									!rateLimitedProviderIds.has(candidate.providerId),
 							),
 							modelWithPricing.id,
+						);
+						await appendDemotedProviderScores(
+							routingMetadata,
+							effortDemotedProviders,
+							modelWithPricing.id,
+							false,
 						);
 					}
 				} else {
@@ -6621,6 +6675,7 @@ chat.openapi(completions, async (c) => {
 					toolChoice: tool_choice,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
+					reasoningPinnedProvider: reasoningPin?.provider,
 					n,
 					stream,
 				},
