@@ -108,6 +108,8 @@ import type { ContentFilterClassifier } from "@llmgateway/shared";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
 import type { Context } from "hono";
 
+const ELEVENLABS_VOICE_ID_PATTERN = /^[A-Za-z0-9]{20}$/;
+
 const speechRequestSchema = z.object({
 	model: z.string().openapi({
 		description: "ID of the speech generation (text-to-speech) model to use.",
@@ -639,10 +641,17 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 	}
 
 	const supportedVoices = mapping.supportedVoices ?? [];
+	// ElevenLabs also accepts any raw voice id (e.g. from its voice library);
+	// the upstream rejects ids the key cannot use.
+	const isRawElevenLabsVoiceId =
+		isElevenLabs &&
+		request.voice !== undefined &&
+		ELEVENLABS_VOICE_ID_PATTERN.test(request.voice);
 	if (
 		request.voice !== undefined &&
 		supportedVoices.length > 0 &&
-		!supportedVoices.includes(request.voice)
+		!supportedVoices.includes(request.voice) &&
+		!isRawElevenLabsVoiceId
 	) {
 		return c.json(
 			{

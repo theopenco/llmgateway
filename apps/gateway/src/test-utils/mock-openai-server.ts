@@ -1963,7 +1963,14 @@ mockOpenAIServer.post("/v1/speech-to-text", async (c) => {
 // ElevenLabs text-to-speech: POST /v1/text-to-speech/{voice_id}?output_format=…
 // Returns the audio already encoded; the content type is derived from the
 // requested output_format query param.
+let lastElevenLabsVoiceId: string | undefined;
+
+export function getLastElevenLabsVoiceId(): string | undefined {
+	return lastElevenLabsVoiceId;
+}
+
 mockOpenAIServer.post("/v1/text-to-speech/:voiceId", async (c) => {
+	lastElevenLabsVoiceId = c.req.param("voiceId");
 	const body = await c.req.json();
 	const text = typeof body.text === "string" ? body.text : "";
 
