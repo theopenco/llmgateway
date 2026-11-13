@@ -13,7 +13,7 @@ import { notifyEnterpriseContact } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 
-import { and, db, eq, tables } from "@llmgateway/db";
+import { and, db, eq, inArray, tables } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 import {
@@ -324,9 +324,10 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 			"Failed to send enterprise contact confirmation",
 			toError(error),
 		);
+		// Stays unconfirmed, so it never reaches sales or the CRM.
 		await updateSubmissionStatus(
 			submission.id,
-			"delivery_failed",
+			"unconfirmed",
 			"confirmation_send_failed",
 		);
 		return c.json(
@@ -551,22 +552,28 @@ publicContact.openapi(confirmEnterpriseContact, async (c) => {
 		return invalidLink();
 	}
 
-	if (submission.spamFilterStatus === "unconfirmed") {
+	// delivery_failed here means the sales email failed after an earlier
+	// confirmation, so another click retries it.
+	const deliverable = ["unconfirmed", "delivery_failed"] as const;
+	if (
+		submission.spamFilterStatus === "unconfirmed" ||
+		submission.spamFilterStatus === "delivery_failed"
+	) {
 		// Claim the row first so a double click delivers to sales only once.
 		const [claimed] = await db
 			.update(t)
 			.set({ spamFilterStatus: "delivered", rejectionReason: null })
 			.where(
-				and(eq(t.id, submission.id), eq(t.spamFilterStatus, "unconfirmed")),
+				and(
+					eq(t.id, submission.id),
+					inArray(t.spamFilterStatus, [...deliverable]),
+				),
 			)
 			.returning({ id: t.id });
 		if (claimed) {
 			await deliverToSales(submission);
 		}
-	} else if (
-		submission.spamFilterStatus !== "delivered" &&
-		submission.spamFilterStatus !== "delivery_failed"
-	) {
+	} else if (submission.spamFilterStatus !== "delivered") {
 		return invalidLink();
 	}
 

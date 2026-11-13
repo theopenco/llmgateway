@@ -117,6 +117,30 @@ test("confirming delivers to sales once, escaped, and returns the booking prefil
 	expect(html).not.toMatch(/<[bi]>/);
 });
 
+test("a failed sales delivery is retried on the next click", async () => {
+	await submit();
+	const row = await loadSubmission();
+	const token = signEnterpriseContactToken(row!.id);
+	send.mockResolvedValueOnce({ data: null, error: { message: "down" } });
+
+	expect((await confirm(token)).status).toBe(200);
+	expect((await loadSubmission())?.spamFilterStatus).toBe("delivery_failed");
+
+	expect((await confirm(token)).status).toBe(200);
+	expect(send).toHaveBeenCalledTimes(2);
+	expect((await loadSubmission())?.spamFilterStatus).toBe("delivered");
+});
+
+test("a failed confirmation email leaves the request unconfirmed", async () => {
+	sendTransactionalEmail.mockRejectedValueOnce(new Error("down"));
+
+	expect((await submit()).status).toBe(500);
+	expect(await loadSubmission()).toMatchObject({
+		spamFilterStatus: "unconfirmed",
+		rejectionReason: "confirmation_send_failed",
+	});
+});
+
 test("a forged, expired or rejected link cannot book a call", async () => {
 	await submit();
 	const row = await loadSubmission();
