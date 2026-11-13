@@ -6,9 +6,9 @@ import {
 	gmailQueryFor,
 	htmlToText,
 	parseAddresses,
+	CALENDAR_SCOPE,
+	GMAIL_SCOPES,
 	sealCredentials,
-	signCalendlyPayload,
-	verifyCalendlySignature,
 } from "@/lib/crm-integrations.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
@@ -16,7 +16,9 @@ import { db, eq, tables } from "@llmgateway/db";
 
 const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 const HUNDRED_DAYS = 100 * 86_400_000;
-const TEN_MINUTES = 10 * 60_000;
+const DAY_MS = 86_400_000;
+const TWO_DAYS = 2 * DAY_MS;
+const WEEK_PLUS_DAY = 8 * DAY_MS;
 
 type Route = (url: URL, init: RequestInit | undefined) => Response | undefined;
 
@@ -128,6 +130,7 @@ async function seedGmail(
 	userId: string,
 	shared = false,
 	email = "contact@llmgateway.io",
+	scope?: string,
 ) {
 	const [row] = await db
 		.insert(tables.crmIntegration)
@@ -140,6 +143,7 @@ async function seedGmail(
 				accessToken: "access-fixture",
 				refreshToken: "refresh-fixture",
 				expiresAt: Date.now() + 3_600_000,
+				scope,
 			}),
 			shared,
 		})
@@ -147,29 +151,17 @@ async function seedGmail(
 	return row!;
 }
 
-async function seedCalendly(userId: string, signingKey?: string) {
-	const [row] = await db
-		.insert(tables.crmIntegration)
-		.values({
-			id: "calendly-luca",
-			provider: "calendly",
-			userId,
-			accountEmail: "luca@llmgateway.io",
-			displayName: "Luca",
-			externalId: "https://api.calendly.com/users/LUCA",
-			credentials: sealCredentials("calendly-luca", {
-				token: "pat-fixture",
-				organizationUri: "https://api.calendly.com/organizations/ORG",
-				schedulingUrl: "https://calendly.com/luca",
-				webhookUri: signingKey
-					? "https://api.calendly.com/webhook_subscriptions/WH"
-					: undefined,
-				signingKey,
-			}),
-			shared: true,
-		})
-		.returning();
-	return row!;
+async function seedLegacyCalendly(userId: string) {
+	await db.insert(tables.crmIntegration).values({
+		id: "calendly-luca",
+		provider: "calendly",
+		userId,
+		accountEmail: "luca@llmgateway.io",
+		displayName: "Luca",
+		externalId: "https://api.calendly.com/users/LUCA",
+		credentials: sealCredentials("calendly-luca", { token: "pat-fixture" }),
+		shared: true,
+	});
 }
 
 describe("CRM integrations", () => {
@@ -258,27 +250,12 @@ describe("CRM integrations", () => {
 			).toString("utf8");
 			expect(injected).not.toMatch(/\r\nBcc:/);
 		});
-
-		it("verifies Calendly signatures with a replay window", () => {
-			const body = JSON.stringify({ event: "invitee.created" });
-			const header = signCalendlyPayload(body, "key");
-			expect(verifyCalendlySignature(body, header, "key")).toBe(true);
-			expect(verifyCalendlySignature(body, header, "other")).toBe(false);
-			expect(verifyCalendlySignature(`${body} `, header, "key")).toBe(false);
-			expect(
-				verifyCalendlySignature(
-					body,
-					signCalendlyPayload(body, "key", Date.now() - TEN_MINUTES),
-					"key",
-				),
-			).toBe(false);
-		});
 	});
 
 	it("lists connections without credentials and reports Gmail availability", async () => {
 		const admin = (await adminUser())!;
 		await seedGmail(admin.id);
-		await seedCalendly(admin.id, "sign");
+		await seedLegacyCalendly(admin.id);
 		const res = await call(cookie, "/admin/crm/integrations");
 		expect(res.status).toBe(200);
 		const body = await res.json();
@@ -290,11 +267,16 @@ describe("CRM integrations", () => {
 		);
 		expect(calendly).toMatchObject({
 			mine: true,
-			shared: true,
-			webhook: true,
-			schedulingUrl: "https://calendly.com/luca",
+			calendar: false,
 			ownerEmail: "admin@example.com",
 		});
+		expect(
+			(
+				await call(cookie, "/admin/crm/integrations/calendly-luca", {
+					method: "DELETE",
+				})
+			).status,
+		).toBe(200);
 	});
 
 	it("starts the Gmail consent flow bound to the session and rejects a foreign state", async () => {
@@ -362,55 +344,6 @@ describe("CRM integrations", () => {
 			shared: true,
 		});
 		expect(row!.credentials).not.toContain("fixture-refresh");
-	});
-
-	it("connects Calendly from a personal token and subscribes a webhook", async () => {
-		let webhookBody: unknown;
-		stubFetch((u, init) => {
-			if (u.pathname === "/users/me") {
-				return Response.json({
-					resource: {
-						uri: "https://api.calendly.com/users/LUCA",
-						name: "Luca",
-						email: "luca@llmgateway.io",
-						scheduling_url: "https://calendly.com/luca",
-						current_organization: "https://api.calendly.com/organizations/ORG",
-					},
-				});
-			}
-			if (u.pathname === "/webhook_subscriptions") {
-				webhookBody = JSON.parse(String(init?.body));
-				return Response.json(
-					{
-						resource: {
-							uri: "https://api.calendly.com/webhook_subscriptions/WH",
-						},
-					},
-					{ status: 201 },
-				);
-			}
-			return undefined;
-		});
-		const res = await call(cookie, "/admin/crm/integrations/calendly", {
-			method: "POST",
-			body: { token: "eyJraWQiOiIxY2UxZTEzNjE3ZGNmNzY2YjNj", shared: true },
-		});
-		expect(res.status).toBe(200);
-		expect(await res.json()).toMatchObject({
-			provider: "calendly",
-			accountEmail: "luca@llmgateway.io",
-			displayName: "Luca",
-			webhook: true,
-			shared: true,
-		});
-		expect(webhookBody).toMatchObject({
-			events: ["invitee.created", "invitee.canceled"],
-			scope: "user",
-			user: "https://api.calendly.com/users/LUCA",
-		});
-		expect(String((webhookBody as { url: string }).url)).toContain(
-			"/public/crm-webhooks/calendly",
-		);
 	});
 
 	it("lists threads with the account's people across mailboxes and opens one", async () => {
@@ -568,47 +501,75 @@ describe("CRM integrations", () => {
 		});
 	});
 
-	it("lists Calendly meetings and booking links, mirroring meetings into the feed once", async () => {
+	it("lists calendar meetings with the account's people once, mirroring held ones into the feed", async () => {
 		const admin = (await adminUser())!;
-		await seedCalendly(admin.id);
-		const start = new Date(Date.now() + 86_400_000).toISOString();
-		const end = new Date(Date.now() + 86_400_000 + 1_800_000).toISOString();
+		const scope = [...GMAIL_SCOPES, CALENDAR_SCOPE].join(" ");
+		await seedGmail(admin.id, true, "contact@llmgateway.io", scope);
+		await seedGmail(admin.id, false, "luca@llmgateway.io", scope);
+		await seedGmail(admin.id, true, "old@llmgateway.io");
+		const twoDaysAgo = Date.now() - TWO_DAYS;
+		const pastStart = new Date(twoDaysAgo).toISOString();
+		const pastEnd = new Date(twoDaysAgo + 1_800_000).toISOString();
+		const nextStart = new Date(Date.now() + DAY_MS).toISOString();
+		const nextEnd = new Date(Date.now() + DAY_MS + 1_800_000).toISOString();
+		const weekLater = Date.now() + WEEK_PLUS_DAY;
+		const weekStart = new Date(weekLater).toISOString();
+		const weekEnd = new Date(weekLater + 1_800_000).toISOString();
+		const jane = { email: "jane@acme-corp.com", responseStatus: "accepted" };
+		const host = { email: "luca@llmgateway.io", self: true, organizer: true };
+		const queries: string[] = [];
 		stubFetch((u) => {
-			if (u.pathname === "/scheduled_events") {
-				return Response.json({
-					collection:
-						u.searchParams.get("invitee_email") === "jane@acme-corp.com"
-							? [
-									{
-										uri: "https://api.calendly.com/scheduled_events/EV1",
-										name: "Intro call",
-										status: "active",
-										start_time: start,
-										end_time: end,
-										location: {
-											type: "google_conference",
-											join_url: "https://meet.google.com/abc",
-										},
-									},
-								]
-							: [],
-				});
+			if (u.pathname !== "/calendar/v3/calendars/primary/events") {
+				return undefined;
 			}
-			if (u.pathname === "/event_types") {
+			queries.push(u.searchParams.get("q") ?? "");
+			if (u.searchParams.get("q") !== "jane@acme-corp.com") {
+				return Response.json({ items: [] });
+			}
+			if (!u.searchParams.get("pageToken")) {
 				return Response.json({
-					collection: [
+					items: [
 						{
-							uri: "https://api.calendly.com/event_types/ET1",
-							name: "30 min call",
-							slug: "30min",
-							scheduling_url: "https://calendly.com/luca/30min",
-							duration: 30,
-							active: true,
+							id: "ev-past",
+							iCalUID: "past@calendly",
+							summary: "Intro call",
+							start: { dateTime: pastStart },
+							end: { dateTime: pastEnd },
+							attendees: [host, jane],
+						},
+						{
+							id: "ev-mention",
+							iCalUID: "mention@google",
+							summary: "Mentions jane@acme-corp.com in the notes",
+							start: { dateTime: pastStart },
+							end: { dateTime: pastEnd },
+							attendees: [host],
 						},
 					],
+					nextPageToken: "page-2",
 				});
 			}
-			return undefined;
+			return Response.json({
+				items: [
+					{
+						id: "ev-next",
+						iCalUID: "next@calendly",
+						summary: "Enterprise call",
+						start: { dateTime: nextStart },
+						end: { dateTime: nextEnd },
+						hangoutLink: "https://meet.google.com/abc",
+						attendees: [host, jane],
+					},
+					{
+						id: "ev-next_w2",
+						iCalUID: "next@calendly",
+						summary: "Enterprise call",
+						start: { dateTime: weekStart },
+						end: { dateTime: weekEnd },
+						attendees: [host, jane],
+					},
+				],
+			});
 		});
 		const res = await call(
 			cookie,
@@ -616,20 +577,21 @@ describe("CRM integrations", () => {
 		);
 		expect(res.status).toBe(200);
 		const body = await res.json();
+		expect(body.calendars).toHaveLength(2);
 		expect(body.meetings).toEqual([
+			expect.objectContaining({ uid: `next@calendly|${weekStart}` }),
 			expect.objectContaining({
-				name: "Intro call",
-				host: "Luca",
+				uid: `next@calendly|${nextStart}`,
+				name: "Enterprise call",
 				joinUrl: "https://meet.google.com/abc",
-				inviteeEmail: "jane@acme-corp.com",
+				contactEmails: ["jane@acme-corp.com"],
+			}),
+			expect.objectContaining({
+				uid: `past@calendly|${pastStart}`,
+				name: "Intro call",
 			}),
 		]);
-		expect(body.bookingLinks).toEqual([
-			expect.objectContaining({ name: "30 min call", duration: 30 }),
-		]);
-		expect(body.connections).toEqual([
-			{ id: "calendly-luca", host: "Luca", canBook: true },
-		]);
+		expect(queries).toContain("jane@acme-corp.com");
 		await call(cookie, "/admin/crm/accounts/acme-corp.com/meetings");
 		const activities = await db
 			.select()
@@ -640,90 +602,10 @@ describe("CRM integrations", () => {
 			kind: "meeting",
 			subject: "Intro call",
 			contactEmail: "jane@acme-corp.com",
-			externalRef: "calendly:https://api.calendly.com/scheduled_events/EV1",
+			externalRef: `gcal:past@calendly|${pastStart}`,
 		});
 		expect(activities[0]!.body).toContain("Jane Doe <jane@acme-corp.com>");
-		expect(activities[0]!.createdAt.toISOString()).toBe(start);
-	});
-
-	it("records webhook bookings for known accounts and rejects bad signatures", async () => {
-		const admin = (await adminUser())!;
-		await seedCalendly(admin.id, "signing-key-fixture");
-		const event = {
-			uri: "https://api.calendly.com/scheduled_events/EV2",
-			name: "Demo",
-			status: "active",
-			start_time: "2026-12-01T10:00:00.000000Z",
-			end_time: "2026-12-01T10:45:00.000000Z",
-			location: { type: "zoom", join_url: "https://zoom.us/j/1" },
-		};
-		const payload = JSON.stringify({
-			event: "invitee.created",
-			created_by: "https://api.calendly.com/users/LUCA",
-			payload: {
-				email: "Bob@Acme-Corp.com",
-				name: "Bob",
-				scheduled_event: event,
-			},
-		});
-		const send = (body: string, signature: string) =>
-			app.request("/public/crm-webhooks/calendly", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"Calendly-Webhook-Signature": signature,
-				},
-				body,
-			});
-		expect(
-			(await send(payload, signCalendlyPayload(payload, "wrong"))).status,
-		).toBe(401);
-		expect(
-			(await send(payload, signCalendlyPayload(payload, "signing-key-fixture")))
-				.status,
-		).toBe(200);
-		const [activity] = await db
-			.select()
-			.from(tables.crmActivity)
-			.where(eq(tables.crmActivity.accountId, "acme-corp.com"));
-		expect(activity).toMatchObject({
-			kind: "meeting",
-			subject: "Demo",
-			contactEmail: "bob@acme-corp.com",
-		});
-
-		const canceled = JSON.stringify({
-			event: "invitee.canceled",
-			payload: {
-				email: "bob@acme-corp.com",
-				name: "Bob",
-				scheduled_event: { ...event, status: "canceled" },
-			},
-		});
-		expect(
-			(
-				await send(
-					canceled,
-					signCalendlyPayload(canceled, "signing-key-fixture"),
-				)
-			).status,
-		).toBe(200);
-		const after = await db
-			.select()
-			.from(tables.crmActivity)
-			.where(eq(tables.crmActivity.accountId, "acme-corp.com"));
-		expect(after).toHaveLength(1);
-		expect(after[0]!.subject).toBe("Canceled: Demo");
-
-		const unknown = JSON.stringify({
-			event: "invitee.created",
-			payload: { email: "someone@gmail.com", scheduled_event: event },
-		});
-		expect(
-			(await send(unknown, signCalendlyPayload(unknown, "signing-key-fixture")))
-				.status,
-		).toBe(200);
-		expect((await db.select().from(tables.crmActivity)).length).toBe(1);
+		expect(activities[0]!.createdAt.toISOString()).toBe(pastStart);
 	});
 
 	it("lets only the connecting admin share or disconnect a connection", async () => {

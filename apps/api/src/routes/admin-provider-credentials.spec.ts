@@ -1078,6 +1078,50 @@ describe("managed credential region scoping", () => {
 		);
 		expect(res.status).toBe(400);
 	});
+
+	// Alibaba has no global region: every key belongs to exactly one, so an
+	// unpinned credential would silently serve only the default region.
+	test("requires a region for a provider with no global region", async () => {
+		const res = await create({ provider: "alibaba", token: "sk-alibaba" });
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain("no global region");
+	});
+
+	test("rejects clearing the region of such a credential", async () => {
+		const created = await create({
+			provider: "alibaba",
+			token: "sk-alibaba",
+			region: "us-virginia",
+		});
+		expect(created.status).toBe(201);
+		const { credential } = (await created.json()) as {
+			credential: { id: string };
+		};
+
+		const res = await app.request(
+			`/admin/provider-credentials/${credential.id}`,
+			{
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ region: null }),
+			},
+		);
+		expect(res.status).toBe(400);
+	});
+
+	test("flags region-required providers in the catalog", async () => {
+		const res = await app.request("/admin/provider-credentials/catalog", {
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+		const json = (await res.json()) as {
+			providers: { id: string; regionRequired: boolean }[];
+		};
+		const byId = new Map(json.providers.map((p) => [p.id, p.regionRequired]));
+		expect(byId.get("alibaba")).toBe(true);
+		expect(byId.get("aws-bedrock")).toBe(false);
+		expect(byId.get("openai")).toBe(false);
+	});
 });
 
 describe("managed credential token confidentiality", () => {
