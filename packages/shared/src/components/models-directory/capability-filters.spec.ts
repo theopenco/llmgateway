@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 
 import { discountFraction } from "@/lib/discount";
 
+import { models as catalogue, type ModelDefinition } from "@llmgateway/models";
+
 import {
 	matchesCapability,
 	matchesOutputCapabilities,
@@ -507,5 +509,32 @@ describe("model-level output capability filters", () => {
 		expect(
 			matchesOutputCapabilities(enabled, ["transcription", "search"]),
 		).toBe(true);
+	});
+});
+
+describe("catalogue coverage", () => {
+	test("every non-text output kind in the catalogue has an output filter", () => {
+		const filterable = new Set<string>(
+			Object.values(OUTPUT_KIND_BY_CAPABILITY_FILTER),
+		);
+		const kinds = new Set(
+			(catalogue as readonly ModelDefinition[]).flatMap(
+				(model) => model.output ?? [],
+			),
+		);
+		kinds.delete("text");
+		expect(Array.from(kinds).filter((kind) => !filterable.has(kind))).toEqual(
+			[],
+		);
+	});
+
+	test.each([
+		["audioInput", { audio: true }],
+		["document", { document: true }],
+		["realtime", { realtime: true }],
+		["realtime", { realtimeTranscription: true }],
+	] as const)("%s matches a mapping with %o", (capability, flags) => {
+		expect(matchesCapability(capability, makeMapping(flags))).toBe(true);
+		expect(matchesCapability(capability, makeMapping({}))).toBe(false);
 	});
 });

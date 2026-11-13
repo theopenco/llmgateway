@@ -151,6 +151,9 @@ export interface ProviderRowFilterOptions {
 	capabilities: {
 		streaming: boolean;
 		vision: boolean;
+		audioInput?: boolean;
+		document?: boolean;
+		realtime?: boolean;
 		tools: boolean;
 		reasoning: boolean;
 		reasoningBudget: boolean;
@@ -181,6 +184,9 @@ export function providerRowPassesFilters(
 	if (
 		(capabilities.streaming && !matchesCapability("streaming", provider)) ||
 		(capabilities.vision && !matchesCapability("vision", provider)) ||
+		(capabilities.audioInput && !matchesCapability("audioInput", provider)) ||
+		(capabilities.document && !matchesCapability("document", provider)) ||
+		(capabilities.realtime && !matchesCapability("realtime", provider)) ||
 		(capabilities.tools && !matchesCapability("tools", provider)) ||
 		(capabilities.reasoning && !matchesCapability("reasoning", provider)) ||
 		(capabilities.reasoningBudget &&

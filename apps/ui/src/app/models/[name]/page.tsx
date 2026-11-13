@@ -27,7 +27,6 @@ import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { adaptModel } from "@/components/models/adapt-model";
 import { CopyModelName } from "@/components/models/copy-model-name";
-import { DetailProviderCards } from "@/components/models/detail-provider-cards";
 import { GlobalDiscountBanner } from "@/components/models/global-discount-banner";
 import { ModelBenchmarks } from "@/components/models/model-benchmarks";
 import {
@@ -38,8 +37,7 @@ import { ModelFaqSection } from "@/components/models/model-faq";
 import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ModelUsageStats } from "@/components/models/model-usage-stats";
-import { buildProviderTabBranding } from "@/components/models/provider-tab-branding";
-import { ProviderTabs } from "@/components/models/provider-tabs";
+import { ProviderComparisonTable } from "@/components/models/provider-comparison-table";
 import { RelatedModels } from "@/components/models/related-models";
 import { VirtualModelBanner } from "@/components/models/virtual-model-banner";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -273,6 +271,338 @@ export default async function ModelPage({ params }: PageProps) {
 		...buildRatingSchema(ratingsData),
 	};
 
+	const capabilityItems = (() => {
+		const items: Array<{
+			key: string;
+			icon: any;
+			label: string;
+			color: string;
+			href?: string;
+			title?: string;
+		}> = [];
+		const hasStreaming = visibleProviders.some((p) => p.streaming);
+		const hasVision = visibleProviders.some((p) => p.vision);
+		const hasTools = visibleProviders.some((p) => p.tools);
+		const hasReasoning = visibleProviders.some((p) => p.reasoning);
+		const hasReasoningMaxTokens = visibleProviders.some(
+			(p) => p.reasoningMaxTokens,
+		);
+		const hasJsonOutput = visibleProviders.some((p) => p.jsonOutput);
+		const hasJsonOutputSchema = visibleProviders.some(
+			(p) => p.jsonOutputSchema,
+		);
+		const hasWebSearch = visibleProviders.some((p) => p.webSearch);
+		const hasImageGen = Array.isArray(modelDef.output)
+			? modelDef.output.includes("image")
+			: false;
+		const hasVideoGen = Array.isArray(modelDef.output)
+			? modelDef.output.includes("video")
+			: false;
+		const hasEmbedding = Array.isArray(modelDef.output)
+			? modelDef.output.includes("embedding")
+			: false;
+		const hasRerank = Array.isArray(modelDef.output)
+			? modelDef.output.includes("rerank")
+			: false;
+		const hasSearch = Array.isArray(modelDef.output)
+			? modelDef.output.includes("search")
+			: false;
+		const hasAudio = Array.isArray(modelDef.output)
+			? modelDef.output.includes("audio")
+			: false;
+		const hasTranscription = Array.isArray(modelDef.output)
+			? modelDef.output.includes("transcription")
+			: false;
+		const hasDecision = Array.isArray(modelDef.output)
+			? modelDef.output.includes("decision")
+			: false;
+
+		if (hasStreaming) {
+			items.push({
+				key: "streaming",
+				icon: Zap,
+				label: "Streaming",
+				color: "text-blue-500",
+			});
+		}
+		if (hasVision) {
+			items.push({
+				key: "vision",
+				icon: Eye,
+				label: "Vision",
+				color: "text-green-500",
+			});
+		}
+		if (hasTools) {
+			items.push({
+				key: "tools",
+				icon: Wrench,
+				label: "Tools",
+				color: "text-purple-500",
+			});
+		}
+		if (hasReasoning) {
+			items.push({
+				key: "reasoning",
+				icon: MessageSquare,
+				label: "Reasoning",
+				color: "text-orange-500",
+			});
+		}
+		if (hasReasoningMaxTokens) {
+			items.push({
+				key: "reasoningMaxTokens",
+				icon: Sliders,
+				label: "Reasoning Budget",
+				color: "text-amber-500",
+			});
+		}
+		if (hasJsonOutput) {
+			items.push({
+				key: "jsonOutput",
+				icon: Braces,
+				label: "JSON Output",
+				color: "text-cyan-500",
+			});
+		}
+		if (hasJsonOutputSchema) {
+			items.push({
+				key: "jsonOutputSchema",
+				icon: FileJson2,
+				label: "Structured JSON",
+				color: "text-teal-500",
+			});
+		}
+		if (hasImageGen) {
+			items.push({
+				key: "image",
+				icon: ImagePlus,
+				label: "Image Generation",
+				color: "text-pink-500",
+			});
+		}
+		if (hasVideoGen) {
+			items.push({
+				key: "video",
+				icon: Video,
+				label: "Video Generation",
+				color: "text-violet-500",
+			});
+		}
+		if (hasAudio) {
+			items.push({
+				key: "audio",
+				icon: Volume2,
+				label: "Speech Generation",
+				color: "text-rose-500",
+			});
+		}
+		if (hasTranscription) {
+			items.push({
+				key: "transcription",
+				icon: Mic,
+				label: "Transcription",
+				color: "text-sky-500",
+			});
+		}
+		if (hasEmbedding) {
+			items.push({
+				key: "embedding",
+				icon: Boxes,
+				label: "Embeddings",
+				color: "text-indigo-500",
+			});
+		}
+		if (hasRerank) {
+			items.push({
+				key: "rerank",
+				icon: ListOrdered,
+				label: "Rerank",
+				color: "text-amber-500",
+			});
+		}
+		if (hasDecision) {
+			items.push({
+				key: "decision",
+				icon: SlidersHorizontal,
+				label: "Decisions",
+				color: "text-teal-500",
+			});
+		}
+		if (hasSearch) {
+			items.push({
+				key: "search",
+				icon: Search,
+				label: "Search API",
+				color: "text-sky-500",
+			});
+		}
+		if (hasWebSearch) {
+			items.push({
+				key: "webSearch",
+				icon: Globe,
+				label: "Web Search",
+				color: "text-sky-500",
+			});
+		}
+		const batchEndpoints = Array.from(
+			new Set(visibleProviders.flatMap((p) => getBatchEndpoints(p, modelDef))),
+		);
+		if (batchEndpoints.length > 0) {
+			items.push({
+				key: "batch",
+				icon: Layers,
+				label: "Batch API",
+				color: "text-fuchsia-500",
+				href: BATCH_DOCS_URL,
+				title: batchSupportDescription(batchEndpoints),
+			});
+		}
+		return items;
+	})();
+
+	const uniqueProviderCount = new Set(visibleProviders.map((p) => p.providerId))
+		.size;
+	const isTiered = visibleProviders.some(
+		(p) => (p.pricingTiers?.length ?? 0) > 1,
+	);
+	const cheapestTokenPrice = (
+		field: "inputPrice" | "outputPrice" | "imageOutputPrice",
+	) => {
+		const prices = visibleProviders
+			.filter((p) => p[field] !== undefined)
+			.map((p) => ({
+				price: applyDiscount(perMillion(p[field])!, p.discount),
+				discount: Number(p.discount ?? "0"),
+			}))
+			.sort((a, b) => a.price - b.price);
+		const cheapest = prices[0];
+		if (!cheapest) {
+			return null;
+		}
+		return {
+			value: `$${cheapest.price.toFixed(2)}`,
+			hint: [
+				"per 1M tokens",
+				cheapest.discount > 0 && `${(cheapest.discount * 100).toFixed(0)}% off`,
+				field !== "imageOutputPrice" && isTiered && "tiered",
+			]
+				.filter(Boolean)
+				.join(" · "),
+		};
+	};
+	const imageOutput = cheapestTokenPrice("imageOutputPrice");
+	const facts: Array<{ label: string; value: string; hint?: string }> = [];
+	if (!hideTokenInfo) {
+		const maxContext = Math.max(
+			...visibleProviders.map((p) => p.contextSize ?? 0),
+		);
+		if (maxContext > 0) {
+			facts.push({
+				label: "Context",
+				value: formatNumber(maxContext),
+				hint: "tokens",
+			});
+		}
+		const maxOutput = Math.max(
+			...visibleProviders.map((p) => p.maxOutput ?? 0),
+		);
+		if (maxOutput > 0) {
+			facts.push({
+				label: "Max output",
+				value: formatNumber(maxOutput),
+				hint: "tokens",
+			});
+		}
+		const input = visibleProviders.some((p) => p.inputPrice)
+			? cheapestTokenPrice("inputPrice")
+			: null;
+		if (input) {
+			facts.push({ label: "Input from", ...input });
+		}
+		const output = visibleProviders.some((p) => p.outputPrice)
+			? cheapestTokenPrice("outputPrice")
+			: null;
+		if (output && (output.value !== "$0.00" || !imageOutput)) {
+			facts.push({ label: "Output from", ...output });
+		}
+	}
+	if (imageOutput) {
+		facts.push({ label: "Image output from", ...imageOutput });
+	}
+	const perSecondPrices = visibleProviders
+		.map((p) => getMinPerSecondPrice(p))
+		.filter((v): v is number => v !== null);
+	if (perSecondPrices.length > 0) {
+		facts.push({
+			label: "Video from",
+			value: formatPerUnitPrice(Math.min(...perSecondPrices)),
+			hint: "per second",
+		});
+	}
+	const perImagePrices = visibleProviders.flatMap((p) =>
+		Object.values(p.perImagePrice ?? {})
+			.map((v) => (typeof v === "number" ? v : parseFloat(String(v))))
+			.filter((raw) => Number.isFinite(raw))
+			.map((raw) => applyDiscount(raw, p.discount)),
+	);
+	if (perImagePrices.length > 0) {
+		facts.push({
+			label: "Image from",
+			value: `$${parseFloat(Math.min(...perImagePrices).toFixed(4))}`,
+			hint: "per image",
+		});
+	}
+	if (isSearchModel) {
+		facts.push({
+			label: "Search from",
+			value: `$${(
+				Math.min(
+					...visibleProviders.map((p) =>
+						applyDiscount(Number(p.requestPrice ?? 0), p.discount),
+					),
+				) * 1000
+			).toFixed(2)}`,
+			hint: "per 1,000 searches",
+		});
+	}
+	const ocrPagePrices = visibleProviders
+		.filter((p) => p.ocrPagePrice !== undefined)
+		.map((p) => applyDiscount(Number(p.ocrPagePrice), p.discount))
+		.filter((n) => Number.isFinite(n));
+	if (ocrPagePrices.length > 0) {
+		facts.push({
+			label: "OCR from",
+			value: `$${(Math.min(...ocrPagePrices) * 1000).toFixed(2)}`,
+			hint: "per 1,000 pages",
+		});
+	}
+	facts.push({
+		label: "Providers",
+		value: String(uniqueProviderCount),
+		hint: uniqueProviderCount === 1 ? "one route" : "automatic routing",
+	});
+	if (modelDef.releasedAt) {
+		facts.push({
+			label: "Released",
+			value: modelDef.releasedAt.toLocaleDateString("en-US", {
+				year: "numeric",
+				month: "short",
+				day: "numeric",
+				timeZone: "UTC",
+			}),
+		});
+	}
+	const stabilityBadge = getStabilityBadgeProps(modelDef.stability);
+	const pageSections = [
+		{ href: "#providers", label: `Providers (${uniqueProviderCount})` },
+		{ href: "#performance", label: "Performance" },
+		...(faqs.length > 0 ? [{ href: "#faq", label: "FAQ" }] : []),
+		{ href: "#related", label: "Related models" },
+	];
+	const secondaryActionClass =
+		"inline-flex h-8 items-center gap-1.5 rounded-md border border-border/60 px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground";
+
 	return (
 		<>
 			<JsonLd data={[breadcrumbSchema, productSchema, faqSchema]} />
@@ -293,525 +623,122 @@ export default async function ModelPage({ params }: PageProps) {
 						providers={modelDef.providers}
 						discounts={allDiscounts}
 					/>
-					<div className="mb-8">
-						<div className="flex items-center gap-3 mb-2 flex-wrap">
-							<h1 className="text-3xl md:text-4xl font-bold tracking-tight">
-								{modelDef.name}
-							</h1>
-							{shouldShowStabilityWarning(modelDef.stability) && (
-								<AlertTriangle className="h-6 w-6 md:h-8 md:w-8 text-orange-500" />
-							)}
-						</div>
-						{modelDef.description && (
-							<p className="text-muted-foreground mb-4">
-								{modelDef.description}
-							</p>
-						)}
-						<div className="flex flex-wrap items-center gap-2 md:gap-3 mb-4">
-							<CopyModelName modelName={decodedName} />
-							{Array.isArray(modelDef.output) &&
-								modelDef.output.includes("embedding") && (
-									<Badge
-										variant="outline"
-										className="gap-1 text-xs md:text-sm px-2 md:px-3 py-1 border-indigo-500/40 text-indigo-500"
-									>
-										<Boxes className="h-3.5 w-3.5" />
-										Embedding model
-									</Badge>
+					<header className="mb-8">
+						<div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+							<div className="min-w-0 max-w-3xl">
+								<div className="flex flex-wrap items-center gap-3">
+									<h1 className="text-3xl font-bold tracking-tight text-balance md:text-4xl">
+										{modelDef.name}
+									</h1>
+									{shouldShowStabilityWarning(modelDef.stability) && (
+										<AlertTriangle className="h-6 w-6 text-orange-500" />
+									)}
+									{stabilityBadge && (
+										<Badge variant={stabilityBadge.variant}>
+											{stabilityBadge.label}
+										</Badge>
+									)}
+									<ModelStatusBadgeAuto
+										providers={modelProviders.map((p) => ({
+											deprecatedAt: p.deprecatedAt
+												? p.deprecatedAt.toISOString()
+												: null,
+											deactivatedAt: p.deactivatedAt
+												? p.deactivatedAt.toISOString()
+												: null,
+										}))}
+									/>
+								</div>
+								{modelDef.description && (
+									<p className="mt-3 text-muted-foreground text-pretty">
+										{modelDef.description}
+									</p>
 								)}
-							{(() => {
-								const stabilityProps = getStabilityBadgeProps(
-									modelDef.stability,
-								);
-								return stabilityProps ? (
-									<Badge
-										variant={stabilityProps.variant}
-										className="text-xs md:text-sm px-2 md:px-3 py-1"
-									>
-										{stabilityProps.label}
-									</Badge>
-								) : (
-									<Badge
-										variant="outline"
-										className="text-xs md:text-sm px-2 md:px-3 py-1"
-									>
-										STABLE
-									</Badge>
-								);
-							})()}
-							<ModelStatusBadgeAuto
-								providers={modelProviders.map((p) => ({
-									deprecatedAt: p.deprecatedAt
-										? p.deprecatedAt.toISOString()
-										: null,
-									deactivatedAt: p.deactivatedAt
-										? p.deactivatedAt.toISOString()
-										: null,
-								}))}
-							/>
-
-							<ModelCtaButton
-								modelId={canonicalName}
-								output={modelDef.output}
-								size="sm"
-								className="gap-2"
-								iconClassName="h-3 w-3"
-								location="model_page"
-							/>
-
-							{isLoungeChatModel(modelDef, activeProviders) && (
-								<TryInLoungeLink
+								<div className="mt-4 flex flex-wrap items-center gap-2">
+									<CopyModelName modelName={decodedName} />
+									<ModelUsageStats modelId={canonicalName} />
+								</div>
+							</div>
+							<div className="flex shrink-0 flex-wrap items-center gap-2">
+								<ModelCtaButton
 									modelId={canonicalName}
+									output={modelDef.output}
+									size="sm"
+									className="gap-2"
+									iconClassName="h-3 w-3"
 									location="model_page"
-									className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1 text-xs md:text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
 								/>
-							)}
-
-							<Link
-								href={`/models/${encodeURIComponent(decodedName)}/uptime`}
-								className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1 text-xs md:text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-							>
-								<Activity className="h-3.5 w-3.5" />
-								Live uptime &amp; insights
-							</Link>
-
-							<ModelUsageStats modelId={canonicalName} />
+								{isLoungeChatModel(modelDef, activeProviders) && (
+									<TryInLoungeLink
+										modelId={canonicalName}
+										location="model_page"
+										className={secondaryActionClass}
+									/>
+								)}
+								<Link
+									href={`/models/${encodeURIComponent(decodedName)}/uptime`}
+									className={secondaryActionClass}
+								>
+									<Activity className="h-3.5 w-3.5" />
+									Live uptime
+								</Link>
+							</div>
 						</div>
 
-						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
-							{!hideTokenInfo && (
-								<div>
-									{formatNumber(
-										Math.max(
-											...visibleProviders.map((p) => p.contextSize ?? 0),
-										),
-									)}{" "}
-									context
-								</div>
-							)}
-							{modelDef.releasedAt && (
-								<div>
-									Released{" "}
-									{modelDef.releasedAt.toLocaleDateString("en-US", {
-										year: "numeric",
-										month: "long",
-										day: "numeric",
-										timeZone: "UTC",
-									})}
-								</div>
-							)}
-							{!hideTokenInfo && visibleProviders.some((p) => p.inputPrice) && (
-								<div>
-									Starting at{" "}
-									{(() => {
-										const inputPrices = visibleProviders
-											.filter((p) => p.inputPrice)
-											.map((p) => ({
-												price: applyDiscount(
-													perMillion(p.inputPrice)!,
-													p.discount,
-												),
-												originalPrice: perMillion(p.inputPrice)!,
-												discount: p.discount,
-											}));
-										const minPrice = Math.min(
-											...inputPrices.map((p) => p.price),
-										);
-										const minPriceItem = inputPrices.find(
-											(p) => p.price === minPrice,
-										);
-										return Number(minPriceItem?.discount ?? "0") > 0
-											? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem!.discount) * 100).toFixed(0)}% off)`
-											: `$${minPrice.toFixed(2)}/M`;
-									})()}{" "}
-									input tokens
-									{visibleProviders.some(
-										(p) => (p.pricingTiers?.length ?? 0) > 1,
-									) && (
-										<span className="text-muted-foreground/70"> (tiered)</span>
+						<dl className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+							{facts.map((fact) => (
+								<div
+									key={fact.label}
+									className="rounded-lg border bg-card px-4 py-3"
+								>
+									<dt className="text-xs text-muted-foreground">
+										{fact.label}
+									</dt>
+									<dd className="mt-1 text-lg font-semibold tabular-nums leading-tight">
+										{fact.value}
+									</dd>
+									{fact.hint && (
+										<dd className="mt-0.5 text-xs text-muted-foreground">
+											{fact.hint}
+										</dd>
 									)}
 								</div>
-							)}
-							{!hideTokenInfo &&
-								visibleProviders.some((p) => p.outputPrice) && (
-									<div>
-										Starting at{" "}
-										{(() => {
-											const outputPrices = visibleProviders
-												.filter((p) => p.outputPrice)
-												.map((p) => ({
-													price: applyDiscount(
-														perMillion(p.outputPrice)!,
-														p.discount,
-													),
-													originalPrice: perMillion(p.outputPrice)!,
-													discount: p.discount,
-												}));
-											const minPrice = Math.min(
-												...outputPrices.map((p) => p.price),
-											);
-											const minPriceItem = outputPrices.find(
-												(p) => p.price === minPrice,
-											);
-											return Number(minPriceItem?.discount ?? "0") > 0
-												? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem!.discount) * 100).toFixed(0)}% off)`
-												: `$${minPrice.toFixed(2)}/M`;
-										})()}{" "}
-										output tokens
-										{visibleProviders.some(
-											(p) => (p.pricingTiers?.length ?? 0) > 1,
-										) && (
-											<span className="text-muted-foreground/70">
-												{" "}
-												(tiered)
-											</span>
-										)}
-									</div>
-								)}
-							{visibleProviders.some(
-								(p) => p.imageOutputPrice !== undefined,
-							) && (
-								<div>
-									Starting at{" "}
-									{(() => {
-										const imageOutputPrices = visibleProviders
-											.filter((p) => p.imageOutputPrice !== undefined)
-											.map((p) => ({
-												price: applyDiscount(
-													perMillion(p.imageOutputPrice)!,
-													p.discount,
-												),
-												discount:
-													p.discount && Number(p.discount) !== 0
-														? p.discount
-														: undefined,
-											}));
-										if (imageOutputPrices.length === 0) {
-											return "Free";
-										}
-										const minPrice = Math.min(
-											...imageOutputPrices.map((p) => p.price),
-										);
-										const minPriceItem = imageOutputPrices.find(
-											(p) => p.price === minPrice,
-										);
-										return Number(minPriceItem?.discount ?? "0") > 0
-											? `$${minPrice.toFixed(2)}/M (${(Number(minPriceItem!.discount) * 100).toFixed(0)}% off)`
-											: `$${minPrice.toFixed(2)}/M`;
-									})()}{" "}
-									image output tokens
-								</div>
-							)}
-							{visibleProviders.some(
-								(p) =>
-									p.perSecondPrice && Object.keys(p.perSecondPrice).length > 0,
-							) && (
-								<div>
-									Starting at{" "}
-									{(() => {
-										const prices = visibleProviders
-											.map((p) => getMinPerSecondPrice(p))
-											.filter((v): v is number => v !== null);
-										return prices.length > 0
-											? `${formatPerUnitPrice(Math.min(...prices))}/sec`
-											: "Unknown";
-									})()}{" "}
-									video generation
-								</div>
-							)}
-							{visibleProviders.some(
-								(p) =>
-									p.perImagePrice && Object.keys(p.perImagePrice).length > 0,
-							) && (
-								<div>
-									Starting at{" "}
-									{(() => {
-										let minPrice: number | undefined;
-										for (const p of visibleProviders) {
-											if (!p.perImagePrice) {
-												continue;
-											}
-											for (const v of Object.values(p.perImagePrice)) {
-												const raw =
-													typeof v === "number" ? v : parseFloat(String(v));
-												if (!Number.isFinite(raw)) {
-													continue;
-												}
-												const n = applyDiscount(raw, p.discount);
-												if (minPrice === undefined || n < minPrice) {
-													minPrice = n;
-												}
-											}
-										}
-										return minPrice !== undefined
-											? `$${parseFloat(minPrice.toFixed(4))}/image`
-											: "Unknown";
-									})()}{" "}
-									image generation
-								</div>
-							)}
-							{isSearchModel && (
-								<div>
-									Starting at $
-									{(
-										Math.min(
-											...visibleProviders.map((p) =>
-												applyDiscount(Number(p.requestPrice ?? 0), p.discount),
-											),
-										) * 1000
-									).toFixed(2)}{" "}
-									per 1,000 searches
-								</div>
-							)}
-							{visibleProviders.some((p) => p.ocrPagePrice !== undefined) && (
-								<div>
-									Starting at{" "}
-									{(() => {
-										const pagePrices = visibleProviders
-											.filter((p) => p.ocrPagePrice !== undefined)
-											.map((p) =>
-												applyDiscount(Number(p.ocrPagePrice), p.discount),
-											)
-											.filter((n) => Number.isFinite(n));
-										if (pagePrices.length === 0) {
-											return "Unknown";
-										}
-										const minPrice = Math.min(...pagePrices);
-										return `$${(minPrice * 1000).toFixed(2)}`;
-									})()}{" "}
-									per 1,000 OCR pages
-								</div>
-							)}
-						</div>
+							))}
+						</dl>
 
-						{/* Capabilities (using same icons as /models) */}
-						<div className="flex flex-wrap items-center gap-4 mb-6">
-							{(() => {
-								const items: Array<{
-									key: string;
-									icon: any;
-									label: string;
-									color: string;
-									href?: string;
-									title?: string;
-								}> = [];
-								const hasStreaming = visibleProviders.some((p) => p.streaming);
-								const hasVision = visibleProviders.some((p) => p.vision);
-								const hasTools = visibleProviders.some((p) => p.tools);
-								const hasReasoning = visibleProviders.some((p) => p.reasoning);
-								const hasReasoningMaxTokens = visibleProviders.some(
-									(p) => p.reasoningMaxTokens,
-								);
-								const hasJsonOutput = visibleProviders.some(
-									(p) => p.jsonOutput,
-								);
-								const hasJsonOutputSchema = visibleProviders.some(
-									(p) => p.jsonOutputSchema,
-								);
-								const hasWebSearch = visibleProviders.some((p) => p.webSearch);
-								const hasImageGen = Array.isArray(modelDef.output)
-									? modelDef.output.includes("image")
-									: false;
-								const hasVideoGen = Array.isArray(modelDef.output)
-									? modelDef.output.includes("video")
-									: false;
-								const hasEmbedding = Array.isArray(modelDef.output)
-									? modelDef.output.includes("embedding")
-									: false;
-								const hasRerank = Array.isArray(modelDef.output)
-									? modelDef.output.includes("rerank")
-									: false;
-								const hasSearch = Array.isArray(modelDef.output)
-									? modelDef.output.includes("search")
-									: false;
-								const hasAudio = Array.isArray(modelDef.output)
-									? modelDef.output.includes("audio")
-									: false;
-								const hasTranscription = Array.isArray(modelDef.output)
-									? modelDef.output.includes("transcription")
-									: false;
-								const hasDecision = Array.isArray(modelDef.output)
-									? modelDef.output.includes("decision")
-									: false;
-
-								if (hasStreaming) {
-									items.push({
-										key: "streaming",
-										icon: Zap,
-										label: "Streaming",
-										color: "text-blue-500",
-									});
-								}
-								if (hasVision) {
-									items.push({
-										key: "vision",
-										icon: Eye,
-										label: "Vision",
-										color: "text-green-500",
-									});
-								}
-								if (hasTools) {
-									items.push({
-										key: "tools",
-										icon: Wrench,
-										label: "Tools",
-										color: "text-purple-500",
-									});
-								}
-								if (hasReasoning) {
-									items.push({
-										key: "reasoning",
-										icon: MessageSquare,
-										label: "Reasoning",
-										color: "text-orange-500",
-									});
-								}
-								if (hasReasoningMaxTokens) {
-									items.push({
-										key: "reasoningMaxTokens",
-										icon: Sliders,
-										label: "Reasoning Budget",
-										color: "text-amber-500",
-									});
-								}
-								if (hasJsonOutput) {
-									items.push({
-										key: "jsonOutput",
-										icon: Braces,
-										label: "JSON Output",
-										color: "text-cyan-500",
-									});
-								}
-								if (hasJsonOutputSchema) {
-									items.push({
-										key: "jsonOutputSchema",
-										icon: FileJson2,
-										label: "Structured JSON",
-										color: "text-teal-500",
-									});
-								}
-								if (hasImageGen) {
-									items.push({
-										key: "image",
-										icon: ImagePlus,
-										label: "Image Generation",
-										color: "text-pink-500",
-									});
-								}
-								if (hasVideoGen) {
-									items.push({
-										key: "video",
-										icon: Video,
-										label: "Video Generation",
-										color: "text-violet-500",
-									});
-								}
-								if (hasAudio) {
-									items.push({
-										key: "audio",
-										icon: Volume2,
-										label: "Speech Generation",
-										color: "text-rose-500",
-									});
-								}
-								if (hasTranscription) {
-									items.push({
-										key: "transcription",
-										icon: Mic,
-										label: "Transcription",
-										color: "text-sky-500",
-									});
-								}
-								if (hasEmbedding) {
-									items.push({
-										key: "embedding",
-										icon: Boxes,
-										label: "Embeddings",
-										color: "text-indigo-500",
-									});
-								}
-								if (hasRerank) {
-									items.push({
-										key: "rerank",
-										icon: ListOrdered,
-										label: "Rerank",
-										color: "text-amber-500",
-									});
-								}
-								if (hasDecision) {
-									items.push({
-										key: "decision",
-										icon: SlidersHorizontal,
-										label: "Decisions",
-										color: "text-teal-500",
-									});
-								}
-								if (hasSearch) {
-									items.push({
-										key: "search",
-										icon: Search,
-										label: "Search API",
-										color: "text-sky-500",
-									});
-								}
-								if (hasWebSearch) {
-									items.push({
-										key: "webSearch",
-										icon: Globe,
-										label: "Web Search",
-										color: "text-sky-500",
-									});
-								}
-								const batchEndpoints = Array.from(
-									new Set(
-										visibleProviders.flatMap((p) =>
-											getBatchEndpoints(p, modelDef),
-										),
-									),
-								);
-								if (batchEndpoints.length > 0) {
-									items.push({
-										key: "batch",
-										icon: Layers,
-										label: "Batch API",
-										color: "text-fuchsia-500",
-										href: BATCH_DOCS_URL,
-										title: batchSupportDescription(batchEndpoints),
-									});
-								}
-
-								return items.map(
-									({ key, icon: Icon, label, color, href, title }) =>
-										href ? (
+						<ul className="mt-4 flex flex-wrap gap-2">
+							{capabilityItems.map(
+								({ key, icon: Icon, label, color, href, title }) => (
+									<li key={key}>
+										{href ? (
 											<a
-												key={key}
 												href={href}
 												target="_blank"
 												rel="noopener noreferrer"
 												title={title}
-												className="inline-flex items-center gap-2 text-sm text-foreground underline-offset-4 hover:underline"
+												className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
 											>
-												<Icon className={`h-4 w-4 ${color}`} />
-												<span className="text-muted-foreground">{label}</span>
+												<Icon className={`h-3.5 w-3.5 ${color}`} />
+												{label}
 											</a>
 										) : (
-											<div
-												key={key}
-												className="inline-flex items-center gap-2 text-sm text-foreground"
-											>
-												<Icon className={`h-4 w-4 ${color}`} />
-												<span className="text-muted-foreground">{label}</span>
-											</div>
-										),
-								);
-							})()}
-						</div>
+											<span className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs text-muted-foreground">
+												<Icon className={`h-3.5 w-3.5 ${color}`} />
+												{label}
+											</span>
+										)}
+									</li>
+								),
+							)}
+						</ul>
 
-						<ModelRating
-							modelId={canonicalName}
-							initialData={ratingsData ?? undefined}
-						/>
-					</div>
+						<div className="mt-4">
+							<ModelRating
+								modelId={canonicalName}
+								initialData={ratingsData ?? undefined}
+							/>
+						</div>
+					</header>
 
 					{currentModelDiscount && (
 						<div className="mb-6">
@@ -822,51 +749,47 @@ export default async function ModelPage({ params }: PageProps) {
 						</div>
 					)}
 
-					<div className="mb-8">
-						<h2 className="text-xl md:text-2xl font-semibold mb-4">
-							Select Provider
+					<nav
+						aria-label="On this page"
+						className="mb-8 flex gap-1 overflow-x-auto border-b"
+					>
+						{pageSections.map((section) => (
+							<a
+								key={section.href}
+								href={section.href}
+								className="-mb-px whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground"
+							>
+								{section.label}
+							</a>
+						))}
+					</nav>
+
+					<section id="providers" className="mb-12 scroll-mt-28">
+						<h2 className="text-xl font-semibold md:text-2xl">
+							Providers for {modelDef.name}
 						</h2>
-						<ProviderTabs
-							modelId={decodedName}
-							providerIds={visibleProviders.map((p) => p.providerId)}
-							activeProviderId=""
-							branding={buildProviderTabBranding(
-								visibleProviders.map((p) => p.providerId),
-								apiProviders,
-							)}
-						/>
-					</div>
+						<p className="mb-4 mt-1 max-w-3xl text-muted-foreground">
+							Compare price, limits and live performance side by side. LLM
+							Gateway routes each request to the best provider that can handle
+							your prompt size and parameters.
+						</p>
+						<ProviderComparisonTable model={adaptedModel} />
+					</section>
 
-					<div className="mb-8">
-						<div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-2">
-							<div>
-								<h2 className="text-xl md:text-2xl font-semibold mb-2">
-									All Providers for {modelDef.name}
-								</h2>
-								<p className="text-muted-foreground">
-									LLM Gateway routes requests to the best providers that are
-									able to handle your prompt size and parameters.
-								</p>
-							</div>
-						</div>
-
-						<DetailProviderCards model={adaptedModel} />
-					</div>
-
-					<div className="mb-8">
+					<section id="performance" className="mb-12 scroll-mt-28">
 						<ModelBenchmarks
 							modelId={canonicalName}
 							uploadedIcons={uploadedProviderIcons}
 						/>
-					</div>
+					</section>
 
-					<div className="mb-12">
+					<section id="faq" className="mb-12 scroll-mt-28">
 						<ModelFaqSection faqs={faqs} />
-					</div>
+					</section>
 
-					<div className="mb-8">
+					<section id="related" className="mb-8 scroll-mt-28">
 						<RelatedModels modelDef={modelDef} />
-					</div>
+					</section>
 				</div>
 			</div>
 			<Footer />
