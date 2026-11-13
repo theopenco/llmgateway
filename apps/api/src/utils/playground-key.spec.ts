@@ -311,6 +311,30 @@ describe("resolvePlaygroundToken", () => {
 		);
 	});
 
+	test("answers a foreign project exactly like a missing one", async () => {
+		const [foreignOrg] = await db
+			.insert(tables.organization)
+			.values({ name: "Foreign org", billingEmail: "foreign@example.com" })
+			.returning();
+		const [foreignProject] = await db
+			.insert(tables.project)
+			.values({ name: "Foreign project", organizationId: foreignOrg.id })
+			.returning();
+
+		const ensure = async (projectId: string) => {
+			const response = await app.request("/playground/ensure-key", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: authCookie },
+				body: JSON.stringify({ projectId }),
+			});
+			return { status: response.status, body: await response.text() };
+		};
+
+		const missing = await ensure("unknown-project-id");
+		expect(missing.status).toBe(404);
+		expect(await ensure(foreignProject.id)).toEqual(missing);
+	});
+
 	test("does not consume the developer-key quota", async () => {
 		for (let index = 0; index < 5; index++) {
 			await resolver.request("/");

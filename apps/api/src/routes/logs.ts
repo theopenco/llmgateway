@@ -1124,16 +1124,18 @@ logs.openapi(getById, async (c) => {
 	});
 	const [log] = await withNames(found);
 
+	// An inaccessible log answers exactly like a missing one, so the response
+	// never confirms that an id exists outside the caller's access.
+	const notFound = () => new HTTPException(404, { message: "Log not found" });
+
 	if (!log) {
-		throw new HTTPException(404, { message: "Log not found" });
+		throw notFound();
 	}
 
 	// Verify the user can access this log's project (RBAC-aware: developers are
 	// limited to their granted projects).
 	if (!(await userHasProjectAccess(user.id, log.projectId))) {
-		throw new HTTPException(403, {
-			message: "You don't have access to this log",
-		});
+		throw notFound();
 	}
 
 	// Within a granted project, a developer may still only read their own keys'
@@ -1143,9 +1145,7 @@ logs.openapi(getById, async (c) => {
 		scope.restrictedProjectIds.includes(log.projectId) &&
 		!scope.ownApiKeyIds.includes(log.apiKeyId)
 	) {
-		throw new HTTPException(403, {
-			message: "You don't have access to this log",
-		});
+		throw notFound();
 	}
 
 	return c.json({ log });
