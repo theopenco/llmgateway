@@ -55,7 +55,11 @@ import {
 } from "@llmgateway/db";
 import { managedKeySelectionsTotal } from "@llmgateway/instrumentation/metrics";
 import { logger } from "@llmgateway/logger";
-import { providers, getRegionScopedDefaultRegion } from "@llmgateway/models";
+import {
+	getEffectiveCredentialRegion,
+	getRegionScopedDefaultRegion,
+	providers,
+} from "@llmgateway/models";
 import {
 	CONTENT_FILTER_SETTING_ID,
 	isProviderBaseUrlOverrideAllowed,
@@ -1267,7 +1271,9 @@ export interface ManagedProviderAvailability {
 	 */
 	defaultRegionUsable: ReadonlySet<string>;
 	/**
-	 * Regions each provider has a region-pinned managed credential for. Variant-
+	 * Regions each provider has a region-pinned managed credential for, by
+	 * `getEffectiveCredentialRegion` (Alibaba's unpinned ones count as its
+	 * default region). Variant-
 	 * and model-agnostic, matching how `hasRegionSpecificEnvKey` reads the
 	 * environment: the region filter runs before either is known.
 	 */
@@ -1344,12 +1350,13 @@ export async function findManagedProviderAvailability(
 	const byProvider = new Map<string, typeof rows>();
 	for (const row of rows) {
 		configured.add(row.provider);
-		if (row.region) {
+		const rowRegion = getEffectiveCredentialRegion(row.provider, row.region);
+		if (rowRegion) {
 			const regions = pinnedRegions.get(row.provider);
 			if (regions) {
-				regions.add(row.region);
+				regions.add(rowRegion);
 			} else {
-				pinnedRegions.set(row.provider, new Set([row.region]));
+				pinnedRegions.set(row.provider, new Set([rowRegion]));
 			}
 		}
 		if (modelId && !providerKeyAllowsModel(row.allowedModels, modelId)) {
@@ -1378,14 +1385,14 @@ export async function findManagedProviderAvailability(
 				? variantMatches
 				: candidates.filter((key) => key.variant === "default");
 
-		if (byVariant.some((key) => !key.region)) {
+		const regions = byVariant.map((key) =>
+			getEffectiveCredentialRegion(provider, key.region),
+		);
+		if (regions.includes(null)) {
 			usable.add(provider);
 		}
 		const defaultRegion = getRegionScopedDefaultRegion(provider);
-		if (
-			defaultRegion &&
-			byVariant.some((key) => key.region === defaultRegion)
-		) {
+		if (defaultRegion && regions.includes(defaultRegion)) {
 			defaultRegionUsable.add(provider);
 		}
 	}
