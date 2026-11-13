@@ -1,0 +1,64 @@
+import { fetchServerData } from "@/lib/server-api";
+
+import {
+	models as modelDefinitions,
+	providers as providerDefinitions,
+} from "@llmgateway/models";
+
+import { WrappedClient, type WrappedData } from "./wrapped-client";
+
+const FIRST_WRAPPED_YEAR = 2025;
+
+function parseYear(value: string | string[] | undefined, currentYear: number) {
+	const year = Number(Array.isArray(value) ? value[0] : value);
+	return Number.isInteger(year) &&
+		year >= FIRST_WRAPPED_YEAR &&
+		year <= currentYear
+		? year
+		: currentYear;
+}
+
+export default async function WrappedPage({
+	params,
+	searchParams,
+}: {
+	params: Promise<{ orgId: string }>;
+	searchParams: Promise<{ year?: string | string[] }>;
+}) {
+	const { orgId } = await params;
+	const currentYear = new Date().getUTCFullYear();
+	const year = parseYear((await searchParams).year, currentYear);
+	const data = await fetchServerData<WrappedData>("GET", "/orgs/{id}/wrapped", {
+		params: { path: { id: orgId }, query: { year } },
+	});
+
+	// Only the names this page shows cross to the browser, not the catalogue.
+	const names: Record<string, string> = {};
+	for (const model of data?.topModels ?? []) {
+		const definition = modelDefinitions.find(
+			(candidate) => candidate.id === model.modelId,
+		);
+		names[model.modelId] = definition?.name ?? model.modelId;
+	}
+	for (const provider of data?.topProviders ?? []) {
+		const definition = providerDefinitions.find(
+			(candidate) => candidate.id === provider.providerId,
+		);
+		names[provider.providerId] = definition?.name ?? provider.providerId;
+	}
+
+	const years: number[] = [];
+	for (let other = currentYear; other >= FIRST_WRAPPED_YEAR; other--) {
+		years.push(other);
+	}
+
+	return (
+		<WrappedClient
+			data={data}
+			names={names}
+			year={year}
+			years={years}
+			isCurrentYear={year === currentYear}
+		/>
+	);
+}
