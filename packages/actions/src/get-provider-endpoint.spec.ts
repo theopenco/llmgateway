@@ -1541,19 +1541,33 @@ describe("getProviderEndpoint", () => {
 			);
 		});
 
-		it("builds the workspace-dedicated host for eu-frankfurt", () => {
-			expect(
-				callAlibaba("eu-frankfurt", { alibaba_workspace_id: "llm-abc123" }),
-			).toBe(
-				"https://llm-abc123.eu-central-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
-			);
-		});
+		it.each([
+			{ region: "eu-frankfurt", zone: "eu-central-1" },
+			{ region: "cn-hongkong", zone: "cn-hongkong" },
+			{ region: "ap-tokyo", zone: "ap-northeast-1" },
+		])(
+			"builds the workspace-dedicated host for $region",
+			({ region, zone }) => {
+				expect(
+					callAlibaba(region, { alibaba_workspace_id: "llm-abc123" }),
+				).toBe(
+					`https://llm-abc123.${zone}.maas.aliyuncs.com/compatible-mode/v1/chat/completions`,
+				);
+			},
+		);
 
-		it("falls back to the shared entry point without a workspace id", () => {
-			expect(callAlibaba("eu-frankfurt")).toBe(
-				"https://trial.eu-central-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
-			);
-		});
+		it.each([
+			{ region: "eu-frankfurt", zone: "eu-central-1" },
+			{ region: "cn-hongkong", zone: "cn-hongkong" },
+			{ region: "ap-tokyo", zone: "ap-northeast-1" },
+		])(
+			"falls back to the shared entry point for $region without a workspace id",
+			({ region, zone }) => {
+				expect(callAlibaba(region)).toBe(
+					`https://trial.${zone}.maas.aliyuncs.com/compatible-mode/v1/chat/completions`,
+				);
+			},
+		);
 
 		it("rejects a workspace id that is not a bare hostname label", () => {
 			expect(() =>

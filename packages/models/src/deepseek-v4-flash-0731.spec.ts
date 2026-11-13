@@ -87,7 +87,13 @@ describe("DeepSeek V4 Flash July snapshot migration", () => {
 			snapshot()
 				?.providers.find((mapping) => mapping.providerId === "alibaba")
 				?.regions?.map((region) => region.id),
-		).toEqual(["singapore", "eu-frankfurt", "us-virginia", "cn-beijing"]);
+		).toEqual([
+			"singapore",
+			"eu-frankfurt",
+			"us-virginia",
+			"cn-beijing",
+			"ap-tokyo",
+		]);
 		expect(
 			snapshot()?.providers.find((mapping) => mapping.providerId === "baidu")
 				?.maxOutput,

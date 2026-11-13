@@ -78,7 +78,7 @@ function getBedrockMantleBaseUrl(url: string, region?: string): string {
 
 /**
  * Fill the workspace placeholder of a workspace-scoped region endpoint
- * (Alibaba Frankfurt), falling back to the region's shared entry point when no
+ * (Alibaba Frankfurt, Hong Kong, Tokyo), falling back to the region's shared entry point when no
  * workspace id is configured. The workspace id becomes part of the hostname,
  * so it is validated against the character set Model Studio issues (`ws-…`)
  * rather than interpolated blindly.

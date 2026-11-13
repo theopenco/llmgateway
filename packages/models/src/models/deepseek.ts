@@ -380,18 +380,101 @@ export const deepseekModels = [
 			{
 				providerId: "alibaba",
 				externalId: "deepseek-v4-pro-0813",
-				inputPrice: "2.4e-6",
-				cachedInputPrice: "0.2e-6",
-				outputPrice: "4.8e-6",
+				// Busy hours are 08:00-22:00 UTC+8 (00:00-14:00 UTC) every day; cached
+				// tokens bill at 10% of input.
+				inputPrice: "1.32e-6",
+				outputPrice: "3.96e-6",
+				cachedInputPrice: "0.132e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "1.32e-6",
+						outputPrice: "3.96e-6",
+						cachedInputPrice: "0.132e-6",
+					},
+					offPeak: {
+						inputPrice: "0.66e-6",
+						outputPrice: "1.98e-6",
+						cachedInputPrice: "0.066e-6",
+					},
+					hoursUtc: [[0, 14]],
+				},
 				regions: [
 					{ id: "singapore" },
-					{ id: "eu-frankfurt" },
-					{ id: "us-virginia" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "1.272e-6",
+						outputPrice: "3.816e-6",
+						cachedInputPrice: "0.1272e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "1.272e-6",
+								outputPrice: "3.816e-6",
+								cachedInputPrice: "0.1272e-6",
+							},
+							offPeak: {
+								inputPrice: "0.636e-6",
+								outputPrice: "1.908e-6",
+								cachedInputPrice: "0.0636e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{
+						id: "us-virginia",
+						inputPrice: "1.272e-6",
+						outputPrice: "3.816e-6",
+						cachedInputPrice: "0.1272e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "1.272e-6",
+								outputPrice: "3.816e-6",
+								cachedInputPrice: "0.1272e-6",
+							},
+							offPeak: {
+								inputPrice: "0.636e-6",
+								outputPrice: "1.908e-6",
+								cachedInputPrice: "0.0636e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
 					{
 						id: "cn-beijing",
-						inputPrice: "1.65e-6",
-						cachedInputPrice: "0.138e-6",
-						outputPrice: "3.301e-6",
+						inputPrice: "1.272e-6",
+						outputPrice: "3.816e-6",
+						cachedInputPrice: "0.1272e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "1.272e-6",
+								outputPrice: "3.816e-6",
+								cachedInputPrice: "0.1272e-6",
+							},
+							offPeak: {
+								inputPrice: "0.636e-6",
+								outputPrice: "1.908e-6",
+								cachedInputPrice: "0.0636e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{
+						id: "ap-tokyo",
+						inputPrice: "1.272e-6",
+						outputPrice: "3.816e-6",
+						cachedInputPrice: "0.1272e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "1.272e-6",
+								outputPrice: "3.816e-6",
+								cachedInputPrice: "0.1272e-6",
+							},
+							offPeak: {
+								inputPrice: "0.636e-6",
+								outputPrice: "1.908e-6",
+								cachedInputPrice: "0.0636e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
 					},
 				],
 				requestPrice: "0",
@@ -743,19 +826,84 @@ export const deepseekModels = [
 				providerId: "alibaba",
 				externalId: "deepseek-v4-flash-0731",
 				deactivatedAt: new Date("2026-11-17"),
-				inputPrice: "0.2e-6",
-				cachedInputPrice: "0.04e-6",
-				outputPrice: "0.4e-6",
+				// Busy hours are 08:00-22:00 UTC+8 (00:00-14:00 UTC) every day; cached
+				// tokens bill at 10% of input.
+				inputPrice: "0.44e-6",
+				outputPrice: "1.32e-6",
+				cachedInputPrice: "0.044e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.44e-6",
+						outputPrice: "1.32e-6",
+						cachedInputPrice: "0.044e-6",
+					},
+					offPeak: {
+						inputPrice: "0.22e-6",
+						outputPrice: "0.66e-6",
+						cachedInputPrice: "0.022e-6",
+					},
+					hoursUtc: [[0, 14]],
+				},
 				regions: [
 					{ id: "singapore" },
-					{ id: "eu-frankfurt" },
-					{ id: "us-virginia" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "0.424e-6",
+						outputPrice: "1.272e-6",
+						cachedInputPrice: "0.0424e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.424e-6",
+								outputPrice: "1.272e-6",
+								cachedInputPrice: "0.0424e-6",
+							},
+							offPeak: {
+								inputPrice: "0.212e-6",
+								outputPrice: "0.636e-6",
+								cachedInputPrice: "0.0212e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{
+						id: "us-virginia",
+						inputPrice: "0.424e-6",
+						outputPrice: "1.272e-6",
+						cachedInputPrice: "0.0424e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.424e-6",
+								outputPrice: "1.272e-6",
+								cachedInputPrice: "0.0424e-6",
+							},
+							offPeak: {
+								inputPrice: "0.212e-6",
+								outputPrice: "0.636e-6",
+								cachedInputPrice: "0.0212e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
 					{
 						id: "cn-beijing",
-						inputPrice: "0.138e-6",
-						cachedInputPrice: "0.028e-6",
-						outputPrice: "0.275e-6",
+						inputPrice: "0.424e-6",
+						outputPrice: "1.272e-6",
+						cachedInputPrice: "0.0424e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.424e-6",
+								outputPrice: "1.272e-6",
+								cachedInputPrice: "0.0424e-6",
+							},
+							offPeak: {
+								inputPrice: "0.212e-6",
+								outputPrice: "0.636e-6",
+								cachedInputPrice: "0.0212e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
 					},
+					{ id: "ap-tokyo" },
 				],
 				requestPrice: "0",
 				contextSize: 1000000,
@@ -1119,19 +1267,84 @@ export const deepseekModels = [
 			{
 				providerId: "alibaba",
 				externalId: "deepseek-v4-flash-0731",
-				inputPrice: "0.2e-6",
-				cachedInputPrice: "0.04e-6",
-				outputPrice: "0.4e-6",
+				// Busy hours are 08:00-22:00 UTC+8 (00:00-14:00 UTC) every day; cached
+				// tokens bill at 10% of input.
+				inputPrice: "0.44e-6",
+				outputPrice: "1.32e-6",
+				cachedInputPrice: "0.044e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.44e-6",
+						outputPrice: "1.32e-6",
+						cachedInputPrice: "0.044e-6",
+					},
+					offPeak: {
+						inputPrice: "0.22e-6",
+						outputPrice: "0.66e-6",
+						cachedInputPrice: "0.022e-6",
+					},
+					hoursUtc: [[0, 14]],
+				},
 				regions: [
 					{ id: "singapore" },
-					{ id: "eu-frankfurt" },
-					{ id: "us-virginia" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "0.424e-6",
+						outputPrice: "1.272e-6",
+						cachedInputPrice: "0.0424e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.424e-6",
+								outputPrice: "1.272e-6",
+								cachedInputPrice: "0.0424e-6",
+							},
+							offPeak: {
+								inputPrice: "0.212e-6",
+								outputPrice: "0.636e-6",
+								cachedInputPrice: "0.0212e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{
+						id: "us-virginia",
+						inputPrice: "0.424e-6",
+						outputPrice: "1.272e-6",
+						cachedInputPrice: "0.0424e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.424e-6",
+								outputPrice: "1.272e-6",
+								cachedInputPrice: "0.0424e-6",
+							},
+							offPeak: {
+								inputPrice: "0.212e-6",
+								outputPrice: "0.636e-6",
+								cachedInputPrice: "0.0212e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
 					{
 						id: "cn-beijing",
-						inputPrice: "0.138e-6",
-						cachedInputPrice: "0.028e-6",
-						outputPrice: "0.275e-6",
+						inputPrice: "0.424e-6",
+						outputPrice: "1.272e-6",
+						cachedInputPrice: "0.0424e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.424e-6",
+								outputPrice: "1.272e-6",
+								cachedInputPrice: "0.0424e-6",
+							},
+							offPeak: {
+								inputPrice: "0.212e-6",
+								outputPrice: "0.636e-6",
+								cachedInputPrice: "0.0212e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
 					},
+					{ id: "ap-tokyo" },
 				],
 				requestPrice: "0",
 				contextSize: 1000000,
@@ -1484,17 +1697,17 @@ export const deepseekModels = [
 				externalId: "deepseek-v4.1-flash",
 				inputPrice: "0.3e-6",
 				outputPrice: "1.2e-6",
-				cachedInputPrice: "0.03e-6",
+				cachedInputPrice: "0.006e-6",
 				peakPricing: {
 					peak: {
 						inputPrice: "0.3e-6",
 						outputPrice: "1.2e-6",
-						cachedInputPrice: "0.03e-6",
+						cachedInputPrice: "0.006e-6",
 					},
 					offPeak: {
 						inputPrice: "0.15e-6",
 						outputPrice: "0.6e-6",
-						cachedInputPrice: "0.015e-6",
+						cachedInputPrice: "0.003e-6",
 					},
 					hoursUtc: [[0, 14]],
 				},
@@ -1504,17 +1717,17 @@ export const deepseekModels = [
 						id: "eu-frankfurt",
 						inputPrice: "0.283e-6",
 						outputPrice: "1.131e-6",
-						cachedInputPrice: "0.0283e-6",
+						cachedInputPrice: "0.006e-6",
 						peakPricing: {
 							peak: {
 								inputPrice: "0.283e-6",
 								outputPrice: "1.131e-6",
-								cachedInputPrice: "0.0283e-6",
+								cachedInputPrice: "0.006e-6",
 							},
 							offPeak: {
 								inputPrice: "0.141e-6",
 								outputPrice: "0.565e-6",
-								cachedInputPrice: "0.0141e-6",
+								cachedInputPrice: "0.003e-6",
 							},
 							hoursUtc: [[0, 14]],
 						},
@@ -1523,17 +1736,17 @@ export const deepseekModels = [
 						id: "us-virginia",
 						inputPrice: "0.283e-6",
 						outputPrice: "1.131e-6",
-						cachedInputPrice: "0.0283e-6",
+						cachedInputPrice: "0.006e-6",
 						peakPricing: {
 							peak: {
 								inputPrice: "0.283e-6",
 								outputPrice: "1.131e-6",
-								cachedInputPrice: "0.0283e-6",
+								cachedInputPrice: "0.006e-6",
 							},
 							offPeak: {
 								inputPrice: "0.141e-6",
 								outputPrice: "0.565e-6",
-								cachedInputPrice: "0.0141e-6",
+								cachedInputPrice: "0.003e-6",
 							},
 							hoursUtc: [[0, 14]],
 						},
@@ -1542,17 +1755,36 @@ export const deepseekModels = [
 						id: "cn-beijing",
 						inputPrice: "0.283e-6",
 						outputPrice: "1.131e-6",
-						cachedInputPrice: "0.0283e-6",
+						cachedInputPrice: "0.006e-6",
 						peakPricing: {
 							peak: {
 								inputPrice: "0.283e-6",
 								outputPrice: "1.131e-6",
-								cachedInputPrice: "0.0283e-6",
+								cachedInputPrice: "0.006e-6",
 							},
 							offPeak: {
 								inputPrice: "0.141e-6",
 								outputPrice: "0.565e-6",
-								cachedInputPrice: "0.0141e-6",
+								cachedInputPrice: "0.003e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{
+						id: "ap-tokyo",
+						inputPrice: "0.283e-6",
+						outputPrice: "1.131e-6",
+						cachedInputPrice: "0.006e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.283e-6",
+								outputPrice: "1.131e-6",
+								cachedInputPrice: "0.006e-6",
+							},
+							offPeak: {
+								inputPrice: "0.141e-6",
+								outputPrice: "0.565e-6",
+								cachedInputPrice: "0.003e-6",
 							},
 							hoursUtc: [[0, 14]],
 						},
@@ -1833,20 +2065,99 @@ export const deepseekModels = [
 				externalId: "deepseek-v4.1-flash-1017",
 				inputPrice: "0.3e-6",
 				outputPrice: "1.2e-6",
-				cachedInputPrice: "0.03e-6",
+				cachedInputPrice: "0.006e-6",
 				peakPricing: {
 					peak: {
 						inputPrice: "0.3e-6",
 						outputPrice: "1.2e-6",
-						cachedInputPrice: "0.03e-6",
+						cachedInputPrice: "0.006e-6",
 					},
 					offPeak: {
 						inputPrice: "0.15e-6",
 						outputPrice: "0.6e-6",
-						cachedInputPrice: "0.015e-6",
+						cachedInputPrice: "0.003e-6",
 					},
 					hoursUtc: [[0, 14]],
 				},
+				regions: [
+					{ id: "singapore" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "0.283e-6",
+						outputPrice: "1.131e-6",
+						cachedInputPrice: "0.006e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.283e-6",
+								outputPrice: "1.131e-6",
+								cachedInputPrice: "0.006e-6",
+							},
+							offPeak: {
+								inputPrice: "0.141e-6",
+								outputPrice: "0.565e-6",
+								cachedInputPrice: "0.003e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{
+						id: "us-virginia",
+						inputPrice: "0.283e-6",
+						outputPrice: "1.131e-6",
+						cachedInputPrice: "0.006e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.283e-6",
+								outputPrice: "1.131e-6",
+								cachedInputPrice: "0.006e-6",
+							},
+							offPeak: {
+								inputPrice: "0.141e-6",
+								outputPrice: "0.565e-6",
+								cachedInputPrice: "0.003e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{
+						id: "cn-beijing",
+						inputPrice: "0.283e-6",
+						outputPrice: "1.131e-6",
+						cachedInputPrice: "0.006e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.283e-6",
+								outputPrice: "1.131e-6",
+								cachedInputPrice: "0.006e-6",
+							},
+							offPeak: {
+								inputPrice: "0.141e-6",
+								outputPrice: "0.565e-6",
+								cachedInputPrice: "0.003e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{
+						id: "ap-tokyo",
+						inputPrice: "0.283e-6",
+						outputPrice: "1.131e-6",
+						cachedInputPrice: "0.006e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.283e-6",
+								outputPrice: "1.131e-6",
+								cachedInputPrice: "0.006e-6",
+							},
+							offPeak: {
+								inputPrice: "0.141e-6",
+								outputPrice: "0.565e-6",
+								cachedInputPrice: "0.003e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+				],
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 393216,

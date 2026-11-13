@@ -515,8 +515,8 @@ describe("managed provider credentials", () => {
 	 * provider's default region, so the credential pinned to that region is the
 	 * one that serves it. Falling through to "no managed credential" 500s every
 	 * region-less request the moment the last region-agnostic credential goes
-	 * away. Uses `qwen3.8-max`, whose mapping lists regions without per-region
-	 * pricing, so the request genuinely resolves no region — a model with
+	 * away. Uses `qwen3.8-flash`, whose Singapore and Frankfurt entries carry no
+	 * per-region pricing, so the request genuinely resolves no region — a model with
 	 * regional variants routes over those instead (see the cheapest-region test
 	 * below).
 	 */
@@ -538,7 +538,7 @@ describe("managed provider credentials", () => {
 		const captured = captureUpstream(chatCompletion);
 
 		// Bare model id: no provider prefix and no `:region` suffix.
-		const res = await completions("qwen3.8-max");
+		const res = await completions("qwen3.8-flash");
 		expect(res.status).toBe(200);
 
 		expect(captured).toHaveLength(1);

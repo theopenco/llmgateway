@@ -1,10 +1,11 @@
 /**
  * Placeholder inside a `regionConfig.endpointMap` entry for a region whose
  * host is not a fixed domain but is derived from a per-credential workspace
- * identifier. Alibaba's Frankfurt region is only reachable through the
- * workspace-dedicated `{WorkspaceId}.eu-central-1.maas.aliyuncs.com` host —
- * it has no shared DashScope domain — so the endpoint can only be completed
- * once the credential's workspace id is known.
+ * identifier. Alibaba's Frankfurt, Hong Kong and Tokyo regions are only
+ * reachable through a workspace-dedicated
+ * `{WorkspaceId}.<region>.maas.aliyuncs.com` host — they have no shared
+ * DashScope domain — so the endpoint can only be completed once the
+ * credential's workspace id is known.
  */
 export const REGION_WORKSPACE_ID_PLACEHOLDER = "{workspaceId}";
 
@@ -45,7 +46,7 @@ export interface ProviderRegionConfig {
 	endpointMap: Record<string, string>;
 	/**
 	 * Base URL to use for a workspace-scoped region when no workspace id is
-	 * configured. Alibaba's Frankfurt region has such a shared entry point, so
+	 * configured. Alibaba's workspace-scoped regions have such an entry point, so
 	 * the region stays usable from an API key alone; the workspace-dedicated
 	 * host remains the better path because the shared one is documented as
 	 * trial-only (1000 RPM, no SLA, "not recommended for production").
@@ -861,24 +862,30 @@ export const providers: ProviderDefinition[] = [
 				{ id: "eu-frankfurt", label: "EU (Frankfurt)" },
 				{ id: "us-virginia", label: "US (Virginia)" },
 				{ id: "cn-beijing", label: "China (Beijing)" },
+				{ id: "cn-hongkong", label: "China (Hong Kong)" },
+				{ id: "ap-tokyo", label: "Japan (Tokyo)" },
 			],
 			endpointMap: {
 				singapore: "https://dashscope-intl.aliyuncs.com",
-				// Frankfurt is the one Model Studio region with no shared DashScope
-				// domain: `dashscope-eu`/`dashscope-de` do not exist and aliasing
-				// another region's host would silently execute EU-designated traffic
-				// elsewhere. It is served only by the workspace-dedicated host, whose
-				// workspace id comes from the credential (see the placeholder docs).
+				// Frankfurt, Hong Kong and Tokyo have no shared DashScope domain, and
+				// aliasing another region's host would silently execute traffic
+				// elsewhere. They are served only by the workspace-dedicated host,
+				// whose workspace id comes from the credential (see the placeholder
+				// docs).
 				"eu-frankfurt": `https://${REGION_WORKSPACE_ID_PLACEHOLDER}.eu-central-1.maas.aliyuncs.com`,
 				"us-virginia": "https://dashscope-us.aliyuncs.com",
 				"cn-beijing": "https://dashscope.aliyuncs.com",
+				"cn-hongkong": `https://${REGION_WORKSPACE_ID_PLACEHOLDER}.cn-hongkong.maas.aliyuncs.com`,
+				"ap-tokyo": `https://${REGION_WORKSPACE_ID_PLACEHOLDER}.ap-northeast-1.maas.aliyuncs.com`,
 			},
 			endpointFallbackMap: {
-				// Resolves the workspace from the API key, so Frankfurt still works
-				// without one being configured. Alibaba caps it at 1000 RPM with no
-				// SLA and advises against production use, so a credential that
+				// Resolves the workspace from the API key, so these regions still
+				// work without one being configured. Alibaba caps it at 1000 RPM with
+				// no SLA and advises against production use, so a credential that
 				// supplies a workspace id gets the dedicated host instead.
 				"eu-frankfurt": "https://trial.eu-central-1.maas.aliyuncs.com",
+				"cn-hongkong": "https://trial.cn-hongkong.maas.aliyuncs.com",
+				"ap-tokyo": "https://trial.ap-northeast-1.maas.aliyuncs.com",
 			},
 		},
 		termsUrl:

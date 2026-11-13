@@ -140,7 +140,14 @@ export const providerKeySchema = z.object({
 			azure_ai_foundry_api_version: z.string().optional(),
 			azure_anthropic_resource: z.string().optional(),
 			alibaba_region: z
-				.enum(["singapore", "eu-frankfurt", "us-virginia", "cn-beijing"])
+				.enum([
+					"singapore",
+					"eu-frankfurt",
+					"us-virginia",
+					"cn-beijing",
+					"cn-hongkong",
+					"ap-tokyo",
+				])
 				.optional(),
 			alibaba_workspace_id: z.string().optional(),
 			aws_mantle_region: z
@@ -472,7 +479,14 @@ const createProviderKeySchema = z.object({
 			azure_ai_foundry_api_version: azurePathSegmentSchema.optional(),
 			azure_anthropic_resource: azureResourceSchema.optional(),
 			alibaba_region: z
-				.enum(["singapore", "eu-frankfurt", "us-virginia", "cn-beijing"])
+				.enum([
+					"singapore",
+					"eu-frankfurt",
+					"us-virginia",
+					"cn-beijing",
+					"cn-hongkong",
+					"ap-tokyo",
+				])
 				.optional(),
 			alibaba_workspace_id: z
 				.string()
