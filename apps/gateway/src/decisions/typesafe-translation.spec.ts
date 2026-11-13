@@ -269,38 +269,6 @@ describe("typesafe translation", () => {
 		]);
 	});
 
-	it("translates box questions and answers", () => {
-		const request: DecisionRequestBody = {
-			model: "jev-1.14.0",
-			input: imageInput(["data:image/png;base64,iVBORw0KGgo="]),
-			questions: [{ type: "box", name: "mug", instructions: "the mug" }],
-		};
-		const images = planTypeSafeImages(request.input);
-		expect(
-			toTypeSafeRequest("jev-1.14.0", request, images.refs).questions,
-		).toEqual({ mug: { type: "box", instructions: "the mug" } });
-
-		const edges = { top: 0.25, bottom: 0.82, left: 0.44, right: 0.84 };
-		expect(
-			fromTypeSafeResponse(
-				{
-					answers: {
-						mug: { type: "box", box: { ...edges, extra: 1 }, confidence: 0.92 },
-					},
-				},
-				request,
-				"typesafe/jev-1.14.0",
-			).answers,
-		).toEqual([{ type: "box", name: "mug", box: edges, confidence: 0.92 }]);
-		expect(
-			fromTypeSafeResponse(
-				{ answers: { mug: { type: "box", box: { top: 0.1 } } } },
-				request,
-				"typesafe/jev-1.14.0",
-			).answers,
-		).toEqual([{ type: "refusal", name: "mug" }]);
-	});
-
 	it("reports a missing upstream answer as a refusal", () => {
 		const response = fromTypeSafeResponse(
 			{ answers: {} },

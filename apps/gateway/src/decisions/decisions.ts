@@ -93,25 +93,15 @@ const scoreQuestionSchema = z.object({
 		.openapi({ description: "Ordered levels, lowest first." }),
 });
 
-const boxQuestionSchema = z.object({
-	type: z.literal("box"),
-	name: z.string().optional(),
-	instructions: z.string().openapi({
-		description: "What to find in the input image.",
-		example: "the coffee mug in the photo",
-	}),
-});
-
 const questionSchema = z
 	.discriminatedUnion("type", [
 		predicateQuestionSchema,
 		choiceQuestionSchema,
 		scoreQuestionSchema,
-		boxQuestionSchema,
 	])
 	.openapi({
 		description:
-			"A typed question: `predicate` (probability a condition is true), `choice` (one option from a set), `score` (rating across ordered levels) or `box` (where a target is in an image input; a gateway extension for models that support it, such as TypeSafe's jev-1.14.0).",
+			"A typed question: `predicate` (probability a condition is true), `choice` (one option from a set) or `score` (rating across ordered levels).",
 	});
 
 const decisionRequestSchema = z.object({
@@ -145,7 +135,7 @@ const probabilitySchema = z
 
 const decisionAnswerSchema = z
 	.object({
-		type: z.enum(["predicate", "choice", "score", "box", "refusal"]),
+		type: z.enum(["predicate", "choice", "score", "refusal"]),
 		name: z.string().nullable().optional(),
 		probability: z.number().optional().openapi({
 			description:
@@ -158,18 +148,6 @@ const decisionAnswerSchema = z
 			description:
 				"Probability-weighted average of the level indices, on a score answer.",
 		}),
-		box: z
-			.object({
-				top: z.number(),
-				bottom: z.number(),
-				left: z.number(),
-				right: z.number(),
-			})
-			.optional()
-			.openapi({
-				description:
-					"Edges of the target as fractions of the image's height (`top`, `bottom`) and width (`left`, `right`), measured from the top-left corner, on a box answer.",
-			}),
 		probabilities: z.array(probabilitySchema).optional(),
 		confidence: z.number().optional(),
 	})
@@ -326,7 +304,6 @@ decisions.openapi(createDecision, async (c): Promise<any> => {
 	}
 
 	const request: DecisionRequestBody = validationResult.data;
-	const hasBox = request.questions.some((question) => question.type === "box");
 
 	return await handleDecisionRequest(c, {
 		apiOrigin: "decisions",
@@ -336,7 +313,6 @@ decisions.openapi(createDecision, async (c): Promise<any> => {
 		rawBody,
 		requestedModel: request.model,
 		hasImageInput: decisionInputHasImages(request.input),
-		hasBoxQuestion: hasBox,
 		logSummary: `input: ${summarizeInput(request.input)}\nquestions: ${request.questions
 			.map(
 				(question, index) =>
@@ -377,7 +353,6 @@ decisions.openapi(createDecision, async (c): Promise<any> => {
 					providerId === "typesafe"
 						? typeSafeRequestHeaders(body, {
 								images: images.urls.length > 0,
-								box: hasBox,
 							})
 						: undefined,
 				...(images.urls.length > 0

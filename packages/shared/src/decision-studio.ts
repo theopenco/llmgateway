@@ -36,20 +36,12 @@ export interface DecisionProbability {
 	probability: number;
 }
 
-export interface DecisionBox {
-	top: number;
-	bottom: number;
-	left: number;
-	right: number;
-}
-
 export interface DecisionAnswer {
-	type: "predicate" | "choice" | "score" | "box" | "refusal";
+	type: "predicate" | "choice" | "score" | "refusal";
 	name?: string | null;
 	probability?: number;
 	choice?: string | boolean;
 	score?: number;
-	box?: DecisionBox;
 	probabilities?: DecisionProbability[];
 	confidence?: number;
 }
@@ -568,10 +560,6 @@ export function decisionAnswerHeadline(
 			}
 			return answer.score === undefined ? "No answer" : answer.score.toFixed(2);
 		}
-		case "box":
-			return answer.box
-				? `x ${formatProbability(answer.box.left)}–${formatProbability(answer.box.right)}, y ${formatProbability(answer.box.top)}–${formatProbability(answer.box.bottom)}`
-				: "No answer";
 		case "refusal":
 			return "Refused";
 	}

@@ -261,59 +261,15 @@ describe("e2e decisions", getConcurrentTestOptions(), () => {
 	);
 
 	test.each(boxModels)(
-		"decisions box $model",
-		getTestOptions(),
-		async ({ model }) => {
-			const requestId = generateTestRequestId();
-			const res = await app.request("/v1/decisions", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"x-request-id": requestId,
-					"x-no-fallback": "true",
-					Authorization: `Bearer real-token`,
-				},
-				body: JSON.stringify({
-					model,
-					input: [
-						{
-							role: "user",
-							content: [{ type: "input_image", image_url: BOX_PNG_DATA_URL }],
-						},
-					],
-					questions: [
-						{
-							type: "box",
-							name: "rect",
-							instructions: "the red rectangle in the image",
-						},
-					],
-				}),
-			});
-
-			const json = await res.json();
-			if (logMode) {
-				console.log("decisions box response:", JSON.stringify(json, null, 2));
-			}
-			expect(res.status, JSON.stringify(json)).toBe(200);
-			expect(json.answers[0]).toMatchObject({ type: "box", name: "rect" });
-			expectRedRectBox(json.answers[0].box);
-			expect(json.answers[0].confidence).toBeGreaterThanOrEqual(0);
-
-			const log = await validateLogByRequestId(requestId);
-			expect(log.apiOrigin).toBe("decisions");
-			expect(Number(log.cost)).toBeGreaterThan(0);
-		},
-	);
-
-	test.each(boxModels)(
 		"systemone box $model",
 		getTestOptions(),
 		async ({ model }) => {
+			const requestId = generateTestRequestId();
 			const res = await app.request("/v1/systemone", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
+					"x-request-id": requestId,
 					"x-no-fallback": "true",
 					Authorization: `Bearer real-token`,
 				},
@@ -329,9 +285,15 @@ describe("e2e decisions", getConcurrentTestOptions(), () => {
 			});
 
 			const json = await res.json();
+			if (logMode) {
+				console.log("systemone box response:", JSON.stringify(json, null, 2));
+			}
 			expect(res.status, JSON.stringify(json)).toBe(200);
 			expect(json.answers.rect.type).toBe("box");
 			expectRedRectBox(json.answers.rect.box);
+
+			const log = await validateLogByRequestId(requestId);
+			expect(Number(log.cost)).toBeGreaterThan(0);
 		},
 	);
 });

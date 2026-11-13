@@ -8,8 +8,7 @@ import { HTTPException } from "hono/http-exception";
  *
  * OpenAI takes an ordered array of named questions and answers in the same
  * order; TypeSafe keys questions by id and answers in a record. Question types
- * map predicate → noul, choice → choice, score → score, box → box. `box` is
- * TypeSafe's, not OpenAI's.
+ * map predicate → noul, choice → choice, score → score.
  */
 
 export type DecisionInputPart =
@@ -43,8 +42,7 @@ export type DecisionQuestion =
 			name?: string;
 			instructions: string;
 			levels: { label: string; description?: string }[];
-	  }
-	| { type: "box"; name?: string; instructions: string };
+	  };
 
 export interface DecisionRequestBody {
 	model: string;
@@ -451,8 +449,6 @@ function toTypeSafeQuestion(question: DecisionQuestion) {
 						: level.label,
 				),
 			};
-		case "box":
-			return { type: "box", instructions: question.instructions };
 	}
 }
 
@@ -547,22 +543,6 @@ function toDecisionAnswer(
 				})),
 				confidence: answer.confidence,
 			};
-		case "box": {
-			const box = asRecord(answer.box);
-			const edges = ["top", "bottom", "left", "right"] as const;
-			if (
-				answer.type !== "box" ||
-				!edges.every((edge) => typeof box[edge] === "number")
-			) {
-				break;
-			}
-			return {
-				type: "box",
-				name,
-				box: Object.fromEntries(edges.map((edge) => [edge, box[edge]])),
-				confidence: answer.confidence,
-			};
-		}
 	}
 	// TypeSafe has no refusal type; a missing or malformed answer is surfaced
 	// the way OpenAI reports a question it declined.
