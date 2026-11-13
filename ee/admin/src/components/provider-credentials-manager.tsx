@@ -104,6 +104,7 @@ import {
 	PROVIDER_MODEL_KINDS,
 } from "@llmgateway/shared";
 import {
+	formatProviderKeyModelRateLimits,
 	formatProviderKeyRateLimits,
 	MultiModelIdSelector,
 	parseProviderKeyRateLimitInputs,
@@ -529,6 +530,17 @@ function ManagedCredentialCells({
 						{formatProviderKeyRateLimits(credential)}
 					</div>
 				) : null}
+				{formatProviderKeyModelRateLimits(credential.modelRateLimits)
+					?.split("; ")
+					.map((line) => (
+						<div
+							key={line}
+							className="whitespace-normal text-xs tabular-nums"
+							title="Per-model rate limit. While at a model's cap the credential is skipped for that model."
+						>
+							{line}
+						</div>
+					))}
 			</TableCell>
 			<TableCell className="text-sm">
 				{VARIANT_LABELS[credential.variant as Variant] ?? credential.variant}
@@ -1985,6 +1997,11 @@ function CredentialDialog({
 		const selected = new Set(allowedModels);
 		return availableModels.every((modelId) => selected.has(modelId));
 	}, [allowedModels, availableModels]);
+	const rateLimitModelOptions = useMemo(
+		() =>
+			availableModels.map((modelId) => ({ value: modelId, label: modelId })),
+		[availableModels],
+	);
 	const exactAvailableModelSelection =
 		allAvailableModelsSelected &&
 		allowedModels.length === availableModels.length;
@@ -2129,6 +2146,10 @@ function CredentialDialog({
 								// would be rejected by the server.
 								setRegion("");
 								setAllowedModels([]);
+								setRateLimits((current) => ({
+									...current,
+									modelRateLimits: [],
+								}));
 								clearProbeResults();
 							}}
 							options={providerOptions}
@@ -2616,6 +2637,7 @@ function CredentialDialog({
 						idPrefix="credential-rate-limits"
 						values={rateLimits}
 						onChange={setRateLimits}
+						models={rateLimitModelOptions}
 					/>
 
 					<div className="flex items-start gap-2">

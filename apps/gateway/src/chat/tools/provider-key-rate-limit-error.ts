@@ -23,6 +23,8 @@ export async function assertProviderKeysNotRateLimited(
 		filter?: (key: InferSelectModel<typeof tables.providerKey>) => boolean;
 		excludedKeyIds?: ReadonlySet<string>;
 		rateLimitExemption?: ProviderKeyRateLimitExemption;
+		/** Canonical model id served; the keys' caps for it count too. */
+		model?: string;
 	} = {},
 ): Promise<void> {
 	const listed =
@@ -44,6 +46,7 @@ export async function assertProviderKeysNotRateLimited(
 	const limited = await getRateLimitedProviderKeys(
 		candidates,
 		options.rateLimitExemption,
+		options.model,
 	);
 	if (candidates.length > 0 && limited.size === candidates.length) {
 		throw new ProviderKeyRateLimitError(

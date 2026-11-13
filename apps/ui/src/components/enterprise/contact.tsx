@@ -30,15 +30,12 @@ import { countries } from "@/lib/countries";
 import { useApi } from "@/lib/fetch-client";
 import { usePostHog } from "@/lib/posthog";
 
-import { MARKETING_STATS } from "@llmgateway/shared";
+import { ENTERPRISE_BOOKING_URL, MARKETING_STATS } from "@llmgateway/shared";
 
 import { CalendlyInline } from "./calendly-inline";
 import { AirsideRedirect, ContactAudiencePicker } from "./contact-audience";
 
 import type { ContactAudience } from "./contact-audience";
-
-const CALENDLY_ENTERPRISE_URL =
-	"https://calendly.com/llmgateway/llmgateway-enterprise";
 
 // Teams this small don't need enterprise; the form points them to the free plan.
 const NON_ENTERPRISE_SIZE = "1-5";
@@ -167,7 +164,7 @@ export function ContactFormEnterprise() {
 
 								<div className="mt-8">
 									<CalendlyInline
-										url={CALENDLY_ENTERPRISE_URL}
+										url={ENTERPRISE_BOOKING_URL}
 										name={scheduled.name}
 										email={scheduled.email}
 									/>

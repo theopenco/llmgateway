@@ -12,6 +12,8 @@ import {
 	validateAllowedModels,
 } from "@/lib/provider-key-allowed-models.js";
 import {
+	modelRateLimitModelIds,
+	normalizeModelRateLimits,
 	pickProviderKeyRateLimits,
 	providerKeyRateLimitChanges,
 	providerKeyRateLimitsInputShape,
@@ -74,7 +76,11 @@ import {
 } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
-import type { ProviderKeyComplianceAttestation } from "@llmgateway/db";
+import type {
+	ProviderKeyComplianceAttestation,
+	ProviderKeyModelRateLimits,
+	ProviderKeyOptions,
+} from "@llmgateway/db";
 import type { ProviderId } from "@llmgateway/models";
 
 export const keysProvider = new OpenAPIHono<ServerTypes>();
@@ -230,6 +236,28 @@ export function toPublicProviderKey(row: ProviderKeyRow) {
 		allowedModels: row.allowedModels,
 		...pickProviderKeyRateLimits(row),
 	};
+}
+
+/**
+ * Per-model caps need canonical model ids the provider serves, so custom
+ * provider keys (whose models are org-defined) cannot carry them.
+ */
+async function validateModelRateLimits(
+	provider: string,
+	limits: ProviderKeyModelRateLimits | null,
+	options: ProviderKeyOptions | undefined,
+	stored?: ProviderKeyModelRateLimits | null,
+): Promise<void> {
+	const modelIds = modelRateLimitModelIds(limits, stored);
+	if (!modelIds) {
+		return;
+	}
+	if (provider === "custom") {
+		throw new HTTPException(400, {
+			message: "modelRateLimits cannot be set on custom provider keys.",
+		});
+	}
+	await validateAllowedModels(provider, modelIds, options);
 }
 
 /**
@@ -695,6 +723,11 @@ keysProvider.openapi(create, async (c) => {
 		assertAllowedModelsSupported(provider);
 		await validateAllowedModels(provider, allowedModels, options);
 	}
+	await validateModelRateLimits(
+		provider,
+		normalizeModelRateLimits(rateLimitInput.modelRateLimits),
+		options,
+	);
 
 	// A restricted key is probed with one of its own allowed models instead of
 	// the provider's default validation model: users restrict a key precisely
@@ -850,6 +883,9 @@ keysProvider.openapi(create, async (c) => {
 			provider,
 			hasCustomBaseUrl: !!baseUrl,
 			allowedModels,
+			...(providerKey.modelRateLimits && {
+				modelRateLimits: providerKey.modelRateLimits,
+			}),
 			...(providerKey.forwardCacheControl && { forwardCacheControl: true }),
 		},
 	});
@@ -1246,6 +1282,15 @@ keysProvider.openapi(updateStatus, async (c) => {
 		);
 	}
 
+	if (rateLimitUpdates.modelRateLimits !== undefined) {
+		await validateModelRateLimits(
+			providerKey.provider,
+			rateLimitUpdates.modelRateLimits,
+			providerKey.options ?? undefined,
+			providerKey.modelRateLimits,
+		);
+	}
+
 	if (complianceAttestation !== undefined) {
 		if (providerKey.provider !== "custom") {
 			throw new HTTPException(400, {
@@ -1286,6 +1331,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 		maxTpm?: number | null;
 		maxTpd?: number | null;
 		rateLimitMode?: "strict" | "soft" | "lax";
+		modelRateLimits?: ProviderKeyModelRateLimits | null;
 	} = { ...rateLimitUpdates };
 	if (status !== undefined) {
 		updates.status = status;

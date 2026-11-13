@@ -1263,13 +1263,14 @@ export const crmActivity = snakeCase.table(
 	],
 );
 
+// "calendly" rows are legacy: nothing reads them, they can only be disconnected.
 export const CRM_INTEGRATION_PROVIDERS = ["gmail", "calendly"] as const;
 export type CrmIntegrationProvider = (typeof CRM_INTEGRATION_PROVIDERS)[number];
 
-// A mailbox or Calendly user connected to the CRM by an admin. Credentials
-// are sealed with the connector cipher; `shared` lets other admins send mail
-// or offer booking links from it (contact@ is shared, personal inboxes are
-// not). Threads with CRM contacts are readable from every connection.
+// A mailbox connected to the CRM by an admin. Credentials are sealed with the
+// connector cipher; `shared` lets other admins send mail from it (contact@ is
+// shared, personal inboxes are not). Threads and meetings with CRM contacts
+// are readable from every connection.
 export const crmIntegration = snakeCase.table(
 	"crm_integration",
 	{
@@ -1283,10 +1284,10 @@ export const crmIntegration = snakeCase.table(
 		userId: text()
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
-		// Mailbox address or Calendly account email.
+		// Mailbox address (or the legacy Calendly account email).
 		accountEmail: text().notNull(),
 		displayName: text(),
-		// Calendly user URI; Gmail leaves it null.
+		// Legacy Calendly user URI; Gmail leaves it null.
 		externalId: text(),
 		credentials: text().notNull(),
 		shared: boolean().notNull().default(false),
@@ -2150,6 +2151,20 @@ export const masterKey = snakeCase.table(
 	],
 );
 
+/** One model's caps on a provider key; a NULL or missing window is uncapped. */
+export interface ProviderKeyModelRateLimit {
+	maxRpm?: number | null;
+	maxRpd?: number | null;
+	maxTpm?: number | null;
+	maxTpd?: number | null;
+}
+
+/** Per-model provider key caps, keyed by canonical model id. */
+export type ProviderKeyModelRateLimits = Record<
+	string,
+	ProviderKeyModelRateLimit
+>;
+
 export interface ProviderKeyOptions {
 	aws_bedrock_region_prefix?: "us." | "global." | "eu." | "apac.";
 	aws_bedrock_region?:
@@ -2327,6 +2342,11 @@ export const providerKey = snakeCase.table(
 		rateLimitMode: text({ enum: ["strict", "soft", "lax"] })
 			.notNull()
 			.default("strict"),
+		// Per-model caps on top of the key-wide ones above, keyed by canonical
+		// model id (as in `allowedModels`), for accounts whose upstream quota is
+		// per deployment or model. The key drops out of rotation for that model
+		// only. Same `rateLimitMode`. NULL = none.
+		modelRateLimits: jsonb().$type<ProviderKeyModelRateLimits>(),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.
