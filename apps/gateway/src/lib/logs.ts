@@ -403,7 +403,13 @@ async function recordRateLimitUsage(logData: LogInsertData): Promise<void> {
 		try {
 			const keyLimits = await findProviderKeyRateLimits(logData.providerKeyId);
 			if (keyLimits) {
-				await recordProviderKeyUsage(keyLimits, tokens);
+				await recordProviderKeyUsage(
+					keyLimits,
+					tokens,
+					logData.usedModel
+						? rootModelIdFromUsedModel(logData.usedModel)
+						: undefined,
+				);
 			}
 		} catch (error) {
 			logger.error("Error loading provider key rate limits:", error as Error);

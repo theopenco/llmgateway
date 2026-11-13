@@ -26,6 +26,8 @@ import {
 	validateAllowedModels,
 } from "@/lib/provider-key-allowed-models.js";
 import {
+	modelRateLimitModelIds,
+	normalizeModelRateLimits,
 	pickProviderKeyRateLimits,
 	providerKeyRateLimitsInputShape,
 	providerKeyRateLimitsOutputShape,
@@ -2079,6 +2081,11 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 		allowedModels,
 		managedCredentialValidationOptions(body.provider, config, region),
 	);
+	await validateManagedAllowedModels(
+		body.provider,
+		modelRateLimitModelIds(normalizeModelRateLimits(body.modelRateLimits)),
+		managedCredentialValidationOptions(body.provider, config, region),
+	);
 
 	if (!body.skipValidation) {
 		await validateCredentialToken(
@@ -2291,6 +2298,18 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 				].filter((modelId) => !allowedModels.includes(modelId))
 			: [];
 		updates.modelSyncExcluded = excluded.length > 0 ? excluded : null;
+	}
+
+	if (updates.modelRateLimits !== undefined) {
+		await validateManagedAllowedModels(
+			existing.provider,
+			modelRateLimitModelIds(updates.modelRateLimits, existing.modelRateLimits),
+			managedCredentialValidationOptions(
+				existing.provider,
+				updates.config ?? existing.config ?? {},
+				region,
+			),
+		);
 	}
 
 	// A new token, a changed config and a changed region all alter what the

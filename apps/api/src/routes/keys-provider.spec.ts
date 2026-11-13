@@ -1103,6 +1103,77 @@ describe("provider keys route", () => {
 			const res = await patchKey({ maxRpm: 0 });
 			expect(res.status).toBe(400);
 		});
+
+		describe("per model", () => {
+			const [first, second] = getProviderModelIds("openai");
+
+			test("PATCH sets, normalizes and clears per-model caps", async () => {
+				const valid = await patchKey({
+					modelRateLimits: {
+						[second]: { maxRpm: 12, maxTpd: null },
+						[first]: { maxTpm: 5000 },
+						// A model with no cap left is dropped before validation.
+						"not-an-openai-model": { maxRpm: null },
+					},
+				});
+				expect(valid.status).toBe(200);
+				const json = await valid.json();
+				expect(json.providerKey.modelRateLimits).toEqual({
+					[first]: { maxTpm: 5000 },
+					[second]: { maxRpm: 12 },
+				});
+				// Key-wide caps are untouched.
+				expect(json.providerKey.maxRpm).toBeNull();
+
+				const emptied = await patchKey({
+					modelRateLimits: { [first]: { maxRpm: null } },
+				});
+				expect((await emptied.json()).providerKey.modelRateLimits).toBeNull();
+
+				await patchKey({ modelRateLimits: { [first]: { maxRpm: 1 } } });
+				const cleared = await patchKey({ modelRateLimits: null });
+				expect(cleared.status).toBe(200);
+				expect((await cleared.json()).providerKey.modelRateLimits).toBeNull();
+			});
+
+			test("PATCH rejects models the provider does not serve and invalid caps", async () => {
+				const unknown = await patchKey({
+					modelRateLimits: { "not-an-openai-model": { maxRpm: 1 } },
+				});
+				expect(unknown.status).toBe(400);
+				expect(await unknown.text()).toContain("not-an-openai-model");
+
+				expect(
+					(await patchKey({ modelRateLimits: { [first]: { maxRpm: 0 } } }))
+						.status,
+				).toBe(400);
+				expect(
+					(await patchKey({ modelRateLimits: { [first]: { maxRpx: 1 } } }))
+						.status,
+				).toBe(400);
+			});
+
+			test("PATCH audits per-model cap changes", async () => {
+				const res = await patchKey({
+					modelRateLimits: { [first]: { maxRpm: 12 } },
+				});
+				expect(res.status).toBe(200);
+
+				const entry = await db.query.auditLog.findFirst({
+					where: {
+						resourceId: { eq: "test-provider-key-id" },
+						action: { eq: "provider_key.update" },
+					},
+				});
+				expect(
+					(
+						entry?.metadata as {
+							changes?: { modelRateLimits?: { old: unknown; new: unknown } };
+						}
+					)?.changes?.modelRateLimits,
+				).toEqual({ old: null, new: { [first]: { maxRpm: 12 } } });
+			});
+		});
 	});
 
 	describe("allowed models", () => {

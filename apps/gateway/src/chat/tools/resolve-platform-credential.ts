@@ -91,7 +91,7 @@ export interface ResolvePlatformCredentialOptions {
 	 * the upstream model id here — comparing that against the canonical ids in
 	 * `allowedModels` would silently never match, which is worse than not
 	 * filtering. Every chat-path caller passes it; a caller that omits it
-	 * bypasses the restriction.
+	 * bypasses the restriction and the credentials' per-model caps.
 	 */
 	model?: string;
 	variant: EnvVarVariant | undefined;
@@ -152,6 +152,7 @@ export async function resolvePlatformCredential(
 		excludedKeyIds: options.excludedProviderKeyIds,
 		filter,
 		rateLimitExemption: options.rateLimitExemption,
+		model: restrictedToModel,
 		advanceRoundRobin: options.advanceRoundRobin,
 	});
 
@@ -189,6 +190,7 @@ export async function resolvePlatformCredential(
 		const rateLimited = await getRateLimitedProviderKeys(
 			candidates,
 			options.rateLimitExemption,
+			restrictedToModel,
 		);
 		if (candidates.length > 0 && rateLimited.size === candidates.length) {
 			throw new ProviderKeyRateLimitError(
