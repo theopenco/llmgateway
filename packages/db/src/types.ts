@@ -191,6 +191,12 @@ export type LogInsertData = Omit<
 	id?: string;
 };
 
+/** A LOG_QUEUE message: the row plus queue metadata that is not a column. */
+export type QueuedLogData = LogInsertData & {
+	/** Epoch ms when the gateway published the row; absent on older publishers. */
+	enqueuedAt?: number;
+};
+
 type SerializedOrganizationBase = Omit<
 	Organization,
 	| "createdAt"
