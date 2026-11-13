@@ -1983,6 +1983,18 @@ mockOpenAIServer.post("/v1/text-to-speech/:voiceId", async (c) => {
 		c.status(500);
 		return c.json(sampleErrorResponse);
 	}
+	if (lastElevenLabsVoiceId === "NoAccessVoiceId00000") {
+		return c.json(
+			{
+				detail: {
+					status: "voice_access_denied",
+					code: "voice_access_denied",
+					message: "You do not have access to this voice.",
+				},
+			},
+			403,
+		);
+	}
 
 	const outputFormat = c.req.query("output_format") ?? "mp3_44100_128";
 	const contentType = outputFormat.startsWith("wav")

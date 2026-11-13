@@ -110,6 +110,19 @@ import type { Context } from "hono";
 
 const ELEVENLABS_VOICE_ID_PATTERN = /^[A-Za-z0-9]{20}$/;
 
+function isElevenLabsVoiceAccessDenied(body: unknown): boolean {
+	if (typeof body !== "object" || body === null || !("detail" in body)) {
+		return false;
+	}
+	const { detail } = body;
+	return (
+		typeof detail === "object" &&
+		detail !== null &&
+		"code" in detail &&
+		detail.code === "voice_access_denied"
+	);
+}
+
 const speechRequestSchema = z.object({
 	model: z.string().openapi({
 		description: "ID of the speech generation (text-to-speech) model to use.",
@@ -1495,7 +1508,13 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 					}
 				}
 				const status = upstreamResponse.status;
-				if (attempt.envVarName !== undefined) {
+				// A voice the key cannot use is a request error, not a bad key.
+				const reportsKeyHealth = !(
+					isElevenLabs &&
+					status === 403 &&
+					isElevenLabsVoiceAccessDenied(upstreamJson)
+				);
+				if (reportsKeyHealth && attempt.envVarName !== undefined) {
 					reportKeyError(
 						attempt.envVarName,
 						attempt.configIndex,
@@ -1506,7 +1525,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 				}
 				const trackedKeyHealthId =
 					attempt.providerKey?.id ?? attempt.managedKey?.id;
-				if (trackedKeyHealthId) {
+				if (reportsKeyHealth && trackedKeyHealthId) {
 					reportTrackedKeyError(
 						trackedKeyHealthId,
 						status,

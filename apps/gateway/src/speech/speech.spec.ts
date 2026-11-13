@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
+import { isTrackedKeyHealthy } from "@/lib/api-key-health.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import { getLastElevenLabsVoiceId } from "@/test-utils/mock-openai-server.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
@@ -529,6 +530,38 @@ describe("speech", () => {
 
 		expect(res.status).toBe(200);
 		expect(getLastElevenLabsVoiceId()).toBe("21m00Tcm4TlvDq8ikWAM");
+	});
+
+	test("/v1/audio/speech keeps the key healthy after an inaccessible voice", async () => {
+		await seedKeys(
+			"real-token-speech-eleven-denied",
+			"token-id-speech-eleven-denied",
+			"elevenlabs",
+		);
+		const speak = async (voice: string) =>
+			await app.request("/v1/audio/speech", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-speech-eleven-denied",
+				},
+				body: JSON.stringify({
+					model: "eleven-multilingual-v2",
+					input: "Hello",
+					voice,
+				}),
+			});
+
+		const denied = await speak("NoAccessVoiceId00000");
+		expect(denied.status).toBe(403);
+		expect(
+			isTrackedKeyHealthy(
+				"provider-key-elevenlabs-token-id-speech-eleven-denied",
+			),
+		).toBe(true);
+
+		const ok = await speak("Sarah");
+		expect(ok.status).toBe(200);
 	});
 
 	test("/v1/audio/speech rejects an unknown ElevenLabs voice name", async () => {
