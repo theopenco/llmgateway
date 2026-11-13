@@ -740,4 +740,13 @@ describe("preferDeclaredReasoningEffortProviders", () => {
 			preferDeclaredReasoningEffortProviders([undeclared, declared], {}),
 		).toEqual([undeclared, declared]);
 	});
+
+	it("keeps the provider a replay's reasoning is pinned to", () => {
+		expect(
+			preferDeclaredReasoningEffortProviders([undeclared, declared], {
+				reasoningEffort: "medium",
+				reasoningPinnedProvider: "undeclared",
+			}),
+		).toEqual([undeclared, declared]);
+	});
 });

@@ -36,6 +36,8 @@ export interface ProviderFilterOptions {
 	/** Drop mappings that would downgrade tool_choice instead of preferring them. */
 	strictToolChoice?: boolean;
 	reasoningEffort?: string;
+	/** Provider a replay's bound reasoning pins; never ranked out by effort. */
+	reasoningPinnedProvider?: string;
 	reasoningMaxTokens?: number;
 	reasoningMode?: ReasoningMode;
 	noReasoning?: boolean;
@@ -195,8 +197,10 @@ export function preferDeclaredReasoningEffortProviders(
 		return providers;
 	}
 
-	const declared = providers.filter((provider) =>
-		declaresReasoningEffort(provider, effort),
+	const declared = providers.filter(
+		(provider) =>
+			provider.providerId === options.reasoningPinnedProvider ||
+			declaresReasoningEffort(provider, effort),
 	);
 	if (declared.length === 0 || declared.length === providers.length) {
 		return providers;
