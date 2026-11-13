@@ -27,7 +27,9 @@ import {
 	findManagedProviderAvailability,
 	findManagedProviderKey,
 	findProviderKey,
+	findRateLimitedManagedKeyIds,
 	hasManagedProviderCredential,
+	withModelRateLimitedManagedKeyIds,
 } from "./cached-queries.js";
 
 const ORG_ID = "test-org-managed-keys";
@@ -857,5 +859,86 @@ describe("findManagedProviderKey - manual order", () => {
 		// Written through cdb, so the gateway picks up the new primary rather
 		// than serving the cached one until the TTL expires.
 		expect((await findManagedProviderKey("openai"))?.id).toBe("was-second");
+	});
+});
+
+describe("managed credential per-model rate limits", () => {
+	beforeEach(async () => {
+		resetKeyHealth();
+		await waitForSwrMirrorWrites();
+		await db.delete(providerKey);
+		await redisClient.flushdb();
+	});
+
+	afterEach(async () => {
+		await db.delete(providerKey);
+	});
+
+	async function fillModelWindow(id: string, model: string) {
+		await redisClient.zadd(
+			`rate_limit:provider_key_model:rpm:${id}:${model}`,
+			Date.now(),
+			"seed",
+		);
+	}
+
+	it("skips a credential at its cap for the model and keeps it for others", async () => {
+		await insertManaged({
+			id: "model-capped",
+			sortOrder: 0,
+			modelRateLimits: { "gpt-5.2": { maxRpm: 1 } },
+		});
+		await insertManaged({ id: "model-free", sortOrder: 1 });
+		await fillModelWindow("model-capped", "gpt-5.2");
+
+		expect(
+			(await findManagedProviderKey("openai", { model: "gpt-5.2" }))?.id,
+		).toBe("model-free");
+		expect(
+			(await findManagedProviderKey("openai", { model: "gpt-4o-mini" }))?.id,
+		).toBe("model-capped");
+	});
+
+	it("advertises the provider only for models a credential can still serve", async () => {
+		await insertManaged({
+			id: "only-key",
+			modelRateLimits: { "gpt-5.2": { maxRpm: 1 } },
+		});
+		await fillModelWindow("only-key", "gpt-5.2");
+
+		expect(
+			(await findManagedProviderAvailability(undefined, "gpt-5.2")).usable,
+		).not.toContain("openai");
+		expect(
+			(await findManagedProviderAvailability(undefined, "gpt-4o-mini")).usable,
+		).toContain("openai");
+
+		// The key-wide read shared across models adds each model's caps.
+		const keyWide = await findRateLimitedManagedKeyIds();
+		expect(keyWide.size).toBe(0);
+		expect(
+			await withModelRateLimitedManagedKeyIds(keyWide, "gpt-5.2"),
+		).toContain("only-key");
+		expect(
+			(await withModelRateLimitedManagedKeyIds(keyWide, "gpt-4o-mini")).size,
+		).toBe(0);
+	});
+
+	it("answers 429 when caps alone exhaust the credentials for the model", async () => {
+		await insertManaged({
+			id: "only-key",
+			modelRateLimits: { "gpt-5.2": { maxRpm: 1 } },
+		});
+		await fillModelWindow("only-key", "gpt-5.2");
+
+		await expect(
+			resolvePlatformCredential("openai", {
+				selectionScope: "gpt-5.2",
+				model: "gpt-5.2",
+				variant: undefined,
+				region: undefined,
+				requiresServiceTier: false,
+			}),
+		).rejects.toMatchObject({ status: 429 });
 	});
 });

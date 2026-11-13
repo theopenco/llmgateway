@@ -78,6 +78,10 @@ Each key can cap its own requests per minute or day (RPM/RPD) and prompt + compl
 
 Requests and tokens are counted once a request completes, so requests already in flight and the request that crosses a cap still finish. Leave a field empty for no limit.
 
+### Per-Model Limits
+
+Some upstream accounts have a separate quota per model or deployment, such as an image model with a lower request limit than the account's chat models. Under **Per-model limits**, pick a model and set its RPM, RPD, TPM, or TPD caps. While the key is at a model's cap, it is skipped for that model only and keeps serving every other model. Per-model caps apply in addition to the key's own caps and use the same limit mode. They are not available for custom provider keys.
+
 The **limit mode** decides which requests a capped key still serves, with the same meaning as [provider rate limits](/features/routing#global-provider-rate-limits):
 
 - **Strict** (default) — the key is skipped for every request.

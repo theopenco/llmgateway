@@ -76,6 +76,7 @@ interface Credential {
 	maxTpm: number | null;
 	maxTpd: number | null;
 	rateLimitMode: string;
+	modelRateLimits: Record<string, Record<string, number>> | null;
 }
 
 describe("admin provider credentials", () => {
@@ -508,6 +509,64 @@ describe("admin provider credentials", () => {
 			maxTpd: 1_000_000,
 			rateLimitMode: "lax",
 		});
+	});
+
+	test("stores, validates and clears per-model rate limits", async () => {
+		const [first, second] = catalogueModels
+			.filter((model) =>
+				model.providers.some(
+					(mapping) =>
+						mapping.providerId === "openai" &&
+						getPinnedValidationModel("openai", model.id) !== null,
+				),
+			)
+			.map((model) => model.id);
+
+		const unknown = await create({
+			provider: "openai",
+			token: "sk-model-limited",
+			modelRateLimits: { "not-an-openai-model": { maxRpm: 1 } },
+		});
+		expect(unknown.status).toBe(400);
+		expect(await unknown.text()).toContain("not-an-openai-model");
+
+		const res = await create({
+			provider: "openai",
+			token: "sk-model-limited",
+			modelRateLimits: { [first]: { maxRpm: 12 } },
+		});
+		expect(res.status).toBe(201);
+		const [credential] = await list();
+		expect(credential.modelRateLimits).toEqual({ [first]: { maxRpm: 12 } });
+		expect(credential.maxRpm).toBeNull();
+
+		const patch = async (body: Record<string, unknown>) =>
+			await app.request(`/admin/provider-credentials/${credential.id}`, {
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+
+		expect(
+			(await patch({ modelRateLimits: { [second]: { maxRpm: 0 } } })).status,
+		).toBe(400);
+		expect(
+			(
+				await patch({
+					modelRateLimits: { [first]: { maxRpm: 12 }, [second]: { maxTpd: 1 } },
+				})
+			).status,
+		).toBe(200);
+		expect((await list())[0].modelRateLimits).toEqual({
+			[first]: { maxRpm: 12 },
+			[second]: { maxTpd: 1 },
+		});
+
+		// Leaving the field out keeps it; null clears it.
+		expect((await patch({ maxRpm: 60 })).status).toBe(200);
+		expect((await list())[0].modelRateLimits).not.toBeNull();
+		expect((await patch({ modelRateLimits: null })).status).toBe(200);
+		expect((await list())[0].modelRateLimits).toBeNull();
 	});
 
 	test("refuses to reactivate a credential still at its spend limit", async () => {
