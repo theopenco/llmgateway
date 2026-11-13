@@ -151,19 +151,6 @@ async function seedGmail(
 	return row!;
 }
 
-async function seedLegacyCalendly(userId: string) {
-	await db.insert(tables.crmIntegration).values({
-		id: "calendly-luca",
-		provider: "calendly",
-		userId,
-		accountEmail: "luca@llmgateway.io",
-		displayName: "Luca",
-		externalId: "https://api.calendly.com/users/LUCA",
-		credentials: sealCredentials("calendly-luca", { token: "pat-fixture" }),
-		shared: true,
-	});
-}
-
 describe("CRM integrations", () => {
 	let cookie: string;
 
@@ -255,28 +242,12 @@ describe("CRM integrations", () => {
 	it("lists connections without credentials and reports Gmail availability", async () => {
 		const admin = (await adminUser())!;
 		await seedGmail(admin.id);
-		await seedLegacyCalendly(admin.id);
 		const res = await call(cookie, "/admin/crm/integrations");
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body.gmailAvailable).toBe(false);
-		expect(body.integrations).toHaveLength(2);
+		expect(body.integrations).toHaveLength(1);
 		expect(JSON.stringify(body)).not.toContain("fixture");
-		const calendly = body.integrations.find(
-			(i: { provider: string }) => i.provider === "calendly",
-		);
-		expect(calendly).toMatchObject({
-			mine: true,
-			calendar: false,
-			ownerEmail: "admin@example.com",
-		});
-		expect(
-			(
-				await call(cookie, "/admin/crm/integrations/calendly-luca", {
-					method: "DELETE",
-				})
-			).status,
-		).toBe(200);
 	});
 
 	it("starts the Gmail consent flow bound to the session and rejects a foreign state", async () => {
@@ -288,8 +259,19 @@ describe("CRM integrations", () => {
 				})
 			).status,
 		).toBe(503);
-		vi.stubEnv("LOUNGE_GOOGLE_CLIENT_ID", "fixture-client");
-		vi.stubEnv("LOUNGE_GOOGLE_CLIENT_SECRET", "fixture-secret");
+		// The Lounge client lacks the CRM callback, so it is never a fallback.
+		vi.stubEnv("LOUNGE_GOOGLE_CLIENT_ID", "fixture-lounge");
+		vi.stubEnv("LOUNGE_GOOGLE_CLIENT_SECRET", "fixture-lounge");
+		expect(
+			(
+				await call(cookie, "/admin/crm/integrations/gmail/connect", {
+					method: "POST",
+					body: {},
+				})
+			).status,
+		).toBe(503);
+		vi.stubEnv("CRM_GOOGLE_CLIENT_ID", "fixture-client");
+		vi.stubEnv("CRM_GOOGLE_CLIENT_SECRET", "fixture-secret");
 		const res = await call(cookie, "/admin/crm/integrations/gmail/connect", {
 			method: "POST",
 			body: { shared: true },
@@ -531,7 +513,7 @@ describe("CRM integrations", () => {
 					items: [
 						{
 							id: "ev-past",
-							iCalUID: "past@calendly",
+							iCalUID: "past@google.com",
 							summary: "Intro call",
 							start: { dateTime: pastStart },
 							end: { dateTime: pastEnd },
@@ -553,7 +535,7 @@ describe("CRM integrations", () => {
 				items: [
 					{
 						id: "ev-next",
-						iCalUID: "next@calendly",
+						iCalUID: "next@google.com",
 						summary: "Enterprise call",
 						start: { dateTime: nextStart },
 						end: { dateTime: nextEnd },
@@ -562,7 +544,7 @@ describe("CRM integrations", () => {
 					},
 					{
 						id: "ev-next_w2",
-						iCalUID: "next@calendly",
+						iCalUID: "next@google.com",
 						summary: "Enterprise call",
 						start: { dateTime: weekStart },
 						end: { dateTime: weekEnd },
@@ -579,15 +561,15 @@ describe("CRM integrations", () => {
 		const body = await res.json();
 		expect(body.calendars).toHaveLength(2);
 		expect(body.meetings).toEqual([
-			expect.objectContaining({ uid: `next@calendly|${weekStart}` }),
+			expect.objectContaining({ uid: `next@google.com|${weekStart}` }),
 			expect.objectContaining({
-				uid: `next@calendly|${nextStart}`,
+				uid: `next@google.com|${nextStart}`,
 				name: "Enterprise call",
 				joinUrl: "https://meet.google.com/abc",
 				contactEmails: ["jane@acme-corp.com"],
 			}),
 			expect.objectContaining({
-				uid: `past@calendly|${pastStart}`,
+				uid: `past@google.com|${pastStart}`,
 				name: "Intro call",
 			}),
 		]);
@@ -602,7 +584,7 @@ describe("CRM integrations", () => {
 			kind: "meeting",
 			subject: "Intro call",
 			contactEmail: "jane@acme-corp.com",
-			externalRef: `gcal:past@calendly|${pastStart}`,
+			externalRef: `gcal:past@google.com|${pastStart}`,
 		});
 		expect(activities[0]!.body).toContain("Jane Doe <jane@acme-corp.com>");
 		expect(activities[0]!.createdAt.toISOString()).toBe(pastStart);

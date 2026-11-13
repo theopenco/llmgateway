@@ -217,7 +217,6 @@ adminCrmIntegrations.openapi(gmailCallback, async (c) => {
 				userId,
 				accountEmail: email,
 				displayName: null,
-				externalId: null,
 				credentials: sealCredentials(id, credentials),
 				shared,
 			});

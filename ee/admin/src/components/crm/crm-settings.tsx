@@ -39,16 +39,10 @@ function useIntegrations() {
 	return { $api, query, refresh };
 }
 
-function ProviderIcon({ provider }: { provider: Integration["provider"] }) {
-	const Icon = provider === "gmail" ? Mail : CalendarDays;
+function MailIcon() {
 	return (
-		<span
-			className={cn(
-				"flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white",
-				provider === "gmail" ? "bg-rose-500" : "bg-sky-500",
-			)}
-		>
-			<Icon className="h-5 w-5" />
+		<span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-500 text-white">
+			<Mail className="h-5 w-5" />
 		</span>
 	);
 }
@@ -82,31 +76,24 @@ function ConnectionRow({
 	);
 	return (
 		<li className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card p-4 md:flex-row md:items-center">
-			<ProviderIcon provider={row.provider} />
+			<MailIcon />
 			<div className="min-w-0 flex-1">
 				<p className="flex flex-wrap items-center gap-2 text-sm font-semibold">
 					{row.displayName ? `${row.displayName} · ` : ""}
 					<span className="font-mono font-medium">{row.accountEmail}</span>
-					{row.provider === "calendly" ? (
-						<span className="rounded bg-muted px-1.5 py-px text-[10px] font-semibold uppercase text-muted-foreground">
-							Calendly · no longer used, disconnect
-						</span>
-					) : null}
-					{row.provider === "gmail" ? (
-						<span
-							className={cn(
-								"inline-flex items-center gap-1 rounded px-1.5 py-px text-[10px] font-semibold uppercase",
-								row.calendar
-									? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-									: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
-							)}
-						>
-							<CalendarDays className="h-3 w-3" />
-							{row.calendar
-								? "mail + calendar"
-								: "mail only · reconnect for calendar"}
-						</span>
-					) : null}
+					<span
+						className={cn(
+							"inline-flex items-center gap-1 rounded px-1.5 py-px text-[10px] font-semibold uppercase",
+							row.calendar
+								? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+								: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+						)}
+					>
+						<CalendarDays className="h-3 w-3" />
+						{row.calendar
+							? "mail + calendar"
+							: "mail only · reconnect for calendar"}
+					</span>
 				</p>
 				<p className="mt-0.5 text-xs text-muted-foreground">
 					Connected by {row.mine ? "you" : (row.ownerEmail ?? "a teammate")} on{" "}
@@ -162,7 +149,7 @@ function GmailConnect({ available }: { available: boolean }) {
 	return (
 		<section className="rounded-xl border border-border/70 bg-card p-4">
 			<div className="flex items-start gap-3">
-				<ProviderIcon provider="gmail" />
+				<MailIcon />
 				<div className="flex-1">
 					<h3 className="text-sm font-semibold">Connect a Gmail mailbox</h3>
 					<p className="mt-1 text-xs text-muted-foreground">
@@ -176,8 +163,8 @@ function GmailConnect({ available }: { available: boolean }) {
 					{!available ? (
 						<p className="mt-2 rounded-md bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300">
 							Set <code>CRM_GOOGLE_CLIENT_ID</code> /{" "}
-							<code>CRM_GOOGLE_CLIENT_SECRET</code> (or the Lounge Google
-							client) on the API and add the callback URL to the OAuth client.
+							<code>CRM_GOOGLE_CLIENT_SECRET</code> on the API and add the
+							callback URL to the OAuth client.
 						</p>
 					) : null}
 					<div className="mt-3 flex flex-wrap items-center gap-4">
