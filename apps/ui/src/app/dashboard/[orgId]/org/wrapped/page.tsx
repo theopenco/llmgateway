@@ -4,15 +4,14 @@ import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
 } from "@llmgateway/models";
+import { FIRST_USAGE_YEAR } from "@llmgateway/shared";
 
 import { WrappedClient, type WrappedData } from "./wrapped-client";
-
-const FIRST_WRAPPED_YEAR = 2025;
 
 function parseYear(value: string | string[] | undefined, currentYear: number) {
 	const year = Number(Array.isArray(value) ? value[0] : value);
 	return Number.isInteger(year) &&
-		year >= FIRST_WRAPPED_YEAR &&
+		year >= FIRST_USAGE_YEAR &&
 		year <= currentYear
 		? year
 		: currentYear;
@@ -48,7 +47,7 @@ export default async function WrappedPage({
 	}
 
 	const years: number[] = [];
-	for (let other = currentYear; other >= FIRST_WRAPPED_YEAR; other--) {
+	for (let other = currentYear; other >= FIRST_USAGE_YEAR; other--) {
 		years.push(other);
 	}
 

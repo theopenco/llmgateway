@@ -1,19 +1,16 @@
+import { FIRST_USAGE_YEAR } from "@llmgateway/shared";
+
 import type { paths } from "./api/v1";
 
 export type UsageReport =
 	paths["/public/models/report"]["get"]["responses"][200]["content"]["application/json"];
 
-export const FIRST_USAGE_REPORT_YEAR = 2025;
 export const USAGE_REPORT_PATH = "/state-of-llm-usage";
 
 /** Every year a report exists for, newest first. */
 export function usageReportYears(now: Date = new Date()): number[] {
 	const years: number[] = [];
-	for (
-		let year = now.getUTCFullYear();
-		year >= FIRST_USAGE_REPORT_YEAR;
-		year--
-	) {
+	for (let year = now.getUTCFullYear(); year >= FIRST_USAGE_YEAR; year--) {
 		years.push(year);
 	}
 	return years;

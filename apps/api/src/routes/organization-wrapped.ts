@@ -16,12 +16,12 @@ import {
 	projectHourlyStats,
 	sql,
 } from "@llmgateway/db";
+import { FIRST_USAGE_YEAR } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const organizationWrapped = new OpenAPIHono<ServerTypes>();
 
-export const FIRST_WRAPPED_YEAR = 2025;
 const TOP_MODELS = 5;
 const TOP_PROVIDERS = 3;
 const TOP_SOURCES = 3;
@@ -77,12 +77,7 @@ const getWrapped = createRoute({
 	request: {
 		params: z.object({ id: z.string() }),
 		query: z.object({
-			year: z.coerce
-				.number()
-				.int()
-				.min(FIRST_WRAPPED_YEAR)
-				.max(9999)
-				.optional(),
+			year: z.coerce.number().int().min(FIRST_USAGE_YEAR).max(9999).optional(),
 		}),
 	},
 	responses: {

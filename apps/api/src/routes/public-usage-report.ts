@@ -20,12 +20,11 @@ import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
 } from "@llmgateway/models";
+import { FIRST_USAGE_YEAR } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const publicUsageReport = new OpenAPIHono<ServerTypes>();
-
-export const FIRST_USAGE_REPORT_YEAR = 2025;
 
 // A year of hourly rows is aggregated, so one caller recomputes a year at most
 // every 6 hours and everyone else is served the cached report.
@@ -101,12 +100,7 @@ const reportRoute = createRoute({
 	path: "/",
 	request: {
 		query: z.object({
-			year: z.coerce
-				.number()
-				.int()
-				.min(FIRST_USAGE_REPORT_YEAR)
-				.max(9999)
-				.optional(),
+			year: z.coerce.number().int().min(FIRST_USAGE_YEAR).max(9999).optional(),
 		}),
 	},
 	responses: {
