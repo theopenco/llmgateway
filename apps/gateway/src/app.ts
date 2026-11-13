@@ -46,7 +46,8 @@ import {
 import { ExpectedHTTPException } from "./lib/expected-http-exception.js";
 import { withManagedKeySelection } from "./lib/managed-key-selection.js";
 import { ProviderKeyRateLimitError } from "./lib/provider-key-rate-limit.js";
-import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
+import { mcpHandler } from "./mcp/mcp.js";
+import { registerMcpOAuthRoutes } from "./mcp/oauth.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { orgRateLimitMiddleware } from "./middleware/org-rate-limit.js";
 import { rejectionLogMiddleware } from "./middleware/rejection-log.js";

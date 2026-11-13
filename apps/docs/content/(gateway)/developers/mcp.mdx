@@ -398,7 +398,7 @@ Use the tool for current model IDs, capabilities, and pricing, or browse the [li
 
 ## OAuth registration errors
 
-`POST /oauth/register` expects a JSON object. Malformed JSON, empty bodies, and invalid `client_name` or `api_key` types return HTTP `400` with `error: "invalid_request"` and `error_description: "Invalid request body"`.
+`POST /oauth/register` expects a JSON object. Malformed JSON, empty bodies, and invalid `client_name` or `api_key` types return HTTP `400` with `error: "invalid_request"` and `error_description: "Invalid request body"`. An unknown or inactive API key returns HTTP `401`.
 
 ## Verify with MCP Inspector
 
@@ -491,7 +491,12 @@ For applications that prefer OAuth authentication, LLM Gateway's MCP server impl
 - **Authorization Endpoint:** `/oauth/authorize`
 - **Token Endpoint:** `/oauth/token`
 - **Registration Endpoint:** `/oauth/register`
-- **Supported Flows:** Authorization Code, Client Credentials
+- **Revocation Endpoint:** `/oauth/revoke`
+- **Supported Flows:** Authorization Code with PKCE (`S256`, required), Refresh Token, Client Credentials
+
+Register with your API key (`api_key` in the body or `Authorization: Bearer`). The response holds a random `client_id` and `client_secret`; authenticate to the token endpoint with them (HTTP Basic or form fields). Access tokens are opaque, last one hour, and are used as `Authorization: Bearer` on `/mcp`. Refresh tokens rotate on every use.
+
+Registrations expire after 30 days. Delete one earlier with `DELETE /oauth/register/{client_id}` and the client credentials as HTTP Basic. Deactivating or deleting the API key revokes every token issued for it.
 
 ## Enabling Local Image Saving
 
