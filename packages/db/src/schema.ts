@@ -2151,6 +2151,20 @@ export const masterKey = snakeCase.table(
 	],
 );
 
+/** One model's caps on a provider key; a NULL or missing window is uncapped. */
+export interface ProviderKeyModelRateLimit {
+	maxRpm?: number | null;
+	maxRpd?: number | null;
+	maxTpm?: number | null;
+	maxTpd?: number | null;
+}
+
+/** Per-model provider key caps, keyed by canonical model id. */
+export type ProviderKeyModelRateLimits = Record<
+	string,
+	ProviderKeyModelRateLimit
+>;
+
 export interface ProviderKeyOptions {
 	aws_bedrock_region_prefix?: "us." | "global." | "eu." | "apac.";
 	aws_bedrock_region?:
@@ -2328,6 +2342,11 @@ export const providerKey = snakeCase.table(
 		rateLimitMode: text({ enum: ["strict", "soft", "lax"] })
 			.notNull()
 			.default("strict"),
+		// Per-model caps on top of the key-wide ones above, keyed by canonical
+		// model id (as in `allowedModels`), for accounts whose upstream quota is
+		// per deployment or model. The key drops out of rotation for that model
+		// only. Same `rateLimitMode`. NULL = none.
+		modelRateLimits: jsonb().$type<ProviderKeyModelRateLimits>(),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.

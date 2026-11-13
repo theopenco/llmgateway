@@ -85,9 +85,9 @@ export interface ResolvePlatformCredentialOptions {
 	/**
 	 * Canonical model id the credential will serve. Managed credentials
 	 * restricted via `allowedModels` are skipped when they exclude it, falling
-	 * through to the next credential or the env vars. Never pass the upstream
-	 * id: `allowedModels` holds canonical ids. A caller that omits it bypasses
-	 * the restriction.
+	 * through to the next credential or the env vars, and applies their
+	 * per-model caps. Never pass the upstream id: `allowedModels` holds
+	 * canonical ids. A caller that omits it bypasses both.
 	 */
 	model?: string;
 	variant: EnvVarVariant | undefined;
@@ -148,6 +148,7 @@ export async function resolvePlatformCredential(
 		excludedKeyIds: options.excludedProviderKeyIds,
 		filter,
 		rateLimitExemption: options.rateLimitExemption,
+		model: restrictedToModel,
 		advanceRoundRobin: options.advanceRoundRobin,
 	});
 
@@ -185,6 +186,7 @@ export async function resolvePlatformCredential(
 		const rateLimited = await getRateLimitedProviderKeys(
 			candidates,
 			options.rateLimitExemption,
+			restrictedToModel,
 		);
 		if (candidates.length > 0 && rateLimited.size === candidates.length) {
 			throw new ProviderKeyRateLimitError(

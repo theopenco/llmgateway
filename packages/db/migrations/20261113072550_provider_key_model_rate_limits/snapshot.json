@@ -1,0 +1,47 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "66ecc1b7-824c-4c56-9d3d-23ae7754a938",
+  "prevIds": [
+    "4e008f74-5fdf-432d-bf45-e6237b86d030"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_key",
+        "model_rate_limits"
+      ],
+      "writes": [
+        "s|col|public.provider_key.model_rate_limits",
+        "n|col|public.provider_key.model_rate_limits",
+        "e|col|public.provider_key.model_rate_limits"
+      ],
+      "reads": [
+        "n|tbl|public.provider_key",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key",
+        "name": "model_rate_limits",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

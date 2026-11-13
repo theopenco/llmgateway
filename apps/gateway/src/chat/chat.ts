@@ -25,6 +25,7 @@ import {
 	findApiKeyByToken,
 	findManagedProviderAvailability,
 	findRateLimitedManagedKeyIds,
+	withModelRateLimitedManagedKeyIds,
 	findProjectById,
 	findOrganizationById,
 	findCustomProviderKey,
@@ -114,6 +115,7 @@ import {
 import {
 	excludeRateLimitedProviderKeys,
 	getRateLimitedProviderKeyIds,
+	withModelRateLimitedProviderKeyIds,
 	type ProviderKeyRateLimitExemption,
 } from "@/lib/provider-key-rate-limit.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
@@ -3213,7 +3215,8 @@ chat.openapi(completions, async (c) => {
 			);
 		}
 		const limited = new Set(
-			rateLimited ?? (await findRateLimitedManagedKeyIds(rateLimitExemption)),
+			rateLimited ??
+				(await findRateLimitedManagedKeyIds(rateLimitExemption, modelId)),
 		);
 		limited.delete(pinnedManagedKeyId);
 		return await findManagedProviderAvailability(variant, modelId, limited);
@@ -4437,8 +4440,8 @@ chat.openapi(completions, async (c) => {
 		// configured region (e.g. aws_bedrock_region: "eu") instead of being
 		// collapsed to the pinned default by applyPinnedDefaultRegions.
 		const autoProviderLockedRegions = buildProviderLockedRegions(providerKeys);
-		// Keys at one of their own caps cannot serve any candidate this request,
-		// so read the caps once instead of per candidate model.
+		// Keys at one of their own key-wide caps cannot serve any candidate this
+		// request, so read those once; per-model caps are added per candidate.
 		const rateLimitedProviderKeyIds =
 			await getRateLimitedProviderKeyIds(providerKeys);
 		const rateLimitedManagedKeyIds =
@@ -4677,12 +4680,18 @@ chat.openapi(completions, async (c) => {
 			});
 			const candidateAllowedProviders = candidateIam.allowedProviders;
 
+			const candidateRateLimitedKeyIds =
+				await withModelRateLimitedProviderKeyIds(
+					rateLimitedProviderKeyIds,
+					providerKeys,
+					modelDef.id,
+				);
 			const { availableProviders, providersWithKeys } =
 				getAvailableProvidersForProjectMode(
 					project.mode,
 					withReasoningPinnedKey(
 						providerKeys.filter(
-							(key) => !rateLimitedProviderKeyIds.has(key.id),
+							(key) => !candidateRateLimitedKeyIds.has(key.id),
 						),
 						modelDef.id,
 					).filter((key) =>
@@ -4692,7 +4701,12 @@ chat.openapi(completions, async (c) => {
 					await managedAvailabilityFor(
 						envVariant,
 						modelDef.id,
-						rateLimitedManagedKeyIds,
+						project.mode === "api-keys"
+							? rateLimitedManagedKeyIds
+							: await withModelRateLimitedManagedKeyIds(
+									rateLimitedManagedKeyIds,
+									modelDef.id,
+								),
 					),
 				);
 
@@ -5412,6 +5426,8 @@ chat.openapi(completions, async (c) => {
 					modelInfo.id || usedInternalModel,
 					undefined,
 					buildByokKeyFilter(modelInfo.id || usedInternalModel),
+					undefined,
+					modelInfo.id || usedInternalModel,
 				);
 				lockedRegion = providerKey
 					? resolveExplicitRegionFromProviderKey(providerKey)
@@ -5601,6 +5617,7 @@ chat.openapi(completions, async (c) => {
 							await excludeRateLimitedProviderKeys(
 								providerKeys,
 								providerKeyRateLimitExemption,
+								baseModelId,
 							),
 							baseModelId,
 						).filter((key) =>
@@ -5843,6 +5860,7 @@ chat.openapi(completions, async (c) => {
 							await excludeRateLimitedProviderKeys(
 								providerKeys,
 								providerKeyRateLimitExemption,
+								baseModelId,
 							),
 							baseModelId,
 						).filter((key) =>
@@ -6113,6 +6131,7 @@ chat.openapi(completions, async (c) => {
 						await excludeRateLimitedProviderKeys(
 							providerKeys,
 							providerKeyRateLimitExemption,
+							routedModelId,
 						),
 						routedModelId,
 					).filter((key) =>
@@ -6565,6 +6584,8 @@ chat.openapi(completions, async (c) => {
 					modelInfo.id || usedInternalModel,
 					undefined,
 					buildByokKeyFilter(modelInfo.id || usedInternalModel),
+					undefined,
+					modelInfo.id || usedInternalModel,
 				);
 				explicitDirectRegion = providerKey
 					? resolveExplicitRegionFromProviderKey(providerKey)
@@ -7048,6 +7069,7 @@ chat.openapi(completions, async (c) => {
 				undefined,
 				byokKeyFilter,
 				providerKeyRateLimitExemption,
+				usedInternalModel,
 			);
 		}
 
@@ -7059,6 +7081,7 @@ chat.openapi(completions, async (c) => {
 					customProviderName,
 					filter: byokKeyFilter,
 					rateLimitExemption: providerKeyRateLimitExemption,
+					model: usedInternalModel,
 				},
 			);
 			const providerDisplayName =
@@ -7226,6 +7249,7 @@ chat.openapi(completions, async (c) => {
 				undefined,
 				byokKeyFilter,
 				providerKeyRateLimitExemption,
+				usedInternalModel,
 			);
 		}
 
