@@ -1023,6 +1023,44 @@ Each request returns one image. Tencent bills a fixed token count per image
 [models page](https://llmgateway.io/models?filters=1&imageGeneration=true) for
 current pricing.
 
+### MiniMax Models
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "minimax/minimax-h3-image",
+    "messages": [
+      {
+        "role": "user",
+        "content": "A red apple on a weathered wooden table, soft window light"
+      }
+    ],
+    "image_config": {
+      "image_size": "2K",
+      "aspect_ratio": "16:9"
+    }
+  }'
+```
+
+| Parameter      | Type   | Description                                                                                                                  |
+| -------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `image_size`   | string | `1K`, `2K` or `4K` area tier (default `4K`), or an exact `WIDTHxHEIGHT` between 655,360 and 20,000,000 pixels                |
+| `aspect_ratio` | string | `auto` (default, picked by prompt enhancement) or `X:Y` between `1:3` and `3:1`. Ignored when `image_size` is `WIDTHxHEIGHT` |
+| `n`            | number | 1–10 images                                                                                                                  |
+
+| Model                      | Description                                                                              |
+| -------------------------- | ---------------------------------------------------------------------------------------- |
+| `minimax/minimax-h3-image` | Generation and editing from up to 16 reference images, up to 4K, with prompt enhancement |
+
+MiniMax always enhances the prompt, and bills it as input tokens. Images that
+fail MiniMax's content safety check are dropped; the request returns
+`content_filter` when none remain. Billing uses the text, reference-image and
+output-image token counts MiniMax reports. See the
+[models page](https://llmgateway.io/models?filters=1&imageGeneration=true) for
+current pricing.
+
 ## Complexity
 
 GPT Image 2.6 Sunburst and Flare accept `complexity: "low" | "medium" | "high"` on `/v1/images/generations` and `/v1/images/edits` (JSON or multipart). For chat completions, use `image_config.complexity`. If omitted, OpenAI defaults both models to `high`; the gateway does not override this default.

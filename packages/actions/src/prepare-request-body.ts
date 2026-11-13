@@ -2243,6 +2243,68 @@ export async function prepareRequestBody(
 		return zaiImageRequest;
 	}
 
+	// Handle MiniMax H3 Image. Reference images switch chat.ts to the JSON
+	// /v1/images/edits endpoint, which takes them as images[].image_url.
+	if (imageGenerations && usedProvider === "minimax") {
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		let prompt = "";
+		const imageUrls: string[] = [];
+		if (typeof lastUserMessage?.content === "string") {
+			prompt = lastUserMessage.content;
+		} else if (Array.isArray(lastUserMessage?.content)) {
+			for (const part of lastUserMessage.content) {
+				if (part.type === "text" && part.text) {
+					prompt += (prompt ? "\n" : "") + part.text;
+				} else if (part.type === "image_url" && part.image_url) {
+					const url =
+						typeof part.image_url === "string"
+							? part.image_url
+							: part.image_url.url;
+					if (url) {
+						imageUrls.push(url);
+					}
+				}
+			}
+		}
+
+		// `size` takes WxH; 1K/2K/4K are area tiers combined with aspect_ratio.
+		// MiniMax 400s when aspect_ratio or area accompanies a WxH size.
+		const imageSize = image_config?.image_size;
+		const pixelSize =
+			imageSize && /^\d+x\d+$/i.test(imageSize)
+				? imageSize.toLowerCase()
+				: undefined;
+		const area =
+			imageSize && ["1K", "2K", "4K"].includes(imageSize.toUpperCase())
+				? imageSize.toUpperCase()
+				: undefined;
+		const outputFormat = image_config?.output_format;
+
+		return {
+			model: usedExternalId,
+			prompt,
+			...(imageUrls.length > 0 && {
+				images: imageUrls.map((url) => ({ image_url: url })),
+			}),
+			...(pixelSize && { size: pixelSize }),
+			...(!pixelSize && area && { area }),
+			...(!pixelSize &&
+				image_config?.aspect_ratio && {
+					aspect_ratio: image_config.aspect_ratio,
+				}),
+			...(image_config?.n && { n: image_config.n }),
+			...(outputFormat &&
+				["png", "jpeg", "jpg", "webp"].includes(outputFormat) && {
+					output_format: outputFormat,
+				}),
+			...(image_config?.output_compression !== undefined && {
+				output_compression: image_config.output_compression,
+			}),
+		} as unknown as ProviderRequestBody;
+	}
+
 	// Handle Alibaba image generation models
 	if (imageGenerations && usedProvider === "alibaba") {
 		// Extract prompt and images from last user message

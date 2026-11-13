@@ -87,6 +87,14 @@ describe("getModelImageConfig", () => {
 			getModelImageConfig("alibaba/wan-2-7-image-pro").availableSizes,
 		).toEqual(["1K", "2K", "4K"]);
 	});
+	it("offers MiniMax H3 Image area tiers, 1:3-3:1 ratios and 16 input images", () => {
+		const config = getModelImageConfig("minimax/minimax-h3-image");
+		expect(config.availableSizes).toEqual(["1K", "2K", "4K"]);
+		expect(config.defaultSize).toBe("1K");
+		expect(config.maxInputImages).toBe(16);
+		expect(config.supportedAspectRatios).toContain("21:9");
+		expect(config.supportedAspectRatios).not.toContain("4:1");
+	});
 	it("exposes the cheapest supported image options", () => {
 		const gptImage = getModelImageConfig("openai/gpt-image-2");
 		const grok = getModelImageConfig("xai/grok-imagine-image-2-0");

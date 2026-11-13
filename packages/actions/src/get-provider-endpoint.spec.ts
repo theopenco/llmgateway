@@ -154,6 +154,29 @@ describe("getProviderEndpoint", () => {
 		expect(endpoint(false, "hy3")).toBe(`${base}/v1/chat/completions`);
 	});
 
+	it("routes MiniMax image generation to the images endpoint", () => {
+		const endpoint = (imageGenerations: boolean, model: string) =>
+			getProviderEndpoint(
+				"minimax",
+				undefined,
+				model,
+				undefined,
+				false,
+				false,
+				false,
+				undefined,
+				undefined,
+				imageGenerations,
+			);
+
+		expect(endpoint(true, "MiniMax-H3-Image")).toBe(
+			"https://api.minimax.io/v1/images/generations",
+		);
+		expect(endpoint(false, "MiniMax-M3")).toBe(
+			"https://api.minimax.io/v1/chat/completions",
+		);
+	});
+
 	it("rejects unsupported Runpod models", () => {
 		expect(() =>
 			getProviderEndpoint("runpod", undefined, "unregistered-model"),

@@ -683,7 +683,12 @@ export async function calculateCosts(
 		}
 		const own = (key: string) =>
 			Object.hasOwn(byResolution, key) ? byResolution[key] : undefined;
-		return own(size ?? "default") ?? own("default");
+		// Tier keys are uppercase ("2K"); requests may send "2k".
+		return (
+			own(size ?? "default") ??
+			(size ? own(size.toUpperCase()) : undefined) ??
+			own("default")
+		);
 	}
 
 	// Track image input tokens separately. For image-output models (e.g.
@@ -747,7 +752,8 @@ export async function calculateCosts(
 		(provider === "openai" ||
 			provider === "azure" ||
 			provider === "xai" ||
-			(isGoogleProvider && imageInputTokensReported));
+			((provider === "minimax" || isGoogleProvider) &&
+				imageInputTokensReported));
 	let cachedImageTokens = 0;
 	if (
 		promptIncludesImageTokens &&

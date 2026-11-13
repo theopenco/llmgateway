@@ -977,6 +977,43 @@ export function parseProviderResponse(
 			break;
 		}
 		default: // OpenAI format
+			// MiniMax H3 Image: OpenAI-style { data, usage } where items that failed
+			// (e.g. the content safety check) carry only `error`. Usage counts
+			// successful images only; input_tokens includes the image tokens.
+			if (
+				usedProvider === "minimax" &&
+				Array.isArray(json.data) &&
+				!json.choices
+			) {
+				images = json.data
+					.filter(
+						(item: { url?: unknown }) =>
+							typeof item?.url === "string" && item.url.length > 0,
+					)
+					.map((item: { url: string }): ImageObject => ({
+						type: "image_url",
+						image_url: { url: item.url },
+					}));
+				content = images.length > 0 ? imageLabel : null;
+				finishReason =
+					images.length > 0
+						? "stop"
+						: json.data.some((item: { error?: { code?: unknown } }) =>
+									["1026", "1027"].includes(String(item?.error?.code)),
+							  )
+							? "content_filter"
+							: "upstream_error";
+				promptTokens = json.usage?.input_tokens ?? 0;
+				completionTokens = json.usage?.output_tokens ?? 0;
+				imageInputTokens =
+					json.usage?.input_tokens_details?.image_tokens ?? null;
+				imageOutputTokens =
+					json.usage?.output_tokens_details?.image_tokens ?? null;
+				totalTokens =
+					json.usage?.total_tokens ??
+					(promptTokens ?? 0) + (completionTokens ?? 0);
+				break;
+			}
 			// Check if this is an OpenAI / Azure image generation response (e.g. gpt-image-2)
 			// Format: { created: number, data: [{ b64_json?: string, url?: string, revised_prompt?: string }], usage?: {...} }
 			if (

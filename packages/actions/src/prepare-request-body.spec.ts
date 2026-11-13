@@ -2204,6 +2204,85 @@ describe("prepareRequestBody - Tencent Hy Image generation", () => {
 	});
 });
 
+describe("prepareRequestBody - MiniMax H3 Image", () => {
+	async function prepareMinimaxImageRequest(
+		messages: BaseMessage[],
+		imageConfig?: {
+			aspect_ratio?: string;
+			image_size?: string;
+			n?: number;
+			output_format?: string;
+		},
+	) {
+		return (await prepareRequestBody(
+			"minimax",
+			"minimax-h3-image",
+			null,
+			"MiniMax-H3-Image",
+			messages,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			imageConfig,
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("maps an area tier and aspect ratio, and drops unsupported formats", async () => {
+		const requestBody = await prepareMinimaxImageRequest(
+			[{ role: "user", content: "A lighthouse at dawn" }],
+			{ image_size: "2k", aspect_ratio: "16:9", n: 2, output_format: "svg" },
+		);
+
+		expect(requestBody).toEqual({
+			model: "MiniMax-H3-Image",
+			prompt: "A lighthouse at dawn",
+			area: "2K",
+			aspect_ratio: "16:9",
+			n: 2,
+		});
+	});
+
+	test("sends a WxH size without aspect ratio and reference images for edits", async () => {
+		const requestBody = await prepareMinimaxImageRequest(
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Make it a watercolor" },
+						{
+							type: "image_url",
+							image_url: { url: "https://example.com/ref.png" },
+						},
+					],
+				},
+			],
+			{ image_size: "1536x1024", aspect_ratio: "3:2", output_format: "png" },
+		);
+
+		expect(requestBody).toEqual({
+			model: "MiniMax-H3-Image",
+			prompt: "Make it a watercolor",
+			images: [{ image_url: "https://example.com/ref.png" }],
+			size: "1536x1024",
+			output_format: "png",
+		});
+	});
+});
+
 describe("prepareRequestBody - xAI image generation", () => {
 	async function prepareXaiImageRequest(imageConfig: {
 		aspect_ratio?: string;

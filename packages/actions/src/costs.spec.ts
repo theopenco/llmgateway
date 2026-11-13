@@ -2181,6 +2181,98 @@ describe("calculateCosts", () => {
 		},
 	);
 
+	it("bills minimax-h3-image edits from MiniMax's reported text and image tokens", async () => {
+		// Live /v1/images/edits usage: 2955 text + 2050 image input, 4096 output.
+		const result = await calculateCosts(
+			"minimax-h3-image",
+			"minimax",
+			null,
+			5005,
+			4096,
+			null,
+			undefined,
+			null,
+			1,
+			"1K",
+			1,
+			null,
+			null,
+			undefined,
+			2050,
+			4096,
+		);
+
+		const textInputCost = 2955 * (2.3 / 1e6);
+		const imageInputCost = 2050 * (1.5 / 1e6);
+		const imageOutputCost = 4096 * (3.8 / 1e6);
+		expect(result.imageInputCost).toBeCloseTo(imageInputCost, 10);
+		expect(result.inputCost).toBeCloseTo(textInputCost + imageInputCost, 10);
+		expect(result.imageOutputCost).toBeCloseTo(imageOutputCost, 10);
+		expect(result.totalCost).toBeCloseTo(
+			textInputCost + imageInputCost + imageOutputCost,
+			10,
+		);
+	});
+
+	it("bills minimax-h3-image at the 4K token count when usage is missing", async () => {
+		const result = await calculateCosts(
+			"minimax-h3-image",
+			"minimax",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			undefined,
+			0,
+		);
+
+		expect(result.imageOutputTokens).toBe(16384);
+		expect(result.imageOutputCost).toBeCloseTo(16384 * (3.8 / 1e6), 10);
+	});
+
+	it("bills a lowercase minimax-h3-image tier at its token count when usage is missing", async () => {
+		const result = await calculateCosts(
+			"minimax-h3-image",
+			"minimax",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"2k",
+			0,
+		);
+
+		expect(result.imageOutputTokens).toBe(4096);
+	});
+
+	it("keeps the estimated text charge on a minimax-h3-image edit without usage", async () => {
+		const result = await calculateCosts(
+			"minimax-h3-image",
+			"minimax",
+			null,
+			null,
+			null,
+			null,
+			{ prompt: "Make it blue" },
+			null,
+			1,
+			"1K",
+			1,
+		);
+
+		expect(result.promptTokens).toBeGreaterThan(0);
+		expect(result.imageInputTokens).toBe(560);
+		const textCost = (result.promptTokens ?? 0) * (2.3 / 1e6);
+		const imageCost = 560 * (1.5 / 1e6);
+		expect(result.inputCost).toBeCloseTo(textCost + imageCost, 10);
+	});
+
 	it("bills hy-image-v3.5-preview at the 4K token count when usage is missing", async () => {
 		const result = await calculateCosts(
 			"hy-image-v3.5-preview",
