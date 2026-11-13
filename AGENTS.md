@@ -41,7 +41,7 @@ Run all `pnpm` commands from the repository root, not from app directories.
 - `pnpm build` - Build everything. ALWAYS run a full build after finishing a feature.
 - `pnpm clean` - Clean build artifacts and cache directories
 - `pnpm test:unit` / `pnpm test:e2e` - Unit (`*.spec.ts`) and e2e (`*.e2e.ts`) tests. Run unit tests after adding features, ALWAYS against the worktree's own isolated database (`local-stack` skill); details in the `testing` skill.
-- New or edited model mappings: ALWAYS run e2e locally, scoped to exactly those mappings (`TEST_MODELS="<provider>/<model>" FULL_MODE=true pnpm test:e2e`), before opening the PR or enabling auto-merge. NEVER run unscoped e2e for them: it runs every model and bills real provider spend.
+- New or edited model mappings: whenever their credentials are available, ALWAYS run e2e locally, scoped to exactly those mappings (`TEST_MODELS="<provider>/<model>" FULL_MODE=true pnpm test:e2e`), before opening the PR or enabling auto-merge. NEVER run unscoped e2e for them: it runs every model and bills real provider spend.
 
 To build a single app, ALWAYS use a Turbo filter (`turbo run build --filter=<app>`). NEVER use `pnpm --filter <app> build`: it skips rebuilding workspace dependencies and compiles against stale `dist/` artifacts.
 
