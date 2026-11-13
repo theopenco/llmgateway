@@ -89,7 +89,7 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 | Wan 2.6 Text-to-Video | `alibaba`          | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                                                 | `2`–`15`            |
 | VEED Fabric 1.0, Fast | `atlascloud`       | `854x480`, `480x854`, `1280x720`, `720x1280`                                                     | audio length, ≤ 300 |
 
-Requests return `400` when the selected provider cannot serve the requested `size` or `seconds`. Gemini Omni 1.2 Flash accepts `3`–`10` seconds with first/last frames. Seedance, KLING, Luma Ray, MiniMax H3, and Wan 3.0 derive the aspect ratio from the requested `size` (16:9 for landscape, 9:16 for portrait); Luma Ray frame requests instead follow the first frame's aspect ratio.
+Requests return `400` when the selected provider cannot serve the requested `size` or `seconds`. Gemini Omni 1.2 Flash accepts `3`–`10` seconds with first/last frames. Seedance, KLING, Luma Ray, MiniMax H3, and Wan 3.0 derive the aspect ratio from the requested `size` (16:9 for landscape, 9:16 for portrait); Luma Ray and Seedance 2.5 frame requests instead follow the first frame's aspect ratio.
 
 **KLING v3.0 Turbo**, **MiniMax H3**, **MiniMax H3 Max**, **Wan 2.6 Text-to-Video**, and **Gemini Omni** always generate audio and do not support `audio: false`; silent requests return a `400`. Use **KLING v3.0** (`kling-v3-0`) when you need silent output.
 

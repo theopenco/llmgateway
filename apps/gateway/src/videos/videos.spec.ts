@@ -3431,6 +3431,58 @@ describe("videos", () => {
 		expect(mockVideo?.ratio).toBe("16:9");
 	});
 
+	test("/v1/videos sends ratio adaptive to Seedance 2.5 with a first frame", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			...encryptProviderKeyForStorage(
+				"sk-bytedance-key",
+				"provider-key-id",
+				"org-id",
+			),
+			provider: "bytedance",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "seedance-2-5",
+				prompt: "Animate the first frame",
+				size: "1280x720",
+				seconds: 5,
+				image: {
+					image_url: "data:image/png;base64,aGVsbG8=",
+				},
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.firstFrame).toEqual({
+			bytesBase64Encoded: "aGVsbG8=",
+			mimeType: "image/png",
+		});
+		expect(mockVideo?.ratio).toBe("adaptive");
+	});
+
 	test("/v1/videos forwards portrait size as ratio 9:16 to bytedance", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

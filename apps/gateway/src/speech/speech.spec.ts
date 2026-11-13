@@ -1,7 +1,9 @@
 import { describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
+import { isTrackedKeyHealthy } from "@/lib/api-key-health.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
+import { getLastElevenLabsVoiceId } from "@/test-utils/mock-openai-server.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
@@ -503,6 +505,87 @@ describe("speech", () => {
 		expect(log?.finishReason).toBe("stop");
 		// eleven-multilingual-v2 bills $110 / 1M input characters.
 		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 110e-6, 12);
+		expect(getLastElevenLabsVoiceId()).toBe("EXAVITQu4vr4xnSDxMaL");
+	});
+
+	test("/v1/audio/speech forwards a raw ElevenLabs voice library id", async () => {
+		await seedKeys(
+			"real-token-speech-eleven-raw",
+			"token-id-speech-eleven-raw",
+			"elevenlabs",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-eleven-raw",
+			},
+			body: JSON.stringify({
+				model: "eleven-multilingual-v2",
+				input: "Hello from a library voice",
+				voice: "21m00Tcm4TlvDq8ikWAM",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(getLastElevenLabsVoiceId()).toBe("21m00Tcm4TlvDq8ikWAM");
+	});
+
+	test("/v1/audio/speech keeps the key healthy after an inaccessible voice", async () => {
+		await seedKeys(
+			"real-token-speech-eleven-denied",
+			"token-id-speech-eleven-denied",
+			"elevenlabs",
+		);
+		const speak = async (voice: string) =>
+			await app.request("/v1/audio/speech", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-speech-eleven-denied",
+				},
+				body: JSON.stringify({
+					model: "eleven-multilingual-v2",
+					input: "Hello",
+					voice,
+				}),
+			});
+
+		const denied = await speak("NoAccessVoiceId00000");
+		expect(denied.status).toBe(403);
+		expect(
+			isTrackedKeyHealthy(
+				"provider-key-elevenlabs-token-id-speech-eleven-denied",
+			),
+		).toBe(true);
+
+		const ok = await speak("Sarah");
+		expect(ok.status).toBe(200);
+	});
+
+	test("/v1/audio/speech rejects an unknown ElevenLabs voice name", async () => {
+		await seedKeys(
+			"real-token-speech-eleven-bad",
+			"token-id-speech-eleven-bad",
+			"elevenlabs",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-eleven-bad",
+			},
+			body: JSON.stringify({
+				model: "eleven-multilingual-v2",
+				input: "Hello",
+				voice: "not-a-voice",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		expect(JSON.stringify(await res.json())).toContain("Unsupported voice");
 	});
 
 	test("/v1/audio/speech proxies Groq Orpheus as WAV and bills by characters", async () => {
