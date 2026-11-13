@@ -8,6 +8,7 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
+import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	selectNextProvider,
@@ -2033,7 +2034,7 @@ async function resolveProviderContext(
 			providerId,
 			selectionScope,
 			undefined,
-			getVideoProviderKeyFilter(providerId),
+			buildByokKeyFilter(selectionScope, getVideoProviderKeyFilter(providerId)),
 		);
 		if (!providerKey) {
 			throw new HTTPException(400, {
@@ -2059,7 +2060,7 @@ async function resolveProviderContext(
 		providerId,
 		selectionScope,
 		undefined,
-		getVideoProviderKeyFilter(providerId),
+		buildByokKeyFilter(selectionScope, getVideoProviderKeyFilter(providerId)),
 	);
 	if (providerKey) {
 		return resolveByokVideoProviderContext(providerId, providerKey, requestId);
@@ -2164,6 +2165,7 @@ async function hasVideoProviderConfiguration(
 	providerId: Provider,
 	project: InferSelectModel<typeof tables.project>,
 	organizationId: string,
+	modelId: string,
 ): Promise<boolean> {
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
 
@@ -2171,9 +2173,9 @@ async function hasVideoProviderConfiguration(
 		const providerKey = await findProviderKey(
 			organizationId,
 			providerId,
+			modelId,
 			undefined,
-			undefined,
-			getVideoProviderKeyFilter(providerId),
+			buildByokKeyFilter(modelId, getVideoProviderKeyFilter(providerId)),
 		);
 		return Boolean(
 			providerKey && hasByokVideoConfiguration(providerId, providerKey),
@@ -2191,9 +2193,9 @@ async function hasVideoProviderConfiguration(
 	const providerKey = await findProviderKey(
 		organizationId,
 		providerId,
+		modelId,
 		undefined,
-		undefined,
-		getVideoProviderKeyFilter(providerId),
+		buildByokKeyFilter(modelId, getVideoProviderKeyFilter(providerId)),
 	);
 	if (providerKey) {
 		return hasByokVideoConfiguration(providerId, providerKey);
@@ -2317,6 +2319,7 @@ async function resolveVideoExecution(
 				providerMapping.providerId as Provider,
 				project,
 				organizationId,
+				modelInfo.id,
 			)
 		) {
 			configuredEligibleMappings.push(providerMapping);
@@ -2333,6 +2336,7 @@ async function resolveVideoExecution(
 					providerId,
 					project,
 					organizationId,
+					modelInfo.id,
 				))
 			) {
 				configuredProviders.push(providerId);

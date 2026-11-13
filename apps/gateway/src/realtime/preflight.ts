@@ -1,6 +1,7 @@
 import { HTTPException } from "hono/http-exception";
 
 import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
+import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
 	assertApiKeyWithinUsageLimits,
@@ -391,6 +392,7 @@ async function runRealtimePreflightInner(
 			providerId as Provider,
 			{
 				selectionScope: match.modelId,
+				model: match.modelId,
 				variant: envVariant,
 				region: undefined,
 				requiresServiceTier: false,
@@ -418,6 +420,8 @@ async function runRealtimePreflightInner(
 			project.organizationId,
 			providerId,
 			match.modelId,
+			undefined,
+			buildByokKeyFilter(match.modelId),
 		);
 		if (!providerKey) {
 			throw new RealtimeConnectError(
@@ -435,6 +439,8 @@ async function runRealtimePreflightInner(
 			project.organizationId,
 			providerId,
 			match.modelId,
+			undefined,
+			buildByokKeyFilter(match.modelId),
 		);
 		if (providerKey) {
 			upstreamToken = readProviderKey(providerKey);

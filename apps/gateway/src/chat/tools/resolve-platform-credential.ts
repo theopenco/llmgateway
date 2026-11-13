@@ -85,13 +85,9 @@ export interface ResolvePlatformCredentialOptions {
 	/**
 	 * Canonical model id the credential will serve. Managed credentials
 	 * restricted via `allowedModels` are skipped when they exclude it, falling
-	 * through to the next credential or the env vars.
-	 *
-	 * Optional because several endpoints (embeddings, speech, OCR, …) only hold
-	 * the upstream model id here — comparing that against the canonical ids in
-	 * `allowedModels` would silently never match, which is worse than not
-	 * filtering. Every chat-path caller passes it; a caller that omits it
-	 * bypasses the restriction.
+	 * through to the next credential or the env vars. Never pass the upstream
+	 * id: `allowedModels` holds canonical ids. A caller that omits it bypasses
+	 * the restriction.
 	 */
 	model?: string;
 	variant: EnvVarVariant | undefined;

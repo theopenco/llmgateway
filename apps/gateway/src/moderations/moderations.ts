@@ -9,6 +9,7 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
+import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
 import { shouldRetryAlternateKey } from "@/chat/tools/retry-with-fallback.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import {
@@ -514,6 +515,8 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			project.organizationId,
 			"openai",
 			upstreamModel,
+			undefined,
+			buildByokKeyFilter(MODERATION_MODEL_ID),
 		);
 		if (!providerKey) {
 			throw new HTTPException(400, {
@@ -533,6 +536,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 		const platformCredential = await resolvePlatformCredential("openai", {
 			selectionScope: upstreamModel,
+			model: MODERATION_MODEL_ID,
 			variant: envVariant,
 			region: undefined,
 			requiresServiceTier: false,
@@ -546,6 +550,8 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			project.organizationId,
 			"openai",
 			upstreamModel,
+			undefined,
+			buildByokKeyFilter(MODERATION_MODEL_ID),
 		);
 		if (providerKey) {
 			usedToken = readProviderKey(providerKey);
@@ -560,6 +566,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 			const platformCredential = await resolvePlatformCredential("openai", {
 				selectionScope: upstreamModel,
+				model: MODERATION_MODEL_ID,
 				variant: envVariant,
 				region: undefined,
 				requiresServiceTier: false,
@@ -655,6 +662,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			triedManagedKeyIds.add(managedKey.id);
 			const next = await resolvePlatformCredential("openai", {
 				selectionScope: upstreamModel,
+				model: MODERATION_MODEL_ID,
 				variant: envVariant,
 				region: undefined,
 				requiresServiceTier: false,
