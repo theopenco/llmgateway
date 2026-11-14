@@ -571,7 +571,7 @@ export const providers: ProviderDefinition[] = [
 		dataPolicy: {
 			apiTraining: false,
 			promptLogging: true,
-			retentionPeriod: "flagged prompts may be retained for abuse monitoring",
+			retentionPeriod: "30 days",
 			soc2: 2,
 			iso27001: true,
 			gdpr: true,
@@ -622,7 +622,7 @@ export const providers: ProviderDefinition[] = [
 		dataPolicy: {
 			apiTraining: false,
 			promptLogging: true,
-			retentionPeriod: "flagged prompts may be retained for abuse monitoring",
+			retentionPeriod: "30 days",
 			soc2: 2,
 			iso27001: true,
 			gdpr: true,
@@ -675,7 +675,7 @@ export const providers: ProviderDefinition[] = [
 		dataPolicy: {
 			apiTraining: false,
 			promptLogging: true,
-			retentionPeriod: "flagged prompts may be retained for abuse monitoring",
+			retentionPeriod: "30 days",
 			soc2: 2,
 			iso27001: true,
 			gdpr: true,
