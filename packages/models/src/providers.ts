@@ -570,8 +570,8 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
+			promptLogging: true,
+			retentionPeriod: "flagged prompts may be retained for abuse monitoring",
 			soc2: 2,
 			iso27001: true,
 			gdpr: true,
@@ -621,8 +621,8 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
+			promptLogging: true,
+			retentionPeriod: "flagged prompts may be retained for abuse monitoring",
 			soc2: 2,
 			iso27001: true,
 			gdpr: true,
@@ -674,8 +674,8 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
+			promptLogging: true,
+			retentionPeriod: "flagged prompts may be retained for abuse monitoring",
 			soc2: 2,
 			iso27001: true,
 			gdpr: true,
