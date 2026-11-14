@@ -1535,6 +1535,8 @@ export const googleModels = [
 			{
 				providerId: "google-vertex",
 				externalId: "gemini-4-carbon",
+				// Google Frontier Model: 30-day abuse-monitoring log retention.
+				dataPolicy: { promptLogging: true, retentionPeriod: "30 days" },
 				serviceTiers: ["priority"],
 				serviceTierRegions: ["global"],
 				inputPrice: "4e-6",
