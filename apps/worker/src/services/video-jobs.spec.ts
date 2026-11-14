@@ -25,7 +25,7 @@ async function cleanup() {
 	await db.delete(tables.apiKey).where(eq(tables.apiKey.id, apiKeyId));
 	await db
 		.delete(tables.providerKey)
-		.where(eq(tables.providerKey.id, providerKeyId));
+		.where(eq(tables.providerKey.organizationId, organizationId));
 	await db.delete(tables.project).where(eq(tables.project.id, projectId));
 	await db
 		.delete(tables.organization)
@@ -147,6 +147,32 @@ describe("video job token billing", () => {
 		expect(logs).toHaveLength(1);
 		expect(logs[0].completionTokens).toBe("120001");
 		expect(logs[0].cost).toBeCloseTo(0.840007, 6);
+	});
+});
+
+describe("video job polling credential", () => {
+	test("polls a BYOK job with the key that created it", async () => {
+		await createJob();
+		for (const id of [
+			"video-rejected-1",
+			"video-rejected-2",
+			"video-rejected-3",
+		]) {
+			await db.insert(tables.providerKey).values({
+				id,
+				...encryptProviderKeyForStorage("rejected-token", id, organizationId),
+				provider: "bytedance",
+				organizationId,
+			});
+		}
+		respond({ status: "running" });
+		await processPendingVideoJobs();
+		expect(fetchMock).toHaveBeenCalled();
+		for (const [, init] of fetchMock.mock.calls) {
+			expect(new Headers(init?.headers).get("authorization")).toBe(
+				"Bearer test-token",
+			);
+		}
 	});
 });
 const seedanceRates = [

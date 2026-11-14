@@ -358,12 +358,25 @@ async function resolveVideoProviderContext(
 				},
 			});
 		} else {
-			providerKey = await findActiveProviderKey(
-				job.organizationId,
-				job.usedProvider,
-				job.requestId,
-				getVideoProviderKeyFilter(providerId),
-			);
+			// Prefer the key that created the job: creation may have rotated
+			// past a rejected key that is still active.
+			const keyFilter = getVideoProviderKeyFilter(providerId);
+			const creatingKey = job.providerKeyId
+				? await findActiveProviderKey(
+						job.organizationId,
+						job.usedProvider,
+						job.requestId,
+						(key) => key.id === job.providerKeyId && (keyFilter?.(key) ?? true),
+					)
+				: undefined;
+			providerKey =
+				creatingKey ??
+				(await findActiveProviderKey(
+					job.organizationId,
+					job.usedProvider,
+					job.requestId,
+					keyFilter,
+				));
 		}
 		if (!providerKey) {
 			throw new Error(`No API key set for provider: ${job.usedProvider}`);
