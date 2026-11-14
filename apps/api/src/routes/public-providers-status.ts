@@ -84,7 +84,7 @@ export function statusPageProviders(): ProviderDefinition[] {
 	);
 }
 
-function findStatusPageProvider(
+export function findStatusPageProvider(
 	providerId: string,
 ): ProviderDefinition | undefined {
 	return statusPageProviders().find((provider) => provider.id === providerId);
@@ -282,6 +282,15 @@ export async function loadMeasuredHistory(providerId: string, now: Date) {
 	};
 }
 
+/** 90 days of measured uptime for one provider, shared by every reader. */
+export async function cachedMeasuredHistory(providerId: string) {
+	return await cachedPublicResponse(
+		`provider-status-history:${providerId}`,
+		{ refreshAfterMs: HISTORY_REFRESH_MS },
+		async () => await loadMeasuredHistory(providerId, new Date()),
+	);
+}
+
 function last24hStart(now: Date): Date {
 	const currentHourMs = Math.floor(now.getTime() / HOUR_MS) * HOUR_MS;
 	return new Date(currentHourMs - LAST_24H_SPAN_MS);
@@ -424,11 +433,7 @@ publicProvidersStatus.openapi(detailRoute, async (c) => {
 	}
 	const [official, measured] = await Promise.all([
 		loadOfficial(provider),
-		cachedPublicResponse(
-			`provider-status-history:${provider.id}`,
-			{ refreshAfterMs: HISTORY_REFRESH_MS },
-			async () => await loadMeasuredHistory(provider.id, new Date()),
-		),
+		cachedMeasuredHistory(provider.id),
 	]);
 	return c.json({
 		providerId: provider.id,

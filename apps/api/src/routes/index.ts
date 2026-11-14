@@ -55,6 +55,7 @@ import { notifications } from "./notifications.js";
 import { organizationProjects } from "./organization-projects.js";
 import { organizationSkills } from "./organization-skills.js";
 import { organizationTeams } from "./organization-teams.js";
+import { organizationWrapped } from "./organization-wrapped.js";
 import organization from "./organization.js";
 import { payments } from "./payments.js";
 import playground from "./playground.js";
@@ -135,6 +136,7 @@ routes.route("/playground", playground);
 
 routes.route("/orgs", organization);
 routes.route("/orgs", organizationProjects);
+routes.route("/orgs", organizationWrapped);
 routes.route("/orgs", organizationSkills);
 routes.route("/orgs", complianceAlerts);
 routes.route("/team", team);
