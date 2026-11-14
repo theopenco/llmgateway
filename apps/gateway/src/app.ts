@@ -19,7 +19,7 @@ import {
 	createRequestLifecycleMiddleware,
 } from "@llmgateway/instrumentation";
 import { logger, toError } from "@llmgateway/logger";
-import { HealthChecker } from "@llmgateway/shared";
+import { getAppVersion, HealthChecker } from "@llmgateway/shared";
 import {
 	getClientIpFromContext,
 	getClientIpHeaderName,
@@ -285,52 +285,52 @@ app.onError((error, c) => {
 	return renderGatewayError(c, 500, "Internal Server Error");
 });
 
-function createHealthChecker(): HealthChecker {
-	return new HealthChecker({
+// Liveness: the process serves HTTP. Touches neither Redis nor Postgres, so a
+// dependency outage cannot get healthy pods restarted.
+app.get("/livez", (c) => c.json({ status: "ok" }));
+
+// Deep health for external monitoring: checks Postgres and both Redis
+// instances. Readiness uses `/`, so a dependency outage or a schema the
+// running release cannot read never pulls every pod out of the load balancer;
+// this endpoint is what pages when Postgres or Redis is unreachable.
+export const healthChecker = new HealthChecker(
+	{
 		// Ping both the main and the storage Redis; either failing marks the
 		// gateway unhealthy (they may be the same instance via env fallback).
+		// Wait for both to settle so the shared call covers a stalled ping.
 		redisClient: {
 			ping: async () => {
-				await Promise.all([redisClient.ping(), storageRedisClient.ping()]);
+				const results = await Promise.allSettled([
+					redisClient.ping(),
+					storageRedisClient.ping(),
+				]);
+				const failed = results.find((result) => result.status === "rejected");
+				if (failed) {
+					throw failed.reason;
+				}
 				return "PONG";
 			},
 		},
 		db,
 		logger,
-	});
-}
-
-// Liveness: the process serves HTTP. Touches neither Redis nor Postgres, so a
-// dependency outage cannot get healthy pods restarted.
-app.get("/livez", (c) => c.json({ status: "ok" }));
-
-// Deep health for external monitoring: always checks Postgres and both Redis
-// instances. `/` skips Postgres by default so cached traffic keeps the pod in
-// rotation; this endpoint is what pages when Postgres is unreachable.
+	},
+	{ timeoutMs: Number(process.env.DEEP_HEALTH_CHECK_TIMEOUT_MS) || 5000 },
+);
 app.get("/health/deep", async (c) => {
-	const healthChecker = createHealthChecker();
-	const health = await healthChecker.performHealthChecks({
-		timeoutMs: Number(process.env.DEEP_HEALTH_CHECK_TIMEOUT_MS) || 5000,
-	});
-	const { response, statusCode } = healthChecker.createHealthResponse(health);
+	const { response, statusCode } = healthChecker.createHealthResponse(
+		await healthChecker.performHealthChecks(),
+	);
 	return c.json(response, statusCode as 200 | 503);
 });
 
 const root = createRoute({
 	summary: "Health check",
-	description: "Health check endpoint.",
+	description:
+		"Health check endpoint. Returns 503 after boot until Postgres and Redis have answered once, then touches no dependencies; `/health/deep` checks them on every call.",
 	operationId: "health",
 	method: "get",
 	path: "/",
-	request: {
-		query: z.object({
-			skip: z.string().optional().openapi({
-				description:
-					"Comma-separated list of health checks to skip. Options: redis, database",
-				example: "redis,database",
-			}),
-		}),
-	},
+	request: {},
 	responses: {
 		200: {
 			content: {
@@ -341,17 +341,6 @@ const root = createRoute({
 							version: z.string(),
 							clientIp: z.string().nullable(),
 							clientIpHeader: z.string(),
-							health: z.object({
-								status: z.string(),
-								redis: z.object({
-									connected: z.boolean(),
-									error: z.string().optional(),
-								}),
-								database: z.object({
-									connected: z.boolean(),
-									error: z.string().optional(),
-								}),
-							}),
 						})
 						.openapi({}),
 				},
@@ -361,67 +350,28 @@ const root = createRoute({
 		503: {
 			content: {
 				"application/json": {
-					schema: z
-						.object({
-							message: z.string(),
-							version: z.string(),
-							clientIp: z.string().nullable(),
-							clientIpHeader: z.string(),
-							health: z.object({
-								status: z.string(),
-								redis: z.object({
-									connected: z.boolean(),
-									error: z.string().optional(),
-								}),
-								database: z.object({
-									connected: z.boolean(),
-									error: z.string().optional(),
-								}),
-							}),
-						})
-						.openapi({}),
+					schema: z.object({ message: z.string() }).openapi({}),
 				},
 			},
-			description: "Service unavailable - Redis or database connection failed.",
+			description: "Starting: Postgres and Redis have not answered since boot.",
 		},
 	},
 });
 
-app.openapi(root, async (c) => {
-	const { skip } = c.req.valid("query");
-	const skipChecks = skip
-		? skip.split(",").map((s) => s.trim().toLowerCase())
-		: [];
-
-	// By default, skip database health check for gateway since it uses cached db client
-	// and can operate without direct Postgres connectivity as long as Redis is available
-	const skipDatabase = process.env.HEALTH_CHECK_SKIP_DATABASE !== "false";
-	if (skipDatabase && !skipChecks.includes("database")) {
-		skipChecks.push("database");
+app.openapi(root, (c) => {
+	if (!healthChecker.isReady()) {
+		return c.json({ message: "Starting: waiting for Postgres and Redis" }, 503);
 	}
-
-	// Health check timeout - allow more time under load for DB/Redis connections
-	// 15 seconds default to prevent false failures during traffic spikes
-	const TIMEOUT_MS = Number(process.env.HEALTH_CHECK_TIMEOUT_MS) || 15000;
-
-	const healthChecker = createHealthChecker();
-
-	const health = await healthChecker.performHealthChecks({
-		skipChecks,
-		timeoutMs: TIMEOUT_MS,
-	});
-
-	const { response, statusCode } = healthChecker.createHealthResponse(health);
-
 	// Echo the address this service resolves for the caller so a deployment can
 	// be checked against a known client IP before any per-IP limit is relied on.
 	return c.json(
 		{
-			...response,
+			message: "OK",
+			version: getAppVersion(),
 			clientIp: getClientIpFromContext(c),
 			clientIpHeader: getClientIpHeaderName(),
 		},
-		statusCode as 200 | 503,
+		200,
 	);
 });
 
