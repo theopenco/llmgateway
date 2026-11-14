@@ -101,17 +101,21 @@ export function getLenientContentFilterScoreThreshold(): number {
 	return getContentFilterScoreThresholds().lenient;
 }
 
+function isSampled(ratePercent: number, random: () => number): boolean {
+	if (ratePercent <= 0) {
+		return false;
+	}
+	if (ratePercent >= 100) {
+		return true;
+	}
+	return random() * 100 < ratePercent;
+}
+
 export function isContentFilterSampled(
 	settings: ContentFilterSettings,
 	random: () => number = randomFloat,
 ): boolean {
-	if (settings.sampleRatePercent <= 0) {
-		return false;
-	}
-	if (settings.sampleRatePercent >= 100) {
-		return true;
-	}
-	return random() * 100 < settings.sampleRatePercent;
+	return isSampled(settings.sampleRatePercent, random);
 }
 
 /**
@@ -125,10 +129,22 @@ export async function resolveTieredContentFilterPlan(
 	settings: ContentFilterSettings,
 	random: () => number = randomFloat,
 ): Promise<TieredContentFilterPlan | null> {
-	if (!settings.enabled || !settings.providerIds.includes(providerId)) {
+	// Optional: settings cached by the previous release lack this field.
+	const providerEnforced =
+		settings.enforceProviderIds?.includes(providerId) ?? false;
+	if (
+		!settings.enabled ||
+		(!providerEnforced && !settings.providerIds.includes(providerId))
+	) {
 		return null;
 	}
-	if (!isContentFilterSampled(settings, random)) {
+	// A blocking provider blocks at its own rate; requests that miss it fall
+	// back to log-only monitoring at the general rate.
+	const blockingSampled =
+		providerEnforced &&
+		!settings.enforce &&
+		isSampled(settings.enforceSampleRatePercent ?? 100, random);
+	if (!blockingSampled && !isContentFilterSampled(settings, random)) {
 		return null;
 	}
 
@@ -142,7 +158,7 @@ export async function resolveTieredContentFilterPlan(
 	);
 
 	let exemptReason: TieredContentFilterPlan["exemptReason"];
-	if (!settings.enforce) {
+	if (!settings.enforce && !blockingSampled) {
 		exemptReason = "global_log_only";
 	} else if (
 		organization.plan === "enterprise" &&

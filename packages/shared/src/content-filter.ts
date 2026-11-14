@@ -45,6 +45,12 @@ export const contentFilterSettingsSchema = z.object({
 	sampleRatePercent: z.number().min(0).max(100).default(100),
 	// When false every violation is recorded as metadata but never blocked.
 	enforce: z.boolean().default(false),
+	// Providers that block (awaited before the provider call) even while
+	// `enforce` is off. Always moderated, whether or not in `providerIds`.
+	enforceProviderIds: z.array(z.string()).default([]),
+	// Share of a blocking provider's requests checked in blocking mode. The
+	// rest are monitored log-only at `sampleRatePercent`.
+	enforceSampleRatePercent: z.number().min(0).max(100).default(100),
 	// Enterprise orgs stay log-only unless this is also on.
 	enforceEnterprise: z.boolean().default(false),
 	// Classifier whose scores decide the outcome.
