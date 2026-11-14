@@ -1384,3 +1384,106 @@ describe("image service tiers", () => {
 	});
 });
 const gifBase64 = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+describe("image key rotation", () => {
+	const harness = createGatewayApiTestHarness();
+	const usedKeys: string[] = [];
+
+	beforeEach(async () => {
+		usedKeys.length = 0;
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("test-token"),
+			projectId: "project-id",
+			createdBy: "user-id",
+			description: "Test API Key",
+		});
+		for (const [id, token, createdAt] of [
+			["provider-key-revoked", "revoked-key", "2026-01-01T00:00:00Z"],
+			["provider-key-live", "live-key", "2026-01-02T00:00:00Z"],
+		]) {
+			await db.insert(tables.providerKey).values({
+				id,
+				createdAt: new Date(createdAt),
+				...encryptProviderKeyForStorage(token, id, "org-id"),
+				provider: "google-ai-studio",
+				organizationId: "org-id",
+				baseUrl: harness.mockServerUrl,
+			});
+		}
+
+		const originalFetch = globalThis.fetch;
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const url = new URL(
+				typeof input === "string" || input instanceof URL ? input : input.url,
+			);
+			if (!url.href.startsWith(harness.mockServerUrl)) {
+				return await originalFetch(input, init);
+			}
+			const key =
+				url.searchParams.get("key") ??
+				new Headers(init?.headers).get("x-goog-api-key") ??
+				"";
+			usedKeys.push(key);
+			if (key === "revoked-key") {
+				return Response.json(
+					{
+						error: {
+							code: 401,
+							message: "API key not valid. Please pass a valid API key.",
+							status: "UNAUTHENTICATED",
+						},
+					},
+					{ status: 401 },
+				);
+			}
+			return Response.json({
+				candidates: [
+					{
+						content: {
+							parts: [
+								{
+									inlineData: {
+										mimeType: "image/png",
+										data: pngBytes.toString("base64"),
+									},
+								},
+							],
+							role: "model",
+						},
+						finishReason: "STOP",
+						index: 0,
+					},
+				],
+				usageMetadata: {
+					promptTokenCount: 10,
+					candidatesTokenCount: 1120,
+					totalTokenCount: 1130,
+				},
+			});
+		});
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	test("retries a revoked key on the next key of the same provider", async () => {
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer test-token",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "google-ai-studio/gemini-3-pro-image",
+				prompt: "A blue circle",
+			}),
+		});
+		const json = await res.json();
+		expect(res.status, JSON.stringify(json)).toBe(200);
+		expect(json.data).toHaveLength(1);
+		expect(usedKeys).toEqual(["revoked-key", "live-key"]);
+	});
+});
