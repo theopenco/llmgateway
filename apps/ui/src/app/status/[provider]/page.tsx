@@ -2,6 +2,7 @@ import { ArrowLeft, ArrowUpRight, Shuffle } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { ProviderUptimeEmbed } from "@/components/badges/provider-uptime-embed";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -404,6 +405,21 @@ export default async function ProviderStatusPage({ params }: PageProps) {
 								))}
 							</ul>
 						) : null}
+					</section>
+
+					<section className="mb-10" aria-labelledby="embed-heading">
+						<h2 id="embed-heading" className="mb-2 text-xl font-semibold">
+							Embed this status
+						</h2>
+						<p className="mb-4 text-sm text-muted-foreground">
+							Show {provider.name}'s measured uptime in your README or docs.{" "}
+							<Link href="/badges" className="underline underline-offset-4">
+								More badges
+							</Link>
+						</p>
+						<div className="max-w-2xl">
+							<ProviderUptimeEmbed id={provider.id} name={provider.name} />
+						</div>
 					</section>
 
 					<section className="mb-10 flex flex-wrap gap-3 text-sm">

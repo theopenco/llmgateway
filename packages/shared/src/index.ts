@@ -247,6 +247,7 @@ export {
 } from "./lounge-source.js";
 
 export { ENTERPRISE_BOOKING_URL, MARKETING_STATS } from "./marketing.js";
+export { FIRST_USAGE_YEAR } from "./usage-years.js";
 
 export {
 	type DiscordEmbed,
