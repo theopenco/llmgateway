@@ -154,6 +154,5 @@ export const MODEL_SYNC_PROVIDERS: readonly string[] = [
 	"aws-bedrock",
 	"aws-mantle",
 	"azure",
-	"azure-ai-foundry",
 	"azure-anthropic",
 ];
