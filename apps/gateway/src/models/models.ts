@@ -17,6 +17,7 @@ import { logger, toError } from "@llmgateway/logger";
 import {
 	expandProviderRegions,
 	getProviderDefinition,
+	getVirtualAliasName,
 	models as modelsList,
 	providers,
 	type PeakPricing,
@@ -741,7 +742,8 @@ const virtualAliasesByModelId = (() => {
 
 // The entry followed by a copy per virtual alias of its model, so clients can
 // discover and select the alias like any other model. Mirrors the models
-// directory (`expandVirtualModels`): the alias is the id and name.
+// directory (`expandVirtualModels`), but named after the alias
+// (`getVirtualAliasName`) so name-based UIs can tell it from its target.
 function withVirtualAliasEntries<T extends { id: string; name: string }>(
 	entry: T,
 	modelId: string,
@@ -750,14 +752,17 @@ function withVirtualAliasEntries<T extends { id: string; name: string }>(
 	const aliases = virtualAliasesByModelId.get(modelId) ?? [];
 	return [
 		entry,
-		...aliases.map((alias) => ({
-			...entry,
-			id: `${idPrefix}${alias}`,
-			name: `${alias}${nameSuffix}`,
-			display_name: `${alias}${nameSuffix}`,
-			aliases: undefined,
-			virtual_model_target: entry.id,
-		})),
+		...aliases.map((alias) => {
+			const name = `${getVirtualAliasName(alias)}${nameSuffix}`;
+			return {
+				...entry,
+				id: `${idPrefix}${alias}`,
+				name,
+				display_name: name,
+				aliases: undefined,
+				virtual_model_target: entry.id,
+			};
+		}),
 	];
 }
 
