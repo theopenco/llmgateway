@@ -209,11 +209,15 @@ function cellText(value: unknown): string {
 		: "";
 }
 
-/** A token count: blank reads as 0, anything that is not a count as null. */
-function toCount(value: unknown): number | null {
+/**
+ * A token count, or null when the cell does not hold one. A blank cell is 0
+ * only for the optional cached column; a blank input or output count is
+ * unknown, not zero.
+ */
+function toCount(value: unknown, blankIsZero = false): number | null {
 	const text = cellText(value).replace(/,/g, "");
 	if (text === "") {
-		return 0;
+		return blankIsZero ? 0 : null;
 	}
 	const parsed = Number(text);
 	return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
@@ -258,7 +262,7 @@ export class UsageAggregator {
 		this.rowCount += 1;
 		const input = inputTokens ? toCount(row[inputTokens]) : 0;
 		const output = outputTokens ? toCount(row[outputTokens]) : 0;
-		const cached = cachedTokens ? toCount(row[cachedTokens]) : 0;
+		const cached = cachedTokens ? toCount(row[cachedTokens], true) : 0;
 		const amount = cost ? toMoney(row[cost]) : null;
 		// A row is compared only when every figure on it is known: counting its
 		// tokens without its cost, or its cost without its tokens, would skew

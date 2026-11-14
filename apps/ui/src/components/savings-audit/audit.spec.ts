@@ -195,10 +195,12 @@ describe("UsageAggregator", () => {
 		// Unreadable tokens, a blank cost, and a row without usage.
 		aggregator.add({ model: priced.id, in: "unknown", out: 0, cost: "100" });
 		aggregator.add({ model: priced.id, in: 1000, out: 1000, cost: "" });
-		aggregator.add({ model: priced.id, in: 0, out: "", cost: "3" });
+		aggregator.add({ model: priced.id, in: 0, out: 0, cost: "3" });
+		// A blank required count is unknown, not zero.
+		aggregator.add({ model: priced.id, in: "", out: 1000, cost: "5" });
 
 		const result = aggregator.result(NOW);
-		expect(result.skippedRows).toBe(3);
+		expect(result.skippedRows).toBe(4);
 		expect(result.comparedRows).toBe(1);
 		expect(result.totals.baseline.toNumber()).toBe(5);
 		expect(result.rows[0]).toMatchObject({
