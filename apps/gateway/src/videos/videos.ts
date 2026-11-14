@@ -842,9 +842,8 @@ interface ProviderContext {
 	 */
 	managedProviderKeyId?: string;
 	/**
-	 * BYOK provider key that created the job, for spend attribution on the
-	 * final log row only. Does not pin polling — BYOK polls re-resolve the
-	 * org's active key as they always did.
+	 * BYOK provider key that created the job. Polls and content retrieval
+	 * prefer it, falling back to the org's other active keys once it is gone.
 	 */
 	providerKeyId?: string;
 	/**
