@@ -9,6 +9,7 @@ import { statusProviders } from "@/lib/provider-status";
 
 import {
 	isLiveMapping,
+	isTokenPricedMapping,
 	models as modelDefinitions,
 	type ModelDefinition,
 } from "@llmgateway/models";
@@ -62,9 +63,7 @@ export default function BadgesPage() {
 				model.family !== "llmgateway" &&
 				model.providers.some(
 					(mapping) =>
-						mapping.inputPrice !== undefined &&
-						mapping.outputPrice !== undefined &&
-						isLiveMapping(mapping, now),
+						isTokenPricedMapping(mapping) && isLiveMapping(mapping, now),
 				),
 		)
 		.map((model) => ({ id: model.id, name: model.name ?? model.id }));

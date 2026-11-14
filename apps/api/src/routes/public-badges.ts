@@ -4,6 +4,7 @@ import { Decimal } from "decimal.js";
 
 import {
 	isLiveMapping,
+	isTokenPricedMapping,
 	models as modelDefinitions,
 	type ModelDefinition,
 } from "@llmgateway/models";
@@ -104,7 +105,11 @@ function perMillion(price: string): string {
 	return `$${value.isInteger() ? value.toString() : value.toFixed(Math.max(2, value.decimalPlaces()))}`;
 }
 
-/** The lowest live input + output price across a model's providers. */
+/**
+ * The lowest live input + output price across a model's providers. Mappings
+ * billed per image, second or request are skipped: their token prices are not
+ * what a request costs.
+ */
 export function cheapestPrice(
 	model: ModelDefinition,
 	now: Date = new Date(),
@@ -116,6 +121,7 @@ export function cheapestPrice(
 		if (
 			inputPrice === undefined ||
 			outputPrice === undefined ||
+			!isTokenPricedMapping(mapping) ||
 			!isLiveMapping(mapping, now)
 		) {
 			continue;

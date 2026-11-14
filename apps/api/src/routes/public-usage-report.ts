@@ -11,6 +11,7 @@ import {
 	excludeRegionalMappingRows,
 	gt,
 	gte,
+	inArray,
 	lt,
 	modelHistoryHourly,
 	modelProviderMappingHistoryHourly,
@@ -143,6 +144,14 @@ export async function loadUsageReport(
 	const mph = modelProviderMappingHistoryHourly;
 	const month = sql<string>`to_char(date_trunc('month', ${mh.hourTimestamp}), 'YYYY-MM')`;
 
+	// Only catalogue models and providers are public; custom org models and the
+	// gateway's routing pseudo-models stay out of the report.
+	const familyByModel = new Map<string, string>(
+		modelDefinitions
+			.filter((m) => m.family !== "llmgateway")
+			.map((m) => [m.id, m.family]),
+	);
+
 	const modelMonthRows = await db
 		.select({
 			modelId: mh.modelId,
@@ -175,18 +184,12 @@ export async function loadUsageReport(
 				gte(mph.hourTimestamp, from),
 				lt(mph.hourTimestamp, to),
 				gt(mph.logsCount, 0),
+				inArray(mph.modelId, [...familyByModel.keys()]),
 				excludeRegionalMappingRows(mph),
 			),
 		)
 		.groupBy(mph.providerId);
 
-	// Only catalogue models and providers are public; custom org models and the
-	// gateway's routing pseudo-models stay out of the report.
-	const familyByModel = new Map<string, string>(
-		modelDefinitions
-			.filter((m) => m.family !== "llmgateway")
-			.map((m) => [m.id, m.family]),
-	);
 	const knownProviderIds = new Set<string>(
 		providerDefinitions
 			.filter((p) => p.name !== "LLM Gateway")
@@ -207,11 +210,10 @@ export async function loadUsageReport(
 		if (!familyByModel.has(row.modelId)) {
 			continue;
 		}
-		const tokens = Number(row.totalTokens) || 0;
+		const tokens = Math.max(Number(row.totalTokens) || 0, 0);
 		const requests = Number(row.totalRequests) || 0;
-		if (tokens <= 0) {
-			continue;
-		}
+		// Requests count even in a month without tokens; only months with
+		// tokens enter a model's ranking history.
 		const model = byModel.get(row.modelId) ?? {
 			totalTokens: 0,
 			totalRequests: 0,
@@ -219,7 +221,9 @@ export async function loadUsageReport(
 		};
 		model.totalTokens += tokens;
 		model.totalRequests += requests;
-		model.byMonth.set(row.month, tokens);
+		if (tokens > 0) {
+			model.byMonth.set(row.month, tokens);
+		}
 		byModel.set(row.modelId, model);
 		const bucket = byMonth.get(row.month) ?? {
 			totalTokens: 0,
@@ -238,9 +242,9 @@ export async function loadUsageReport(
 		totalRequests += bucket.totalRequests;
 	}
 
-	const ranked = [...byModel.entries()].sort(
-		(a, b) => b[1].totalTokens - a[1].totalTokens,
-	);
+	const ranked = [...byModel.entries()]
+		.filter(([, model]) => model.totalTokens > 0)
+		.sort((a, b) => b[1].totalTokens - a[1].totalTokens);
 
 	const months = monthKeys.map((key) => {
 		let topModelId: string | null = null;
@@ -347,7 +351,7 @@ export async function loadUsageReport(
 		totals: {
 			totalTokens,
 			totalRequests,
-			activeModels: byModel.size,
+			activeModels: ranked.length,
 			activeProviders: providers.length,
 		},
 		months,

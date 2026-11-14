@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	isLiveMapping,
+	isTokenPricedMapping,
 	models,
 	type ModelDefinition,
 } from "@llmgateway/models";
@@ -19,15 +20,15 @@ import {
 } from "./audit";
 
 const NOW = new Date();
+const usable = (mapping: ModelDefinition["providers"][number]) =>
+	isTokenPricedMapping(mapping) && isLiveMapping(mapping, NOW);
+// A model its own lab serves, so it has both a list price and a live price.
 const priced = (models as readonly ModelDefinition[]).find(
 	(model) =>
 		model.family !== "llmgateway" &&
 		!model.id.includes(".") &&
 		model.providers.some(
-			(mapping) =>
-				mapping.inputPrice !== undefined &&
-				mapping.outputPrice !== undefined &&
-				isLiveMapping(mapping, NOW),
+			(mapping) => mapping.providerId === model.family && usable(mapping),
 		),
 )!;
 
@@ -37,12 +38,7 @@ function cheapest(mix: {
 	cachedTokens: number;
 }) {
 	return priced.providers
-		.filter(
-			(mapping) =>
-				mapping.inputPrice !== undefined &&
-				mapping.outputPrice !== undefined &&
-				isLiveMapping(mapping, NOW),
-		)
+		.filter(usable)
 		.map((mapping) => mappingCost(mapping, mix))
 		.reduce((best, cost) => (cost.lt(best) ? cost : best));
 }
@@ -191,6 +187,48 @@ describe("UsageAggregator", () => {
 			rows: 2,
 			inputTokens: 2_000_000,
 		});
+	});
+
+	it("skips rows whose tokens or cost cannot be read", () => {
+		const aggregator = new UsageAggregator(mapping);
+		aggregator.add({ model: priced.id, in: 1000, out: 1000, cost: "5" });
+		// Unreadable tokens, a blank cost, and a row without usage.
+		aggregator.add({ model: priced.id, in: "unknown", out: 0, cost: "100" });
+		aggregator.add({ model: priced.id, in: 1000, out: 1000, cost: "" });
+		aggregator.add({ model: priced.id, in: 0, out: "", cost: "3" });
+
+		const result = aggregator.result(NOW);
+		expect(result.skippedRows).toBe(3);
+		expect(result.comparedRows).toBe(1);
+		expect(result.totals.baseline.toNumber()).toBe(5);
+		expect(result.rows[0]).toMatchObject({
+			inputTokens: 1000,
+			outputTokens: 1000,
+		});
+	});
+
+	it("has no list price for a model its lab does not serve here", () => {
+		const hosted = (models as readonly ModelDefinition[]).find(
+			(model) =>
+				model.family !== "llmgateway" &&
+				matchModel(model.id)?.id === model.id &&
+				model.providers.every(
+					(provider) => provider.providerId !== model.family,
+				) &&
+				model.providers.some(
+					(provider) =>
+						isTokenPricedMapping(provider) && isLiveMapping(provider, NOW),
+				),
+		)!;
+		const aggregator = new UsageAggregator({
+			model: "model",
+			inputTokens: "in",
+			outputTokens: "out",
+		});
+		aggregator.add({ model: hosted.id, in: 1000, out: 1000 });
+		const result = aggregator.result(NOW);
+		expect(result.comparedRows).toBe(0);
+		expect(result.unmatched).toEqual([hosted.id]);
 	});
 
 	it("falls back to list prices when the file has no cost column", () => {

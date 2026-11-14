@@ -2,6 +2,7 @@ import { Decimal } from "decimal.js";
 
 import {
 	isLiveMapping,
+	isTokenPricedMapping,
 	models,
 	providers,
 	type ModelDefinition,
@@ -143,8 +144,9 @@ export interface TokenMix {
 	cachedTokens: number;
 }
 
+// Only mappings billed per token can be priced from token counts.
 function hasPrices(mapping: ProviderModelMapping): boolean {
-	return mapping.inputPrice !== undefined && mapping.outputPrice !== undefined;
+	return isTokenPricedMapping(mapping);
 }
 
 /**
@@ -183,11 +185,15 @@ function cheapestMapping(
 	return best;
 }
 
-/** The model lab's own list price, used when the export has no cost column. */
+/**
+ * The model lab's own list price, used when the export has no cost column.
+ * Null when the lab does not serve the model here: another host's price is
+ * not a list price.
+ */
 function listPrice(model: ModelDefinition, mix: TokenMix): Decimal | null {
-	const official =
-		model.providers.find((mapping) => mapping.providerId === model.family) ??
-		model.providers[0];
+	const official = model.providers.find(
+		(mapping) => mapping.providerId === model.family,
+	);
 	return official && hasPrices(official) ? mappingCost(official, mix) : null;
 }
 
@@ -197,23 +203,33 @@ export const PLATFORM_FEE_RATE = new Decimal(
 	calculateFees({ amount: FEE_PROBE_AMOUNT }).platformFee,
 ).div(FEE_PROBE_AMOUNT);
 
-function toCount(value: unknown): number {
-	const parsed = Number(String(value ?? "").replace(/,/g, ""));
-	return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+function cellText(value: unknown): string {
+	return typeof value === "string" || typeof value === "number"
+		? String(value).trim()
+		: "";
 }
 
+/** A token count: blank reads as 0, anything that is not a count as null. */
+function toCount(value: unknown): number | null {
+	const text = cellText(value).replace(/,/g, "");
+	if (text === "") {
+		return 0;
+	}
+	const parsed = Number(text);
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+/** A cost in USD, or null when the cell is blank or not an amount. */
 function toMoney(value: unknown): Decimal | null {
-	const cleaned = String(value ?? "")
-		.replace(/[$,\s]/g, "")
-		.trim();
+	const cleaned = cellText(value).replace(/[$,\s]/g, "");
 	if (cleaned === "") {
 		return null;
 	}
 	try {
 		const amount = new Decimal(cleaned);
-		return amount.isFinite() ? amount : null;
+		return amount.isFinite() && !amount.isNegative() ? amount : null;
 	} catch {
-		// decimal.js throws on text that is not a number: treat as "no cost".
+		// decimal.js throws on text that is not a number.
 		return null;
 	}
 }
@@ -227,17 +243,36 @@ interface Bucket extends TokenMix {
 export class UsageAggregator {
 	private readonly buckets = new Map<string, Bucket>();
 	public rowCount = 0;
+	/** Rows left out because a token count or cost could not be read. */
+	public skippedRows = 0;
 
 	public constructor(private readonly mapping: ColumnMapping) {}
 
 	public add(row: Record<string, unknown>): void {
 		const { model, inputTokens, outputTokens, cachedTokens, cost } =
 			this.mapping;
-		const name = model ? String(row[model] ?? "").trim() : "";
+		const name = model ? cellText(row[model]) : "";
 		if (!name) {
 			return;
 		}
 		this.rowCount += 1;
+		const input = inputTokens ? toCount(row[inputTokens]) : 0;
+		const output = outputTokens ? toCount(row[outputTokens]) : 0;
+		const cached = cachedTokens ? toCount(row[cachedTokens]) : 0;
+		const amount = cost ? toMoney(row[cost]) : null;
+		// A row is compared only when every figure on it is known: counting its
+		// tokens without its cost, or its cost without its tokens, would skew
+		// one side of the comparison.
+		if (
+			input === null ||
+			output === null ||
+			cached === null ||
+			input + output === 0 ||
+			(cost !== undefined && amount === null)
+		) {
+			this.skippedRows += 1;
+			return;
+		}
 		const bucket = this.buckets.get(name) ?? {
 			requests: 0,
 			inputTokens: 0,
@@ -246,10 +281,9 @@ export class UsageAggregator {
 			cost: new Decimal(0),
 		};
 		bucket.requests += 1;
-		bucket.inputTokens += inputTokens ? toCount(row[inputTokens]) : 0;
-		bucket.outputTokens += outputTokens ? toCount(row[outputTokens]) : 0;
-		bucket.cachedTokens += cachedTokens ? toCount(row[cachedTokens]) : 0;
-		const amount = cost ? toMoney(row[cost]) : null;
+		bucket.inputTokens += input;
+		bucket.outputTokens += output;
+		bucket.cachedTokens += cached;
 		if (amount) {
 			bucket.cost = bucket.cost.plus(amount);
 		}
@@ -257,7 +291,10 @@ export class UsageAggregator {
 	}
 
 	public result(now: Date = new Date()): AuditResult {
-		return buildAudit(this.buckets, Boolean(this.mapping.cost), now);
+		return {
+			...buildAudit(this.buckets, Boolean(this.mapping.cost), now),
+			skippedRows: this.skippedRows,
+		};
 	}
 }
 
@@ -279,6 +316,8 @@ export interface AuditResult {
 	rows: AuditRow[];
 	unmatched: string[];
 	comparedRows: number;
+	/** Rows whose token counts or cost could not be read. */
+	skippedRows: number;
 	totals: {
 		baseline: Decimal;
 		gatewayUsage: Decimal;
@@ -293,7 +332,7 @@ function buildAudit(
 	buckets: Map<string, Bucket>,
 	hasCostColumn: boolean,
 	now: Date,
-): AuditResult {
+): Omit<AuditResult, "skippedRows"> {
 	const rows: AuditRow[] = [];
 	const unmatched: string[] = [];
 	let baselineTotal = new Decimal(0);

@@ -38,12 +38,12 @@ const faqs = [
 	{
 		question: "What if my file has no cost column?",
 		answer:
-			"Then the comparison uses each model's list price at the lab that built it as the baseline, and says so above the result.",
+			"Then the comparison uses each model's list price at the lab that built it as the baseline, and says so above the result. A model whose lab is not one of our providers has no list price here and is left out.",
 	},
 	{
 		question: "What is left out?",
 		answer:
-			"Models without a priced match are excluded from both totals and listed under the table. Per-request fees, image and audio pricing, and long-context price tiers are not modelled, so treat the result as an estimate for text workloads.",
+			"Models that cannot be priced on both sides are excluded from both totals and listed under the table, and so are rows with an unreadable token count or cost. Models billed per image, second or request, and long-context price tiers, are not modelled, so treat the result as an estimate for text workloads.",
 	},
 ];
 

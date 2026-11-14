@@ -1,4 +1,4 @@
-import { fetchServerData } from "@/lib/server-api";
+import { createServerApiClient } from "@/lib/server-api";
 
 import {
 	models as modelDefinitions,
@@ -6,7 +6,7 @@ import {
 } from "@llmgateway/models";
 import { FIRST_USAGE_YEAR } from "@llmgateway/shared";
 
-import { WrappedClient, type WrappedData } from "./wrapped-client";
+import { WrappedClient, type WrappedStatus } from "./wrapped-client";
 
 function parseYear(value: string | string[] | undefined, currentYear: number) {
 	const year = Number(Array.isArray(value) ? value[0] : value);
@@ -27,9 +27,17 @@ export default async function WrappedPage({
 	const { orgId } = await params;
 	const currentYear = new Date().getUTCFullYear();
 	const year = parseYear((await searchParams).year, currentYear);
-	const data = await fetchServerData<WrappedData>("GET", "/orgs/{id}/wrapped", {
+	// The status matters here: a refused request and a failed one need
+	// different messages, which fetchServerData folds into one null.
+	const client = await createServerApiClient();
+	const { data, response } = await client.GET("/orgs/{id}/wrapped", {
 		params: { path: { id: orgId }, query: { year } },
 	});
+	const status: WrappedStatus = data
+		? "ok"
+		: response.status === 401 || response.status === 403
+			? "denied"
+			: "error";
 
 	// Only the names this page shows cross to the browser, not the catalogue.
 	const names: Record<string, string> = {};
@@ -53,7 +61,8 @@ export default async function WrappedPage({
 
 	return (
 		<WrappedClient
-			data={data}
+			data={data ?? null}
+			status={status}
 			names={names}
 			year={year}
 			years={years}

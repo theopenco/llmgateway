@@ -116,6 +116,58 @@ describe("public usage report", () => {
 		]);
 	});
 
+	test("keeps private models out of provider totals", async () => {
+		await seedModelMonth(LEADER, 1, 600);
+		for (const [modelId, id] of [
+			[LEADER, "usage-report-public"],
+			["private-custom-model", "usage-report-private"],
+		]) {
+			await db.insert(tables.modelProviderMappingHistoryHourly).values({
+				modelId,
+				providerId: PROVIDER,
+				modelProviderMappingId: id,
+				usedMode: "credits",
+				hourTimestamp: new Date(Date.UTC(YEAR, 0, 15, 12)),
+				logsCount: 10,
+				totalTokens: 600,
+			});
+		}
+
+		const res = await app.request(`/public/models/report?year=${YEAR}`);
+		const report = await res.json();
+		expect(report.providers).toEqual([
+			{
+				providerId: PROVIDER,
+				totalTokens: 600,
+				totalRequests: 10,
+				sharePercent: 100,
+			},
+		]);
+	});
+
+	test("counts requests from a month without tokens", async () => {
+		await seedModelMonth(LEADER, 1, 0);
+		await seedModelMonth(LEADER, 2, 500);
+
+		const res = await app.request(`/public/models/report?year=${YEAR}`);
+		const report = await res.json();
+		expect(report.totals.totalRequests).toBe(20);
+		expect(report.months).toEqual([
+			{ month: "2025-01", totalTokens: 0, totalRequests: 10, topModelId: null },
+			{
+				month: "2025-02",
+				totalTokens: 500,
+				totalRequests: 10,
+				topModelId: LEADER,
+			},
+		]);
+		expect(report.models[0]).toMatchObject({
+			modelId: LEADER,
+			totalRequests: 20,
+			firstActiveMonth: "2025-02",
+		});
+	});
+
 	test("returns an empty report for a year without traffic", async () => {
 		const res = await app.request(`/public/models/report?year=${YEAR}`);
 		expect(res.status).toBe(200);

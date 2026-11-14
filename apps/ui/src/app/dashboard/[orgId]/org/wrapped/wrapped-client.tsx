@@ -2,7 +2,7 @@
 
 import { Check, Copy, Download } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useId, useRef, useState } from "react";
 
 import { Button } from "@/lib/components/button";
@@ -28,8 +28,11 @@ import type { Route } from "next";
 export type WrappedData =
 	paths["/orgs/{id}/wrapped"]["get"]["responses"][200]["content"]["application/json"];
 
+export type WrappedStatus = "ok" | "denied" | "error";
+
 interface WrappedClientProps {
 	data: WrappedData | null;
+	status: WrappedStatus;
 	names: Record<string, string>;
 	year: number;
 	years: number[];
@@ -64,12 +67,14 @@ function formatHour(hour: number) {
 
 export function WrappedClient({
 	data,
+	status,
 	names,
 	year,
 	years,
 	isCurrentYear,
 }: WrappedClientProps) {
 	const pathname = usePathname();
+	const router = useRouter();
 	const showNameId = useId();
 	const cardRef = useRef<HTMLDivElement>(null);
 	const [showName, setShowName] = useState(true);
@@ -155,8 +160,24 @@ export function WrappedClient({
 
 				{data === null ? (
 					<Card>
-						<CardContent className="pt-6 text-muted-foreground">
-							Wrapped is available to organization owners and admins.
+						<CardContent className="space-y-4 pt-6 text-muted-foreground">
+							{status === "denied" ? (
+								<p>Wrapped is available to organization owners and admins.</p>
+							) : (
+								<>
+									<p role="alert">
+										Wrapped could not be loaded. Nothing is wrong with your
+										data.
+									</p>
+									<Button
+										type="button"
+										variant="outline"
+										onClick={() => router.refresh()}
+									>
+										Try again
+									</Button>
+								</>
+							)}
 						</CardContent>
 					</Card>
 				) : !hasUsage ? (

@@ -86,6 +86,24 @@ describe("public badges", () => {
 		}
 	});
 
+	test("has no token-price badge for models billed per image or second", async () => {
+		const perUnit = (models as readonly ModelDefinition[]).find(
+			(model) =>
+				model.family !== "llmgateway" &&
+				model.providers.length > 0 &&
+				model.providers.every(
+					(mapping) =>
+						mapping.perImagePrice !== undefined ||
+						mapping.perSecondPrice !== undefined,
+				),
+		)!;
+		expect(cheapestPrice(perUnit)).toBeNull();
+		const res = await app.request(
+			`/public/badges/model/${perUnit.id}/price.svg`,
+		);
+		expect(res.status).toBe(404);
+	});
+
 	test("never rounds uptime up to 100%", () => {
 		expect(formatUptime(99.999)).toBe("99.99%");
 		expect(formatUptime(100)).toBe("100%");

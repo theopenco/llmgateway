@@ -98,39 +98,70 @@ export function SavingsAuditClient() {
 	const [busy, setBusy] = useState(false);
 	const [dragging, setDragging] = useState(false);
 
-	const audit = async (next: Loaded) => {
+	// Each load or column change is one run. A slower earlier run must not
+	// overwrite the state of a later one.
+	const latestRun = useRef(0);
+
+	const fail = (cause: unknown) => {
+		setLoaded(null);
+		setResult(null);
+		setError(
+			cause instanceof Error
+				? `Could not read the file: ${cause.message}`
+				: "Could not read the file.",
+		);
+	};
+
+	const audit = async (run: number, next: Loaded) => {
 		setLoaded(next);
 		setResult(null);
 		if (missingRoles(next.mapping).length > 0) {
 			return;
 		}
-		setResult(await runAudit(next.source, next.mapping));
+		const audited = await runAudit(next.source, next.mapping);
+		if (run === latestRun.current) {
+			setResult(audited);
+		}
+	};
+
+	const start = () => {
+		latestRun.current += 1;
+		setBusy(true);
+		setError(null);
+		return latestRun.current;
+	};
+
+	const finish = (run: number, cause?: unknown) => {
+		if (run !== latestRun.current) {
+			return;
+		}
+		if (cause !== undefined) {
+			fail(cause);
+		}
+		setBusy(false);
 	};
 
 	const load = async (source: Source, name: string) => {
-		setBusy(true);
-		setError(null);
+		const run = start();
 		try {
 			const headers = await readHeaders(source);
-			if (headers.length === 0) {
-				setLoaded(null);
-				setResult(null);
-				setError(
-					"That file has no header row. Export it as CSV and try again.",
-				);
+			if (run !== latestRun.current) {
 				return;
 			}
-			await audit({ source, name, headers, mapping: detectColumns(headers) });
+			if (headers.length === 0) {
+				throw new Error(
+					"it has no header row. Export it as CSV and try again.",
+				);
+			}
+			await audit(run, {
+				source,
+				name,
+				headers,
+				mapping: detectColumns(headers),
+			});
+			finish(run);
 		} catch (cause) {
-			setLoaded(null);
-			setResult(null);
-			setError(
-				cause instanceof Error
-					? `Could not read the file: ${cause.message}`
-					: "Could not read the file.",
-			);
-		} finally {
-			setBusy(false);
+			finish(run, cause);
 		}
 	};
 
@@ -142,11 +173,12 @@ export function SavingsAuditClient() {
 			...loaded.mapping,
 			[role]: column === NO_COLUMN ? undefined : column,
 		};
-		setBusy(true);
+		const run = start();
 		try {
-			await audit({ ...loaded, mapping });
-		} finally {
-			setBusy(false);
+			await audit(run, { ...loaded, mapping });
+			finish(run);
+		} catch (cause) {
+			finish(run, cause);
 		}
 	};
 
@@ -341,7 +373,14 @@ function AuditResults({
 		return (
 			<Card>
 				<CardContent className="pt-6">
-					<p className="font-medium">No model in this file could be priced.</p>
+					<p className="font-medium">No row in this file could be priced.</p>
+					{result.skippedRows > 0 ? (
+						<p className="mt-1 text-sm text-muted-foreground">
+							{formatCompactNumber(result.skippedRows)} rows were skipped
+							because a token count or cost could not be read. Check the column
+							choices above.
+						</p>
+					) : null}
 					<p className="mt-1 text-sm text-muted-foreground">
 						Check that the model column holds model names, or browse the{" "}
 						<Link href="/models" className="underline underline-offset-4">
@@ -421,6 +460,9 @@ function AuditResults({
 					<CardTitle>By model</CardTitle>
 					<CardDescription>
 						{formatCompactNumber(result.comparedRows)} rows compared.
+						{result.skippedRows > 0
+							? ` ${formatCompactNumber(result.skippedRows)} rows skipped because a token count or cost could not be read.`
+							: ""}
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -469,8 +511,8 @@ function AuditResults({
 					</Table>
 					{result.unmatched.length > 0 ? (
 						<p className="mt-4 text-sm text-muted-foreground">
-							Left out of both totals because no priced match was found:{" "}
-							{result.unmatched.slice(0, MAX_UNMATCHED_SHOWN).join(", ")}
+							Left out of both totals because they could not be priced on both
+							sides: {result.unmatched.slice(0, MAX_UNMATCHED_SHOWN).join(", ")}
 							{result.unmatched.length > MAX_UNMATCHED_SHOWN
 								? ` and ${result.unmatched.length - MAX_UNMATCHED_SHOWN} more`
 								: ""}
