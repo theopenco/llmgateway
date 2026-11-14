@@ -9,6 +9,7 @@ import {
 	isNull,
 	like,
 	ne,
+	notInArray,
 	or,
 	sql,
 	tables,
@@ -413,7 +414,10 @@ export async function loadCrmBook(
 			.select()
 			.from(lead)
 			.where(
-				and(isNull(lead.archivedAt), ne(lead.spamFilterStatus, "rejected")),
+				and(
+					isNull(lead.archivedAt),
+					notInArray(lead.spamFilterStatus, ["rejected", "unconfirmed"]),
+				),
 			)
 			.orderBy(desc(lead.createdAt)),
 		db.select().from(tables.crmAccount),
@@ -601,7 +605,7 @@ export async function syncLeadFollowUps(
 			and(
 				isNull(a.completedAt),
 				like(a.externalRef, LEAD_FOLLOW_UP_REFS),
-				sql`not exists (select 1 from ${submission} where ${LEAD_REF_PREFIX} || ${submission.id} = ${a.externalRef} and ${submission.archivedAt} is null and ${submission.spamFilterStatus} <> 'rejected')`,
+				sql`not exists (select 1 from ${submission} where ${LEAD_REF_PREFIX} || ${submission.id} = ${a.externalRef} and ${submission.archivedAt} is null and ${submission.spamFilterStatus} not in ('rejected', 'unconfirmed'))`,
 			),
 		)
 		.returning({ id: a.id });

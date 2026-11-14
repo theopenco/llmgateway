@@ -25,7 +25,8 @@ import { cn } from "@/lib/utils";
 
 type SortBy = "createdAt" | "name" | "email" | "spamFilterStatus";
 type SortOrder = "asc" | "desc";
-type Status = "pending" | "rejected" | "delivered" | "delivery_failed";
+type Status =
+	"pending" | "rejected" | "unconfirmed" | "delivered" | "delivery_failed";
 
 function SortableHeader({
 	label,
@@ -124,6 +125,7 @@ function deploymentLabel(value: string | null | undefined) {
 const statusOptions: { value: Status | ""; label: string }[] = [
 	{ value: "", label: "All" },
 	{ value: "delivered", label: "Delivered" },
+	{ value: "unconfirmed", label: "Unconfirmed" },
 	{ value: "pending", label: "Pending" },
 	{ value: "rejected", label: "Rejected" },
 	{ value: "delivery_failed", label: "Failed" },
