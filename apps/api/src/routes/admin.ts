@@ -14369,7 +14369,13 @@ const getContactSubmissions = createRoute({
 			offset: z.coerce.number().min(0).default(0).optional(),
 			search: z.string().optional(),
 			status: z
-				.enum(["pending", "rejected", "delivered", "delivery_failed"])
+				.enum([
+					"pending",
+					"rejected",
+					"unconfirmed",
+					"delivered",
+					"delivery_failed",
+				])
 				.optional(),
 			sortBy: contactSubmissionsSortBySchema.default("createdAt").optional(),
 			sortOrder: sortOrderSchema.default("desc").optional(),

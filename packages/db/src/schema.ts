@@ -1107,8 +1107,16 @@ export const enterpriseContactSubmission = snakeCase.table(
 		clientTimestampMs: text(),
 		ipAddress: text(),
 		userAgent: text(),
+		// "unconfirmed": passed spam checks, waiting for the submitter to confirm
+		// their email before it reaches sales.
 		spamFilterStatus: text({
-			enum: ["pending", "rejected", "delivered", "delivery_failed"],
+			enum: [
+				"pending",
+				"rejected",
+				"unconfirmed",
+				"delivered",
+				"delivery_failed",
+			],
 		})
 			.notNull()
 			.default("pending"),

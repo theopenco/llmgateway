@@ -1,18 +1,27 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
+import {
+	ENTERPRISE_CONTACT_CONFIRM_SUBJECT,
+	buildEnterpriseContactConfirmUrl,
+	generateEnterpriseContactConfirmEmailHtml,
+	signEnterpriseContactToken,
+	verifyEnterpriseContactToken,
+} from "@/lib/enterprise-contact.js";
 import { createRoute } from "@/utils/create-route.js";
 import { notifyEnterpriseContact } from "@/utils/discord.js";
+import { sendTransactionalEmail } from "@/utils/email.js";
 import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 
-import { db, eq, tables } from "@llmgateway/db";
-import { logger } from "@llmgateway/logger";
+import { and, db, eq, inArray, tables } from "@llmgateway/db";
+import { logger, toError } from "@llmgateway/logger";
 import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 import {
 	fromEmail,
 	getResendClient,
 	replyToEmail,
 } from "@llmgateway/shared/email";
+import { normalizeEmail } from "@llmgateway/shared/email-unsubscribe";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -49,6 +58,11 @@ const contactResponseSchema = z.object({
 
 const RATE_LIMIT_MAX = 3;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
+// Confirmation emails one mailbox can be sent per day.
+const CONFIRMATIONS_PER_EMAIL_PER_DAY = 3;
+const DAY_SECONDS = 24 * 60 * 60;
+const CONFIRMS_PER_IP_PER_HOUR = 20;
+const SEND_TIMEOUT_MS = 10_000;
 
 const disposableEmailDomains = [
 	"tempmail.com",
@@ -94,7 +108,7 @@ const submitEnterpriseContact = createRoute({
 					schema: contactResponseSchema,
 				},
 			},
-			description: "Enterprise contact request handled successfully",
+			description: "Confirmation email sent to the submitter",
 		},
 		400: {
 			content: {
@@ -150,9 +164,11 @@ function escapeHtml(value: string): string {
 		.replaceAll("'", "&#39;");
 }
 
+type Submission = typeof tables.enterpriseContactSubmission.$inferSelect;
+
 async function updateSubmissionStatus(
 	submissionId: string,
-	status: "rejected" | "delivered" | "delivery_failed",
+	status: "rejected" | "unconfirmed" | "delivered" | "delivery_failed",
 	rejectionReason?: string,
 ) {
 	await db
@@ -266,23 +282,77 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 		);
 	}
 
-	const resend = getResendClient();
-	if (!resend) {
+	// The form must not become a way to fill someone else's inbox.
+	const withinMailboxLimit = await consumeRateLimit(
+		`enterprise_contact_confirmation:${normalizeEmail(validatedData.email)}`,
+		CONFIRMATIONS_PER_EMAIL_PER_DAY,
+		DAY_SECONDS,
+	);
+	if (!withinMailboxLimit) {
 		await updateSubmissionStatus(
 			submission.id,
-			"delivery_failed",
-			"resend_not_configured",
+			"rejected",
+			"confirmation_rate_limited",
 		);
 		return c.json(
 			{
 				success: false,
-				message: "Email service is not configured. Please try again later.",
+				message:
+					"Too many requests for this email address. Please try again tomorrow.",
+			},
+			429,
+		);
+	}
+
+	// Sales hears about the request, and the visitor can book a call, only
+	// once the visitor proves they own the address.
+	try {
+		await sendTransactionalEmail({
+			to: validatedData.email,
+			subject: ENTERPRISE_CONTACT_CONFIRM_SUBJECT,
+			html: generateEnterpriseContactConfirmEmailHtml(
+				validatedData.name,
+				buildEnterpriseContactConfirmUrl(
+					signEnterpriseContactToken(submission.id),
+				),
+			),
+			strict: true,
+			timeoutMs: SEND_TIMEOUT_MS,
+		});
+	} catch (error) {
+		logger.error(
+			"Failed to send enterprise contact confirmation",
+			toError(error),
+		);
+		// Stays unconfirmed, so it never reaches sales or the CRM.
+		await updateSubmissionStatus(
+			submission.id,
+			"unconfirmed",
+			"confirmation_send_failed",
+		);
+		return c.json(
+			{
+				success: false,
+				message:
+					"Failed to send the confirmation email. Please try again later.",
 			},
 			500,
 		);
 	}
 
-	const htmlContent = `
+	await updateSubmissionStatus(submission.id, "unconfirmed");
+	return c.json(
+		{
+			success: true,
+			message: "Check your inbox to confirm your email address.",
+		},
+		200,
+	);
+});
+
+function buildSalesEmailHtml(submission: Submission): string {
+	const deployment = deploymentLabel(submission.deployment ?? undefined);
+	return `
 		<html>
 			<head>
 				<meta charset="UTF-8">
@@ -303,50 +373,66 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 
 					<div class="field">
 						<div class="label">Name:</div>
-						<div class="value">${escapeHtml(validatedData.name)}</div>
+						<div class="value">${escapeHtml(submission.name)}</div>
 					</div>
 
 					<div class="field">
-						<div class="label">Email:</div>
-						<div class="value">${escapeHtml(validatedData.email)}</div>
+						<div class="label">Email (confirmed):</div>
+						<div class="value">${escapeHtml(submission.email)}</div>
 					</div>
 
 					<div class="field">
 						<div class="label">Country:</div>
-						<div class="value">${escapeHtml(validatedData.country)}</div>
+						<div class="value">${escapeHtml(submission.country)}</div>
 					</div>
 
 					<div class="field">
 						<div class="label">Company Size:</div>
-						<div class="value">${escapeHtml(validatedData.size)}</div>
+						<div class="value">${escapeHtml(submission.size)}</div>
 					</div>
 
 					${
-						deploymentLabel(validatedData.deployment)
+						deployment
 							? `<div class="field">
 						<div class="label">Deployment:</div>
-						<div class="value">${escapeHtml(deploymentLabel(validatedData.deployment)!)}</div>
+						<div class="value">${escapeHtml(deployment)}</div>
 					</div>`
 							: ""
 					}
 
 					<div class="field">
 						<div class="label">Message:</div>
-						<div class="value" style="white-space: pre-wrap;">${escapeHtml(validatedData.message)}</div>
+						<div class="value" style="white-space: pre-wrap;">${escapeHtml(submission.message)}</div>
 					</div>
 				</div>
 			</body>
 		</html>
 	`;
+}
+
+/** Hands a confirmed request to the sales inbox and Discord. */
+async function deliverToSales(submission: Submission): Promise<void> {
+	const resend = getResendClient();
+	if (!resend) {
+		logger.error(
+			"Resend is not configured; enterprise contact request not delivered",
+			{ submissionId: submission.id },
+		);
+		await updateSubmissionStatus(
+			submission.id,
+			"delivery_failed",
+			"resend_not_configured",
+		);
+		return;
+	}
 
 	const { error } = await resend.emails.send({
 		from: fromEmail,
 		to: [replyToEmail],
-		replyTo: validatedData.email,
-		subject: `Enterprise Contact Request from ${validatedData.name}`,
-		html: htmlContent,
+		replyTo: submission.email,
+		subject: `Enterprise Contact Request from ${submission.name}`,
+		html: buildSalesEmailHtml(submission),
 	});
-
 	if (error) {
 		logger.error(
 			"Failed to send enterprise contact email",
@@ -357,41 +443,147 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 			"delivery_failed",
 			"resend_send_failed",
 		);
-		return c.json(
-			{
-				success: false,
-				message: "Failed to send email. Please try again later.",
-			},
-			500,
-		);
-	}
-
-	try {
-		await updateSubmissionStatus(submission.id, "delivered");
-	} catch (err) {
-		logger.error("Failed to update submission status after delivery", {
-			submissionId: submission.id,
-			error: err,
-		});
+		return;
 	}
 
 	// Fire-and-forget: don't block the response on the Discord webhook.
 	// notifyEnterpriseContact already logs its own failures; the extra catch
 	// guards against an unexpected rejection becoming an unhandled rejection.
 	void notifyEnterpriseContact({
-		name: validatedData.name,
-		email: validatedData.email,
-		country: validatedData.country,
-		size: validatedData.size,
-		deployment: deploymentLabel(validatedData.deployment),
-		message: validatedData.message,
-		ipAddress,
+		name: submission.name,
+		email: submission.email,
+		country: submission.country,
+		size: submission.size,
+		deployment: deploymentLabel(submission.deployment ?? undefined),
+		message: submission.message,
+		ipAddress: submission.ipAddress,
 	}).catch((err) => {
 		logger.error(
 			"Failed to send enterprise Discord notification",
 			err instanceof Error ? err : new Error(String(err)),
 		);
 	});
+}
 
-	return c.json({ success: true, message: "Email sent successfully" }, 200);
+const confirmEnterpriseContact = createRoute({
+	method: "post",
+	path: "/enterprise/confirm",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ token: z.string().min(1) }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: contactResponseSchema.extend({
+						name: z.string(),
+						email: z.string(),
+					}),
+				},
+			},
+			description: "Email confirmed; the visitor can book a call",
+		},
+		400: {
+			content: {
+				"application/json": {
+					schema: contactResponseSchema.extend({
+						invalidLink: z.literal(true),
+					}),
+				},
+			},
+			description: "Invalid or expired link",
+		},
+		429: {
+			content: {
+				"application/json": {
+					schema: contactResponseSchema,
+				},
+			},
+			description: "Rate limit exceeded",
+		},
+	},
+});
+
+publicContact.openapi(confirmEnterpriseContact, async (c) => {
+	const invalidLink = () =>
+		c.json(
+			{
+				success: false,
+				message: "This confirmation link is invalid or has expired.",
+				invalidLink: true as const,
+			},
+			400,
+		);
+
+	const submissionId = verifyEnterpriseContactToken(c.req.valid("json").token);
+	if (!submissionId) {
+		return invalidLink();
+	}
+
+	const ipAddress = getClientIpFromContext(c);
+	const withinIpLimit = await consumeRateLimit(
+		`enterprise_contact_confirm_rate_limit:${ipAddress ?? `submission:${submissionId}`}`,
+		CONFIRMS_PER_IP_PER_HOUR,
+		RATE_LIMIT_WINDOW_SECONDS,
+	);
+	if (!withinIpLimit) {
+		return c.json(
+			{
+				success: false,
+				message: "Too many requests. Please try again later.",
+			},
+			429,
+		);
+	}
+
+	const t = tables.enterpriseContactSubmission;
+	const [submission] = await db
+		.select()
+		.from(t)
+		.where(eq(t.id, submissionId))
+		.limit(1);
+	if (!submission) {
+		return invalidLink();
+	}
+
+	// delivery_failed here means the sales email failed after an earlier
+	// confirmation, so another click retries it.
+	const deliverable = ["unconfirmed", "delivery_failed"] as const;
+	if (
+		submission.spamFilterStatus === "unconfirmed" ||
+		submission.spamFilterStatus === "delivery_failed"
+	) {
+		// Claim the row first so a double click delivers to sales only once.
+		const [claimed] = await db
+			.update(t)
+			.set({ spamFilterStatus: "delivered", rejectionReason: null })
+			.where(
+				and(
+					eq(t.id, submission.id),
+					inArray(t.spamFilterStatus, [...deliverable]),
+				),
+			)
+			.returning({ id: t.id });
+		if (claimed) {
+			await deliverToSales(submission);
+		}
+	} else if (submission.spamFilterStatus !== "delivered") {
+		return invalidLink();
+	}
+
+	return c.json(
+		{
+			success: true,
+			message: "Email confirmed.",
+			name: submission.name,
+			email: submission.email,
+		},
+		200,
+	);
 });
