@@ -927,6 +927,11 @@ export interface ProviderModelMapping {
 	 */
 	supportedVoices?: string[];
 	/**
+	 * Gemini TTS models that read `text` verbatim: speech `instructions` are sent
+	 * as `speechMetadata.style` instead of being prefixed to the input.
+	 */
+	speechStyleMetadata?: boolean;
+	/**
 	 * Geographic region for this provider mapping.
 	 * Set automatically when a mapping with `regions` is expanded into flat entries.
 	 * When absent (undefined), the provider uses a single global endpoint.
