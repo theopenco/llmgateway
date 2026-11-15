@@ -93,7 +93,11 @@ import {
 } from "@llmgateway/models";
 import {
 	createEmptyProviderModelsByKind,
-	deriveStabilityMetrics,
+	FAILING_CREDENTIAL_ERROR_RATE,
+	FAILING_CREDENTIAL_MIN_REQUESTS,
+	FAILING_CREDENTIAL_WINDOW_HOURS,
+	failingCredentialWindowStart,
+	getFailingCredentialRate,
 	getModelIdsByProvider,
 	getModelIdsByProviderAndKind,
 	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
@@ -946,13 +950,6 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 	});
 });
 
-/** Hours of the rollup the failing-credential check covers, current hour included. */
-const FAILING_CREDENTIAL_WINDOW_HOURS = 4;
-/** Error rate (percent, client errors excluded) at which a credential is failing. */
-const FAILING_CREDENTIAL_ERROR_RATE = 90;
-/** Fewer requests than this in the window is noise, not a broken credential. */
-const FAILING_CREDENTIAL_MIN_REQUESTS = 10;
-
 const failingCredentialSchema = z.object({
 	id: z.string(),
 	provider: z.string(),
@@ -993,26 +990,21 @@ adminProviderCredentials.openapi(listFailingCredentials, async (c) => {
 	});
 	const stats = await getRecentCredentialStats(
 		rows.map((row) => row.id),
-		hourBucketStarts(FAILING_CREDENTIAL_WINDOW_HOURS)[0],
+		failingCredentialWindowStart(),
 	);
 
 	const credentials = rows
 		.flatMap((row) => {
 			const recent = stats.get(row.id);
-			if (!recent) {
-				return [];
-			}
-			const { requestCount, errorsCount, errorRate } = deriveStabilityMetrics({
-				logsCount: recent.requestCount,
-				clientErrorsCount: recent.clientErrorCount,
-				gatewayErrorsCount: recent.gatewayErrorCount,
-				upstreamErrorsCount: recent.upstreamErrorCount,
-			});
-			if (
-				errorRate === null ||
-				requestCount < FAILING_CREDENTIAL_MIN_REQUESTS ||
-				errorRate < FAILING_CREDENTIAL_ERROR_RATE
-			) {
+			const failing =
+				recent &&
+				getFailingCredentialRate({
+					logsCount: recent.requestCount,
+					clientErrorsCount: recent.clientErrorCount,
+					gatewayErrorsCount: recent.gatewayErrorCount,
+					upstreamErrorsCount: recent.upstreamErrorCount,
+				});
+			if (!failing) {
 				return [];
 			}
 			return [
@@ -1021,9 +1013,7 @@ adminProviderCredentials.openapi(listFailingCredentials, async (c) => {
 					provider: row.provider,
 					comment: row.comment,
 					maskedToken: maskToken(readProviderKey(row), 6, 4),
-					requestCount,
-					errorsCount,
-					errorRate,
+					...failing,
 				},
 			];
 		})
