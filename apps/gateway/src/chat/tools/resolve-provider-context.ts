@@ -1088,7 +1088,7 @@ export async function resolveProviderContext(
 	temperature = clampTemperature(
 		temperature,
 		usedProvider,
-		providerMappingForSelected?.maxTemperature,
+		providerMappingForSelected,
 	);
 
 	// --- max_tokens validation ---

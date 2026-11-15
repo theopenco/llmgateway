@@ -1633,7 +1633,9 @@ export const anthropicModels = [
 				contextSize: 1000000,
 				maxOutput: 128000,
 				reasoning: true,
-				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				// Bedrock rejects `xhigh` on this model with a 400 listing the
+				// supported levels (low, medium, high, max).
+				reasoningEfforts: ["none", "low", "medium", "high", "max"],
 				reasoningMode: "adaptive",
 				reasoningOutput: "omit",
 				streaming: true,

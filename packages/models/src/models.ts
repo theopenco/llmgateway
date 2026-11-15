@@ -88,7 +88,11 @@ export type ProviderApiFormat = (typeof PROVIDER_API_FORMATS)[number];
  * formats plus `anthropic-messages` (Claude on AWS Bedrock, and DeepSeek's
  * `webSearchApiFormat`).
  */
-export type RequestApiFormat = ProviderApiFormat | "anthropic-messages";
+export const REQUEST_API_FORMATS = [
+	...PROVIDER_API_FORMATS,
+	"anthropic-messages",
+] as const;
+export type RequestApiFormat = (typeof REQUEST_API_FORMATS)[number];
 
 /**
  * Pricing tier for models with context-length based pricing

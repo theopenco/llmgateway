@@ -8798,7 +8798,7 @@ chat.openapi(completions, async (c) => {
 	temperature = clampTemperature(
 		temperature,
 		usedProvider,
-		getUsedProviderMapping()?.maxTemperature,
+		getUsedProviderMapping(),
 	);
 
 	// Check if the request can be canceled
