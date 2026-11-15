@@ -12,6 +12,24 @@ permissions:
   contents: read
 
 jobs:
+  quality:
+    if: github.event_name == 'pull_request' && github.head_ref != 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # pull_request.base.sha stays at the base the PR was opened against, so
+      # compare with the base branch as it is now.
+      - name: Ensure at most one new migration
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/check-new-migrations.sh "origin/$BASE_REF" "$HEAD_SHA"
+
   lint:
     uses: ./.github/workflows/run.yml
     secrets: inherit
