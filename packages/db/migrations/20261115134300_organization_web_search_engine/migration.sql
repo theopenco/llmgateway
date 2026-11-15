@@ -1,1 +1,0 @@
-ALTER TABLE "organization" ADD COLUMN "web_search_engine" text;
