@@ -10635,40 +10635,46 @@ describe("prepareRequestBody - alibaba forced tool use", () => {
 	);
 });
 
-describe("prepareRequestBody - Baidu Kimi K3 empty text parts", () => {
-	test("drops empty text parts", async () => {
-		const requestBody = (await prepareRequestBody(
-			"baidu",
-			"kimi-k3",
-			null,
-			"qianfan-vl-v1",
-			[
-				{
-					role: "user",
-					content: [
-						{ type: "text", text: "describe this" },
-						{ type: "text", text: "" },
-					],
-				},
-			],
-			false,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			false,
-		)) as { messages: { content: unknown }[] };
+describe("prepareRequestBody - empty text parts", () => {
+	test.each([
+		["baidu", "kimi-k3", "qianfan-vl-v1"],
+		["sakana", "sakana-namazu", "sakana-namazu-v1.0"],
+	] as const)(
+		"drops empty text parts for %s/%s",
+		async (provider, model, externalId) => {
+			const requestBody = (await prepareRequestBody(
+				provider,
+				model,
+				null,
+				externalId,
+				[
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "describe this" },
+							{ type: "text", text: "" },
+						],
+					},
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as { messages: { content: unknown }[] };
 
-		expect(requestBody.messages[0].content).toEqual([
-			{ type: "text", text: "describe this" },
-		]);
-	});
+			expect(requestBody.messages[0].content).toEqual([
+				{ type: "text", text: "describe this" },
+			]);
+		},
+	);
 });
 
 describe("prepareRequestBody - fal image generation", () => {
