@@ -515,7 +515,7 @@ export function lintMigrationSql(migrationSql: string): LintFinding[] {
 	if (lockedExisting.size > 1 && !hasReviewedReason(statements)) {
 		findings.push({
 			rule: "multi-table-lock",
-			message: `One migration alters ${lockedExisting.size} existing tables (${[...lockedExisting].join(", ")}) and holds every ACCESS EXCLUSIVE lock until it commits. Split it into one migration per table across PRs, or justify with -- migrate:reviewed <reason>.`,
+			message: `One migration alters ${lockedExisting.size} existing tables (${[...lockedExisting].join(", ")}) and holds every ACCESS EXCLUSIVE lock until it commits. Split it into one migration per table, or justify with -- migrate:reviewed <reason>.`,
 		});
 	}
 
