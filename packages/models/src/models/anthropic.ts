@@ -36,9 +36,6 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-fable-5-2",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				apiFormat: "anthropic-messages",
 				// Fable requires Bedrock's aws_review retention mode.
 				dataPolicy: { promptLogging: true, retentionPeriod: "30 days" },
@@ -122,9 +119,6 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-fable-5-1",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				apiFormat: "anthropic-messages",
 				// Fable requires Bedrock's aws_review retention mode.
 				dataPolicy: { promptLogging: true, retentionPeriod: "30 days" },
@@ -207,9 +201,6 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-fable-5",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				apiFormat: "anthropic-messages",
 				// Fable requires Bedrock's aws_review retention mode.
 				dataPolicy: { promptLogging: true, retentionPeriod: "30 days" },
@@ -547,9 +538,6 @@ export const anthropicModels = [
 				test: "skip",
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-sonnet-4-5-20250929-v1:0",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
@@ -635,9 +623,6 @@ export const anthropicModels = [
 				test: "skip",
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-sonnet-4-5-20250929-v1:0",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
@@ -697,9 +682,6 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-sonnet-4-6",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				apiFormat: "anthropic-messages",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
@@ -785,9 +767,6 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-sonnet-5",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				apiFormat: "anthropic-messages",
 				inputPrice: "2.0e-6",
 				outputPrice: "10.0e-6",
@@ -922,9 +901,6 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-sonnet-5-5",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				apiFormat: "anthropic-messages",
 				inputPrice: "2.0e-6",
 				outputPrice: "10.0e-6",
@@ -1005,9 +981,6 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-haiku-5-5",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				apiFormat: "anthropic-messages",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.5e-6",
@@ -1086,9 +1059,6 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-haiku-4-5-20251001-v1:0",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				apiFormat: "anthropic-messages",
 				inputPrice: "1.0e-6",
 				outputPrice: "5.0e-6",
@@ -1209,9 +1179,6 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-haiku-4-5-20251001-v1:0",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				apiFormat: "anthropic-messages",
 				inputPrice: "1.0e-6",
 				outputPrice: "5.0e-6",
@@ -1583,9 +1550,6 @@ export const anthropicModels = [
 				test: "skip",
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-opus-4-5-20251101-v1:0",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1665,9 +1629,6 @@ export const anthropicModels = [
 				test: "skip",
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-opus-4-6-v1",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				apiFormat: "anthropic-messages",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
@@ -1784,9 +1745,6 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-opus-4-7",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				apiFormat: "anthropic-messages",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
@@ -1899,9 +1857,6 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-opus-4-8",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				apiFormat: "anthropic-messages",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
@@ -2016,9 +1971,6 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-opus-5-5",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				apiFormat: "anthropic-messages",
 				inputPrice: "4.0e-6",
 				outputPrice: "20.0e-6",
@@ -2084,9 +2036,6 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-opus-5",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				apiFormat: "anthropic-messages",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",

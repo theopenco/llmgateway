@@ -261,6 +261,8 @@ import {
 	isProviderMappingAllowedByRestriction,
 	GATEWAY_WEB_SEARCH_ENGINES,
 	resolveGatewayWebSearchEngine,
+	supportsWebSearch,
+	usesGatewayWebSearch,
 	usesEncryptedReasoning,
 } from "@llmgateway/models";
 import {
@@ -1884,7 +1886,7 @@ chat.openapi(completions, async (c) => {
 	const sponsoredOnboarding = isSponsoredOnboardingRequest(c);
 
 	// Set once the gateway ran a web search itself for an upstream without
-	// native search (`gatewayWebSearch`). Billed by the calculateCosts wrapper
+	// native search (`usesGatewayWebSearch`). Billed by the calculateCosts wrapper
 	// and recorded on the log by insertLogEntry.
 	let internalWebSearch:
 		{ search: InternalWebSearch; price: string } | undefined;
@@ -3664,8 +3666,9 @@ chat.openapi(completions, async (c) => {
 			: modelInfo.providers;
 		const canElectSearch = candidates.some(
 			(p) =>
-				(p as ProviderModelMapping).webSearch === true &&
-				(p as ProviderModelMapping).webSearchForcedOnly !== true,
+				((p as ProviderModelMapping).webSearch === true &&
+					(p as ProviderModelMapping).webSearchForcedOnly !== true) ||
+				usesGatewayWebSearch(p as ProviderModelMapping),
 		);
 		if (!canElectSearch) {
 			webSearchTool = undefined;
@@ -5732,7 +5735,7 @@ chat.openapi(completions, async (c) => {
 					) {
 						return false;
 					}
-					if (webSearchTool && provider.webSearch !== true) {
+					if (webSearchTool && !supportsWebSearch(provider)) {
 						return false;
 					}
 					// Same rule the routing filter applies: search-on-demand-only
@@ -8913,7 +8916,12 @@ chat.openapi(completions, async (c) => {
 	// request: retries and fallbacks reuse the enriched messages and never
 	// search again. A skipped search still clears the tool: the upstream
 	// cannot search, and nothing is billed.
-	if (webSearchTool && getUsedProviderMapping()?.gatewayWebSearch) {
+	const usedMappingForSearch = getUsedProviderMapping();
+	if (
+		webSearchTool &&
+		usedMappingForSearch &&
+		usesGatewayWebSearch(usedMappingForSearch)
+	) {
 		const engine = resolveGatewayWebSearchEngine(organization?.webSearchEngine);
 		const skip = internalWebSearchSkipReason({
 			toolChoice: tool_choice,
@@ -8941,6 +8949,12 @@ chat.openapi(completions, async (c) => {
 			) as typeof messages;
 		}
 		webSearchTool = undefined;
+	} else if (webSearchTool) {
+		// Native search keeps the tool, which only a native upstream takes, so
+		// retries stay on native mappings.
+		iamFilteredModelProviders = iamFilteredModelProviders.filter(
+			(p) => (p as ProviderModelMapping).webSearch === true,
+		);
 	}
 
 	// Encrypted reasoning another credential produced, or that an account

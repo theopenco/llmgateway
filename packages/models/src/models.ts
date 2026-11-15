@@ -731,22 +731,14 @@ export interface ProviderModelMapping {
 	 */
 	jsonOutputSchema?: boolean;
 	/**
-	 * Whether this model supports web search/grounding capabilities
+	 * Whether the upstream runs web search natively. Chat mappings without it
+	 * get gateway-run search instead (`usesGatewayWebSearch`).
 	 */
 	webSearch?: boolean;
 	/**
 	 * Price per web search query in USD (charged when web search is used)
 	 */
 	webSearchPrice?: Price;
-	/**
-	 * Set when the upstream has no native web search and the gateway runs the
-	 * search itself, on the organization's engine
-	 * (`GATEWAY_WEB_SEARCH_ENGINES`): it searches the caller's latest user
-	 * message, adds the results to that message, and returns them as
-	 * `url_citation` annotations. Requires `webSearch: true`. Billing uses the
-	 * engine's price; `webSearchPrice` lists the default engine's.
-	 */
-	gatewayWebSearch?: boolean;
 	/**
 	 * Whether this mapping's upstream can *only* search when the caller forces
 	 * it, because it has no model-elected search to fall back on.

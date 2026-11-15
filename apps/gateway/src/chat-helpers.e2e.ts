@@ -16,6 +16,7 @@ import {
 	getConcurrentTestOptions,
 	getTestOptions,
 	expandAllProviderRegions,
+	usesGatewayWebSearch,
 } from "@llmgateway/models";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { uniqueId } from "@llmgateway/shared/random";
@@ -1369,9 +1370,29 @@ export const streamingImageModels = imageModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.streaming !== false),
 );
 
-export const webSearchModels = testModels.filter((m) =>
-	m.providers.some((p: ProviderModelMapping) => p.webSearch === true),
-);
+// Mappings without native search get gateway-run search, the same for every
+// model, so one text model per provider covers it.
+export const gatewayWebSearchModels = testModels.filter((m, i, all) => {
+	const isGatewaySearched = (o: (typeof all)[number]) =>
+		o.providers.length === 1 &&
+		usesGatewayWebSearch(o.providers[0]) &&
+		!imageModels.includes(o);
+	return (
+		isGatewaySearched(m) &&
+		all.findIndex(
+			(o) =>
+				isGatewaySearched(o) &&
+				o.providers[0].providerId === m.providers[0].providerId,
+		) === i
+	);
+});
+
+export const webSearchModels = [
+	...testModels.filter((m) =>
+		m.providers.some((p: ProviderModelMapping) => p.webSearch === true),
+	),
+	...gatewayWebSearchModels,
+];
 
 export const streamingWebSearchModels = webSearchModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.streaming !== false),

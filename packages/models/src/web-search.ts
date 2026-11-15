@@ -1,10 +1,12 @@
 import { getProviderDefinition } from "./providers.js";
 
+import type { ProviderModelMapping } from "./models.js";
+
 /**
- * Search engines the gateway runs itself for a mapping whose upstream has no
- * native web search (`ProviderModelMapping.gatewayWebSearch`). An
- * organization picks one (`organization.webSearchEngine`), else the default.
- * `price` is billed per search, in USD.
+ * Search engines the gateway runs itself for chat mappings without native web
+ * search (`usesGatewayWebSearch`). An organization picks one
+ * (`organization.webSearchEngine`), else the default. `price` is billed per
+ * search, in USD.
  */
 export const GATEWAY_WEB_SEARCH_ENGINES = {
 	perplexity: { name: "Perplexity", price: "0.005" },
@@ -24,6 +26,53 @@ export function isGatewayWebSearchEngine(
 	value: unknown,
 ): value is GatewayWebSearchEngine {
 	return typeof value === "string" && value in GATEWAY_WEB_SEARCH_ENGINES;
+}
+
+type WebSearchMapping = Pick<
+	ProviderModelMapping,
+	| "webSearch"
+	| "imageGenerations"
+	| "videoGenerations"
+	| "embeddings"
+	| "speechGenerations"
+	| "realtime"
+>;
+
+/**
+ * Whether the gateway runs web search for this mapping: a chat mapping whose
+ * upstream has no native search. The gateway searches the caller's latest
+ * user message, adds the results to that message, and returns them as
+ * `url_citation` annotations.
+ */
+export function usesGatewayWebSearch(mapping: WebSearchMapping): boolean {
+	return (
+		mapping.webSearch !== true &&
+		mapping.imageGenerations !== true &&
+		mapping.videoGenerations !== true &&
+		mapping.embeddings !== true &&
+		mapping.speechGenerations !== true &&
+		mapping.realtime !== true
+	);
+}
+
+/** Whether a `web_search` tool works on this mapping, natively or not. */
+export function supportsWebSearch(mapping: WebSearchMapping): boolean {
+	return mapping.webSearch === true || usesGatewayWebSearch(mapping);
+}
+
+/**
+ * Listed per-search price: the upstream's for native search, else the default
+ * gateway engine's (an organization on another engine pays that engine's).
+ */
+export function webSearchListPrice(
+	mapping: WebSearchMapping & Pick<ProviderModelMapping, "webSearchPrice">,
+): string | undefined {
+	if (mapping.webSearch === true) {
+		return mapping.webSearchPrice?.toString();
+	}
+	return usesGatewayWebSearch(mapping)
+		? GATEWAY_WEB_SEARCH_ENGINES[DEFAULT_GATEWAY_WEB_SEARCH_ENGINE].price
+		: undefined;
 }
 
 /** The engine an organization's gateway-run searches use. */

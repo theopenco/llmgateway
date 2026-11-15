@@ -106,9 +106,15 @@ describe("getProviderFilterReasons", () => {
 		expect(getProviderFilterReasons(mapping(), { hasTools: true })).toEqual([
 			exclusionReason("tools"),
 		]);
+		// Chat mappings without native search get gateway-run search.
 		expect(
 			getProviderFilterReasons(mapping({ tools: true }), {
 				hasTools: true,
+				webSearchTool: true,
+			}),
+		).toEqual([]);
+		expect(
+			getProviderFilterReasons(mapping({ imageGenerations: true }), {
 				webSearchTool: true,
 			}),
 		).toEqual([exclusionReason("web_search")]);

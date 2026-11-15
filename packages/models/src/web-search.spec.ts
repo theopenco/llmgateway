@@ -1,31 +1,45 @@
 import { describe, expect, test } from "vitest";
 
-import { models } from "./models.js";
 import {
-	DEFAULT_GATEWAY_WEB_SEARCH_ENGINE,
-	GATEWAY_WEB_SEARCH_ENGINES,
 	formatWebSearchEngine,
 	isGatewayWebSearch,
 	resolveGatewayWebSearchEngine,
+	supportsWebSearch,
+	usesGatewayWebSearch,
+	webSearchListPrice,
 } from "./web-search.js";
 
-import type { ProviderModelMapping } from "./models.js";
+describe("usesGatewayWebSearch", () => {
+	test("covers chat mappings without native search", () => {
+		expect(usesGatewayWebSearch({})).toBe(true);
+		expect(usesGatewayWebSearch({ webSearch: false })).toBe(true);
+		expect(usesGatewayWebSearch({ webSearch: true })).toBe(false);
+	});
 
-describe("gateway web search mappings", () => {
-	const mappings = models.flatMap((m) =>
-		(m.providers as ProviderModelMapping[])
-			.filter((p) => p.gatewayWebSearch)
-			.map((p) => ({ model: m.id, ...p })),
-	);
-
-	test("list web search and the default engine's price", () => {
-		expect(mappings.length).toBeGreaterThan(0);
-		for (const p of mappings) {
-			expect(p.webSearch, `${p.providerId}/${p.model}`).toBe(true);
-			expect(p.webSearchPrice, `${p.providerId}/${p.model}`).toBe(
-				GATEWAY_WEB_SEARCH_ENGINES[DEFAULT_GATEWAY_WEB_SEARCH_ENGINE].price,
-			);
+	test("skips non-chat mappings", () => {
+		for (const flag of [
+			"imageGenerations",
+			"videoGenerations",
+			"embeddings",
+			"speechGenerations",
+			"realtime",
+		] as const) {
+			expect(usesGatewayWebSearch({ [flag]: true }), flag).toBe(false);
+			expect(supportsWebSearch({ [flag]: true }), flag).toBe(false);
 		}
+	});
+
+	test("webSearchListPrice", () => {
+		expect(
+			webSearchListPrice({ webSearch: true, webSearchPrice: "0.01" }),
+		).toBe("0.01");
+		expect(webSearchListPrice({})).toBe("0.005");
+		expect(webSearchListPrice({ embeddings: true })).toBeUndefined();
+	});
+
+	test("supportsWebSearch is native or gateway-run", () => {
+		expect(supportsWebSearch({ webSearch: true })).toBe(true);
+		expect(supportsWebSearch({})).toBe(true);
 	});
 });
 

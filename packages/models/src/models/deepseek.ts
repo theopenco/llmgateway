@@ -1818,9 +1818,6 @@ export const deepseekModels = [
 				cachedInputPrice: "0.006e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
-				webSearch: true,
-				gatewayWebSearch: true,
-				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				contextSize: 1048576,
 				maxOutput: 393216,
 				quantization: "fp8",

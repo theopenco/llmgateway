@@ -18,6 +18,7 @@ import { createWebSearchVerificationRequest } from "@llmgateway/actions";
 import {
 	DEFAULT_GATEWAY_WEB_SEARCH_ENGINE,
 	type ProviderModelMapping,
+	usesGatewayWebSearch,
 } from "@llmgateway/models";
 
 const testWebSearch = process.env.TEST_WEB_SEARCH;
@@ -40,7 +41,7 @@ const FORCE_WEB_SEARCH = { type: "web_search" } as const;
 // The log records who searched: the gateway's default engine for mappings
 // without native search (the test org sets none), else the provider.
 const expectedWebSearchEngine = (providers: ProviderModelMapping[]) =>
-	providers[0].gatewayWebSearch
+	usesGatewayWebSearch(providers[0])
 		? DEFAULT_GATEWAY_WEB_SEARCH_ENGINE
 		: providers[0].providerId;
 
