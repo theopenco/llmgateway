@@ -126,24 +126,14 @@ describe("Claude forced tool choice", () => {
 							expect(toolCalls[0]?.function.name).toBe(timeTool.name);
 						}
 
+						// Every mapping here, Bedrock included, speaks the Messages API.
 						const log = await validateLogByRequestId(requestId);
-						const upstream = log.upstreamRequest as {
-							tool_choice?: unknown;
-							toolConfig?: { toolChoice?: unknown };
-						};
-						const expected =
+						const upstream = log.upstreamRequest as { tool_choice?: unknown };
+						expect(upstream.tool_choice).toEqual(
 							choice === "required"
-								? model.startsWith("aws-bedrock/")
-									? { any: {} }
-									: { type: "any" }
-								: model.startsWith("aws-bedrock/")
-									? { tool: { name: timeTool.name } }
-									: { type: "tool", name: timeTool.name };
-						expect(
-							model.startsWith("aws-bedrock/")
-								? upstream.toolConfig?.toolChoice
-								: upstream.tool_choice,
-						).toEqual(expected);
+								? { type: "any" }
+								: { type: "tool", name: timeTool.name },
+						);
 					},
 				);
 			}

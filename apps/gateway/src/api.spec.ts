@@ -11446,7 +11446,8 @@ describe("api", () => {
 						"x-no-fallback": "true",
 					},
 					body: JSON.stringify({
-						model: "aws-bedrock/claude-opus-4-8",
+						// Still served through Converse.
+						model: "aws-bedrock/claude-sonnet-4-5",
 						messages: [{ role: "user", content: "Trigger a refusal" }],
 					}),
 				});

@@ -960,6 +960,12 @@ export async function resolveProviderContext(
 			usedInternalModel,
 			usedExternalId,
 			usedRegion,
+			{
+				providerKeyOptions: credentialOptions,
+				skipEnvVars: usesDatabaseCredential,
+				configIndex,
+				variant: envVariant,
+			},
 		);
 
 	// --- URL resolution ---
@@ -1082,7 +1088,7 @@ export async function resolveProviderContext(
 	temperature = clampTemperature(
 		temperature,
 		usedProvider,
-		providerMappingForSelected?.maxTemperature,
+		providerMappingForSelected,
 	);
 
 	// --- max_tokens validation ---

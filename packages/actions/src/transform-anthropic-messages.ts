@@ -181,10 +181,12 @@ export async function transformAnthropicMessages(
 	const results: AnthropicMessage[] = [];
 
 	// Long-block markers are placed before the caller's later markers are
-	// counted, so they can take a caller's slot. Keep them on direct Anthropic,
-	// where they always ran, until caller markers are reserved first.
+	// counted, so they can take a caller's slot. Keep them on direct Anthropic
+	// and AWS Bedrock, where they always ran, until caller markers are reserved
+	// first.
 	const shouldApplyCacheControl =
-		provider === "anthropic" && autoInjectCacheControl;
+		(provider === "anthropic" || provider === "aws-bedrock") &&
+		autoInjectCacheControl;
 
 	// Continue the budget the tools and system passes already spent from.
 	let cacheControlCount = initialCacheControlCount;

@@ -486,6 +486,9 @@ async function listShortDeployment(
 	if (!mapping) {
 		throw new Error(`${providerId} does not serve ${modelId}`);
 	}
+	if (mapping.apiFormat === "anthropic-messages") {
+		throw new Error(`Airside cannot list ${providerId}/${modelId}`);
+	}
 	await listOnAirside({
 		modelId,
 		providerId,

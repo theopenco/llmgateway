@@ -907,7 +907,7 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 	return c.json(response);
 });
 
-mockOpenAIServer.post("/v1/messages", async (c) => {
+const anthropicMessagesHandler = async (c: Context) => {
 	const body = await c.req.json();
 	return c.json({
 		id: "msg-123",
@@ -927,7 +927,10 @@ mockOpenAIServer.post("/v1/messages", async (c) => {
 			output_tokens: 20,
 		},
 	});
-});
+};
+mockOpenAIServer.post("/v1/messages", anthropicMessagesHandler);
+// Claude on AWS Bedrock's Messages API.
+mockOpenAIServer.post("/anthropic/v1/messages", anthropicMessagesHandler);
 
 // Handle chat completions endpoint
 mockOpenAIServer.post("/v1/chat/completions", async (c) => {
