@@ -8021,6 +8021,67 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				expect(requestBody.messages[3].reasoning).toBe(reasoningLeft);
 			},
 		);
+
+		test("backfills reasoning_content on every assistant turn for Reflection Beam", async () => {
+			// Beam's chat template rejects any earlier assistant turn without a
+			// non-empty reasoning_content, tool call or not (verified 2026-11-16).
+			const requestBody = (await prepareRequestBody(
+				"together-ai",
+				"beam-1.0-501b-a23b",
+				null,
+				"reflection/Beam-1.0-501B-A23B",
+				[
+					{ role: "user", content: "Hi" },
+					{ role: "assistant", content: "Hello!" },
+					{ role: "user", content: "Weather in Paris?" },
+					{
+						role: "assistant",
+						content: "",
+						reasoning: "Look it up.",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: '{"city":"Paris"}',
+								},
+							},
+						],
+					},
+					{ role: "tool", tool_call_id: "call_1", content: "sunny" },
+					{ role: "assistant", content: "Sunny.", reasoning_content: "" },
+					{ role: "user", content: "Thanks!" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
+
+			expect(
+				[1, 3, 5].map((i) => requestBody.messages[i].reasoning_content),
+			).toEqual([" ", "Look it up.", " "]);
+			expect(requestBody.messages[3].reasoning).toBeUndefined();
+			expect(requestBody.messages[0].reasoning_content).toBeUndefined();
+		});
 	});
 
 	describe("openai (Responses API)", () => {
