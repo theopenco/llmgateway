@@ -28,6 +28,16 @@ When you include the `web_search` tool in your request, the model can search the
 
 Native web search is available on select models. See all models with native web search support on our [models page](https://llmgateway.io/models?filters=1&webSearch=true).
 
+### Gateway-run search
+
+Some deployments have no native web search; LLM Gateway runs the search for them through [Exa](https://exa.ai). The request and response look the same as native search, with three differences:
+
+- The search runs once per request, on the text of your latest user message, before the model answers. Turns ending in a tool result or an assistant message are not searched.
+- The results are appended to your latest user message, so they count toward prompt tokens.
+- `search_context_size` sets the number of results (`low` 3, `medium` 5, `high` 10). `allowed_domains`, `blocked_domains`, and `user_location.country` are passed to the search; `max_uses` is ignored.
+
+If the search fails, the request continues without results and no search is billed. Your activity log shows when a search ran through Exa.
+
 <Callout type="warn">
 	**Perplexity Sonar changed on September 25, 2026.** Perplexity retired its
 	Sonar chat completions API on September 27. On September 25,
@@ -364,7 +374,7 @@ Web search costs are rolled into the total `cost` reported in the usage object:
 }
 ```
 
-Web search is billed per search call at the model's web search price — for example, $0.01 per call on OpenAI reasoning models (GPT-5, o-series). The web search charge is included in the top-level `cost` value and surfaced separately as `cost_details.web_search_cost`.
+Web search is billed per search call at the model's web search price — for example, $0.01 per call on OpenAI reasoning models (GPT-5, o-series). The web search charge is included in the top-level `cost` value and surfaced separately as `cost_details.web_search_cost`. A [gateway-run search](#gateway-run-search) is billed once per search it ran, at the price on the models page.
 
 On [Airside](/features/airside#web-search-format) listings that declare a web search format, a search is billed only when the response shows one ran: `url_citation` annotations, a search counter in `usage` (`server_tool_use.web_search_requests` or `num_search_queries`), or reported prompt tokens beyond what the request itself could encode to — the retrieved pages the endpoint added to the prompt. Offering or requiring a search bills nothing on its own.
 

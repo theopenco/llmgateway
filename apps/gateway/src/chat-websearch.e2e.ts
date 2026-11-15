@@ -16,6 +16,8 @@ import { readAll } from "@/test-utils/test-helpers.js";
 
 import { createWebSearchVerificationRequest } from "@llmgateway/actions";
 
+import type { ProviderModelMapping } from "@llmgateway/models";
+
 const testWebSearch = process.env.TEST_WEB_SEARCH;
 
 // Skip all tests if TEST_WEB_SEARCH is not set
@@ -32,6 +34,11 @@ const providersWithoutWebSearchAnnotations = ["zai/", "alibaba/", "deepseek/"];
 // is not forwarded to them — but mappings flagged `webSearchForcedOnly` are
 // only routable with it, and would otherwise be filtered out of these tests.
 const FORCE_WEB_SEARCH = { type: "web_search" } as const;
+
+// Mappings without native search are searched by the gateway, which records
+// the backend on the log.
+const expectedWebSearchBackend = (providers: ProviderModelMapping[]) =>
+	providers.find((p) => p.webSearchBackend)?.webSearchBackend ?? null;
 
 const expectsWebSearchAnnotations = (model: string) =>
 	!providersWithoutWebSearchAnnotations.some((prefix) =>
@@ -50,7 +57,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 	test.each(webSearchModels)(
 		"web search non-streaming $model",
 		{ timeout: 300000 }, // Increase timeout for web search
-		async ({ model }) => {
+		async ({ model, providers }) => {
 			const requestId = generateTestRequestId();
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
@@ -87,6 +94,9 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 			expect(log).toHaveProperty("webSearchCost");
 			expect(typeof log.webSearchCost).toBe("number");
 			expect(log.webSearchCost).toBeGreaterThan(0);
+			expect(log.webSearchBackend ?? null).toBe(
+				expectedWebSearchBackend(providers),
+			);
 
 			if (expectsWebSearchAnnotations(model)) {
 				// Verify annotations (citations) are present
@@ -192,7 +202,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 	test.each(streamingWebSearchModels)(
 		"web search streaming $model",
 		{ timeout: 180000 }, // Increase timeout for web search
-		async ({ model }) => {
+		async ({ model, providers }) => {
 			const requestId = generateTestRequestId();
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
@@ -255,6 +265,9 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 			expect(log).toHaveProperty("webSearchCost");
 			expect(typeof log.webSearchCost).toBe("number");
 			expect(log.webSearchCost).toBeGreaterThan(0);
+			expect(log.webSearchBackend ?? null).toBe(
+				expectedWebSearchBackend(providers),
+			);
 
 			if (expectsWebSearchAnnotations(model)) {
 				// Verify annotations (citations) are present in at least one chunk

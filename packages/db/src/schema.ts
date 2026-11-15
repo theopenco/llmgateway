@@ -2586,6 +2586,9 @@ export const log = snakeCase.table(
 		cacheWriteInputCost: real(),
 		requestCost: real(),
 		webSearchCost: real(),
+		// Engine the gateway ran a web search on itself (e.g. "exa") for an
+		// upstream without native search. Null when the provider searched.
+		webSearchBackend: text(),
 		contentFilterCost: real(),
 		imageInputTokens: decimal(),
 		imageOutputTokens: decimal(),

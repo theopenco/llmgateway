@@ -348,6 +348,14 @@ import {
 	platformCredentialCoversRegion,
 	preferProvidersWithKeys,
 } from "./tools/hybrid-provider-routing.js";
+import {
+	addInternalWebSearchCost,
+	buildWebSearchQuery,
+	injectWebSearchResults,
+	type InternalWebSearch,
+	runInternalWebSearch,
+	webSearchAnnotations,
+} from "./tools/internal-web-search.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
 import { mapFinishReasonToOpenai } from "./tools/map-finish-reason-to-openai.js";
 import {
@@ -1875,8 +1883,16 @@ chat.openapi(completions, async (c) => {
 	// non-streaming, cached, cancelled, error paths). Mirrors the insertLog
 	// wrapper further down: miss one call site and the user gets billed for the
 	// first thing they ever did.
+	// Set once the gateway ran a web search itself for an upstream without
+	// native search (`webSearchBackend`). Billed by the calculateCosts wrapper
+	// and recorded on the log by insertLogEntry.
+	let internalWebSearch:
+		{ search: InternalWebSearch; price: string } | undefined;
 	const calculateCosts: typeof _calculateCosts = async (...args) => {
 		const costs = await _calculateCosts(...args);
+		if (internalWebSearch) {
+			addInternalWebSearchCost(costs, internalWebSearch.price);
+		}
 		if (sponsoredOnboarding) {
 			zeroInferenceCosts(costs);
 		}
@@ -2467,6 +2483,9 @@ chat.openapi(completions, async (c) => {
 			// records them. Explicit values in logData still win.
 			requestedServiceTier,
 			usedServiceTier: servedServiceTier,
+			...(internalWebSearch && {
+				webSearchBackend: internalWebSearch.search.backend,
+			}),
 			...(await getRoutingBaselineFields(logData)),
 			...logData,
 			...(clientSafetyParams.safety_identifier !== undefined && {
@@ -8870,6 +8889,34 @@ chat.openapi(completions, async (c) => {
 		region: usedRegion,
 	});
 
+	// The upstream has no native web search, so the gateway searches and adds
+	// the results to the prompt. From here on the request is a plain chat
+	// request: retries and fallbacks reuse the enriched messages and never
+	// search again.
+	const internalWebSearchBackend = getUsedProviderMapping()?.webSearchBackend;
+	if (webSearchTool && internalWebSearchBackend) {
+		const query = buildWebSearchQuery(messages as BaseMessage[]);
+		const search = query
+			? await runInternalWebSearch(
+					internalWebSearchBackend,
+					query,
+					webSearchTool,
+					requestId,
+				)
+			: null;
+		if (search) {
+			internalWebSearch = {
+				search,
+				price: getUsedProviderMapping()?.webSearchPrice ?? "0",
+			};
+			messages = injectWebSearchResults(
+				messages as BaseMessage[],
+				search,
+			) as typeof messages;
+		}
+		webSearchTool = undefined;
+	}
+
 	// Encrypted reasoning another credential produced, or that an account
 	// already rejected, cannot verify here, so it is left out up front rather
 	// than cost a rejected attempt on every turn of the conversation.
@@ -9513,6 +9560,32 @@ chat.openapi(completions, async (c) => {
 						});
 					}
 				};
+
+				// Gateway-run search results go out first, where a native search
+				// would surface them, so /v1/messages clients get the
+				// server_tool_use + web_search_tool_result pair before the text.
+				if (internalWebSearch?.search.results.length) {
+					await writeSSEAndCache({
+						data: JSON.stringify({
+							id: `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created: Math.floor(Date.now() / 1000),
+							model: usedModelFormatted,
+							choices: [
+								{
+									index: 0,
+									delta: {
+										role: "assistant",
+										content: "",
+										annotations: webSearchAnnotations(internalWebSearch.search),
+									},
+									finish_reason: null,
+								},
+							],
+						}),
+						id: String(eventId++),
+					});
+				}
 
 				const writeStreamingContentFilterResponse = async ({
 					billingModel,
@@ -15914,9 +15987,15 @@ chat.openapi(completions, async (c) => {
 		cachedAudioInputTokens,
 		toolResults,
 		images,
-		annotations,
+		annotations: parsedAnnotations,
 		searchResults,
 	} = parsedResponse;
+	const annotations = internalWebSearch?.search.results.length
+		? [
+				...webSearchAnnotations(internalWebSearch.search),
+				...(parsedAnnotations ?? []),
+			]
+		: parsedAnnotations;
 	if (webSearchTool && usedWebSearchFormat()) {
 		const reported = Math.max(
 			webSearchCount ?? 0,

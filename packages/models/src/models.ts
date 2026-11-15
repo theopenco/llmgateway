@@ -303,6 +303,22 @@ export const TOOL_CHOICE_MODES = [
 export type ToolChoiceMode = (typeof TOOL_CHOICE_MODES)[number];
 
 /**
+ * Search engines the gateway can run itself for a mapping whose upstream has
+ * no native web search. See `ProviderModelMapping.webSearchBackend`.
+ */
+export const WEB_SEARCH_BACKENDS = ["exa"] as const;
+
+export type WebSearchBackend = (typeof WEB_SEARCH_BACKENDS)[number];
+
+const WEB_SEARCH_BACKEND_LABELS: Record<WebSearchBackend, string> = {
+	exa: "Exa",
+};
+
+export function formatWebSearchBackend(backend: string): string {
+	return WEB_SEARCH_BACKEND_LABELS[backend as WebSearchBackend] ?? backend;
+}
+
+/**
  * How an OpenAI-compatible Chat Completions endpoint takes a web search
  * request. "web_search_options" is the Chat Completions body field;
  * "web_search_tool" is a `tools: [{type: "web_search"}]` entry (the Responses
@@ -732,6 +748,14 @@ export interface ProviderModelMapping {
 	 * Price per web search query in USD (charged when web search is used)
 	 */
 	webSearchPrice?: Price;
+	/**
+	 * Set when the upstream has no native web search and the gateway runs the
+	 * search itself: it queries this backend with the caller's latest user
+	 * message, adds the results to that message, and returns them as
+	 * `url_citation` annotations. Requires `webSearch: true`; `webSearchPrice`
+	 * is the backend's per-search price.
+	 */
+	webSearchBackend?: WebSearchBackend;
 	/**
 	 * Whether this mapping's upstream can *only* search when the caller forces
 	 * it, because it has no model-elected search to fall back on.

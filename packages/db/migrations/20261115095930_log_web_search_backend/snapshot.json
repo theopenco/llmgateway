@@ -1,0 +1,47 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "822e0658-a7b4-4058-90d7-ed34073e942d",
+  "prevIds": [
+    "66ecc1b7-824c-4c56-9d3d-23ae7754a938"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "log",
+        "web_search_backend"
+      ],
+      "writes": [
+        "s|col|public.log.web_search_backend",
+        "n|col|public.log.web_search_backend",
+        "e|col|public.log.web_search_backend"
+      ],
+      "reads": [
+        "n|tbl|public.log",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "log",
+        "name": "web_search_backend",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

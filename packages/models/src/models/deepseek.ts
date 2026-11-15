@@ -1818,6 +1818,9 @@ export const deepseekModels = [
 				cachedInputPrice: "0.006e-6",
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
+				webSearch: true,
+				webSearchBackend: "exa",
+				webSearchPrice: "0.007", // Exa search, up to 10 results with highlights
 				contextSize: 1048576,
 				maxOutput: 393216,
 				quantization: "fp8",
