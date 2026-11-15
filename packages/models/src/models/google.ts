@@ -3255,6 +3255,7 @@ export const googleModels = [
 				jsonOutput: false,
 				speechGenerations: true,
 				supportedVoices: GEMINI_TTS_VOICES,
+				speechStyleMetadata: true,
 			},
 			{
 				providerId: "google-vertex",
@@ -3270,6 +3271,7 @@ export const googleModels = [
 				jsonOutput: false,
 				speechGenerations: true,
 				supportedVoices: GEMINI_TTS_VOICES,
+				speechStyleMetadata: true,
 			},
 		],
 	},
@@ -3296,6 +3298,7 @@ export const googleModels = [
 				jsonOutput: false,
 				speechGenerations: true,
 				supportedVoices: GEMINI_TTS_VOICES,
+				speechStyleMetadata: true,
 			},
 			{
 				providerId: "google-vertex",
@@ -3311,6 +3314,7 @@ export const googleModels = [
 				jsonOutput: false,
 				speechGenerations: true,
 				supportedVoices: GEMINI_TTS_VOICES,
+				speechStyleMetadata: true,
 			},
 		],
 	},

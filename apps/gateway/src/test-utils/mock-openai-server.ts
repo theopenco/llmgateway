@@ -2249,6 +2249,31 @@ async function handleGoogleBatchEmbedContents(c: Context, modelName: string) {
 	return c.json(response);
 }
 
+let lastGoogleSpeechPart: Record<string, unknown> | undefined;
+
+export function getLastGoogleSpeechPart(): Record<string, unknown> | undefined {
+	return lastGoogleSpeechPart;
+}
+
+// 44-byte RIFF/WAVE header for mono 16-bit PCM at 24 kHz.
+function wavHeader(dataLength: number): Buffer {
+	const header = Buffer.alloc(44);
+	header.write("RIFF", 0);
+	header.writeUInt32LE(36 + dataLength, 4);
+	header.write("WAVE", 8);
+	header.write("fmt ", 12);
+	header.writeUInt32LE(16, 16);
+	header.writeUInt16LE(1, 20);
+	header.writeUInt16LE(1, 22);
+	header.writeUInt32LE(24000, 24);
+	header.writeUInt32LE(48000, 28);
+	header.writeUInt16LE(2, 32);
+	header.writeUInt16LE(16, 34);
+	header.write("data", 36);
+	header.writeUInt32LE(dataLength, 40);
+	return header;
+}
+
 async function handleGoogleGenerateContent(c: Context) {
 	const body = await c.req.json();
 	const shouldError = body.contents?.some?.((content: any) =>
@@ -2292,8 +2317,12 @@ async function handleGoogleGenerateContent(c: Context) {
 	const responseModalities: string[] =
 		body.generationConfig?.responseModalities ?? [];
 	if (responseModalities.includes("AUDIO")) {
+		lastGoogleSpeechPart = body.contents?.[0]?.parts?.[0];
 		// 8 samples of 16-bit silence as a deterministic PCM payload.
 		const pcm = Buffer.alloc(16);
+		// Gemini 3.8 TTS returns a complete WAV file for unary requests.
+		const isWav = c.req.path.includes("gemini-3.8-");
+		const audio = isWav ? Buffer.concat([wavHeader(pcm.length), pcm]) : pcm;
 		return c.json({
 			candidates: [
 				{
@@ -2301,8 +2330,10 @@ async function handleGoogleGenerateContent(c: Context) {
 						parts: [
 							{
 								inlineData: {
-									mimeType: "audio/L16;codec=pcm;rate=24000",
-									data: pcm.toString("base64"),
+									mimeType: isWav
+										? "audio/wav"
+										: "audio/L16;codec=pcm;rate=24000",
+									data: audio.toString("base64"),
 								},
 							},
 						],
