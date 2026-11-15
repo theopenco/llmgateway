@@ -203,6 +203,29 @@ export const zaiModels = [
 				// Workers AI silently drops `developer` messages.
 				supportsDeveloperRole: false,
 			},
+			{
+				providerId: "deepinfra",
+				externalId: "zai-org/GLM-5.3-Flash",
+				inputPrice: "0.15e-6",
+				cachedInputPrice: "0.03e-6",
+				outputPrice: "0.5e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				quantization: "fp4",
+				maxTemperature: 1,
+				streaming: true,
+				reasoning: true,
+				// Tool-call turns often return no reasoning text, and `none`
+				// still reasons.
+				reasoningOutput: "omit",
+				reasoningEfforts: ["low", "high", "max"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsDeveloperRole: false,
+			},
 		],
 	},
 	{
