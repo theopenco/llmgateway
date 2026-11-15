@@ -1,6 +1,7 @@
 import { Decimal } from "decimal.js";
 import { WebSocket } from "ws";
 
+import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
 
 import { getEffectiveDiscount } from "@llmgateway/db";
@@ -9,8 +10,20 @@ import { logger } from "@llmgateway/logger";
 import { authorizeAccount, availableCredits } from "./account-gate.js";
 import {
 	closeRealtimeSessionRecord,
+	markRealtimeSessionUpstream,
 	recordRealtimeTranscription,
 } from "./billing.js";
+import { findRealtimeTranscriptionMapping } from "./catalog.js";
+import { discardUpstream } from "./connect-upstream.js";
+import {
+	buildElevenLabsUpstreamQuery,
+	DEFAULT_ELEVENLABS_SESSION_CONFIG,
+	elevenLabsAudioRate,
+	parseElevenLabsAudioFormat,
+	parseElevenLabsTurnDetection,
+	type ElevenLabsSessionConfig,
+} from "./elevenlabs.js";
+import { RealtimeConnectError } from "./errors.js";
 import {
 	LEASE_HEARTBEAT_INTERVAL_MS,
 	releaseRealtimeLease,
@@ -24,7 +37,6 @@ import {
 } from "./transcription.js";
 import { logRealtimeTurnDenial } from "./turn-denial-log.js";
 
-import type { ElevenLabsRealtimeConfig } from "./elevenlabs.js";
 import type { RealtimePreflightResult } from "./preflight.js";
 import type { RawData } from "ws";
 
@@ -53,31 +65,45 @@ const BILLING_INTERVAL_SECONDS = 30;
  */
 const REAUTHORIZE_INTERVAL_MS = 5000;
 
-/** Upstream events that close a transcript segment. */
-const COMMIT_EVENTS = new Set([
-	"committed_transcript",
-	"committed_transcript_with_timestamps",
-]);
-
-const CHUNK_KEYS = new Set([
-	"message_type",
-	"audio_base_64",
-	"commit",
-	"sample_rate",
-	"previous_text",
-]);
+/**
+ * ElevenLabs refuses a commit of less uncommitted audio than this and closes
+ * the connection, so the gateway rejects it first.
+ */
+const MIN_COMMIT_SECONDS = 0.3;
 
 /**
- * Gateway-generated errors use ElevenLabs' own error shape so clients handle
- * them, with `source` telling them apart from upstream errors.
+ * ElevenLabs closes idle connections normally, and the gateway reopens them on
+ * the next audio. Connections that keep failing without a transcript end the
+ * session.
  */
-function buildGatewayError(code: string, message: string): string {
-	return JSON.stringify({
-		message_type: "error",
-		error: message,
-		code,
-		source: "llmgateway",
-	});
+const MAX_UPSTREAM_FAILURES_WITHOUT_TRANSCRIPT = 3;
+
+/** Upstream errors that a reconnect cannot fix. */
+const FATAL_UPSTREAM_ERRORS = new Set([
+	"auth_error",
+	"quota_exceeded",
+	"unaccepted_terms",
+]);
+
+/** Upstream errors that reject the pending commit. */
+const COMMIT_ERRORS = new Set([
+	"commit_throttled",
+	"insufficient_audio_activity",
+]);
+
+/** Upstream errors caused by the client's input. */
+const CLIENT_UPSTREAM_ERRORS = new Set([
+	"input_error",
+	"chunk_size_exceeded",
+	"commit_throttled",
+	"insufficient_audio_activity",
+]);
+
+let eventCounter = 0;
+
+function nextEventId(): string {
+	eventCounter += 1;
+	return `event_lmg_${Date.now()}_${eventCounter}`;
 }
 
 function frameSize(data: RawData): number {
@@ -94,11 +120,21 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function roundSeconds(seconds: number): number {
+	return Math.round(seconds * 1000) / 1000;
+}
+
 export interface ElevenLabsRealtimeProxySessionOptions {
 	clientSocket: WebSocket;
-	upstreamSocket: WebSocket;
+	/**
+	 * Opens the ElevenLabs upstream with the given query. Called lazily: the
+	 * upstream is configured at connection time, from the session config the
+	 * client set with session.update before its first audio.
+	 */
+	connectUpstream: (query: URLSearchParams) => Promise<WebSocket>;
+	/** Validated ElevenLabs-only parameters from the connection URL. */
+	extensionQuery: URLSearchParams;
 	preflight: RealtimePreflightResult;
-	config: ElevenLabsRealtimeConfig;
 	gatewayToken: string;
 	requestedModel: string;
 	sessionRecordId: string;
@@ -108,18 +144,25 @@ export interface ElevenLabsRealtimeProxySessionOptions {
 	onClosed: (session: ElevenLabsRealtimeProxySession) => void;
 }
 
+interface CommittedItem {
+	itemId: string;
+	seconds: number;
+}
+
 /**
- * One ElevenLabs Scribe Live transcription session: a client WebSocket bridged
- * to ElevenLabs' realtime speech-to-text WebSocket in its native protocol.
- * ElevenLabs reports no usage on the socket and bills every second of audio
- * sent, so the gateway meters the audio it forwards, billing it before each
- * committed transcript is delivered and on close.
+ * One ElevenLabs Scribe Live transcription session, served to the client as
+ * an OpenAI realtime transcription session. The gateway keeps the OpenAI
+ * session state, opens ElevenLabs' native WebSocket on the first audio with
+ * the matching query parameters, and translates events both ways.
+ * ElevenLabs reports no usage and bills every second of audio sent, so the
+ * gateway meters the audio it forwards, billing it before each completed
+ * transcript is delivered and on close.
  */
 export class ElevenLabsRealtimeProxySession {
 	private readonly client: WebSocket;
-	private readonly upstream: WebSocket;
+	private readonly connect: (query: URLSearchParams) => Promise<WebSocket>;
+	private readonly extensionQuery: URLSearchParams;
 	private readonly preflight: RealtimePreflightResult;
-	private readonly config: ElevenLabsRealtimeConfig;
 	private readonly gatewayToken: string;
 	private readonly requestedModel: string;
 	public readonly sessionRecordId: string;
@@ -127,13 +170,36 @@ export class ElevenLabsRealtimeProxySession {
 	private readonly source: string | null;
 	private readonly userAgent: string | undefined;
 	private readonly onClosed: (session: ElevenLabsRealtimeProxySession) => void;
+	private readonly openedAt = Date.now();
+
+	private config: ElevenLabsSessionConfig = DEFAULT_ELEVENLABS_SESSION_CONFIG;
+	private upstream: WebSocket | null = null;
+	private upstreamRate: { sampleRate: number; bytesPerSecond: number } | null =
+		null;
+	private upstreamSessionRecorded = false;
+	private upstreamFatal = false;
+	private upstreamFailuresWithoutTranscript = 0;
+	private promptSent = false;
+
+	// The item receiving audio and partial transcripts, its latest partial
+	// text, the text delivered as deltas, and the seconds of audio streamed
+	// since the last commit.
+	private currentItemId: string | null = null;
+	private currentPartial = "";
+	private deliveredPartial = "";
+	private segmentSeconds = 0;
+	private totalAudioMs = 0;
+	private itemCounter = 0;
+	private lastItemId: string | null = null;
+	// Client commits awaiting their committed_transcript, in order.
+	private commitQueue: CommittedItem[] = [];
 
 	private bytesIn = 0;
 	private bytesOut = 0;
 	private sessionSpend = new Decimal(0);
 
-	// Audio forwarded upstream and not yet billed, in bytes of the session's
-	// audio format.
+	// Audio forwarded upstream and not yet billed.
+	private unbilledAudioSeconds = 0;
 	private unbilledAudioBytes = 0;
 	private billedSegments = 0;
 	// Billing runs one at a time, from either socket's queue.
@@ -150,8 +216,8 @@ export class ElevenLabsRealtimeProxySession {
 	private clientAlive = true;
 	private upstreamAlive = true;
 	private readonly timers: NodeJS.Timeout[] = [];
-	// One poller per direction, so a slow client and a slow upstream are each
-	// throttled.
+	// One poller per destination, so a slow client and a slow upstream are
+	// each throttled.
 	private readonly backpressurePollers = new Map<WebSocket, NodeJS.Timeout>();
 	// Reasons the client socket is paused; it resumes when none remain.
 	private readonly clientPauses = new Set<string>();
@@ -162,9 +228,9 @@ export class ElevenLabsRealtimeProxySession {
 
 	public constructor(options: ElevenLabsRealtimeProxySessionOptions) {
 		this.client = options.clientSocket;
-		this.upstream = options.upstreamSocket;
+		this.connect = options.connectUpstream;
+		this.extensionQuery = options.extensionQuery;
 		this.preflight = options.preflight;
-		this.config = options.config;
 		this.gatewayToken = options.gatewayToken;
 		this.requestedModel = options.requestedModel;
 		this.sessionRecordId = options.sessionRecordId;
@@ -174,8 +240,8 @@ export class ElevenLabsRealtimeProxySession {
 		this.onClosed = options.onClosed;
 
 		this.client.on("message", (data, isBinary) => {
-			// Frames wait here while authorization or billing runs; stop reading
-			// once too many are queued.
+			// Frames wait here while authorization, connecting or billing runs;
+			// stop reading once too many are queued.
 			const size = frameSize(data);
 			this.queuedClientBytes += size;
 			if (this.queuedClientBytes > maxBufferedBytes()) {
@@ -197,42 +263,11 @@ export class ElevenLabsRealtimeProxySession {
 					void this.settleAndShutdown(1011, "internal_error");
 				});
 		});
-		this.upstream.on("message", (data) => {
-			this.upstreamQueue = this.upstreamQueue
-				.then(() => this.handleUpstreamMessage(data))
-				.catch((error: unknown) => {
-					logger.error(
-						"Failed to handle ElevenLabs realtime upstream message; closing session",
-						error as Error,
-					);
-					void this.settleAndShutdown(1011, "internal_error");
-				});
-		});
 		this.client.on("close", () => {
 			// Queued behind the client's messages so audio still being forwarded
 			// is counted before the tail is billed.
 			this.clientQueue = this.clientQueue.then(() =>
 				this.settleAndShutdown(1000, "client_disconnected"),
-			);
-		});
-		this.upstream.on("close", (code, reason) => {
-			const upstreamReason = reason.toString().trim().slice(0, 90);
-			if (code !== 1000) {
-				logger.warn("ElevenLabs realtime upstream closed the session", {
-					sessionId: this.sessionRecordId,
-					code,
-					reason: upstreamReason,
-				});
-			}
-			this.upstreamQueue = this.upstreamQueue.then(() =>
-				this.settleAndShutdown(
-					code === 1000 ? 1000 : 1011,
-					code === 1000
-						? "upstream_closed"
-						: upstreamReason
-							? `upstream_closed_${code}: ${upstreamReason}`
-							: `upstream_closed_${code}`,
-				),
 			);
 		});
 		this.client.on("error", (error) => {
@@ -241,33 +276,22 @@ export class ElevenLabsRealtimeProxySession {
 				error: error.message,
 			});
 		});
-		this.upstream.on("error", (error) => {
-			logger.warn("ElevenLabs realtime upstream socket error", {
-				sessionId: this.sessionRecordId,
-				error: error.message,
-			});
-		});
 		this.client.on("pong", () => {
 			this.clientAlive = true;
-		});
-		this.upstream.on("pong", () => {
-			this.upstreamAlive = true;
 		});
 
 		this.timers.push(
 			setTimeout(() => {
-				this.sendToClientRaw(
-					buildGatewayError(
-						"session_duration_limit",
-						"Maximum realtime session duration reached. Reconnect to continue.",
-					),
+				this.sendError(
+					"session_duration_limit",
+					"Maximum realtime session duration reached. Reconnect to continue.",
 				);
 				void this.settleAndShutdown(1000, "session_duration_limit");
 			}, maxSessionMs()),
 		);
 		this.timers.push(
 			setInterval(() => {
-				if (!this.clientAlive || !this.upstreamAlive) {
+				if (!this.clientAlive || (this.upstream && !this.upstreamAlive)) {
 					void this.settleAndShutdown(1011, "ping_timeout");
 					return;
 				}
@@ -279,7 +303,7 @@ export class ElevenLabsRealtimeProxySession {
 					} else {
 						this.clientAlive = true;
 					}
-					if (this.upstream.readyState === WebSocket.OPEN) {
+					if (this.upstream?.readyState === WebSocket.OPEN) {
 						this.upstream.ping();
 					} else {
 						this.upstreamAlive = true;
@@ -294,6 +318,68 @@ export class ElevenLabsRealtimeProxySession {
 				void renewRealtimeLease(this.lease);
 			}, LEASE_HEARTBEAT_INTERVAL_MS),
 		);
+
+		this.sendEvent({ type: "session.created", session: this.sessionObject() });
+	}
+
+	// --- Session state ---
+
+	private canonicalModelId(): string {
+		const { match } = this.preflight;
+		return formatUsedModelForDisplay(
+			match.mapping.providerId,
+			match.modelId,
+			undefined,
+			match.mapping.region,
+		);
+	}
+
+	/** Whether a requested model names this session's pinned mapping. */
+	private isSessionModel(model: string): boolean {
+		const { mapping } = this.preflight.match;
+		const match = findRealtimeTranscriptionMapping(model, mapping.providerId);
+		return (
+			match?.mapping.providerId === mapping.providerId &&
+			match.mapping.externalId === mapping.externalId
+		);
+	}
+
+	private sessionObject(): Record<string, unknown> {
+		const { config } = this;
+		return {
+			type: "transcription",
+			id: `sess_lmg_${this.sessionRecordId}`,
+			object: "realtime.transcription_session",
+			expires_at: Math.floor((this.openedAt + maxSessionMs()) / 1000),
+			include: null,
+			audio: {
+				input: {
+					format: config.format,
+					noise_reduction: config.noiseReduction,
+					transcription: {
+						model: this.canonicalModelId(),
+						language: config.language,
+						prompt: config.prompt,
+						...(config.secondaryLanguages.length > 0 && {
+							languages: [config.language, ...config.secondaryLanguages],
+						}),
+					},
+					turn_detection: config.turnDetection,
+				},
+			},
+		};
+	}
+
+	private nextItemId(): string {
+		this.itemCounter += 1;
+		return `item_lmg_${this.sessionRecordId}_${this.itemCounter}`;
+	}
+
+	private resetSegment(): void {
+		this.currentItemId = null;
+		this.currentPartial = "";
+		this.deliveredPartial = "";
+		this.segmentSeconds = 0;
 	}
 
 	// --- Client → upstream ---
@@ -306,11 +392,9 @@ export class ElevenLabsRealtimeProxySession {
 		this.bytesIn += size;
 
 		if (isBinary) {
-			this.sendToClientRaw(
-				buildGatewayError(
-					"invalid_frame",
-					"Binary frames are not supported; send input_audio_chunk JSON messages.",
-				),
+			this.sendError(
+				"invalid_frame",
+				"Binary frames are not supported; send JSON client events.",
 			);
 			return;
 		}
@@ -323,87 +407,309 @@ export class ElevenLabsRealtimeProxySession {
 			}
 			message = parsed;
 		} catch {
-			this.sendToClientRaw(
-				buildGatewayError(
-					"invalid_json",
-					"Client message is not a JSON object.",
-				),
-			);
+			this.sendError("invalid_json", "Client event is not a JSON object.");
 			return;
 		}
 
-		if (message.message_type !== "input_audio_chunk") {
-			this.sendToClientRaw(
-				buildGatewayError(
-					"unsupported_message_type",
-					"Only input_audio_chunk messages are supported.",
-				),
+		const type = typeof message.type === "string" ? message.type : "";
+		const clientEventId = message.event_id;
+		switch (type) {
+			case "session.update":
+				await this.handleSessionUpdate(message, clientEventId);
+				return;
+			case "input_audio_buffer.append":
+				await this.handleAppend(message, clientEventId);
+				return;
+			case "input_audio_buffer.commit":
+				this.handleCommit(clientEventId);
+				return;
+			case "input_audio_buffer.clear":
+				await this.handleClear(clientEventId);
+				return;
+			case "response.create":
+				this.sendError(
+					"response_not_supported",
+					"Transcription sessions only transcribe input audio and cannot generate responses. Open a realtime session to use response.create.",
+					clientEventId,
+				);
+				return;
+			default:
+				this.sendError(
+					"unsupported_client_event",
+					type === "transcription_session.update"
+						? "transcription_session.update is not supported; configure transcription with session.update."
+						: `Unsupported client event type: ${type}`,
+					clientEventId,
+				);
+		}
+	}
+
+	private async handleSessionUpdate(
+		message: Record<string, unknown>,
+		clientEventId: unknown,
+	): Promise<void> {
+		const session = isPlainObject(message.session) ? message.session : {};
+		const reject = (code: string, text: string) => {
+			this.sendError(code, text, clientEventId);
+		};
+		if (session.type !== undefined && session.type !== "transcription") {
+			reject(
+				"invalid_session_type",
+				'This is a transcription session; session.type must be "transcription".',
 			);
 			return;
 		}
-		const unknownKey = Object.keys(message).find((key) => !CHUNK_KEYS.has(key));
-		if (unknownKey !== undefined) {
-			this.sendToClientRaw(
-				buildGatewayError(
-					"invalid_audio_chunk",
-					`Unsupported input_audio_chunk field: ${unknownKey}`,
-				),
-			);
-			return;
-		}
-		if (
-			typeof message.audio_base_64 !== "string" ||
-			(message.commit !== undefined && typeof message.commit !== "boolean") ||
-			(message.previous_text !== undefined &&
-				typeof message.previous_text !== "string")
-		) {
-			this.sendToClientRaw(
-				buildGatewayError(
-					"invalid_audio_chunk",
-					"input_audio_chunk requires a base64 audio_base_64 string; commit must be a boolean and previous_text a string.",
-				),
-			);
-			return;
-		}
-		// Audio is metered against the session's audio_format, so a chunk
-		// claiming another sample rate would be billed for the wrong duration.
-		if (
-			message.sample_rate !== undefined &&
-			message.sample_rate !== this.config.sampleRate
-		) {
-			this.sendToClientRaw(
-				buildGatewayError(
-					"sample_rate_mismatch",
-					`sample_rate must match the session's audio_format (${this.config.sampleRate} Hz). Set audio_format in the connection URL.`,
-				),
-			);
-			return;
+		if (session.model !== undefined) {
+			if (
+				typeof session.model !== "string" ||
+				!this.isSessionModel(session.model)
+			) {
+				reject(
+					"model_locked",
+					"The session model is locked at connection time and cannot be changed via session.update.",
+				);
+				return;
+			}
 		}
 
+		const audio = isPlainObject(session.audio) ? session.audio : undefined;
+		const input = isPlainObject(audio?.input) ? audio.input : undefined;
+		const pick = (nested: string, legacy: string): unknown =>
+			input && nested in input ? input[nested] : session[legacy];
+		const next: ElevenLabsSessionConfig = { ...this.config };
+
+		const format = pick("format", "input_audio_format");
+		if (format !== undefined) {
+			const parsed = parseElevenLabsAudioFormat(format);
+			if (!parsed.ok) {
+				reject(parsed.code, parsed.message);
+				return;
+			}
+			next.format = parsed.value;
+		}
+
+		const transcription = pick("transcription", "input_audio_transcription");
+		if (transcription !== undefined) {
+			if (transcription === null) {
+				reject(
+					"transcription_model_required",
+					"A transcription session cannot disable input audio transcription.",
+				);
+				return;
+			}
+			if (!isPlainObject(transcription)) {
+				reject(
+					"invalid_transcription_config",
+					"audio.input.transcription must be an object.",
+				);
+				return;
+			}
+			if (
+				transcription.model !== undefined &&
+				(typeof transcription.model !== "string" ||
+					!this.isSessionModel(transcription.model))
+			) {
+				reject(
+					"transcription_model_locked",
+					"The transcription model is pinned for this session and cannot be changed.",
+				);
+				return;
+			}
+			if (
+				Array.isArray(transcription.keywords) &&
+				transcription.keywords.length > 0
+			) {
+				reject(
+					"unsupported_parameter",
+					"Transcription keywords are billed as a separate ElevenLabs add-on and are not supported for realtime sessions on LLMGateway.",
+				);
+				return;
+			}
+			if ("language" in transcription) {
+				const { language } = transcription;
+				if (language !== null && typeof language !== "string") {
+					reject(
+						"invalid_transcription_config",
+						"transcription.language must be a string or null.",
+					);
+					return;
+				}
+				next.language = language || null;
+				next.secondaryLanguages = [];
+			}
+			if (transcription.languages !== undefined) {
+				const { languages } = transcription;
+				if (
+					!Array.isArray(languages) ||
+					!languages.every((value) => typeof value === "string" && value)
+				) {
+					reject(
+						"invalid_transcription_config",
+						"transcription.languages must be a list of language codes.",
+					);
+					return;
+				}
+				const [first, ...rest] = languages as string[];
+				next.language = first ?? null;
+				next.secondaryLanguages = rest;
+			}
+			if ("prompt" in transcription) {
+				const { prompt } = transcription;
+				if (prompt !== null && typeof prompt !== "string") {
+					reject(
+						"invalid_transcription_config",
+						"transcription.prompt must be a string.",
+					);
+					return;
+				}
+				next.prompt = prompt ?? "";
+			}
+		}
+
+		const turnDetection = pick("turn_detection", "turn_detection");
+		if (turnDetection !== undefined) {
+			const parsed = parseElevenLabsTurnDetection(turnDetection);
+			if (!parsed.ok) {
+				reject(parsed.code, parsed.message);
+				return;
+			}
+			next.turnDetection = parsed.value;
+		}
+
+		const noiseReduction = pick(
+			"noise_reduction",
+			"input_audio_noise_reduction",
+		);
+		if (noiseReduction !== undefined) {
+			if (noiseReduction !== null && !isPlainObject(noiseReduction)) {
+				reject(
+					"invalid_noise_reduction",
+					"noise_reduction must be an object or null.",
+				);
+				return;
+			}
+			next.noiseReduction = noiseReduction;
+		}
+
+		// ElevenLabs takes its settings when the connection opens, so a change
+		// reopens it, which is only safe between transcripts.
+		if (
+			this.upstream &&
+			buildElevenLabsUpstreamQuery(next, this.extensionQuery).toString() !==
+				buildElevenLabsUpstreamQuery(
+					this.config,
+					this.extensionQuery,
+				).toString()
+		) {
+			if (this.currentItemId !== null || this.commitQueue.length > 0) {
+				reject(
+					"session_update_in_progress",
+					"Audio format, language, turn detection and noise reduction can only change while no transcription is in progress.",
+				);
+				return;
+			}
+			await this.detachUpstream();
+		}
+		this.config = next;
+		this.sendEvent({ type: "session.updated", session: this.sessionObject() });
+	}
+
+	private async handleAppend(
+		message: Record<string, unknown>,
+		clientEventId: unknown,
+	): Promise<void> {
+		if (typeof message.audio !== "string") {
+			this.sendError(
+				"invalid_audio",
+				"input_audio_buffer.append requires base64 audio.",
+				clientEventId,
+			);
+			return;
+		}
+		const audio = Buffer.from(message.audio, "base64");
+		if (audio.length === 0) {
+			return;
+		}
 		if (!(await this.authorizeAudio())) {
 			return;
 		}
-
+		if (!(await this.ensureUpstream())) {
+			return;
+		}
+		const rate = this.upstreamRate!;
 		const forwarded = this.forwardToUpstream(
 			JSON.stringify({
-				...message,
-				sample_rate: this.config.sampleRate,
-				commit: message.commit === true,
+				message_type: "input_audio_chunk",
+				audio_base_64: audio.toString("base64"),
+				commit: false,
+				sample_rate: rate.sampleRate,
+				...(!this.promptSent &&
+					this.config.prompt && { previous_text: this.config.prompt }),
 			}),
 		);
 		if (!forwarded) {
 			return;
 		}
-		this.unbilledAudioBytes += Buffer.from(
-			message.audio_base_64,
-			"base64",
-		).length;
+		this.promptSent = true;
+		const seconds = audio.length / rate.bytesPerSecond;
+		this.unbilledAudioSeconds += seconds;
+		this.unbilledAudioBytes += audio.length;
+		this.segmentSeconds += seconds;
+		this.totalAudioMs += seconds * 1000;
 
-		if (this.unbilledSeconds() >= BILLING_INTERVAL_SECONDS) {
+		if (this.unbilledAudioSeconds >= BILLING_INTERVAL_SECONDS) {
 			if (await this.billAudio()) {
 				this.afterBilling();
 			}
 		}
+	}
+
+	private handleCommit(clientEventId: unknown): void {
+		if (
+			this.upstream === null ||
+			this.upstreamRate === null ||
+			this.segmentSeconds < MIN_COMMIT_SECONDS
+		) {
+			this.sendError(
+				"input_audio_buffer_commit_empty",
+				`Error committing input audio buffer: buffer too small. Expected at least ${MIN_COMMIT_SECONDS * 1000}ms of audio, but buffer only has ${(this.segmentSeconds * 1000).toFixed(2)}ms of audio.`,
+				clientEventId,
+			);
+			return;
+		}
+		const forwarded = this.forwardToUpstream(
+			JSON.stringify({
+				message_type: "input_audio_chunk",
+				audio_base_64: "",
+				commit: true,
+				sample_rate: this.upstreamRate.sampleRate,
+			}),
+		);
+		if (!forwarded) {
+			return;
+		}
+		const itemId = this.currentItemId ?? this.nextItemId();
+		this.commitQueue.push({ itemId, seconds: this.segmentSeconds });
+		this.sendCommitted(itemId);
+		this.resetSegment();
+	}
+
+	/**
+	 * ElevenLabs has no way to drop uncommitted audio, so clearing reopens the
+	 * upstream on the next audio.
+	 */
+	private async handleClear(clientEventId: unknown): Promise<void> {
+		if (this.commitQueue.length > 0) {
+			this.sendError(
+				"clear_not_available",
+				"input_audio_buffer.clear is only available while no committed audio is awaiting its transcript.",
+				clientEventId,
+			);
+			return;
+		}
+		await this.detachUpstream();
+		this.resetSegment();
+		this.sendEvent({ type: "input_audio_buffer.cleared" });
 	}
 
 	/**
@@ -505,37 +811,363 @@ export class ElevenLabsRealtimeProxySession {
 		return false;
 	}
 
+	// --- Upstream connection ---
+
+	/** Open the upstream with the current session config if none is open. */
+	private async ensureUpstream(): Promise<boolean> {
+		if (this.upstream && this.upstream.readyState !== WebSocket.OPEN) {
+			// Closing, with its close event not handled yet.
+			await this.handleUpstreamClose(this.upstream, 1000, "");
+			if (this.finalized || this.closing) {
+				return false;
+			}
+		}
+		if (this.upstream) {
+			return true;
+		}
+		const query = buildElevenLabsUpstreamQuery(
+			this.config,
+			this.extensionQuery,
+		);
+		let upstream: WebSocket;
+		try {
+			upstream = await this.connect(query);
+		} catch (error) {
+			logger.warn("ElevenLabs realtime upstream connect failed", {
+				sessionId: this.sessionRecordId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			const known = error instanceof RealtimeConnectError;
+			const code = known ? error.code : "upstream_connect_failed";
+			this.sendError(
+				code,
+				known
+					? error.message
+					: "Failed to connect to the upstream realtime provider.",
+				undefined,
+				"server_error",
+			);
+			void this.settleAndShutdown(1011, code);
+			return false;
+		}
+		if (this.finalized || this.closing) {
+			discardUpstream(upstream);
+			return false;
+		}
+		this.attachUpstream(upstream);
+		return true;
+	}
+
+	private attachUpstream(upstream: WebSocket): void {
+		this.upstream = upstream;
+		this.upstreamRate = elevenLabsAudioRate(this.config.format);
+		this.upstreamAlive = true;
+		this.upstreamFatal = false;
+		this.promptSent = false;
+
+		upstream.on("message", (data) => {
+			this.upstreamQueue = this.upstreamQueue
+				.then(() => this.handleUpstreamMessage(upstream, data))
+				.catch((error: unknown) => {
+					logger.error(
+						"Failed to handle ElevenLabs realtime upstream message; closing session",
+						error as Error,
+					);
+					void this.settleAndShutdown(1011, "internal_error");
+				});
+		});
+		upstream.on("close", (code, reason) => {
+			this.upstreamQueue = this.upstreamQueue.then(() =>
+				this.handleUpstreamClose(upstream, code, reason.toString()),
+			);
+		});
+		upstream.on("error", (error) => {
+			logger.warn("ElevenLabs realtime upstream socket error", {
+				sessionId: this.sessionRecordId,
+				error: error.message,
+			});
+		});
+		upstream.on("pong", () => {
+			if (this.upstream === upstream) {
+				this.upstreamAlive = true;
+			}
+		});
+		// connectUpstream holds incoming messages until listeners attach.
+		upstream.resume();
+	}
+
+	/** Stop tracking an upstream, including client reads paused for it. */
+	private releaseUpstream(upstream: WebSocket): void {
+		this.upstream = null;
+		this.upstreamRate = null;
+		const poller = this.backpressurePollers.get(upstream);
+		if (poller) {
+			clearInterval(poller);
+			this.backpressurePollers.delete(upstream);
+			this.resumeClient("backpressure");
+		}
+	}
+
+	/** Close the upstream on purpose, billing the audio it received. */
+	private async detachUpstream(): Promise<void> {
+		const upstream = this.upstream;
+		if (!upstream) {
+			return;
+		}
+		this.releaseUpstream(upstream);
+		try {
+			upstream.close(1000);
+		} catch {
+			upstream.terminate();
+		}
+		if (await this.billAudio()) {
+			this.afterBilling();
+		}
+	}
+
+	private async handleUpstreamClose(
+		upstream: WebSocket,
+		code: number,
+		rawReason: string,
+	): Promise<void> {
+		if (this.upstream !== upstream || this.finalized || this.closing) {
+			return;
+		}
+		this.releaseUpstream(upstream);
+		const reason = rawReason.trim().slice(0, 90);
+		const closeReason = reason
+			? `upstream_closed_${code}: ${reason}`
+			: `upstream_closed_${code}`;
+		if (code !== 1000) {
+			logger.warn("ElevenLabs realtime upstream closed the connection", {
+				sessionId: this.sessionRecordId,
+				code,
+				reason,
+			});
+		}
+		this.failPendingItems(
+			"upstream_closed",
+			"The upstream transcription connection closed before this audio was transcribed.",
+		);
+		// An item that already produced deltas is completed with its latest
+		// partial, so the client is not left waiting for it.
+		if (this.currentItemId !== null && this.currentPartial !== "") {
+			await this.handleCommitted(this.currentPartial);
+			if (this.finalized || this.closing) {
+				return;
+			}
+		}
+		this.resetSegment();
+		if (code !== 1000) {
+			this.upstreamFailuresWithoutTranscript += 1;
+		}
+		if (
+			this.upstreamFatal ||
+			this.upstreamFailuresWithoutTranscript >
+				MAX_UPSTREAM_FAILURES_WITHOUT_TRANSCRIPT
+		) {
+			if (!this.upstreamFatal) {
+				this.sendError(
+					"upstream_unavailable",
+					"The upstream transcription connection keeps failing.",
+					undefined,
+					"server_error",
+				);
+			}
+			await this.settleAndShutdown(1011, closeReason);
+			return;
+		}
+		// The next audio reopens the upstream.
+		if (await this.billAudio()) {
+			this.afterBilling();
+		}
+	}
+
 	// --- Upstream → client ---
 
-	private async handleUpstreamMessage(data: RawData): Promise<void> {
+	private async handleUpstreamMessage(
+		upstream: WebSocket,
+		data: RawData,
+	): Promise<void> {
+		if (this.upstream !== upstream || this.finalized) {
+			return;
+		}
 		const text = data.toString();
 		this.bytesOut += text.length;
 
-		let messageType: unknown;
+		let message: Record<string, unknown>;
 		try {
 			const parsed = JSON.parse(text) as unknown;
-			messageType = isPlainObject(parsed) ? parsed.message_type : undefined;
-		} catch {
-			messageType = undefined;
-		}
-
-		if (typeof messageType === "string" && COMMIT_EVENTS.has(messageType)) {
-			// Bill the audio behind the segment before its transcript is delivered.
-			if (!(await this.billAudio())) {
-				return;
+			if (!isPlainObject(parsed)) {
+				throw new Error("not an object");
 			}
-			this.sendToClientRaw(text);
-			this.afterBilling();
+			message = parsed;
+		} catch {
+			logger.warn("Unparseable ElevenLabs realtime message", {
+				sessionId: this.sessionRecordId,
+			});
 			return;
 		}
-		this.sendToClientRaw(text);
+
+		const type =
+			typeof message.message_type === "string" ? message.message_type : "";
+		switch (type) {
+			case "session_started":
+				if (
+					!this.upstreamSessionRecorded &&
+					typeof message.session_id === "string"
+				) {
+					this.upstreamSessionRecorded = true;
+					void markRealtimeSessionUpstream(
+						this.sessionRecordId,
+						message.session_id,
+					).catch((error: unknown) => {
+						logger.error(
+							"Failed to record upstream realtime session id",
+							error as Error,
+						);
+					});
+				}
+				return;
+			case "partial_transcript":
+				this.handlePartial(message.text);
+				return;
+			case "committed_transcript":
+				await this.handleCommitted(message.text);
+				return;
+			default:
+				if (typeof message.error === "string") {
+					this.handleUpstreamError(type || "error", message.error);
+				}
+		}
+	}
+
+	/**
+	 * ElevenLabs sends the whole segment text so far and may revise it; OpenAI
+	 * clients append deltas, so only extensions of the text already delivered
+	 * are forwarded, and the completed transcript settles any revision.
+	 */
+	private handlePartial(text: unknown): void {
+		if (typeof text !== "string" || text === "") {
+			return;
+		}
+		if (this.currentItemId === null) {
+			if (this.segmentSeconds === 0 && this.commitQueue.length > 0) {
+				// Late partial for audio the client already committed.
+				return;
+			}
+			this.currentItemId = this.nextItemId();
+			this.currentPartial = "";
+			this.deliveredPartial = "";
+			if (this.config.turnDetection !== null) {
+				const segmentMs = this.segmentSeconds * 1000;
+				this.sendEvent({
+					type: "input_audio_buffer.speech_started",
+					audio_start_ms: Math.max(
+						0,
+						Math.round(this.totalAudioMs - segmentMs),
+					),
+					item_id: this.currentItemId,
+				});
+			}
+		}
+		this.currentPartial = text;
+		if (
+			text.length > this.deliveredPartial.length &&
+			text.startsWith(this.deliveredPartial)
+		) {
+			this.sendEvent({
+				type: "conversation.item.input_audio_transcription.delta",
+				item_id: this.currentItemId,
+				content_index: 0,
+				delta: text.slice(this.deliveredPartial.length),
+			});
+			this.deliveredPartial = text;
+		}
+	}
+
+	private async handleCommitted(text: unknown): Promise<void> {
+		const transcript = typeof text === "string" ? text : "";
+		let item = this.commitQueue.shift();
+		if (!item) {
+			// A commit by the upstream's own turn detection.
+			if (this.currentItemId === null && transcript.trim() === "") {
+				this.segmentSeconds = 0;
+				return;
+			}
+			const itemId = this.currentItemId ?? this.nextItemId();
+			item = { itemId, seconds: this.segmentSeconds };
+			if (this.config.turnDetection !== null) {
+				this.sendEvent({
+					type: "input_audio_buffer.speech_stopped",
+					audio_end_ms: Math.round(this.totalAudioMs),
+					item_id: itemId,
+				});
+			}
+			this.sendCommitted(itemId);
+			this.resetSegment();
+		}
+
+		// Bill the audio behind the transcript before it is delivered.
+		if (!(await this.billAudio())) {
+			return;
+		}
+		this.upstreamFailuresWithoutTranscript = 0;
+		this.sendEvent({
+			type: "conversation.item.input_audio_transcription.completed",
+			item_id: item.itemId,
+			content_index: 0,
+			transcript,
+			usage: { type: "duration", seconds: roundSeconds(item.seconds) },
+		});
+		this.afterBilling();
+	}
+
+	private handleUpstreamError(type: string, message: string): void {
+		if (FATAL_UPSTREAM_ERRORS.has(type)) {
+			this.upstreamFatal = true;
+		}
+		const item = COMMIT_ERRORS.has(type) ? this.commitQueue.shift() : undefined;
+		if (item) {
+			this.sendFailed(item.itemId, type, message);
+			return;
+		}
+		this.sendError(
+			type,
+			message,
+			undefined,
+			CLIENT_UPSTREAM_ERRORS.has(type)
+				? "invalid_request_error"
+				: "server_error",
+		);
+	}
+
+	private sendCommitted(itemId: string): void {
+		this.sendEvent({
+			type: "input_audio_buffer.committed",
+			previous_item_id: this.lastItemId,
+			item_id: itemId,
+		});
+		this.lastItemId = itemId;
+	}
+
+	private sendFailed(itemId: string, code: string, message: string): void {
+		this.sendEvent({
+			type: "conversation.item.input_audio_transcription.failed",
+			item_id: itemId,
+			content_index: 0,
+			error: { type: "transcription_error", code, message, param: null },
+		});
+	}
+
+	private failPendingItems(code: string, message: string): void {
+		for (const item of this.commitQueue) {
+			this.sendFailed(item.itemId, code, message);
+		}
+		this.commitQueue = [];
 	}
 
 	// --- Billing ---
-
-	private unbilledSeconds(): number {
-		return this.unbilledAudioBytes / this.config.bytesPerSecond;
-	}
 
 	/**
 	 * Bill all forwarded audio not yet billed. Returns false when the session
@@ -550,12 +1182,13 @@ export class ElevenLabsRealtimeProxySession {
 		if (this.finalized) {
 			return false;
 		}
+		const seconds = this.unbilledAudioSeconds;
 		const bytes = this.unbilledAudioBytes;
 		if (bytes === 0) {
 			return true;
 		}
+		this.unbilledAudioSeconds = 0;
 		this.unbilledAudioBytes = 0;
-		const seconds = bytes / this.config.bytesPerSecond;
 		const usage = {
 			totalTokens: 0,
 			inputTokens: 0,
@@ -645,7 +1278,7 @@ export class ElevenLabsRealtimeProxySession {
 
 	/** Refuse further audio and log it like a rejected HTTP request. */
 	private refuse(code: string, message: string): void {
-		this.sendToClientRaw(buildGatewayError(code, message));
+		this.sendError(code, message);
 		void logRealtimeTurnDenial({
 			gatewayToken: this.gatewayToken,
 			sessionRecordId: this.sessionRecordId,
@@ -660,7 +1293,7 @@ export class ElevenLabsRealtimeProxySession {
 	// --- Lifecycle ---
 
 	/**
-	 * Bill the forwarded audio that no committed transcript has covered — the
+	 * Bill the forwarded audio that no completed transcript has covered — the
 	 * provider charges for it regardless — then close. Every shutdown other
 	 * than a billing failure goes through here.
 	 */
@@ -710,15 +1343,19 @@ export class ElevenLabsRealtimeProxySession {
 		} catch {
 			this.client.terminate();
 		}
-		try {
-			if (
-				this.upstream.readyState === WebSocket.OPEN ||
-				this.upstream.readyState === WebSocket.CONNECTING
-			) {
-				this.upstream.close(1000);
+		const upstream = this.upstream;
+		this.upstream = null;
+		if (upstream) {
+			try {
+				if (
+					upstream.readyState === WebSocket.OPEN ||
+					upstream.readyState === WebSocket.CONNECTING
+				) {
+					upstream.close(1000);
+				}
+			} catch {
+				upstream.terminate();
 			}
-		} catch {
-			this.upstream.terminate();
 		}
 
 		void releaseRealtimeLease(this.lease);
@@ -741,27 +1378,55 @@ export class ElevenLabsRealtimeProxySession {
 
 	// --- Socket plumbing with backpressure ---
 
+	private sendEvent(event: Record<string, unknown> & { type: string }): void {
+		const { type, ...rest } = event;
+		this.sendToClientRaw(
+			JSON.stringify({ type, event_id: nextEventId(), ...rest }),
+		);
+	}
+
+	private sendError(
+		code: string,
+		message: string,
+		clientEventId?: unknown,
+		type = "invalid_request_error",
+	): void {
+		this.sendEvent({
+			type: "error",
+			error: {
+				type,
+				code,
+				message,
+				param: null,
+				event_id: typeof clientEventId === "string" ? clientEventId : null,
+			},
+		});
+	}
+
 	private sendToClientRaw(text: string): void {
 		if (this.client.readyState !== WebSocket.OPEN) {
 			return;
 		}
 		this.client.send(text);
-		this.applyBackpressure(this.client, this.upstream);
+		if (this.upstream) {
+			this.applyBackpressure(this.client, this.upstream);
+		}
 	}
 
 	/** Returns false when the frame could not be sent. */
 	private forwardToUpstream(text: string): boolean {
-		if (this.upstream.readyState !== WebSocket.OPEN) {
-			this.sendToClientRaw(
-				buildGatewayError(
-					"upstream_unavailable",
-					"The upstream realtime connection is no longer available.",
-				),
+		const upstream = this.upstream;
+		if (!upstream || upstream.readyState !== WebSocket.OPEN) {
+			this.sendError(
+				"upstream_unavailable",
+				"The upstream realtime connection is no longer available.",
+				undefined,
+				"server_error",
 			);
 			return false;
 		}
-		this.upstream.send(text);
-		this.applyBackpressure(this.upstream, this.client);
+		upstream.send(text);
+		this.applyBackpressure(upstream, this.client);
 		return true;
 	}
 

@@ -47,6 +47,7 @@ import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
 import { mapModels } from "@/lib/mapmodels";
 import { parsePlaygroundMessageMetadata } from "@/lib/message-metadata";
+import { getModelStudio, type ModelStudio } from "@/lib/model-studio";
 import {
 	getFallbackReasoningEffortOptions,
 	getReasoningEffortOptions,
@@ -385,11 +386,22 @@ export default function ChatPageClient({
 	const [ocrPending, setOcrPending] = useState(false);
 	const [showTopUp, setShowTopUp] = useState(false);
 	const [isTemporaryChat, setIsTemporaryChat] = useState(false);
-	const [pendingVideoModel, setPendingVideoModel] = useState<string | null>(
-		null,
-	);
-	const [pendingAudioModel, setPendingAudioModel] = useState<string | null>(
-		null,
+	// A model the chat cannot serve, offered in the studio that can.
+	const [pendingStudio, setPendingStudio] = useState<{
+		modelName: string;
+		studio: ModelStudio;
+	} | null>(null);
+	const offerStudio = useCallback(
+		(modelId: string): boolean => {
+			const def = models.find((m) => m.id === modelId);
+			const studio = def ? getModelStudio(def) : null;
+			if (!def || !studio) {
+				return false;
+			}
+			setPendingStudio({ modelName: def.name ?? def.id, studio });
+			return true;
+		},
+		[models],
 	);
 
 	const { data: connectorData } = useConnectors();
@@ -1921,13 +1933,7 @@ export default function ChatPageClient({
 	const handleSelectModel = useCallback(
 		(model: string) => {
 			const { modelId } = parseModelSelectorValue(model);
-			const def = models.find((m) => m.id === modelId);
-			if (def?.output?.includes("video")) {
-				setPendingVideoModel(modelId);
-				return;
-			}
-			if (def?.output?.includes("audio")) {
-				setPendingAudioModel(modelId);
+			if (offerStudio(modelId)) {
 				return;
 			}
 			setSelectedModel(model);
@@ -1944,7 +1950,7 @@ export default function ChatPageClient({
 			const qs = currentParams.toString();
 			router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
 		},
-		[pathname, router, comparisonEnabled, extraPanelModels, models],
+		[pathname, router, comparisonEnabled, extraPanelModels, offerStudio],
 	);
 
 	const {
@@ -2428,8 +2434,7 @@ export default function ChatPageClient({
 												onModelChange={(model) =>
 													handleExtraPanelModelChange(index, model)
 												}
-												onVideoModelSelected={setPendingVideoModel}
-												onAudioModelSelected={setPendingAudioModel}
+												offerStudio={offerStudio}
 												resetToken={comparisonResetToken}
 												primaryChatId={currentChatId}
 												primaryChatIdRef={chatIdRef}
@@ -2450,81 +2455,35 @@ export default function ChatPageClient({
 			/>
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
 			<Dialog
-				open={pendingVideoModel !== null}
+				open={pendingStudio !== null}
 				onOpenChange={(open) => {
 					if (!open) {
-						setPendingVideoModel(null);
+						setPendingStudio(null);
 					}
 				}}
 			>
 				<DialogContent>
 					<DialogHeader>
-						<DialogTitle>Switch to Video Studio?</DialogTitle>
+						<DialogTitle>Open {pendingStudio?.studio.name}?</DialogTitle>
 						<DialogDescription>
-							{pendingVideoModel
-								? (models.find((m) => m.id === pendingVideoModel)?.name ??
-									pendingVideoModel)
-								: ""}{" "}
-							is a video generation model. Would you like to open it in Video
-							Studio?
+							{pendingStudio?.modelName} is {pendingStudio?.studio.kind} and
+							cannot be used in chat. Would you like to open it in{" "}
+							{pendingStudio?.studio.name}?
 						</DialogDescription>
 					</DialogHeader>
 					<DialogFooter>
-						<Button
-							variant="outline"
-							onClick={() => setPendingVideoModel(null)}
-						>
+						<Button variant="outline" onClick={() => setPendingStudio(null)}>
 							Cancel
 						</Button>
 						<Button
 							onClick={() => {
-								if (pendingVideoModel) {
-									router.push(`/video?model=${pendingVideoModel}`);
+								if (pendingStudio) {
+									router.push(pendingStudio.studio.href);
 								}
-								setPendingVideoModel(null);
+								setPendingStudio(null);
 							}}
 						>
-							Open Video Studio
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
-			<Dialog
-				open={pendingAudioModel !== null}
-				onOpenChange={(open) => {
-					if (!open) {
-						setPendingAudioModel(null);
-					}
-				}}
-			>
-				<DialogContent>
-					<DialogHeader>
-						<DialogTitle>Switch to Audio Studio?</DialogTitle>
-						<DialogDescription>
-							{pendingAudioModel
-								? (models.find((m) => m.id === pendingAudioModel)?.name ??
-									pendingAudioModel)
-								: ""}{" "}
-							is a speech generation model. Would you like to open it in Audio
-							Studio?
-						</DialogDescription>
-					</DialogHeader>
-					<DialogFooter>
-						<Button
-							variant="outline"
-							onClick={() => setPendingAudioModel(null)}
-						>
-							Cancel
-						</Button>
-						<Button
-							onClick={() => {
-								if (pendingAudioModel) {
-									router.push(`/audio?model=${pendingAudioModel}`);
-								}
-								setPendingAudioModel(null);
-							}}
-						>
-							Open Audio Studio
+							Open {pendingStudio?.studio.name}
 						</Button>
 					</DialogFooter>
 				</DialogContent>
@@ -2546,8 +2505,8 @@ interface ExtraChatPanelProps {
 		submit: (content: string) => Promise<void> | void,
 	) => void;
 	onModelChange?: (model: string) => void;
-	onVideoModelSelected?: (modelId: string) => void;
-	onAudioModelSelected?: (modelId: string) => void;
+	/** Offers the studio for a model the chat cannot serve; true if offered. */
+	offerStudio?: (modelId: string) => boolean;
 	resetToken: number;
 	primaryChatId: string | null;
 	primaryChatIdRef: React.RefObject<string | null>;
@@ -2570,8 +2529,7 @@ function ExtraChatPanel({
 	setSyncedText,
 	onRegisterExternalSubmit,
 	onModelChange,
-	onVideoModelSelected,
-	onAudioModelSelected,
+	offerStudio,
 	resetToken,
 	primaryChatId,
 	primaryChatIdRef,
@@ -2587,19 +2545,13 @@ function ExtraChatPanel({
 			const modelId = (
 				model.includes("/") ? (model.split("/")[1] ?? model) : model
 			).split(":")[0];
-			const def = models.find((m) => m.id === modelId);
-			if (def?.output?.includes("video")) {
-				onVideoModelSelected?.(modelId);
-				return;
-			}
-			if (def?.output?.includes("audio")) {
-				onAudioModelSelected?.(modelId);
+			if (offerStudio?.(modelId)) {
 				return;
 			}
 			setSelectedModel(model);
 			onModelChange?.(model);
 		},
-		[onModelChange, onVideoModelSelected, onAudioModelSelected, models],
+		[onModelChange, offerStudio],
 	);
 	const [comparisonChatId, setComparisonChatId] = useState<string | null>(
 		initialChatId,

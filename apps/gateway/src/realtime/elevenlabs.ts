@@ -1,46 +1,40 @@
 /**
- * ElevenLabs realtime speech-to-text (Scribe Live) connection parameters.
- * The session is configured entirely by query parameters on the upstream
- * WebSocket URL, so the gateway validates the caller's parameters before
- * connecting and forwards only the ones it can meter.
+ * ElevenLabs realtime speech-to-text (Scribe Live) translated to the OpenAI
+ * realtime transcription protocol. ElevenLabs configures a session entirely
+ * by query parameters on the upstream WebSocket URL, so the gateway keeps the
+ * OpenAI session config itself and derives the upstream query from it when
+ * it opens the upstream connection.
  */
 
-/** Input audio bytes per second for each `audio_format` ElevenLabs accepts. */
-const AUDIO_FORMATS: Record<
-	string,
-	{ sampleRate: number; bytesPerSecond: number }
-> = {
-	pcm_8000: { sampleRate: 8000, bytesPerSecond: 16_000 },
-	pcm_16000: { sampleRate: 16_000, bytesPerSecond: 32_000 },
-	pcm_22050: { sampleRate: 22_050, bytesPerSecond: 44_100 },
-	pcm_24000: { sampleRate: 24_000, bytesPerSecond: 48_000 },
-	pcm_44100: { sampleRate: 44_100, bytesPerSecond: 88_200 },
-	pcm_48000: { sampleRate: 48_000, bytesPerSecond: 96_000 },
-	ulaw_8000: { sampleRate: 8000, bytesPerSecond: 8000 },
-};
+type ParamKind = "list" | "boolean" | "integer";
 
-export const ELEVENLABS_DEFAULT_AUDIO_FORMAT = "pcm_16000";
-
-type ParamKind = "string" | "list" | "boolean" | "number" | "integer";
-
-const FORWARDED_PARAMS: Record<string, ParamKind | readonly string[]> = {
-	audio_format: Object.keys(AUDIO_FORMATS),
-	language_code: "string",
+/** Optional ElevenLabs-only connection parameters accepted on the gateway URL. */
+const EXTENSION_PARAMS: Record<string, ParamKind> = {
 	secondary_languages: "list",
-	commit_strategy: ["manual", "vad", "turn_prediction"],
-	vad_threshold: "number",
-	vad_silence_threshold_secs: "number",
-	min_speech_duration_ms: "integer",
-	min_silence_duration_ms: "integer",
-	include_timestamps: "boolean",
-	include_language_detection: "boolean",
 	no_verbatim: "boolean",
 	multilang_mode: "boolean",
-	diarize: "boolean",
-	filter_background_audio: "boolean",
+	min_speech_duration_ms: "integer",
+	min_silence_duration_ms: "integer",
 	keepalive_interval_ms: "integer",
 	enable_logging: "boolean",
 };
+
+/** Native parameters the OpenAI session config sets instead. */
+const SESSION_UPDATE_PARAMS: Record<string, string> = {
+	audio_format: "audio.input.format",
+	language_code: "audio.input.transcription.language",
+	commit_strategy: "audio.input.turn_detection",
+	vad_threshold: "audio.input.turn_detection.threshold",
+	vad_silence_threshold_secs: "audio.input.turn_detection.silence_duration_ms",
+	filter_background_audio: "audio.input.noise_reduction",
+};
+
+/** Native parameters whose events have no OpenAI realtime equivalent. */
+const NON_OPENAI_EVENT_PARAMS = new Set([
+	"include_timestamps",
+	"include_language_detection",
+	"diarize",
+]);
 
 /** Query parameters the gateway itself consumes; never forwarded. */
 const GATEWAY_PARAMS = new Set(["model", "intent"]);
@@ -58,29 +52,52 @@ const SURCHARGED_PARAMS = new Set([
 	"entity_redaction_mode",
 ]);
 
-export interface ElevenLabsRealtimeConfig {
-	/** Forwarded upstream query, without `model_id`. */
-	query: URLSearchParams;
-	sampleRate: number;
-	bytesPerSecond: number;
+/** PCM sample rates ElevenLabs accepts for `audio/pcm` input. */
+const PCM_RATES = new Set([8000, 16_000, 22_050, 24_000, 44_100, 48_000]);
+
+export type ElevenLabsAudioFormat =
+	{ type: "audio/pcm"; rate: number } | { type: "audio/pcmu" };
+
+export type ElevenLabsTurnDetection =
+	| {
+			type: "server_vad";
+			threshold?: number;
+			silence_duration_ms?: number;
+	  }
+	| { type: "semantic_vad" }
+	| null;
+
+/** The OpenAI transcription settings an ElevenLabs session runs with. */
+export interface ElevenLabsSessionConfig {
+	format: ElevenLabsAudioFormat;
+	language: string | null;
+	/** Extra languages from the `languages` list, after the first. */
+	secondaryLanguages: string[];
+	prompt: string;
+	turnDetection: ElevenLabsTurnDetection;
+	noiseReduction: Record<string, unknown> | null;
 }
 
-export type ElevenLabsRealtimeConfigResult =
-	| { ok: true; config: ElevenLabsRealtimeConfig }
+export const DEFAULT_ELEVENLABS_SESSION_CONFIG: ElevenLabsSessionConfig = {
+	format: { type: "audio/pcm", rate: 24_000 },
+	language: null,
+	secondaryLanguages: [],
+	prompt: "",
+	turnDetection: { type: "server_vad" },
+	noiseReduction: null,
+};
+
+export type ElevenLabsRealtimeQueryResult =
+	| { ok: true; query: URLSearchParams }
 	| { ok: false; code: string; message: string };
 
-function validValue(
-	kind: ParamKind | readonly string[],
-	value: string,
-): boolean {
-	if (typeof kind !== "string") {
-		return kind.includes(value);
-	}
+export type ParseResult<T> =
+	{ ok: true; value: T } | { ok: false; code: string; message: string };
+
+function validValue(kind: ParamKind, value: string): boolean {
 	switch (kind) {
 		case "boolean":
 			return value === "true" || value === "false";
-		case "number":
-			return value.trim() !== "" && Number.isFinite(Number(value));
 		case "integer":
 			return /^\d+$/.test(value);
 		default:
@@ -88,13 +105,18 @@ function validValue(
 	}
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 /**
- * Validate the caller's connection query for an ElevenLabs realtime
- * transcription session and build the forwarded upstream query.
+ * Validate the ElevenLabs-only extension parameters on the caller's
+ * connection URL. Everything the OpenAI session config covers is set with
+ * `session.update` instead.
  */
-export function buildElevenLabsRealtimeConfig(
+export function buildElevenLabsRealtimeQuery(
 	params: URLSearchParams,
-): ElevenLabsRealtimeConfigResult {
+): ElevenLabsRealtimeQueryResult {
 	const query = new URLSearchParams();
 	for (const name of new Set(params.keys())) {
 		if (GATEWAY_PARAMS.has(name)) {
@@ -115,7 +137,22 @@ export function buildElevenLabsRealtimeConfig(
 					"Select the model with the 'model' query parameter, e.g. model=scribe-v3-live, not 'model_id'.",
 			};
 		}
-		const kind = FORWARDED_PARAMS[name];
+		const sessionField = SESSION_UPDATE_PARAMS[name];
+		if (sessionField !== undefined) {
+			return {
+				ok: false,
+				code: "unsupported_parameter",
+				message: `Query parameter '${name}' is not supported; set session.${sessionField} with session.update.`,
+			};
+		}
+		if (NON_OPENAI_EVENT_PARAMS.has(name)) {
+			return {
+				ok: false,
+				code: "unsupported_parameter",
+				message: `Query parameter '${name}' is not supported: its events have no OpenAI realtime equivalent.`,
+			};
+		}
+		const kind = EXTENSION_PARAMS[name];
 		if (kind === undefined) {
 			return {
 				ok: false,
@@ -142,15 +179,151 @@ export function buildElevenLabsRealtimeConfig(
 			query.append(name, value);
 		}
 	}
-	const audioFormat =
-		query.get("audio_format") ?? ELEVENLABS_DEFAULT_AUDIO_FORMAT;
-	const format = AUDIO_FORMATS[audioFormat]!;
+	return { ok: true, query };
+}
+
+/**
+ * Parse an OpenAI audio input format: the GA object form or the legacy
+ * `input_audio_format` string.
+ */
+export function parseElevenLabsAudioFormat(
+	value: unknown,
+): ParseResult<ElevenLabsAudioFormat> {
+	if (value === "pcm16") {
+		return { ok: true, value: { type: "audio/pcm", rate: 24_000 } };
+	}
+	if (value === "g711_ulaw") {
+		return { ok: true, value: { type: "audio/pcmu" } };
+	}
+	if (isPlainObject(value)) {
+		if (value.type === "audio/pcm") {
+			const rate = value.rate ?? 24_000;
+			if (typeof rate === "number" && PCM_RATES.has(rate)) {
+				return { ok: true, value: { type: "audio/pcm", rate } };
+			}
+			return {
+				ok: false,
+				code: "unsupported_audio_format",
+				message: `audio/pcm rate must be one of ${[...PCM_RATES].join(", ")}.`,
+			};
+		}
+		if (value.type === "audio/pcmu") {
+			return { ok: true, value: { type: "audio/pcmu" } };
+		}
+	}
 	return {
-		ok: true,
-		config: {
-			query,
-			sampleRate: format.sampleRate,
-			bytesPerSecond: format.bytesPerSecond,
-		},
+		ok: false,
+		code: "unsupported_audio_format",
+		message:
+			"ElevenLabs realtime transcription supports audio/pcm and audio/pcmu input.",
 	};
+}
+
+/** Parse an OpenAI `turn_detection` config. */
+export function parseElevenLabsTurnDetection(
+	value: unknown,
+): ParseResult<ElevenLabsTurnDetection> {
+	if (value === null) {
+		return { ok: true, value: null };
+	}
+	if (isPlainObject(value)) {
+		if (value.type === "semantic_vad") {
+			return { ok: true, value: { type: "semantic_vad" } };
+		}
+		if (value.type === "server_vad") {
+			const { threshold, silence_duration_ms: silence } = value;
+			if (
+				threshold !== undefined &&
+				threshold !== null &&
+				(typeof threshold !== "number" || threshold < 0 || threshold > 1)
+			) {
+				return {
+					ok: false,
+					code: "invalid_turn_detection",
+					message: "turn_detection.threshold must be a number from 0 to 1.",
+				};
+			}
+			if (
+				silence !== undefined &&
+				silence !== null &&
+				(typeof silence !== "number" ||
+					!Number.isInteger(silence) ||
+					silence < 0)
+			) {
+				return {
+					ok: false,
+					code: "invalid_turn_detection",
+					message:
+						"turn_detection.silence_duration_ms must be a non-negative integer.",
+				};
+			}
+			return {
+				ok: true,
+				value: {
+					type: "server_vad",
+					...(typeof threshold === "number" && { threshold }),
+					...(typeof silence === "number" && { silence_duration_ms: silence }),
+				},
+			};
+		}
+	}
+	return {
+		ok: false,
+		code: "invalid_turn_detection",
+		message: "turn_detection must be null, server_vad or semantic_vad.",
+	};
+}
+
+/** Input audio sample rate and bytes per second for a format. */
+export function elevenLabsAudioRate(format: ElevenLabsAudioFormat): {
+	sampleRate: number;
+	bytesPerSecond: number;
+} {
+	return format.type === "audio/pcmu"
+		? { sampleRate: 8000, bytesPerSecond: 8000 }
+		: { sampleRate: format.rate, bytesPerSecond: format.rate * 2 };
+}
+
+/** The upstream query for a session config plus the caller's extensions. */
+export function buildElevenLabsUpstreamQuery(
+	config: ElevenLabsSessionConfig,
+	extensions: URLSearchParams,
+): URLSearchParams {
+	const query = new URLSearchParams(extensions);
+	query.set(
+		"audio_format",
+		config.format.type === "audio/pcmu"
+			? "ulaw_8000"
+			: `pcm_${config.format.rate}`,
+	);
+	if (config.language) {
+		query.set("language_code", config.language);
+	}
+	for (const language of config.secondaryLanguages) {
+		query.append("secondary_languages", language);
+	}
+	const { turnDetection } = config;
+	query.set(
+		"commit_strategy",
+		turnDetection === null
+			? "manual"
+			: turnDetection.type === "semantic_vad"
+				? "turn_prediction"
+				: "vad",
+	);
+	if (turnDetection?.type === "server_vad") {
+		if (turnDetection.threshold !== undefined) {
+			query.set("vad_threshold", String(turnDetection.threshold));
+		}
+		if (turnDetection.silence_duration_ms !== undefined) {
+			query.set(
+				"vad_silence_threshold_secs",
+				String(turnDetection.silence_duration_ms / 1000),
+			);
+		}
+	}
+	if (config.noiseReduction !== null) {
+		query.set("filter_background_audio", "true");
+	}
+	return query;
 }

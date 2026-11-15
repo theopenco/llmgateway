@@ -8,6 +8,7 @@ import { LoungeLandingSections } from "@/components/seo/lounge-landing-sections"
 import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { CHAT_CONTEXT_COOKIE } from "@/lib/constants";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
+import { isChatPickerModel } from "@/lib/model-studio";
 import { findFallbackOrganization } from "@/lib/organization-fallback";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -263,13 +264,7 @@ export async function renderPlaygroundShell({
 					!cookieStore.has("better-auth.session_token") &&
 					!cookieStore.has("__Secure-better-auth.session_token")
 				}
-				models={models.filter(
-					(m) =>
-						!m.output?.includes("embedding") &&
-						!m.output?.includes("rerank") &&
-						!m.output?.includes("decision") &&
-						!m.output?.includes("search"),
-				)}
+				models={models.filter(isChatPickerModel)}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}

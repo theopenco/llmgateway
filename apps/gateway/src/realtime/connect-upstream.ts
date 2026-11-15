@@ -81,8 +81,8 @@ export function resolveUpstreamTarget(
 	}
 
 	if (providerId === "elevenlabs") {
-		// Scribe Live is configured by query parameters; the gateway validated
-		// them before connecting (buildElevenLabsRealtimeConfig).
+		// Scribe Live is configured by query parameters, built from the
+		// session config (buildElevenLabsUpstreamQuery).
 		const baseUrl = credentialBaseUrl ?? "https://api.elevenlabs.io";
 		const query = new URLSearchParams(options.query);
 		query.set("model_id", preflight.match.mapping.externalId);
