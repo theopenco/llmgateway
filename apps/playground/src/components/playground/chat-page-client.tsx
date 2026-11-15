@@ -2478,7 +2478,22 @@ export default function ChatPageClient({
 						<Button
 							onClick={() => {
 								if (pendingStudio) {
-									router.push(pendingStudio.studio.href);
+									// Keep the chat's billing context in the studio.
+									const url = new URL(
+										pendingStudio.studio.href,
+										window.location.origin,
+									);
+									if (selectedOrganization) {
+										url.searchParams.set("orgId", selectedOrganization.id);
+									}
+									if (selectedProject) {
+										url.searchParams.set(
+											"orgId",
+											selectedProject.organizationId,
+										);
+										url.searchParams.set("projectId", selectedProject.id);
+									}
+									router.push(`${url.pathname}${url.search}`);
 								}
 								setPendingStudio(null);
 							}}

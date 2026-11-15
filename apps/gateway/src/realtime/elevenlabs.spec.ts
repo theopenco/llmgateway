@@ -43,6 +43,8 @@ describe("buildElevenLabsRealtimeQuery", () => {
 		["no_verbatim=yes", "invalid_parameter", "no_verbatim"],
 		["min_speech_duration_ms=-1", "invalid_parameter", "min_speech"],
 		["no_verbatim=true&no_verbatim=false", "invalid_parameter", "once"],
+		["keepalive_interval_ms=100", "invalid_parameter", "between 500"],
+		["min_silence_duration_ms=3000", "invalid_parameter", "between 50"],
 	])("rejects %s", (query, code, hint) => {
 		const result = buildElevenLabsRealtimeQuery(new URLSearchParams(query));
 		expect(result).toMatchObject({ ok: false, code });
@@ -96,6 +98,29 @@ describe("parseElevenLabsTurnDetection", () => {
 		expect(parseElevenLabsTurnDetection(null)).toEqual({
 			ok: true,
 			value: null,
+		});
+	});
+
+	it("clamps VAD values to ElevenLabs' ranges", () => {
+		expect(
+			parseElevenLabsTurnDetection({
+				type: "server_vad",
+				threshold: 0.95,
+				silence_duration_ms: 100,
+			}),
+		).toEqual({
+			ok: true,
+			value: { type: "server_vad", threshold: 0.9, silence_duration_ms: 192 },
+		});
+		expect(
+			parseElevenLabsTurnDetection({
+				type: "server_vad",
+				threshold: 0,
+				silence_duration_ms: 5000,
+			}),
+		).toEqual({
+			ok: true,
+			value: { type: "server_vad", threshold: 0.1, silence_duration_ms: 3000 },
 		});
 	});
 

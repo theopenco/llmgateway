@@ -350,9 +350,11 @@ wss://api.llmgateway.io/v1/realtime?intent=transcription&model=scribe-v3-live
 - `transcription.language` (or a `languages` list) and `prompt` are applied;
   a non-null `noise_reduction` enables ElevenLabs background audio filtering.
   `keywords` are billed separately by ElevenLabs and are rejected.
+- `threshold` is clamped to 0.1–0.9 and `silence_duration_ms` to 192–3000;
+  `session.updated` reports the values in effect.
 - ElevenLabs applies settings when the gateway opens its connection on the
-  first audio. A later change to them is applied between transcripts and
-  rejected with `session_update_in_progress` while one is in progress.
+  first audio. A later change is rejected with `session_update_in_progress`
+  while audio awaits its transcript; send `input_audio_buffer.clear` first.
 - Deltas only extend the text already sent; ElevenLabs revisions are settled
   by the `.completed` transcript. Each `.completed` event reports
   `usage: {"type": "duration", "seconds": …}`.

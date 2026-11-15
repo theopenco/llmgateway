@@ -591,20 +591,25 @@ export class ElevenLabsRealtimeProxySession {
 			next.noiseReduction = noiseReduction;
 		}
 
-		// ElevenLabs takes its settings when the connection opens, so a change
-		// reopens it, which is only safe between transcripts.
-		if (
-			this.upstream &&
+		// ElevenLabs takes its settings (and the prompt, as the first chunk's
+		// previous_text) when the connection opens, so a change reopens it, which
+		// is only safe while no audio awaits its transcript.
+		const settingsChanged =
 			buildElevenLabsUpstreamQuery(next, this.extensionQuery).toString() !==
 				buildElevenLabsUpstreamQuery(
 					this.config,
 					this.extensionQuery,
-				).toString()
-		) {
-			if (this.currentItemId !== null || this.commitQueue.length > 0) {
+				).toString() ||
+			(this.promptSent && next.prompt !== this.config.prompt);
+		if (this.upstream && settingsChanged) {
+			if (
+				this.currentItemId !== null ||
+				this.segmentSeconds > 0 ||
+				this.commitQueue.length > 0
+			) {
 				reject(
 					"session_update_in_progress",
-					"Audio format, language, turn detection and noise reduction can only change while no transcription is in progress.",
+					"Audio format, language, prompt, turn detection and noise reduction can only change while no audio awaits its transcript; send input_audio_buffer.clear first to drop it.",
 				);
 				return;
 			}
@@ -951,13 +956,16 @@ export class ElevenLabsRealtimeProxySession {
 		);
 		// An item that already produced deltas is completed with its latest
 		// partial, so the client is not left waiting for it.
+		// handleCommitted resets the segment before billing, during which the
+		// client queue may already feed a replacement upstream.
 		if (this.currentItemId !== null && this.currentPartial !== "") {
 			await this.handleCommitted(this.currentPartial);
 			if (this.finalized || this.closing) {
 				return;
 			}
+		} else {
+			this.resetSegment();
 		}
-		this.resetSegment();
 		if (code !== 1000) {
 			this.upstreamFailuresWithoutTranscript += 1;
 		}
@@ -1052,8 +1060,9 @@ export class ElevenLabsRealtimeProxySession {
 			return;
 		}
 		if (this.currentItemId === null) {
-			if (this.segmentSeconds === 0 && this.commitQueue.length > 0) {
-				// Late partial for audio the client already committed.
+			if (this.commitQueue.length > 0) {
+				// Late partial for audio the client already committed; its
+				// completed transcript follows.
 				return;
 			}
 			this.currentItemId = this.nextItemId();

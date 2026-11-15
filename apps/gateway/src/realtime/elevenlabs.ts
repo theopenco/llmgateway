@@ -19,6 +19,21 @@ const EXTENSION_PARAMS: Record<string, ParamKind> = {
 	enable_logging: "boolean",
 };
 
+/** Ranges ElevenLabs enforces on integer parameters. */
+const INTEGER_RANGES: Record<string, [number, number]> = {
+	min_speech_duration_ms: [50, 2000],
+	min_silence_duration_ms: [50, 2000],
+	keepalive_interval_ms: [500, 10_000],
+};
+
+/** ElevenLabs' VAD ranges; OpenAI values outside them are clamped. */
+const VAD_THRESHOLD_RANGE: [number, number] = [0.1, 0.9];
+const VAD_SILENCE_MS_RANGE: [number, number] = [192, 3000];
+
+function clamp(value: number, [min, max]: [number, number]): number {
+	return Math.min(max, Math.max(min, value));
+}
+
 /** Native parameters the OpenAI session config sets instead. */
 const SESSION_UPDATE_PARAMS: Record<string, string> = {
 	audio_format: "audio.input.format",
@@ -168,12 +183,18 @@ export function buildElevenLabsRealtimeQuery(
 				message: `Query parameter '${name}' may only be set once.`,
 			};
 		}
+		const range = INTEGER_RANGES[name];
 		for (const value of values) {
-			if (!validValue(kind, value)) {
+			if (
+				!validValue(kind, value) ||
+				(range && (Number(value) < range[0] || Number(value) > range[1]))
+			) {
 				return {
 					ok: false,
 					code: "invalid_parameter",
-					message: `Invalid value for query parameter '${name}'.`,
+					message: range
+						? `Query parameter '${name}' must be between ${range[0]} and ${range[1]}.`
+						: `Invalid value for query parameter '${name}'.`,
 				};
 			}
 			query.append(name, value);
@@ -219,7 +240,10 @@ export function parseElevenLabsAudioFormat(
 	};
 }
 
-/** Parse an OpenAI `turn_detection` config. */
+/**
+ * Parse an OpenAI `turn_detection` config. Values outside ElevenLabs' VAD
+ * ranges are clamped, and the session reports the values in effect.
+ */
 export function parseElevenLabsTurnDetection(
 	value: unknown,
 ): ParseResult<ElevenLabsTurnDetection> {
@@ -261,8 +285,12 @@ export function parseElevenLabsTurnDetection(
 				ok: true,
 				value: {
 					type: "server_vad",
-					...(typeof threshold === "number" && { threshold }),
-					...(typeof silence === "number" && { silence_duration_ms: silence }),
+					...(typeof threshold === "number" && {
+						threshold: clamp(threshold, VAD_THRESHOLD_RANGE),
+					}),
+					...(typeof silence === "number" && {
+						silence_duration_ms: clamp(silence, VAD_SILENCE_MS_RANGE),
+					}),
 				},
 			};
 		}

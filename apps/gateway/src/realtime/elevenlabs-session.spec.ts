@@ -467,9 +467,18 @@ describe("ElevenLabsRealtimeProxySession", () => {
 	});
 
 	it("reopens the upstream when its settings change between transcripts", async () => {
-		const { update, append, upstreams, queries, eventTypes, session } =
-			createSession();
+		const {
+			update,
+			append,
+			upstreamSends,
+			upstreams,
+			queries,
+			eventTypes,
+			session,
+		} = createSession();
 		append(SECOND);
+		await flush();
+		upstreamSends({ message_type: "committed_transcript", text: "a" });
 		await flush();
 		update({ transcription: { language: "de" } });
 		await flush();
@@ -482,6 +491,68 @@ describe("ElevenLabsRealtimeProxySession", () => {
 			null,
 			"de",
 		]);
+		session.shutdown(1000, "test");
+	});
+
+	it("refuses a settings change while audio awaits its transcript", async () => {
+		const { update, append, connectUpstream, events, session } =
+			createSession();
+		append(SECOND);
+		await flush();
+		update({ transcription: { language: "de" } });
+		await flush();
+		expect(events().at(-1)).toMatchObject({
+			type: "error",
+			error: { code: "session_update_in_progress" },
+		});
+		expect(connectUpstream).toHaveBeenCalledTimes(1);
+		session.shutdown(1000, "test");
+	});
+
+	it("reopens the upstream to apply a new prompt", async () => {
+		const { update, append, upstreamSends, upstreams, session } =
+			createSession();
+		update({ transcription: { prompt: "Acme" } });
+		append(SECOND);
+		await flush();
+		upstreamSends({ message_type: "committed_transcript", text: "a" });
+		await flush();
+		update({ transcription: { prompt: "Globex" } });
+		append(SECOND);
+		await flush();
+		expect(upstreams).toHaveLength(2);
+		expect(JSON.parse(upstreams[1]!.sent[0]!)).toMatchObject({
+			previous_text: "Globex",
+		});
+		session.shutdown(1000, "test");
+	});
+
+	it("ignores a late partial of committed audio", async () => {
+		const {
+			update,
+			append,
+			clientSends,
+			upstreamSends,
+			events,
+			eventTypes,
+			session,
+		} = createSession();
+		update({ turn_detection: null });
+		append(SECOND);
+		clientSends({ type: "input_audio_buffer.commit" });
+		append(SECOND);
+		await flush();
+		const { item_id: committed } = events().at(-1)!;
+		upstreamSends({ message_type: "partial_transcript", text: "turn a" });
+		upstreamSends({ message_type: "committed_transcript", text: "turn a" });
+		await flush();
+		expect(eventTypes()).not.toContain(
+			"conversation.item.input_audio_transcription.delta",
+		);
+		expect(events().at(-1)).toMatchObject({
+			item_id: committed,
+			transcript: "turn a",
+		});
 		session.shutdown(1000, "test");
 	});
 
