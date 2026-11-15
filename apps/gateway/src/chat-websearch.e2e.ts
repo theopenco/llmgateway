@@ -15,8 +15,10 @@ import {
 import { readAll } from "@/test-utils/test-helpers.js";
 
 import { createWebSearchVerificationRequest } from "@llmgateway/actions";
-
-import type { ProviderModelMapping } from "@llmgateway/models";
+import {
+	DEFAULT_GATEWAY_WEB_SEARCH_ENGINE,
+	type ProviderModelMapping,
+} from "@llmgateway/models";
 
 const testWebSearch = process.env.TEST_WEB_SEARCH;
 
@@ -35,10 +37,12 @@ const providersWithoutWebSearchAnnotations = ["zai/", "alibaba/", "deepseek/"];
 // only routable with it, and would otherwise be filtered out of these tests.
 const FORCE_WEB_SEARCH = { type: "web_search" } as const;
 
-// Mappings without native search are searched by the gateway, which records
-// the backend on the log.
-const expectedWebSearchBackend = (providers: ProviderModelMapping[]) =>
-	providers.find((p) => p.webSearchBackend)?.webSearchBackend ?? null;
+// The log records who searched: the gateway's default engine for mappings
+// without native search (the test org sets none), else the provider.
+const expectedWebSearchEngine = (providers: ProviderModelMapping[]) =>
+	providers[0].gatewayWebSearch
+		? DEFAULT_GATEWAY_WEB_SEARCH_ENGINE
+		: providers[0].providerId;
 
 const expectsWebSearchAnnotations = (model: string) =>
 	!providersWithoutWebSearchAnnotations.some((prefix) =>
@@ -94,9 +98,8 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 			expect(log).toHaveProperty("webSearchCost");
 			expect(typeof log.webSearchCost).toBe("number");
 			expect(log.webSearchCost).toBeGreaterThan(0);
-			expect(log.webSearchBackend ?? null).toBe(
-				expectedWebSearchBackend(providers),
-			);
+			expect(log.webSearchEngine).toBe(expectedWebSearchEngine(providers));
+			expect(log.webSearchCount).toBeGreaterThan(0);
 
 			if (expectsWebSearchAnnotations(model)) {
 				// Verify annotations (citations) are present
@@ -265,9 +268,8 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 			expect(log).toHaveProperty("webSearchCost");
 			expect(typeof log.webSearchCost).toBe("number");
 			expect(log.webSearchCost).toBeGreaterThan(0);
-			expect(log.webSearchBackend ?? null).toBe(
-				expectedWebSearchBackend(providers),
-			);
+			expect(log.webSearchEngine).toBe(expectedWebSearchEngine(providers));
+			expect(log.webSearchCount).toBeGreaterThan(0);
 
 			if (expectsWebSearchAnnotations(model)) {
 				// Verify annotations (citations) are present in at least one chunk

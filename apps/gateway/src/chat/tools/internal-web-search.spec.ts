@@ -7,11 +7,12 @@ import {
 	internalWebSearchSkipReason,
 	runInternalWebSearch,
 	webSearchAnnotations,
+	webSearchLogFields,
 	type InternalWebSearch,
 } from "./internal-web-search.js";
 
 const search: InternalWebSearch = {
-	backend: "exa",
+	engine: "exa",
 	query: "q",
 	results: [
 		{
@@ -21,7 +22,7 @@ const search: InternalWebSearch = {
 			highlights: ["alpha"],
 		},
 	],
-	backendCostUsd: 0.007,
+	engineCostUsd: 0.007,
 };
 
 describe("buildWebSearchQuery", () => {
@@ -84,10 +85,59 @@ describe("injectWebSearchResults", () => {
 });
 
 test("internalWebSearchSkipReason", () => {
-	expect(internalWebSearchSkipReason("none", false)).toBe("tool_choice_none");
-	expect(internalWebSearchSkipReason("auto", true)).toBe("compliance_policy");
-	expect(internalWebSearchSkipReason({ type: "web_search" }, false)).toBeNull();
-	expect(internalWebSearchSkipReason(undefined, false)).toBeNull();
+	const base = { toolChoice: undefined, compliancePolicyActive: false };
+	expect(internalWebSearchSkipReason({ ...base, toolChoice: "none" })).toBe(
+		"tool_choice_none",
+	);
+	expect(
+		internalWebSearchSkipReason({ ...base, compliancePolicyActive: true }),
+	).toBe("compliance_policy");
+	expect(
+		internalWebSearchSkipReason({
+			...base,
+			toolChoice: { type: "web_search" },
+		}),
+	).toBeNull();
+	expect(internalWebSearchSkipReason(base)).toBeNull();
+});
+
+describe("webSearchLogFields", () => {
+	test("attributes a gateway search to its engine", () => {
+		expect(
+			webSearchLogFields(
+				{ webSearchCost: 0.005, usedProvider: "deepinfra" },
+				"perplexity",
+				0,
+			),
+		).toEqual({ webSearchEngine: "perplexity", webSearchCount: 1 });
+	});
+
+	test("attributes a native search to the provider", () => {
+		expect(
+			webSearchLogFields(
+				{ webSearchCost: 0.02, usedProvider: "openai" },
+				undefined,
+				2,
+			),
+		).toEqual({ webSearchEngine: "openai", webSearchCount: 2 });
+	});
+
+	test("skips rows that billed no search", () => {
+		expect(
+			webSearchLogFields(
+				{ webSearchCost: null, usedProvider: "deepinfra" },
+				"exa",
+				0,
+			),
+		).toEqual({});
+		expect(
+			webSearchLogFields(
+				{ webSearchCost: 0, usedProvider: "openai" },
+				undefined,
+				0,
+			),
+		).toEqual({});
+	});
 });
 
 test("webSearchAnnotations maps results to url_citation", () => {
@@ -152,7 +202,56 @@ describe("runInternalWebSearch", () => {
 		expect(result?.results.map((r) => r.url)).toEqual([
 			"https://example.com/a",
 		]);
-		expect(result?.backendCostUsd).toBe(0.007);
+		expect(result?.engineCostUsd).toBe(0.007);
+	});
+
+	test("maps the tool options onto the Perplexity request", async () => {
+		vi.stubEnv("PERPLEXITY_SEARCH_API_KEY", "pk");
+		const fetchMock = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					results: [
+						{
+							url: "https://example.com/a",
+							title: "A",
+							snippet: "x".repeat(5000),
+							date: "2026-11-01",
+						},
+					],
+				}),
+			),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const result = await runInternalWebSearch(
+			"perplexity",
+			"q",
+			{
+				type: "web_search",
+				search_context_size: "low",
+				blocked_domains: ["spam.com"],
+				user_location: { type: "approximate", country: "us" },
+			},
+			"req",
+		);
+
+		const [url, init] = fetchMock.mock.calls[0];
+		expect(url).toBe("https://api.perplexity.ai/search");
+		expect(init.headers.authorization).toBe("Bearer pk");
+		expect(JSON.parse(init.body)).toEqual({
+			query: "q",
+			max_results: 3,
+			max_tokens_per_page: 250,
+			search_domain_filter: ["-spam.com"],
+			country: "US",
+		});
+		expect(result?.engine).toBe("perplexity");
+		expect(result?.results[0]).toMatchObject({
+			url: "https://example.com/a",
+			publishedDate: "2026-11-01",
+		});
+		expect(result?.results[0].highlights[0]).toHaveLength(1000);
+		expect(result?.engineCostUsd).toBeNull();
 	});
 
 	test("retries a network error once, then gives up", async () => {

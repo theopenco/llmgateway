@@ -6,12 +6,11 @@ import type { Annotation } from "./types.js";
 import type {
 	BaseMessage,
 	MessageContent,
-	WebSearchBackend,
+	GatewayWebSearchEngine,
 	WebSearchTool,
 } from "@llmgateway/models";
 
-const EXA_SEARCH_URL = "https://api.exa.ai/search";
-const EXA_TIMEOUT_MS = 15_000;
+const SEARCH_TIMEOUT_MS = 15_000;
 const MAX_QUERY_CHARS = 1_000;
 
 const CONTEXT_SIZE_LIMITS = {
@@ -28,21 +27,11 @@ export interface InternalWebSearchResult {
 }
 
 export interface InternalWebSearch {
-	backend: WebSearchBackend;
+	engine: GatewayWebSearchEngine;
 	query: string;
 	results: InternalWebSearchResult[];
-	/** What the backend reported charging, for margin checks; not billed. */
-	backendCostUsd: number | null;
-}
-
-interface ExaSearchResponse {
-	results?: Array<{
-		url?: string;
-		title?: string | null;
-		publishedDate?: string | null;
-		highlights?: string[] | null;
-	}>;
-	costDollars?: { total?: number };
+	/** What the engine reported charging, for margin checks; not billed. */
+	engineCostUsd: number | null;
 }
 
 function contentToText(content: BaseMessage["content"]): string {
@@ -75,64 +64,186 @@ export function buildWebSearchQuery(messages: BaseMessage[]): string | null {
 
 /**
  * Why the gateway must not run its own search for this request, or null.
- * `tool_choice: "none"` disables every tool, search included. A compliance
- * policy is evaluated against the routed provider only, so the search backend,
- * a further third party, never received a verdict: skip rather than send the
- * prompt to it.
+ * - `tool_choice: "none"` disables every tool, search included.
+ * - A compliance policy is evaluated against the routed provider only, so the
+ *   search engine, a further third party, never received a verdict.
+ * A request on the caller's own provider key (BYOK) still searches: the
+ * worker charges that search to credits, since it runs on the platform's
+ * search account.
  */
-export function internalWebSearchSkipReason(
-	toolChoice: unknown,
-	compliancePolicyActive: boolean,
-): "tool_choice_none" | "compliance_policy" | null {
-	if (toolChoice === "none") {
+export function internalWebSearchSkipReason(args: {
+	toolChoice: unknown;
+	compliancePolicyActive: boolean;
+}): "tool_choice_none" | "compliance_policy" | null {
+	if (args.toolChoice === "none") {
 		return "tool_choice_none";
 	}
-	if (compliancePolicyActive) {
+	if (args.compliancePolicyActive) {
 		return "compliance_policy";
 	}
 	return null;
 }
 
+interface EngineRequest {
+	url: string;
+	headers: Record<string, string>;
+	body: unknown;
+}
+
+interface SearchLimits {
+	numResults: number;
+	maxCharacters: number;
+}
+
+interface EngineAdapter {
+	/** Env var holding the platform credential for this engine. */
+	apiKeyEnv: string;
+	buildRequest: (
+		apiKey: string,
+		query: string,
+		tool: WebSearchTool,
+		limits: SearchLimits,
+	) => EngineRequest;
+	parseResults: (
+		json: unknown,
+		limits: SearchLimits,
+	) => { results: InternalWebSearchResult[]; engineCostUsd: number | null };
+}
+
+function countryCode(tool: WebSearchTool): string | undefined {
+	const country = tool.user_location?.country;
+	return country && /^[A-Za-z]{2}$/.test(country)
+		? country.toUpperCase()
+		: undefined;
+}
+
+function isHttpUrl(url: unknown): url is string {
+	return typeof url === "string" && /^https?:\/\//.test(url);
+}
+
+interface ExaSearchResponse {
+	results?: Array<{
+		url?: string;
+		title?: string | null;
+		publishedDate?: string | null;
+		highlights?: string[] | null;
+	}>;
+	costDollars?: { total?: number };
+}
+
+interface PerplexitySearchResponse {
+	results?: Array<{
+		url?: string;
+		title?: string | null;
+		snippet?: string | null;
+		date?: string | null;
+	}>;
+}
+
+// Perplexity accepts at most 20 domains, either as an allowlist or as a
+// denylist ("-" prefix), not both.
+const PERPLEXITY_MAX_DOMAINS = 20;
+
+const ENGINE_ADAPTERS: Record<GatewayWebSearchEngine, EngineAdapter> = {
+	exa: {
+		apiKeyEnv: "EXA_AI_API_KEY",
+		buildRequest: (apiKey, query, tool, limits) => ({
+			url: "https://api.exa.ai/search",
+			headers: { "x-api-key": apiKey },
+			body: {
+				query,
+				type: "auto",
+				numResults: limits.numResults,
+				contents: { highlights: { maxCharacters: limits.maxCharacters } },
+				...(tool.allowed_domains?.length && {
+					includeDomains: tool.allowed_domains,
+				}),
+				...(tool.blocked_domains?.length && {
+					excludeDomains: tool.blocked_domains,
+				}),
+				...(countryCode(tool) && { userLocation: countryCode(tool) }),
+			},
+		}),
+		parseResults: (json) => {
+			const res = json as ExaSearchResponse;
+			return {
+				results: (res.results ?? [])
+					.filter((r) => isHttpUrl(r.url))
+					.map((r) => ({
+						url: r.url as string,
+						title: r.title ?? undefined,
+						publishedDate: r.publishedDate ?? undefined,
+						highlights: r.highlights ?? [],
+					})),
+				engineCostUsd: res.costDollars?.total ?? null,
+			};
+		},
+	},
+	perplexity: {
+		apiKeyEnv: "PERPLEXITY_SEARCH_API_KEY",
+		buildRequest: (apiKey, query, tool, limits) => {
+			const domainFilter = tool.allowed_domains?.length
+				? tool.allowed_domains
+				: (tool.blocked_domains ?? []).map((d) => `-${d}`);
+			return {
+				url: "https://api.perplexity.ai/search",
+				headers: { authorization: `Bearer ${apiKey}` },
+				body: {
+					query,
+					max_results: limits.numResults,
+					// ~4 characters per token
+					max_tokens_per_page: Math.ceil(limits.maxCharacters / 4),
+					...(domainFilter.length && {
+						search_domain_filter: domainFilter.slice(0, PERPLEXITY_MAX_DOMAINS),
+					}),
+					...(countryCode(tool) && { country: countryCode(tool) }),
+				},
+			};
+		},
+		parseResults: (json, limits) => ({
+			results: ((json as PerplexitySearchResponse).results ?? [])
+				.filter((r) => isHttpUrl(r.url))
+				.map((r) => ({
+					url: r.url as string,
+					title: r.title ?? undefined,
+					publishedDate: r.date ?? undefined,
+					highlights: r.snippet
+						? [r.snippet.slice(0, limits.maxCharacters)]
+						: [],
+				})),
+			// Flat per-request price; the response reports no cost.
+			engineCostUsd: null,
+		}),
+	},
+};
+
 export async function runInternalWebSearch(
-	backend: WebSearchBackend,
+	engine: GatewayWebSearchEngine,
 	query: string,
 	tool: WebSearchTool,
 	requestId: string,
 ): Promise<InternalWebSearch | null> {
-	const apiKey = process.env.EXA_AI_API_KEY;
+	const adapter = ENGINE_ADAPTERS[engine];
+	const apiKey = process.env[adapter.apiKeyEnv];
 	if (!apiKey) {
-		logger.error("Internal web search skipped: EXA_AI_API_KEY is not set", {
+		logger.error("Internal web search skipped: API key is not set", {
 			requestId,
+			engine,
+			env: adapter.apiKeyEnv,
 		});
 		return null;
 	}
 	const limits = CONTEXT_SIZE_LIMITS[tool.search_context_size ?? "medium"];
-	const country = tool.user_location?.country;
-	const body = {
-		query,
-		type: "auto",
-		numResults: limits.numResults,
-		contents: { highlights: { maxCharacters: limits.maxCharacters } },
-		...(tool.allowed_domains?.length && {
-			includeDomains: tool.allowed_domains,
-		}),
-		...(tool.blocked_domains?.length && {
-			excludeDomains: tool.blocked_domains,
-		}),
-		...(country &&
-			/^[A-Za-z]{2}$/.test(country) && {
-				userLocation: country.toUpperCase(),
-			}),
-	};
+	const request = adapter.buildRequest(apiKey, query, tool, limits);
 
-	// One deadline covers the retry, so a slow backend delays the request by
-	// at most EXA_TIMEOUT_MS.
-	const signal = AbortSignal.timeout(EXA_TIMEOUT_MS);
+	// One deadline covers the retry, so a slow engine delays the request by
+	// at most SEARCH_TIMEOUT_MS.
+	const signal = AbortSignal.timeout(SEARCH_TIMEOUT_MS);
 	const send = () =>
-		fetch(EXA_SEARCH_URL, {
+		fetch(request.url, {
 			method: "POST",
-			headers: { "content-type": "application/json", "x-api-key": apiKey },
-			body: JSON.stringify(body),
+			headers: { "content-type": "application/json", ...request.headers },
+			body: JSON.stringify(request.body),
 			signal,
 		});
 	try {
@@ -145,7 +256,7 @@ export async function runInternalWebSearch(
 			}
 			logger.warn("Internal web search network error, retrying once", {
 				requestId,
-				backend,
+				engine,
 				error: toError(error).message,
 			});
 			res = await send();
@@ -153,7 +264,7 @@ export async function runInternalWebSearch(
 		if (res.status >= 500 && !signal.aborted) {
 			logger.warn("Internal web search upstream error, retrying once", {
 				requestId,
-				backend,
+				engine,
 				status: res.status,
 			});
 			res = await send();
@@ -161,34 +272,22 @@ export async function runInternalWebSearch(
 		if (!res.ok) {
 			logger.error("Internal web search failed", {
 				requestId,
-				backend,
+				engine,
 				status: res.status,
 				body: (await res.text()).slice(0, 500),
 			});
 			return null;
 		}
-		const json = (await res.json()) as ExaSearchResponse;
-		const results: InternalWebSearchResult[] = (json.results ?? [])
-			.filter((r): r is typeof r & { url: string } =>
-				typeof r.url === "string" ? /^https?:\/\//.test(r.url) : false,
-			)
-			.map((r) => ({
-				url: r.url,
-				title: r.title ?? undefined,
-				publishedDate: r.publishedDate ?? undefined,
-				highlights: r.highlights ?? [],
-			}));
 		return {
-			backend,
+			engine,
 			query,
-			results,
-			backendCostUsd: json.costDollars?.total ?? null,
+			...adapter.parseResults(await res.json(), limits),
 		};
 	} catch (error) {
 		const err = toError(error);
 		logger.error("Internal web search failed", {
 			requestId,
-			backend,
+			engine,
 			error: err.message,
 			cause: err.cause instanceof Error ? err.cause.message : undefined,
 		});
@@ -245,7 +344,7 @@ export function injectWebSearchResults(
 /**
  * Adds one gateway-run search to a cost breakdown. Billed apart from the
  * mapping's web search count so a fallback to another mapping still charges
- * the price of the backend that actually ran.
+ * the price of the engine that actually ran.
  */
 export function addInternalWebSearchCost(
 	costs: { webSearchCost: number | null; totalCost: number | null },
@@ -255,6 +354,33 @@ export function addInternalWebSearchCost(
 		.plus(price)
 		.toNumber();
 	costs.totalCost = new Decimal(costs.totalCost ?? 0).plus(price).toNumber();
+}
+
+/**
+ * Web search attribution for a log row: the engine that ran the search (a
+ * gateway engine, or the provider for native search) and how many searches
+ * ran. Rows that bill no search at all (failed attempts write
+ * `webSearchCost: null`) carry none, so a retried request counts its search
+ * once.
+ */
+export function webSearchLogFields(
+	row: { webSearchCost?: number | null; usedProvider: string },
+	gatewayEngine: GatewayWebSearchEngine | undefined,
+	nativeSearchCount: number,
+): { webSearchEngine?: string; webSearchCount?: number } {
+	if (row.webSearchCost === null || row.webSearchCost === undefined) {
+		return {};
+	}
+	if (gatewayEngine) {
+		return { webSearchEngine: gatewayEngine, webSearchCount: 1 };
+	}
+	if (nativeSearchCount > 0) {
+		return {
+			webSearchEngine: row.usedProvider,
+			webSearchCount: nativeSearchCount,
+		};
+	}
+	return {};
 }
 
 export function webSearchAnnotations(search: InternalWebSearch): Annotation[] {

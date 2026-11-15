@@ -86,6 +86,9 @@ describe("batched project stats refresh", () => {
 			.delete(tables.projectHourlyRoutingStats)
 			.where(inArray(tables.projectHourlyRoutingStats.projectId, projectIds));
 		await db
+			.delete(tables.projectHourlyWebSearchStats)
+			.where(inArray(tables.projectHourlyWebSearchStats.projectId, projectIds));
+		await db
 			.delete(tables.project)
 			.where(eq(tables.project.organizationId, orgId));
 		await db
@@ -281,6 +284,61 @@ describe("batched project stats refresh", () => {
 			inputTokens: "20",
 			cost: 0.5,
 			baselineCost: 1.5,
+		});
+	});
+
+	test("rolls web search cost up per engine", async () => {
+		await db.insert(tables.log).values([
+			logValues({
+				usedProvider: "deepinfra",
+				webSearchEngine: "perplexity",
+				webSearchCount: 1,
+				webSearchCost: 0.005,
+				cost: 0.006,
+			}),
+			logValues({
+				usedProvider: "deepinfra",
+				webSearchEngine: "perplexity",
+				webSearchCount: 1,
+				webSearchCost: 0.005,
+				cost: 0.007,
+			}),
+			logValues({
+				usedProvider: "openai",
+				webSearchEngine: "openai",
+				webSearchCount: 2,
+				webSearchCost: 0.02,
+				cost: 0.03,
+			}),
+			// Logged before the engine was recorded: native, attributed to the provider.
+			logValues({ usedProvider: "anthropic", webSearchCost: 0.01, cost: 0.02 }),
+			logValues({ usedProvider: "deepinfra", cost: 0.001 }),
+		]);
+		await refreshCurrentHourStats();
+
+		const rows = await db.query.projectHourlyWebSearchStats.findMany({
+			where: { projectId: { in: projectIds } },
+		});
+		const byEngine = Object.fromEntries(
+			rows.map((row) => [row.webSearchEngine, row]),
+		);
+		expect(rows).toHaveLength(3);
+		expect(byEngine.perplexity).toMatchObject({
+			usedProvider: "deepinfra",
+			usedMode: "credits",
+			requestCount: 2,
+			searchCount: 2,
+			webSearchCost: 0.01,
+			cost: 0.013,
+		});
+		expect(byEngine.openai).toMatchObject({
+			searchCount: 2,
+			webSearchCost: 0.02,
+		});
+		expect(byEngine.anthropic).toMatchObject({
+			usedProvider: "anthropic",
+			searchCount: 0,
+			webSearchCost: 0.01,
 		});
 	});
 

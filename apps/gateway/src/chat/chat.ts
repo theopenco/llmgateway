@@ -258,6 +258,8 @@ import {
 	getRegionSpecificEnvVarName,
 	getRequestedModelAlias,
 	isProviderMappingAllowedByRestriction,
+	GATEWAY_WEB_SEARCH_ENGINES,
+	resolveGatewayWebSearchEngine,
 	usesEncryptedReasoning,
 } from "@llmgateway/models";
 import {
@@ -356,6 +358,7 @@ import {
 	internalWebSearchSkipReason,
 	runInternalWebSearch,
 	webSearchAnnotations,
+	webSearchLogFields,
 } from "./tools/internal-web-search.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
 import { mapFinishReasonToOpenai } from "./tools/map-finish-reason-to-openai.js";
@@ -1879,18 +1882,22 @@ chat.openapi(completions, async (c) => {
 	// scope for both the credit gate below and every cost calculation.
 	const sponsoredOnboarding = isSponsoredOnboardingRequest(c);
 
+	// Set once the gateway ran a web search itself for an upstream without
+	// native search (`gatewayWebSearch`). Billed by the calculateCosts wrapper
+	// and recorded on the log by insertLogEntry.
+	let internalWebSearch:
+		{ search: InternalWebSearch; price: string } | undefined;
+	// Native searches the latest cost calculation billed, for the log row.
+	let nativeWebSearchCount = 0;
+
 	// Wraps the imported calculateCosts so a sponsored call is zeroed once, here,
 	// instead of at each of the ~11 places costs are computed (streaming,
 	// non-streaming, cached, cancelled, error paths). Mirrors the insertLog
 	// wrapper further down: miss one call site and the user gets billed for the
 	// first thing they ever did.
-	// Set once the gateway ran a web search itself for an upstream without
-	// native search (`webSearchBackend`). Billed by the calculateCosts wrapper
-	// and recorded on the log by insertLogEntry.
-	let internalWebSearch:
-		{ search: InternalWebSearch; price: string } | undefined;
 	const calculateCosts: typeof _calculateCosts = async (...args) => {
 		const costs = await _calculateCosts(...args);
+		nativeWebSearchCount = costs.webSearchCount;
 		if (internalWebSearch) {
 			addInternalWebSearchCost(costs, internalWebSearch.price);
 		}
@@ -2484,9 +2491,11 @@ chat.openapi(completions, async (c) => {
 			// records them. Explicit values in logData still win.
 			requestedServiceTier,
 			usedServiceTier: servedServiceTier,
-			...(internalWebSearch && {
-				webSearchBackend: internalWebSearch.search.backend,
-			}),
+			...webSearchLogFields(
+				logData,
+				internalWebSearch?.search.engine,
+				nativeWebSearchCount,
+			),
 			...(await getRoutingBaselineFields(logData)),
 			...logData,
 			...(clientSafetyParams.safety_identifier !== undefined && {
@@ -8895,25 +8904,27 @@ chat.openapi(completions, async (c) => {
 	// request: retries and fallbacks reuse the enriched messages and never
 	// search again. A skipped search still clears the tool: the upstream
 	// cannot search, and nothing is billed.
-	const internalWebSearchBackend = getUsedProviderMapping()?.webSearchBackend;
-	if (webSearchTool && internalWebSearchBackend) {
-		const skip = internalWebSearchSkipReason(tool_choice, !!compliancePolicy);
+	if (webSearchTool && getUsedProviderMapping()?.gatewayWebSearch) {
+		const engine = resolveGatewayWebSearchEngine(organization?.webSearchEngine);
+		const skip = internalWebSearchSkipReason({
+			toolChoice: tool_choice,
+			compliancePolicyActive: !!compliancePolicy,
+		});
 		if (skip) {
-			logger.info("Internal web search skipped", { requestId, reason: skip });
+			logger.info("Internal web search skipped", {
+				requestId,
+				engine,
+				reason: skip,
+			});
 		}
 		const query = skip ? null : buildWebSearchQuery(messages as BaseMessage[]);
 		const search = query
-			? await runInternalWebSearch(
-					internalWebSearchBackend,
-					query,
-					webSearchTool,
-					requestId,
-				)
+			? await runInternalWebSearch(engine, query, webSearchTool, requestId)
 			: null;
 		if (search) {
 			internalWebSearch = {
 				search,
-				price: getUsedProviderMapping()?.webSearchPrice ?? "0",
+				price: GATEWAY_WEB_SEARCH_ENGINES[engine].price,
 			};
 			messages = injectWebSearchResults(
 				messages as BaseMessage[],
@@ -13463,6 +13474,7 @@ chat.openapi(completions, async (c) => {
 										cacheWriteInputCost: null,
 										requestCost: null,
 										webSearchCost: null,
+										webSearchCount: 0,
 										contentFilterCost: null,
 										imageInputTokens: null,
 										imageOutputTokens: null,
@@ -13814,6 +13826,7 @@ chat.openapi(completions, async (c) => {
 									cacheWriteInputCost: null,
 									requestCost: null,
 									webSearchCost: null,
+									webSearchCount: 0,
 									contentFilterCost: null,
 									imageInputTokens: null,
 									imageOutputTokens: null,

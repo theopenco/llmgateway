@@ -2,9 +2,9 @@
   "type": "diff",
   "version": "9",
   "dialect": "postgres",
-  "id": "822e0658-a7b4-4058-90d7-ed34073e942d",
+  "id": "7445db96-ceb1-4020-b119-69100ba91be8",
   "prevIds": [
-    "66ecc1b7-824c-4c56-9d3d-23ae7754a938"
+    "d7a2e152-08e6-4cbe-98f5-aee4d6fb9f5f"
   ],
   "footprints": [
     {
@@ -12,16 +12,16 @@
       "statementTarget": [
         "column",
         "public",
-        "log",
-        "web_search_backend"
+        "organization",
+        "web_search_engine"
       ],
       "writes": [
-        "s|col|public.log.web_search_backend",
-        "n|col|public.log.web_search_backend",
-        "e|col|public.log.web_search_backend"
+        "s|col|public.organization.web_search_engine",
+        "n|col|public.organization.web_search_engine",
+        "e|col|public.organization.web_search_engine"
       ],
       "reads": [
-        "n|tbl|public.log",
+        "n|tbl|public.organization",
         "n|sch|public"
       ]
     }
@@ -31,8 +31,8 @@
       "op": "create",
       "row": {
         "schema": "public",
-        "table": "log",
-        "name": "web_search_backend",
+        "table": "organization",
+        "name": "web_search_engine",
         "type": "text",
         "typeSchema": null,
         "notNull": false,

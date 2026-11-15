@@ -942,6 +942,58 @@ describe("Log Processing", () => {
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits);
 		});
 
+		test("deducts a gateway-run web search for api-keys mode logs, not a native one", async () => {
+			const initialCredits = Number(testOrg.credits);
+			const base = {
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cached: false,
+				usedMode: "api-keys" as const,
+				duration: 2000,
+				responseSize: 150,
+				mode: "api-keys" as const,
+			};
+
+			await db.insert(log).values([
+				{
+					...base,
+					requestId: "test-request-api-keys-gateway-search",
+					cost: 0.006,
+					webSearchCost: 0.005,
+					webSearchEngine: "perplexity",
+					webSearchCount: 1,
+					requestedModel: "deepinfra/deepseek-v4.1-flash",
+					requestedProvider: "deepinfra",
+					usedModel: "deepseek-v4.1-flash",
+					usedProvider: "deepinfra",
+				},
+				{
+					...base,
+					requestId: "test-request-api-keys-native-search",
+					cost: 0.02,
+					webSearchCost: 0.01,
+					webSearchEngine: "openai",
+					webSearchCount: 1,
+					requestedModel: "openai/gpt-4o-mini",
+					requestedProvider: "openai",
+					usedModel: "gpt-4o-mini",
+					usedProvider: "openai",
+				},
+			]);
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.credits)).toBeCloseTo(
+				initialCredits - 0.005,
+				9,
+			);
+		});
+
 		test("should deduct storage cost on top of inference cost for credits mode logs", async () => {
 			const initialCredits = Number(testOrg.credits);
 

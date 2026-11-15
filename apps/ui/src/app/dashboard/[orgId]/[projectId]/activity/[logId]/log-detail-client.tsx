@@ -38,7 +38,8 @@ import { cn } from "@/lib/utils";
 
 import {
 	formatServiceTierMultiplier,
-	formatWebSearchBackend,
+	describeWebSearch,
+	formatWebSearchEngine,
 	getServiceTier,
 } from "@llmgateway/models";
 import {
@@ -1154,8 +1155,8 @@ export function LogDetailClient({
 										{!!log.webSearchCost && Number(log.webSearchCost) > 0 && (
 											<Field
 												label={
-													log.webSearchBackend
-														? `Web Search Cost (${formatWebSearchBackend(log.webSearchBackend)})`
+													log.webSearchEngine
+														? `Web Search Cost (${formatWebSearchEngine(log.webSearchEngine)})`
 														: "Web Search Cost"
 												}
 												value={`$${Number(log.webSearchCost).toFixed(8)}`}
@@ -1660,9 +1661,7 @@ export function LogDetailClient({
 							<div className="flex items-center gap-2 text-sm">
 								<Globe className="h-4 w-4 text-sky-500" />
 								<span>
-									{log.webSearchBackend
-										? `Web search via ${formatWebSearchBackend(log.webSearchBackend)}, run by LLM Gateway`
-										: "Web search was used in this request"}
+									{describeWebSearch(log.webSearchEngine, log.usedProvider)}
 								</span>
 								<span className="ml-auto text-muted-foreground">
 									Cost: ${Number(log.webSearchCost).toFixed(4)}

@@ -60,6 +60,7 @@ export async function deleteAll() {
 			await db.delete(projectHourlySourceStats);
 			await db.delete(tables.projectHourlySourceModelStats);
 			await db.delete(tables.projectHourlyRoutingStats);
+			await db.delete(tables.projectHourlyWebSearchStats);
 			await db.delete(apiKeyHourlyStats);
 			await db.delete(apiKeyHourlyModelStats);
 			await db.delete(apiKeyHourlySourceStats);

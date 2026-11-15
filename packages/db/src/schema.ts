@@ -349,6 +349,9 @@ export const organization = snakeCase.table(
 		// "developer". Stored lowercase, no leading "@". Unique so a domain can
 		// only be claimed by one organization.
 		ssoAutoJoinDomain: text(),
+		// Engine the gateway searches with for providers without native web
+		// search (GATEWAY_WEB_SEARCH_ENGINES). Null = the default engine.
+		webSearchEngine: text(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
@@ -2586,9 +2589,11 @@ export const log = snakeCase.table(
 		cacheWriteInputCost: real(),
 		requestCost: real(),
 		webSearchCost: real(),
-		// Engine the gateway ran a web search on itself (e.g. "exa") for an
-		// upstream without native search. Null when the provider searched.
-		webSearchBackend: text(),
+		// Who ran the request's web search: a gateway engine
+		// (GATEWAY_WEB_SEARCH_ENGINES) for an upstream without native search, or
+		// the provider that ran it natively. Null when no search was billed.
+		webSearchEngine: text(),
+		webSearchCount: integer(),
 		contentFilterCost: real(),
 		imageInputTokens: decimal(),
 		imageOutputTokens: decimal(),
@@ -6887,6 +6892,48 @@ export const projectHourlyRoutingStats = snakeCase.table(
 		index("project_hourly_routing_stats_project_id_hour_timestamp_idx").on(
 			table.projectId,
 			table.hourTimestamp,
+		),
+	],
+);
+
+// Web search usage per project, hour and engine. `webSearchEngine` is a
+// gateway engine or, for native search, the provider that ran it (equal to
+// `usedProvider`), so cost by engine and gateway vs. native both read from here.
+export const projectHourlyWebSearchStats = snakeCase.table(
+	"project_hourly_web_search_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		projectId: text().notNull(),
+		hourTimestamp: timestamp().notNull(),
+		webSearchEngine: text().notNull(),
+		usedProvider: text().notNull(),
+		usedMode: text({ enum: ["api-keys", "credits"] }).notNull(),
+		requestCount: integer().notNull().default(0),
+		searchCount: integer().notNull().default(0),
+		webSearchCost: real().notNull().default(0),
+		// Total cost of those requests, web search included.
+		cost: real().notNull().default(0),
+	},
+	(table) => [
+		unique().on(
+			table.projectId,
+			table.hourTimestamp,
+			table.webSearchEngine,
+			table.usedProvider,
+			table.usedMode,
+		),
+		index("project_hourly_web_search_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		index("project_hourly_web_search_stats_hour_timestamp_engine_idx").on(
+			table.hourTimestamp,
+			table.webSearchEngine,
 		),
 	],
 );

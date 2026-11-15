@@ -1819,8 +1819,8 @@ export const deepseekModels = [
 				outputPrice: "0.6e-6",
 				requestPrice: "0",
 				webSearch: true,
-				webSearchBackend: "exa",
-				webSearchPrice: "0.007", // Exa search, up to 10 results with highlights
+				gatewayWebSearch: true,
+				webSearchPrice: "0.005", // default gateway engine (Perplexity)
 				contextSize: 1048576,
 				maxOutput: 393216,
 				quantization: "fp8",

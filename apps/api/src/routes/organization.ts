@@ -68,7 +68,10 @@ import {
 	projectHourlyStats,
 	getEffectiveProviders,
 } from "@llmgateway/db";
-import { getProviderCountries } from "@llmgateway/models";
+import {
+	GATEWAY_WEB_SEARCH_ENGINE_IDS,
+	getProviderCountries,
+} from "@llmgateway/models";
 import {
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	getBaseLimit,
@@ -129,6 +132,9 @@ const organizationSchema = z
 		providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 		smartRoutingConfig: smartRoutingConfigInputSchema.nullable(),
 		ssoAutoJoinDomain: z.string().nullable(),
+		// Engine for web search on providers without native search; null = the
+		// default engine.
+		webSearchEngine: z.string().nullable(),
 		status: z.enum(["active", "inactive", "deleted"]).nullable(),
 		blockReason: z.string().nullable(),
 		autoTopUpEnabled: z.boolean(),
@@ -239,6 +245,7 @@ const updateOrganizationSchema = z.object({
 		.optional(),
 	smartRoutingConfig: smartRoutingConfigInputSchema.nullable().optional(),
 	ssoAutoJoinDomain: z.string().max(253).nullable().optional(),
+	webSearchEngine: z.enum(GATEWAY_WEB_SEARCH_ENGINE_IDS).nullable().optional(),
 	autoTopUpEnabled: z.boolean().optional(),
 	autoTopUpThreshold: z.number().min(5).optional(),
 	autoTopUpAmount: z
@@ -642,6 +649,7 @@ organization.openapi(updateOrganization, async (c) => {
 		providerCompliancePolicy,
 		smartRoutingConfig,
 		ssoAutoJoinDomain,
+		webSearchEngine,
 		autoTopUpEnabled,
 		autoTopUpThreshold,
 		autoTopUpAmount,
@@ -916,6 +924,9 @@ organization.openapi(updateOrganization, async (c) => {
 	if (normalizedSsoDomain !== undefined) {
 		updateData.ssoAutoJoinDomain = normalizedSsoDomain;
 	}
+	if (webSearchEngine !== undefined) {
+		updateData.webSearchEngine = webSearchEngine;
+	}
 	if (autoTopUpEnabled !== undefined) {
 		updateData.autoTopUpEnabled = autoTopUpEnabled;
 		if (autoTopUpEnabled && !userOrganization.organization?.autoTopUpEnabled) {
@@ -1058,6 +1069,15 @@ organization.openapi(updateOrganization, async (c) => {
 		changes.smartRoutingConfig = {
 			old: oldOrg.smartRoutingConfig,
 			new: normalizedSmartRoutingConfig,
+		};
+	}
+	if (
+		webSearchEngine !== undefined &&
+		webSearchEngine !== oldOrg.webSearchEngine
+	) {
+		changes.webSearchEngine = {
+			old: oldOrg.webSearchEngine,
+			new: webSearchEngine,
 		};
 	}
 	if (

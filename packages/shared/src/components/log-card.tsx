@@ -52,7 +52,9 @@ import { regionFromUsedModel } from "@/used-model.js";
 
 import {
 	formatServiceTierMultiplier,
-	formatWebSearchBackend,
+	describeWebSearch,
+	formatWebSearchEngine,
+	isGatewayWebSearch,
 	getServiceTier,
 } from "@llmgateway/models";
 
@@ -164,7 +166,7 @@ export interface LogCardData {
 	cacheWriteInputCost?: number | string | null;
 	requestCost?: number | null;
 	webSearchCost?: number | string | null;
-	webSearchBackend?: string | null;
+	webSearchEngine?: string | null;
 	contentFilterCost?: number | string | null;
 	imageInputCost?: number | string | null;
 	imageOutputCost?: number | string | null;
@@ -1109,9 +1111,9 @@ export function LogCard({
 										{!!log.webSearchCost && Number(log.webSearchCost) > 0 && (
 											<>
 												<div>
-													{log.webSearchBackend
-														? `Web Search Cost (${formatWebSearchBackend(log.webSearchBackend)})`
-														: "Native Web Search Cost"}
+													{log.webSearchEngine
+														? `Web Search Cost (${formatWebSearchEngine(log.webSearchEngine)})`
+														: "Web Search Cost"}
 												</div>
 												<div>{`$${Number(log.webSearchCost).toFixed(8)}`}</div>
 											</>
@@ -1723,7 +1725,7 @@ export function LogCard({
 							<div className="grid gap-4 md:grid-cols-1">
 								<div className="space-y-2">
 									<h5 className="text-xs font-medium text-muted-foreground">
-										{log.webSearchBackend
+										{isGatewayWebSearch(log.webSearchEngine, log.usedProvider)
 											? "Gateway Web Search"
 											: "Native Web Search"}
 									</h5>
@@ -1731,9 +1733,10 @@ export function LogCard({
 										<div className="flex items-center gap-2 text-sm">
 											<Globe className="h-4 w-4 text-sky-500" />
 											<span>
-												{log.webSearchBackend
-													? `Web search via ${formatWebSearchBackend(log.webSearchBackend)}, run by LLM Gateway`
-													: "Web search was used in this request"}
+												{describeWebSearch(
+													log.webSearchEngine,
+													log.usedProvider,
+												)}
 											</span>
 											<span className="ml-auto text-muted-foreground">
 												Cost: ${Number(log.webSearchCost).toFixed(4)}
