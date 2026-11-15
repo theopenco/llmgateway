@@ -89,7 +89,11 @@ describe("prepareRequestBody - Claude on AWS Bedrock's Messages API", () => {
 						model.family === "anthropic" &&
 						mapping.reasoningMode === "adaptive" &&
 						mapping.apiFormat !== "anthropic-messages" &&
-						!mapping.deactivatedAt,
+						// A mapping still serves requests until its retirement date.
+						!(
+							mapping.deactivatedAt &&
+							mapping.deactivatedAt.getTime() <= Date.now()
+						),
 				)
 				.map(() => model.id),
 		);
