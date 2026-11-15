@@ -1496,7 +1496,7 @@ export function transformResponseToOpenai(
 			break;
 		}
 		default: {
-			// For providers that return non-OpenAI format (e.g. Reve image generation),
+			// For providers that return non-OpenAI format (e.g. image generation),
 			// construct a proper OpenAI-compatible response when we have parsed images/content.
 			// Tencent's Hy Image frames carry `choices`, but with a `delta` instead of a message.
 			// fal responses are converted even when every image was filtered.

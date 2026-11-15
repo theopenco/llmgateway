@@ -38,7 +38,6 @@ export const providerLogoUrls: Partial<
 	bytedance: ProviderIcons.bytedance,
 	xiaomi: ProviderIcons.xiaomi,
 	deepinfra: ProviderIcons.deepinfra,
-	reve: ProviderIcons.reve,
 	sakana: ProviderIcons.sakana,
 	fireworks: ProviderIcons.fireworks,
 	runpod: ProviderIcons.runpod,

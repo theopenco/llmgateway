@@ -26,7 +26,6 @@ const MODEL_FAMILY_LABELS: Record<string, string> = {
 	nvidia: "NVIDIA",
 	openai: "OpenAI",
 	perplexity: "Perplexity",
-	reve: "Reve",
 	sakana: "Sakana AI",
 	xai: "xAI",
 	xiaomi: "Xiaomi",

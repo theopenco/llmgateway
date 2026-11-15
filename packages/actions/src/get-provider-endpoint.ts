@@ -242,7 +242,6 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	bytedance: "https://ark.ap-southeast.bytepluses.com/api/v3",
 	minimax: "https://api.minimax.io",
 	sakana: "https://api.sakana.ai",
-	reve: "https://api.reve.com",
 	xiaomi: "https://api.xiaomimimo.com",
 	canopywave: "https://inference.canopywave.io",
 	deepinfra: "https://api.deepinfra.com/v1/openai",
@@ -1107,11 +1106,6 @@ export function getProviderEndpoint(
 				return `${url}/v1/wand/hunyuan-image/v35-generation`;
 			}
 			return `${url}/v1/chat/completions`;
-		case "reve":
-			if (imageGenerations) {
-				return `${url}/v1/image/create`;
-			}
-			return `${url}/v1/image/create`;
 		case "deepinfra":
 			return `${url}/chat/completions`;
 		case "sakana": {
