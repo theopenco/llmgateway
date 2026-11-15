@@ -353,6 +353,7 @@ import {
 	buildWebSearchQuery,
 	injectWebSearchResults,
 	type InternalWebSearch,
+	internalWebSearchSkipReason,
 	runInternalWebSearch,
 	webSearchAnnotations,
 } from "./tools/internal-web-search.js";
@@ -8892,10 +8893,15 @@ chat.openapi(completions, async (c) => {
 	// The upstream has no native web search, so the gateway searches and adds
 	// the results to the prompt. From here on the request is a plain chat
 	// request: retries and fallbacks reuse the enriched messages and never
-	// search again.
+	// search again. A skipped search still clears the tool: the upstream
+	// cannot search, and nothing is billed.
 	const internalWebSearchBackend = getUsedProviderMapping()?.webSearchBackend;
 	if (webSearchTool && internalWebSearchBackend) {
-		const query = buildWebSearchQuery(messages as BaseMessage[]);
+		const skip = internalWebSearchSkipReason(tool_choice, !!compliancePolicy);
+		if (skip) {
+			logger.info("Internal web search skipped", { requestId, reason: skip });
+		}
+		const query = skip ? null : buildWebSearchQuery(messages as BaseMessage[]);
 		const search = query
 			? await runInternalWebSearch(
 					internalWebSearchBackend,

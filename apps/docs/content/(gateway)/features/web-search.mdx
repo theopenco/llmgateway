@@ -36,7 +36,7 @@ Some deployments have no native web search; LLM Gateway runs the search for them
 - The results are appended to your latest user message, so they count toward prompt tokens.
 - `search_context_size` sets the number of results (`low` 3, `medium` 5, `high` 10). `allowed_domains`, `blocked_domains`, and `user_location.country` are passed to the search; `max_uses` is ignored.
 
-If the search fails, the request continues without results and no search is billed. Your activity log shows when a search ran through Exa.
+If the search fails, the request continues without results and no search is billed. No search runs when `tool_choice` is `"none"` or when your organization or API key has a [compliance policy](/features/compliance) enabled, since the policy does not cover the search engine. Your activity log shows when a search ran through Exa.
 
 <Callout type="warn">
 	**Perplexity Sonar changed on September 25, 2026.** Perplexity retired its

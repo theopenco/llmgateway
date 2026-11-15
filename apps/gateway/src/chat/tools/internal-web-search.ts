@@ -73,6 +73,26 @@ export function buildWebSearchQuery(messages: BaseMessage[]): string | null {
 	return text.length > MAX_QUERY_CHARS ? text.slice(-MAX_QUERY_CHARS) : text;
 }
 
+/**
+ * Why the gateway must not run its own search for this request, or null.
+ * `tool_choice: "none"` disables every tool, search included. A compliance
+ * policy is evaluated against the routed provider only, so the search backend,
+ * a further third party, never received a verdict: skip rather than send the
+ * prompt to it.
+ */
+export function internalWebSearchSkipReason(
+	toolChoice: unknown,
+	compliancePolicyActive: boolean,
+): "tool_choice_none" | "compliance_policy" | null {
+	if (toolChoice === "none") {
+		return "tool_choice_none";
+	}
+	if (compliancePolicyActive) {
+		return "compliance_policy";
+	}
+	return null;
+}
+
 export async function runInternalWebSearch(
 	backend: WebSearchBackend,
 	query: string,

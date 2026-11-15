@@ -4,6 +4,7 @@ import {
 	addInternalWebSearchCost,
 	buildWebSearchQuery,
 	injectWebSearchResults,
+	internalWebSearchSkipReason,
 	runInternalWebSearch,
 	webSearchAnnotations,
 	type InternalWebSearch,
@@ -80,6 +81,13 @@ describe("injectWebSearchResults", () => {
 			messages,
 		);
 	});
+});
+
+test("internalWebSearchSkipReason", () => {
+	expect(internalWebSearchSkipReason("none", false)).toBe("tool_choice_none");
+	expect(internalWebSearchSkipReason("auto", true)).toBe("compliance_policy");
+	expect(internalWebSearchSkipReason({ type: "web_search" }, false)).toBeNull();
+	expect(internalWebSearchSkipReason(undefined, false)).toBeNull();
 });
 
 test("webSearchAnnotations maps results to url_citation", () => {
