@@ -27,6 +27,7 @@ import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type {
 	Quantization,
 	ProviderApiFormat,
+	RequestApiFormat,
 	ToolChoiceMode,
 	WebSearchFormat,
 	ProviderAccessRestriction,
@@ -3930,8 +3931,9 @@ export const modelProviderMapping = snakeCase.table(
 				"openai-chat-completions",
 				"openai-responses",
 				"google-vertex",
+				"anthropic-messages",
 			],
-		}).$type<ProviderApiFormat>(),
+		}).$type<RequestApiFormat>(),
 		region: text(),
 		// Airside decision listings, served on `/v1/decisions`. Static rows
 		// keep their catalogue definition.
@@ -6182,7 +6184,7 @@ export interface ProviderModelVerificationTarget {
 	gatewayExecutionVersion?: 1;
 	modelName: string;
 	externalId: string;
-	apiFormat?: ProviderApiFormat;
+	apiFormat?: RequestApiFormat;
 	/** A decision listing, probed on `/v1/decisions` instead of chat. */
 	decisions?: boolean;
 	/** Regional deployment of the mapping; undefined targets the default region. */

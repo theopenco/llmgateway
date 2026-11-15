@@ -36,6 +36,7 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-fable-5-2",
+				apiFormat: "anthropic-messages",
 				// Fable requires Bedrock's aws_review retention mode.
 				dataPolicy: { promptLogging: true, retentionPeriod: "30 days" },
 				inputPrice: "8.0e-6",
@@ -54,6 +55,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 				regions: [{ id: "global" }, { id: "us" }],
 				supportedParameters: ["max_tokens", "effort"],
 			},
@@ -117,6 +119,7 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-fable-5-1",
+				apiFormat: "anthropic-messages",
 				// Fable requires Bedrock's aws_review retention mode.
 				dataPolicy: { promptLogging: true, retentionPeriod: "30 days" },
 				inputPrice: "10.0e-6",
@@ -135,6 +138,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 				regions: [{ id: "global" }, { id: "us" }],
 				supportedParameters: ["max_tokens", "effort"],
 			},
@@ -197,6 +201,7 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-fable-5",
+				apiFormat: "anthropic-messages",
 				// Fable requires Bedrock's aws_review retention mode.
 				dataPolicy: { promptLogging: true, retentionPeriod: "30 days" },
 				inputPrice: "10.0e-6",
@@ -215,6 +220,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 				regions: [{ id: "global" }, { id: "us" }],
 				supportedParameters: ["max_tokens", "effort"],
 			},
@@ -676,6 +682,7 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-sonnet-4-6",
+				apiFormat: "anthropic-messages",
 				inputPrice: "3.0e-6",
 				outputPrice: "15.0e-6",
 				cachedInputPrice: "0.3e-6",
@@ -760,6 +767,7 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-sonnet-5",
+				apiFormat: "anthropic-messages",
 				inputPrice: "2.0e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.2e-6",
@@ -776,9 +784,9 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
-				jsonOutputSchema: false,
+				jsonOutputSchema: true,
 				regions: [{ id: "global" }, { id: "us" }],
-				supportedToolChoices: ["auto", "required", "function"],
+				supportedToolChoices: ["auto", "none", "required", "function"],
 				supportedParameters: ["max_tokens", "effort", "tool_choice"],
 			},
 			{
@@ -893,6 +901,7 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-sonnet-5-5",
+				apiFormat: "anthropic-messages",
 				inputPrice: "2.0e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.1e-6",
@@ -909,7 +918,9 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
-				supportedParameters: ["max_tokens", "effort"],
+				supportedToolChoices: ["auto", "none"],
+				jsonOutputSchema: true,
+				supportedParameters: ["max_tokens", "effort", "tool_choice"],
 				regions: [{ id: "global" }, { id: "us" }, { id: "eu" }],
 			},
 		],
@@ -970,6 +981,7 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-haiku-5-5",
+				apiFormat: "anthropic-messages",
 				inputPrice: "0.1e-6",
 				outputPrice: "0.5e-6",
 				cachedInputPrice: "0.01e-6",
@@ -1006,7 +1018,8 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
-				supportedToolChoices: ["auto", "required", "function"],
+				jsonOutputSchema: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
 				supportedParameters: ["max_tokens", "effort", "tool_choice"],
 				regions: [{ id: "global" }, { id: "us" }, { id: "eu" }],
 			},
@@ -1046,6 +1059,7 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-haiku-4-5-20251001-v1:0",
+				apiFormat: "anthropic-messages",
 				inputPrice: "1.0e-6",
 				outputPrice: "5.0e-6",
 				cachedInputPrice: "0.1e-6",
@@ -1165,6 +1179,7 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-haiku-4-5-20251001-v1:0",
+				apiFormat: "anthropic-messages",
 				inputPrice: "1.0e-6",
 				outputPrice: "5.0e-6",
 				cachedInputPrice: "0.1e-6",
@@ -1614,6 +1629,7 @@ export const anthropicModels = [
 				test: "skip",
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-opus-4-6-v1",
+				apiFormat: "anthropic-messages",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1624,7 +1640,9 @@ export const anthropicModels = [
 				contextSize: 1000000,
 				maxOutput: 128000,
 				reasoning: true,
-				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				// Bedrock rejects `xhigh` on this model with a 400 listing the
+				// supported levels (low, medium, high, max).
+				reasoningEfforts: ["none", "low", "medium", "high", "max"],
 				reasoningMode: "adaptive",
 				reasoningOutput: "omit",
 				streaming: true,
@@ -1727,6 +1745,7 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-opus-4-7",
+				apiFormat: "anthropic-messages",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1743,6 +1762,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 				regions: [
 					{ id: "global" },
 					{ id: "us" },
@@ -1837,6 +1857,7 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-opus-4-8",
+				apiFormat: "anthropic-messages",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -1853,10 +1874,11 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 				// `temperature` and `top_p` are deprecated for Opus 4.8 on Bedrock
 				// and rejected with a 400, so they are excluded here to strip them
-				// from forwarded requests. `effort` drives adaptive thinking via the
-				// Bedrock Converse builder (output_config.effort).
+				// from forwarded requests. `effort` drives adaptive thinking through
+				// output_config.effort.
 				supportedParameters: ["max_tokens", "effort"],
 				regions: [
 					{ id: "global" },
@@ -1949,6 +1971,7 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-opus-5-5",
+				apiFormat: "anthropic-messages",
 				inputPrice: "4.0e-6",
 				outputPrice: "20.0e-6",
 				cachedInputPrice: "0.2e-6",
@@ -1965,6 +1988,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 				supportedParameters: ["max_tokens", "effort"],
 				regions: [
 					{ id: "global" },
@@ -2012,6 +2036,7 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-opus-5",
+				apiFormat: "anthropic-messages",
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
@@ -2028,10 +2053,11 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 				// `temperature` and `top_p` are deprecated for Opus 5 on Bedrock
 				// and rejected with a 400, so they are excluded here to strip them
-				// from forwarded requests. `effort` drives adaptive thinking via the
-				// Bedrock Converse builder (output_config.effort).
+				// from forwarded requests. `effort` drives adaptive thinking through
+				// output_config.effort.
 				supportedParameters: ["max_tokens", "effort"],
 				// Opus 5 is provisioned on Bedrock in global/us/eu at launch; the
 				// jp and au regions return 503 (not yet available) and are omitted

@@ -182,6 +182,7 @@ import {
 	getProviderEndpoint,
 	getProviderHeaders,
 	routeProjectlessVertexEndpoint,
+	usesAwsBedrockConverse as isAwsBedrockConverse,
 	isPremiumServiceTier,
 	resolveServedServiceTier,
 	googleProviderSupportsAudioFormat,
@@ -2638,7 +2639,7 @@ chat.openapi(completions, async (c) => {
 	// /v1/embeddings). validateModelCapabilities() rejects them later, but only
 	// after the dev/chat-plan restriction checks below, which would surface a
 	// misleading "not available for coding plans" error first. Reject them here
-	// with the correct endpoint pointer. Image-only models (e.g. reve,
+	// with the correct endpoint pointer. Image-only models (e.g.
 	// grok-image) are intentionally allowed — they are served by the
 	// chat-completions image flow.
 	validateModelOutput(modelInfo, requestedModel, ["text", "image"]);
@@ -6918,8 +6919,10 @@ chat.openapi(completions, async (c) => {
 	);
 	let isImageGeneration = imageGenProviderMapping?.imageGenerations === true;
 	const usesAwsBedrockConverse = () =>
-		usedProvider === "aws-bedrock" &&
-		getUsedProviderMapping()?.apiFormat !== "openai-chat-completions";
+		isAwsBedrockConverse(usedProvider, getUsedProviderMapping()?.apiFormat);
+	// Claude on Bedrock signs thinking for Bedrock, not the Anthropic transport.
+	const thinkingProvider = (): Provider | undefined =>
+		usedProvider === "aws-bedrock" ? usedProvider : undefined;
 
 	// `usedModelMapping` is the log column that stores the upstream model id.
 	let usedModelMapping = usedExternalId;
@@ -7918,6 +7921,12 @@ chat.openapi(completions, async (c) => {
 			usedInternalModel,
 			usedExternalId,
 			usedRegion,
+			{
+				providerKeyOptions: credentialOptions,
+				skipEnvVars: usesDatabaseCredential,
+				configIndex,
+				variant: envVariant,
+			},
 		);
 
 	// Resolve the Google Vertex token type from the live request state so the
@@ -8818,7 +8827,7 @@ chat.openapi(completions, async (c) => {
 	temperature = clampTemperature(
 		temperature,
 		usedProvider,
-		getUsedProviderMapping()?.maxTemperature,
+		getUsedProviderMapping(),
 	);
 
 	// Check if the request can be canceled
@@ -10082,7 +10091,7 @@ chat.openapi(completions, async (c) => {
 						}
 
 						applyAnthropicSafeguards(
-							transportProvider,
+							usedProvider,
 							requestBody,
 							headers,
 							anthropicSafeguards,
@@ -10950,7 +10959,13 @@ chat.openapi(completions, async (c) => {
 					}
 
 					const inspectedStreamingResponse =
-						await inspectImmediateStreamingProviderError(res, usedProvider);
+						await inspectImmediateStreamingProviderError(
+							res,
+							// Bedrock's Messages API streams plain SSE.
+							getUsedProviderMapping()?.apiFormat === "anthropic-messages"
+								? transportProvider
+								: usedProvider,
+						);
 					res = inspectedStreamingResponse.response;
 					if (inspectedStreamingResponse.immediateError) {
 						const {
@@ -11352,10 +11367,7 @@ chat.openapi(completions, async (c) => {
 				// payload rather than only our synthesized error message.
 				let upstreamErrorChunkRaw: string | null = null;
 				const isAwsBedrock = usesAwsBedrockConverse();
-				const streamFormatProvider: Provider =
-					usedProvider === "aws-bedrock" && !isAwsBedrock
-						? "openai"
-						: transportProvider;
+				const streamFormatProvider: Provider = transportProvider;
 				const taggedReasoningStreamState = {
 					inReasoning: false,
 					pending: "",
@@ -12238,6 +12250,7 @@ chat.openapi(completions, async (c) => {
 										googleThoughtSignatureState,
 										googleToolCallIndices,
 										anthropicThinkingText,
+										thinkingProvider: thinkingProvider(),
 									},
 								);
 
@@ -14556,7 +14569,7 @@ chat.openapi(completions, async (c) => {
 			}
 
 			applyAnthropicSafeguards(
-				transportProvider,
+				usedProvider,
 				requestBody,
 				headers,
 				anthropicSafeguards,
@@ -15987,6 +16000,7 @@ chat.openapi(completions, async (c) => {
 			cacheThoughtSignatures: !zeroDataRetentionEnabled,
 			// DeepSeek omits server_tool_use when nothing billable ran.
 			serverToolUseAlwaysReported: usedProvider === "deepseek",
+			thinkingProvider: thinkingProvider(),
 		},
 	);
 	let { content, totalTokens, webSearchCount } = parsedResponse;

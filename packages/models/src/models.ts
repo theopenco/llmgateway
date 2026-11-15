@@ -25,7 +25,6 @@ import { openaiModels } from "./models/openai.js";
 import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { recraftModels } from "./models/recraft.js";
-import { reveModels } from "./models/reve.js";
 import { sakanaModels } from "./models/sakana.js";
 import { stepfunModels } from "./models/stepfun.js";
 import { tencentModels } from "./models/tencent.js";
@@ -84,10 +83,15 @@ export const PROVIDER_API_FORMATS = [
 export type ProviderApiFormat = (typeof PROVIDER_API_FORMATS)[number];
 
 /**
- * API surfaces a single request can be sent on: the mapping formats plus
- * `anthropic-messages`, which only `webSearchApiFormat` selects.
+ * API surfaces a single request can be sent on: the Airside-selectable
+ * formats plus `anthropic-messages` (Claude on AWS Bedrock, and DeepSeek's
+ * `webSearchApiFormat`).
  */
-export type RequestApiFormat = ProviderApiFormat | "anthropic-messages";
+export const REQUEST_API_FORMATS = [
+	...PROVIDER_API_FORMATS,
+	"anthropic-messages",
+] as const;
+export type RequestApiFormat = (typeof REQUEST_API_FORMATS)[number];
 
 /**
  * Pricing tier for models with context-length based pricing
@@ -587,8 +591,10 @@ export interface ProviderModelMapping {
 	/**
 	 * Provider-specific request/endpoint format when a provider has multiple API
 	 * surfaces for different models. Defaults to the provider's native format.
+	 * `anthropic-messages` sends Anthropic's Messages API body (Claude on AWS
+	 * Bedrock).
 	 */
-	apiFormat?: ProviderApiFormat;
+	apiFormat?: RequestApiFormat;
 	/**
 	 * API surface for requests carrying a `web_search` tool, when the
 	 * provider serves hosted search on a different surface than `apiFormat`
@@ -1107,7 +1113,6 @@ export const models = [
 	...bytedanceModels,
 	...nousresearchModels,
 	...recraftModels,
-	...reveModels,
 	...sakanaModels,
 	...kinfraModels,
 	...tencentModels,

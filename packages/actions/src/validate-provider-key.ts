@@ -26,7 +26,10 @@ import {
 } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
-import { getUpstreamModelId } from "./provider-api-format.js";
+import {
+	getProviderApiTransport,
+	getUpstreamModelId,
+} from "./provider-api-format.js";
 import { describeNetworkFailure } from "./provider-key/network-error.js";
 import { redactToken } from "./provider-key/redact.js";
 
@@ -441,6 +444,13 @@ export async function validateProviderKey(
 		const providerMapping = modelDef
 			? findRegionAwareMapping(modelDef, provider, validationRegion)
 			: undefined;
+		// Claude on AWS Bedrock speaks Anthropic's Messages API.
+		const requestProvider = getProviderApiTransport(
+			provider,
+			providerMapping?.apiFormat === "anthropic-messages"
+				? providerMapping.apiFormat
+				: undefined,
+		);
 		let payload: unknown;
 		let vertexTokenType: ReturnType<typeof resolveVertexTokenType> | undefined;
 
@@ -603,6 +613,7 @@ export async function validateProviderKey(
 					validationModel.modelId,
 					validationModel.externalId,
 					validationRegion,
+					{ providerKeyOptions, skipEnvVars: true },
 				),
 				messages,
 				false,
@@ -629,7 +640,7 @@ export async function validateProviderKey(
 			);
 		}
 
-		const headers = getProviderHeaders(provider, requestToken, {
+		const headers = getProviderHeaders(requestProvider, requestToken, {
 			providerKeyOptions,
 			skipEnvVars: true,
 			tokenType: vertexTokenType,

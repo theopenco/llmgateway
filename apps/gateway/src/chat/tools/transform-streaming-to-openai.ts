@@ -158,9 +158,15 @@ export function transformStreamingToOpenai(
 		googleThoughtSignatureState?: Map<number, GoogleThoughtSignatureState>;
 		googleToolCallIndices?: Map<number, number>;
 		anthropicThinkingText?: AnthropicThinkingTextState;
+		/**
+		 * Provider whose replay the thinking signatures are sealed for, when it
+		 * differs from the response format (Claude on AWS Bedrock).
+		 */
+		thinkingProvider?: Provider;
 	},
 ): any {
 	const thinkingText = options?.anthropicThinkingText;
+	const thinkingProvider = options?.thinkingProvider ?? usedProvider;
 	let transformedData = data;
 
 	const isKnownNonRenderableAwsBedrockDelta = (delta: any): boolean => {
@@ -257,7 +263,7 @@ export function transformStreamingToOpenai(
 				typeof data.delta.signature === "string"
 			) {
 				transformedData = signedThinkingChunk(
-					usedProvider,
+					thinkingProvider,
 					data.model ?? usedModel,
 					{
 						type: "thinking",
@@ -272,7 +278,7 @@ export function transformStreamingToOpenai(
 				typeof data.content_block.data === "string"
 			) {
 				transformedData = signedThinkingChunk(
-					usedProvider,
+					thinkingProvider,
 					data.model ?? usedModel,
 					{ type: "redacted_thinking", data: data.content_block.data },
 					data.index,

@@ -1183,17 +1183,6 @@ export const DeepInfraIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	</svg>
 );
 
-export const ReveIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
-	<svg
-		{...props}
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 182 148"
-		fill="currentColor"
-	>
-		<path d="M116 16h-6V0h6zm-11 80h-6v36h6zm0-72h-6v12h6zm44 72h-6v32h6zm11 4h-6v16h6zm-55-48h-6v24h6zm11-12h-6v44h6zm44-24h-6v56h6zm11 4h-6v32h6zm11 4h-6v12h6zM94 44h-6v68h6zm0 0h-6v68h6zm33-12h-6v16h6zm11-8h-6v16h6zm11-8h-6v32h6zm-22 44h-6v24h6zm11 8h-6v16h6zm11-8h-6v24h6zm-33 32h-6v20h6zm11 0h-6v12h6zm11 0h-6v20h6zm-22 28h-6v24h6zm11 8h-6v20h6zm11-8h-6v20h6zM72 0h-6v16h6zm11 96h-6v36h6zm0-72h-6v12h6zM39 96h-6v32h6zm-11 4h-6v16h6zm55-48h-6v24h6zM72 40h-6v44h6zM28 16h-6v56h6zm-11 4h-6v32h6zM6 24H0v12h6zm55 8h-6v16h6zm-11-8h-6v16h6zm-11-8h-6v32h6zm22 44h-6v24h6zm-11 8h-6v16h6zm-11-8h-6v24h6zm33 32h-6v20h6zm-11 0h-6v12h6zm-11 0h-6v20h6zm22 28h-6v24h6zm-11 8h-6v20h6zm-11-8h-6v20h6" />
-	</svg>
-);
-
 export const ElevenLabsIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
 ) => (
@@ -1386,7 +1375,6 @@ export const ProviderIcons = {
 	minimax: MinimaxIcon,
 	xiaomi: XiaomiIcon,
 	deepinfra: DeepInfraIcon,
-	reve: ReveIcon,
 	sakana: SakanaIcon,
 	fireworks: FireworksIcon,
 	runpod: RunpodIcon,
@@ -1473,7 +1461,6 @@ const bundledProviderLogos: Partial<
 	minimax: ProviderIcons.minimax,
 	xiaomi: ProviderIcons.xiaomi,
 	deepinfra: ProviderIcons.deepinfra,
-	reve: ProviderIcons.reve,
 	sakana: ProviderIcons.sakana,
 	fireworks: ProviderIcons.fireworks,
 	runpod: ProviderIcons.runpod,
@@ -1545,7 +1532,6 @@ export const ModelFamilyIcons: Record<
 	nvidia: NvidiaIcon,
 	openai: OpenAIIcon,
 	perplexity: PerplexityIcon,
-	reve: ReveIcon,
 	sakana: SakanaIcon,
 	tencent: TencentCloudIcon,
 	typesafe: TypeSafeIcon,
@@ -1573,7 +1559,6 @@ export const iconAspectRatios = new Map<
 	[GroqIcon, 200.18 / 69.76],
 	[InferenceNetIcon, 256 / 235.039],
 	[MistralIcon, 41 / 29],
-	[ReveIcon, 182 / 148],
 	[RunpodIcon, 195 / 206],
 	[XAIIcon, 759 / 290.2],
 	[ZaiIcon, 161 / 129],

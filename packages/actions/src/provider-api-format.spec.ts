@@ -15,6 +15,9 @@ describe("getProviderApiTransport", () => {
 			"openai",
 		);
 		expect(getProviderApiTransport("deepseek", undefined)).toBe("deepseek");
+		expect(getProviderApiTransport("aws-bedrock", "anthropic-messages")).toBe(
+			"anthropic",
+		);
 	});
 });
 
@@ -55,15 +58,49 @@ describe("getUpstreamModelId", () => {
 		).toBe("xai.grok-4.3");
 	});
 
+	it.each([
+		{ region: undefined, expected: "global.anthropic.claude-opus-5-5" },
+		{ region: "us", expected: "us.anthropic.claude-opus-5-5" },
+		{ region: "eu-west-2", expected: "anthropic.claude-opus-5-5" },
+	])(
+		"puts the inference profile on a Claude Messages API id for $region",
+		({ region, expected }) => {
+			expect(
+				getUpstreamModelId(
+					"aws-bedrock",
+					"claude-opus-5-5",
+					"anthropic.claude-opus-5-5",
+					region,
+					{ skipEnvVars: true },
+				),
+			).toBe(expected);
+		},
+	);
+
+	it("lets a provider key's prefix override the region", () => {
+		expect(
+			getUpstreamModelId(
+				"aws-bedrock",
+				"claude-opus-5-5",
+				"anthropic.claude-opus-5-5",
+				"global",
+				{
+					providerKeyOptions: { aws_bedrock_region_prefix: "eu." },
+					skipEnvVars: true,
+				},
+			),
+		).toBe("eu.anthropic.claude-opus-5-5");
+	});
+
 	it("leaves Converse and other providers untouched", () => {
 		expect(
 			getUpstreamModelId(
 				"aws-bedrock",
-				"claude-opus-5",
-				"anthropic.claude-opus-5",
+				"claude-opus-4-5-20251101",
+				"anthropic.claude-opus-4-5-20251101-v1:0",
 				"us",
 			),
-		).toBe("anthropic.claude-opus-5");
+		).toBe("anthropic.claude-opus-4-5-20251101-v1:0");
 		expect(getUpstreamModelId("xai", "grok-4-6", "grok-4.6", undefined)).toBe(
 			"grok-4.6",
 		);
