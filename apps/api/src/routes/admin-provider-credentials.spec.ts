@@ -2361,6 +2361,133 @@ describe("managed credential reorder cache invalidation", () => {
 		});
 	});
 
+	describe("failing credentials", () => {
+		const orgId = "failing-org";
+		const projectId = "failing-project";
+		const HOUR_MS = 60 * 60 * 1000;
+
+		async function seed(
+			keys: {
+				id: string;
+				status?: "active" | "inactive";
+				hoursAgo?: number;
+				requestCount: number;
+				clientErrorCount?: number;
+				gatewayErrorCount?: number;
+				upstreamErrorCount?: number;
+			}[],
+		) {
+			await db.insert(tables.organization).values({
+				id: orgId,
+				name: "Failing Org",
+				billingEmail: "failing@example.com",
+				credits: "100",
+			});
+			await db.insert(tables.project).values({
+				id: projectId,
+				name: "Failing Project",
+				organizationId: orgId,
+				mode: "credits",
+			});
+			const currentHour = Math.floor(Date.now() / HOUR_MS) * HOUR_MS;
+			for (const key of keys) {
+				await db.insert(tables.providerKey).values({
+					id: key.id,
+					...encryptProviderKeyForStorage(`sk-${key.id}-token`, key.id, null),
+					provider: "openai",
+					managed: true,
+					organizationId: null,
+					status: key.status ?? "active",
+				});
+				const clientErrorCount = key.clientErrorCount ?? 0;
+				const gatewayErrorCount = key.gatewayErrorCount ?? 0;
+				const upstreamErrorCount = key.upstreamErrorCount ?? 0;
+				const offsetMs = (key.hoursAgo ?? 0) * HOUR_MS;
+				await db.insert(tables.providerKeyHourlyStats).values({
+					providerKeyId: key.id,
+					projectId,
+					hourTimestamp: new Date(currentHour - offsetMs),
+					cost: 0,
+					requestCount: key.requestCount,
+					errorCount: clientErrorCount + gatewayErrorCount + upstreamErrorCount,
+					clientErrorCount,
+					gatewayErrorCount,
+					upstreamErrorCount,
+				});
+			}
+		}
+
+		async function listFailing() {
+			const res = await app.request("/admin/provider-credentials/failing", {
+				headers: { Cookie: cookie },
+			});
+			expect(res.status).toBe(200);
+			return (await res.json()) as {
+				windowHours: number;
+				thresholdPercent: number;
+				credentials: {
+					id: string;
+					maskedToken: string;
+					requestCount: number;
+					errorsCount: number;
+					errorRate: number;
+				}[];
+			};
+		}
+
+		test("flags active credentials failing at least 90% of 10+ requests in 4h", async () => {
+			await seed([
+				{ id: "dead", requestCount: 12, upstreamErrorCount: 12 },
+				// 9 of 10 once client errors are excluded.
+				{
+					id: "client-heavy",
+					hoursAgo: 3,
+					requestCount: 30,
+					clientErrorCount: 20,
+					gatewayErrorCount: 9,
+				},
+				{ id: "flaky", requestCount: 100, upstreamErrorCount: 89 },
+				{ id: "quiet", requestCount: 9, upstreamErrorCount: 9 },
+				{
+					id: "disabled",
+					status: "inactive",
+					requestCount: 50,
+					upstreamErrorCount: 50,
+				},
+				{ id: "stale", hoursAgo: 4, requestCount: 50, upstreamErrorCount: 50 },
+			]);
+
+			const body = await listFailing();
+			expect(body.windowHours).toBe(4);
+			expect(body.thresholdPercent).toBe(90);
+			expect(
+				body.credentials.map(
+					({ id, requestCount, errorsCount, errorRate }) => ({
+						id,
+						requestCount,
+						errorsCount,
+						errorRate,
+					}),
+				),
+			).toEqual([
+				{ id: "dead", requestCount: 12, errorsCount: 12, errorRate: 100 },
+				{
+					id: "client-heavy",
+					requestCount: 10,
+					errorsCount: 9,
+					errorRate: 90,
+				},
+			]);
+			expect(body.credentials[0].maskedToken).not.toContain("sk-dead-token");
+		});
+
+		test("returns nothing when every credential is healthy", async () => {
+			await seed([{ id: "healthy", requestCount: 100, upstreamErrorCount: 1 }]);
+
+			expect((await listFailing()).credentials).toEqual([]);
+		});
+	});
+
 	describe("7d daily series", () => {
 		const providerKeyId = "daily-cred";
 		const projectId = "daily-project";

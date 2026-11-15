@@ -93,6 +93,7 @@ import {
 } from "@llmgateway/models";
 import {
 	createEmptyProviderModelsByKind,
+	deriveStabilityMetrics,
 	getModelIdsByProvider,
 	getModelIdsByProviderAndKind,
 	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
@@ -945,6 +946,97 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 	});
 });
 
+/** Hours of the rollup the failing-credential check covers, current hour included. */
+const FAILING_CREDENTIAL_WINDOW_HOURS = 4;
+/** Error rate (percent, client errors excluded) at which a credential is failing. */
+const FAILING_CREDENTIAL_ERROR_RATE = 90;
+/** Fewer requests than this in the window is noise, not a broken credential. */
+const FAILING_CREDENTIAL_MIN_REQUESTS = 10;
+
+const failingCredentialSchema = z.object({
+	id: z.string(),
+	provider: z.string(),
+	comment: z.string().nullable(),
+	maskedToken: z.string(),
+	/** Requests counted toward the rate: client errors excluded. */
+	requestCount: z.number(),
+	/** Gateway and upstream errors. */
+	errorsCount: z.number(),
+	/** Percent, 0–100. */
+	errorRate: z.number(),
+});
+
+const listFailingCredentials = createRoute({
+	method: "get",
+	path: "/provider-credentials/failing",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						windowHours: z.number(),
+						thresholdPercent: z.number(),
+						minRequests: z.number(),
+						credentials: z.array(failingCredentialSchema),
+					}),
+				},
+			},
+			description:
+				"Active managed credentials failing nearly every request in the recent window, worst first.",
+		},
+	},
+});
+
+adminProviderCredentials.openapi(listFailingCredentials, async (c) => {
+	const rows = await db.query.providerKey.findMany({
+		where: { managed: { eq: true }, status: { eq: "active" } },
+	});
+	const stats = await getRecentCredentialStats(
+		rows.map((row) => row.id),
+		hourBucketStarts(FAILING_CREDENTIAL_WINDOW_HOURS)[0],
+	);
+
+	const credentials = rows
+		.flatMap((row) => {
+			const recent = stats.get(row.id);
+			if (!recent) {
+				return [];
+			}
+			const { requestCount, errorsCount, errorRate } = deriveStabilityMetrics({
+				logsCount: recent.requestCount,
+				clientErrorsCount: recent.clientErrorCount,
+				gatewayErrorsCount: recent.gatewayErrorCount,
+				upstreamErrorsCount: recent.upstreamErrorCount,
+			});
+			if (
+				errorRate === null ||
+				requestCount < FAILING_CREDENTIAL_MIN_REQUESTS ||
+				errorRate < FAILING_CREDENTIAL_ERROR_RATE
+			) {
+				return [];
+			}
+			return [
+				{
+					id: row.id,
+					provider: row.provider,
+					comment: row.comment,
+					maskedToken: maskToken(readProviderKey(row), 6, 4),
+					requestCount,
+					errorsCount,
+					errorRate,
+				},
+			];
+		})
+		.sort((a, b) => b.errorRate - a.errorRate || b.errorsCount - a.errorsCount);
+
+	return c.json({
+		windowHours: FAILING_CREDENTIAL_WINDOW_HOURS,
+		thresholdPercent: FAILING_CREDENTIAL_ERROR_RATE,
+		minRequests: FAILING_CREDENTIAL_MIN_REQUESTS,
+		credentials,
+	});
+});
+
 const NO_RECENT_STATS = {
 	requestCount: 0,
 	errorCount: 0,
@@ -981,7 +1073,10 @@ function hourlyErrorSplitFields() {
  * Buckets are hourly, so the window edge is coarse: the oldest bucket is
  * included whole. That matches the "24h" window the spend charts use.
  */
-async function getRecentCredentialStats(providerKeyIds: string[]) {
+async function getRecentCredentialStats(
+	providerKeyIds: string[],
+	since: Date = getTokenWindowStartDate("1d"),
+) {
 	const stats = new Map<string, z.infer<typeof credentialRecentStatsSchema>>();
 	if (providerKeyIds.length === 0) {
 		return stats;
@@ -1004,10 +1099,7 @@ async function getRecentCredentialStats(providerKeyIds: string[]) {
 		.where(
 			and(
 				inArray(tables.providerKeyHourlyStats.providerKeyId, providerKeyIds),
-				gte(
-					tables.providerKeyHourlyStats.hourTimestamp,
-					getTokenWindowStartDate("1d"),
-				),
+				gte(tables.providerKeyHourlyStats.hourTimestamp, since),
 			),
 		)
 		.groupBy(tables.providerKeyHourlyStats.providerKeyId);
