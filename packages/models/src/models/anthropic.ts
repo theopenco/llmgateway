@@ -55,6 +55,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 				regions: [{ id: "global" }, { id: "us" }],
 				supportedParameters: ["max_tokens", "effort"],
 			},
@@ -137,6 +138,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 				regions: [{ id: "global" }, { id: "us" }],
 				supportedParameters: ["max_tokens", "effort"],
 			},
@@ -218,6 +220,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 				regions: [{ id: "global" }, { id: "us" }],
 				supportedParameters: ["max_tokens", "effort"],
 			},
@@ -781,9 +784,9 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
-				jsonOutputSchema: false,
+				jsonOutputSchema: true,
 				regions: [{ id: "global" }, { id: "us" }],
-				supportedToolChoices: ["auto", "required", "function"],
+				supportedToolChoices: ["auto", "none", "required", "function"],
 				supportedParameters: ["max_tokens", "effort", "tool_choice"],
 			},
 			{
@@ -915,7 +918,9 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
-				supportedParameters: ["max_tokens", "effort"],
+				supportedToolChoices: ["auto", "none"],
+				jsonOutputSchema: true,
+				supportedParameters: ["max_tokens", "effort", "tool_choice"],
 				regions: [{ id: "global" }, { id: "us" }, { id: "eu" }],
 			},
 		],
@@ -1013,7 +1018,8 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
-				supportedToolChoices: ["auto", "required", "function"],
+				jsonOutputSchema: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
 				supportedParameters: ["max_tokens", "effort", "tool_choice"],
 				regions: [{ id: "global" }, { id: "us" }, { id: "eu" }],
 			},
@@ -1756,6 +1762,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 				regions: [
 					{ id: "global" },
 					{ id: "us" },
@@ -1867,6 +1874,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 				// `temperature` and `top_p` are deprecated for Opus 4.8 on Bedrock
 				// and rejected with a 400, so they are excluded here to strip them
 				// from forwarded requests. `effort` drives adaptive thinking through
@@ -1980,6 +1988,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 				supportedParameters: ["max_tokens", "effort"],
 				regions: [
 					{ id: "global" },
@@ -2044,6 +2053,7 @@ export const anthropicModels = [
 				streaming: true,
 				vision: true,
 				tools: true,
+				jsonOutputSchema: true,
 				// `temperature` and `top_p` are deprecated for Opus 5 on Bedrock
 				// and rejected with a 400, so they are excluded here to strip them
 				// from forwarded requests. `effort` drives adaptive thinking through
