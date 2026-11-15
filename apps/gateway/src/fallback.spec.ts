@@ -1178,7 +1178,8 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "aws-bedrock/claude-sonnet-4-6",
+					// Converse reports errors in x-amzn headers.
+					model: "aws-bedrock/claude-sonnet-4-5",
 					messages: [{ role: "user", content: "TRIGGER_BEDROCK_HEADER_ERROR" }],
 					stream: true,
 				}),
@@ -1256,7 +1257,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "aws-bedrock/claude-opus-4-6",
+					model: "aws-bedrock/claude-sonnet-4-5",
 					messages: [{ role: "user", content: "Reply with exactly: hi" }],
 					stream: true,
 				}),

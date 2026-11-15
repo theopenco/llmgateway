@@ -36,6 +36,7 @@ export const anthropicModels = [
 			{
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-fable-5-2",
+				apiFormat: "anthropic-messages",
 				// Fable requires Bedrock's aws_review retention mode.
 				dataPolicy: { promptLogging: true, retentionPeriod: "30 days" },
 				inputPrice: "8.0e-6",

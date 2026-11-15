@@ -78,6 +78,24 @@ async function prepare(options: {
 }
 
 describe("prepareRequestBody - Claude on AWS Bedrock's Messages API", () => {
+	// Converse only builds budget thinking, so adaptive Claude models must use
+	// the Messages API.
+	test("every live adaptive Claude mapping on Bedrock uses the Messages API", () => {
+		const onConverse = models.flatMap((model) =>
+			(model.providers as readonly ProviderModelMapping[])
+				.filter(
+					(mapping) =>
+						mapping.providerId === "aws-bedrock" &&
+						model.family === "anthropic" &&
+						mapping.reasoningMode === "adaptive" &&
+						mapping.apiFormat !== "anthropic-messages" &&
+						!mapping.deactivatedAt,
+				)
+				.map(() => model.id),
+		);
+		expect(onConverse).toEqual([]);
+	});
+
 	test("shapes the Bedrock mapping as an Anthropic Messages body", async () => {
 		const body = await prepare({ provider: "aws-bedrock" });
 
