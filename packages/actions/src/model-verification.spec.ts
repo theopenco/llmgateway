@@ -1949,7 +1949,7 @@ describe("model verification", () => {
 			expect(result.checks[0]).toMatchObject({
 				status: "failed",
 				feedback:
-					"The operation was aborted due to timeout (timed out on all 3 attempts)",
+					"The provider endpoint did not respond within 120 seconds (timed out on all 3 attempts).",
 			});
 			expect(result.checks[0]).not.toHaveProperty("warning");
 		});

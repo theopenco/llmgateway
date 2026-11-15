@@ -1393,6 +1393,12 @@ function isTimeoutError(error: unknown): boolean {
 	return error instanceof Error && error.name === "TimeoutError";
 }
 
+function checkTimeoutMs(definition: ModelVerificationDefinition): number {
+	return definition.id === "web_search" || definition.id === "context_size"
+		? 300_000
+		: 120_000;
+}
+
 async function attemptCheck(
 	definition: ModelVerificationDefinition,
 	options: RunModelVerificationOptions,
@@ -1418,7 +1424,7 @@ async function attemptCheck(
 			);
 			return {
 				message: timedOut
-					? `${message} (timed out on all ${CHECK_TIMEOUT_ATTEMPTS} attempts)`
+					? `The provider endpoint did not respond within ${checkTimeoutMs(definition) / 1000} seconds (timed out on all ${CHECK_TIMEOUT_ATTEMPTS} attempts).`
 					: message,
 				rejected: false,
 				transient: !configuration,
@@ -1785,11 +1791,7 @@ async function executeCheck(
 		redirect: "error",
 		headers,
 		body: payload instanceof FormData ? payload : JSON.stringify(payload),
-		signal: AbortSignal.timeout(
-			definition.id === "web_search" || definition.id === "context_size"
-				? 300_000
-				: 120_000,
-		),
+		signal: AbortSignal.timeout(checkTimeoutMs(definition)),
 	});
 	const bodyText = await response.text();
 	if (!response.ok) {

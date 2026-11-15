@@ -348,6 +348,42 @@ describe("signed exact Airside inference", () => {
 		expect(calls).toHaveLength(0);
 	});
 
+	test("names the provider endpoint when the upstream request fails", async () => {
+		installUpstream(() => {
+			throw new TypeError("fetch failed");
+		});
+		const response = await request();
+		expect(response.status).toBe(502);
+		expect(response.headers.has("x-airside-inference")).toBe(true);
+		expect(await response.json()).toEqual({
+			error: { message: "The request to the provider endpoint failed." },
+		});
+	});
+
+	test("names the provider endpoint when the upstream times out", async () => {
+		const deadline = new AbortController();
+		vi.spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal);
+		installUpstream(async (req) => {
+			deadline.abort(new DOMException("timed out", "TimeoutError"));
+			return await new Promise<Response>((_resolve, reject) => {
+				if (req.signal.aborted) {
+					reject(req.signal.reason as Error);
+				}
+				req.signal.addEventListener("abort", () =>
+					reject(req.signal.reason as Error),
+				);
+			});
+		});
+		const response = await request();
+		expect(response.status).toBe(504);
+		expect(response.headers.has("x-airside-inference")).toBe(true);
+		expect(await response.json()).toEqual({
+			error: {
+				message: "The provider endpoint did not respond within 300 seconds.",
+			},
+		});
+	});
+
 	test("rejects private upstream destinations without a provider marker", async () => {
 		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "false");
 		const calls = installUpstream(() => Response.json({}));
