@@ -245,6 +245,22 @@ describe("internal Airside inference transport", () => {
 		expect(failed).not.toHaveBeenCalled();
 	});
 
+	test("missing gateway config stays an infrastructure error after an abort", async () => {
+		vi.stubEnv("AIRSIDE_GATEWAY_API_KEY", "");
+		const failed = vi.fn();
+		await expect(
+			createAirsideGatewayFetch({ ...payload, onInfrastructureError: failed })(
+				payload.endpoint,
+				{
+					method: "POST",
+					body: payload.body,
+					signal: AbortSignal.abort(),
+				},
+			),
+		).rejects.toBeInstanceOf(AirsideGatewayInfrastructureError);
+		expect(failed).toHaveBeenCalledOnce();
+	});
+
 	test("sends only operator auth and ciphertext to gateway, preserves trusted IP header and signed provider errors", async () => {
 		vi.stubEnv("AIRSIDE_GATEWAY_API_KEY", operatorToken);
 		vi.stubEnv("GATEWAY_URL", "https://gateway.example");
