@@ -117,6 +117,15 @@ function countryCode(tool: WebSearchTool): string | undefined {
 		: undefined;
 }
 
+/** Punycode-normalizes a configured domain the way URL does result hosts. */
+function toAsciiDomain(domain: string): string | null {
+	try {
+		return new URL(`http://${domain.trim().replace(/^\./, "")}`).hostname;
+	} catch {
+		return null;
+	}
+}
+
 function hostMatches(url: string, domains: string[]): boolean {
 	let host: string;
 	try {
@@ -125,8 +134,8 @@ function hostMatches(url: string, domains: string[]): boolean {
 		return false;
 	}
 	return domains.some((d) => {
-		const domain = d.toLowerCase().replace(/^\./, "");
-		return host === domain || host.endsWith(`.${domain}`);
+		const domain = toAsciiDomain(d);
+		return !!domain && (host === domain || host.endsWith(`.${domain}`));
 	});
 }
 

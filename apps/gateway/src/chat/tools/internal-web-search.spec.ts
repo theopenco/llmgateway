@@ -175,6 +175,12 @@ test("applyDomainFilters enforces caller filters on results", () => {
 			allowed_domains: ["c.com"],
 		}).map((x) => x.url),
 	).toEqual(["https://c.com/z"]);
+	expect(
+		applyDomainFilters([r("https://xn--espaol-zwa.com/a")], {
+			type: "web_search",
+			blocked_domains: ["Español.com"],
+		}),
+	).toEqual([]);
 });
 
 test("addInternalWebSearchCost adds to web search and total cost", () => {
