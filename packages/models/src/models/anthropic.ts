@@ -1866,8 +1866,8 @@ export const anthropicModels = [
 				tools: true,
 				// `temperature` and `top_p` are deprecated for Opus 4.8 on Bedrock
 				// and rejected with a 400, so they are excluded here to strip them
-				// from forwarded requests. `effort` drives adaptive thinking via the
-				// Bedrock Converse builder (output_config.effort).
+				// from forwarded requests. `effort` drives adaptive thinking through
+				// output_config.effort.
 				supportedParameters: ["max_tokens", "effort"],
 				regions: [
 					{ id: "global" },
@@ -2043,8 +2043,8 @@ export const anthropicModels = [
 				tools: true,
 				// `temperature` and `top_p` are deprecated for Opus 5 on Bedrock
 				// and rejected with a 400, so they are excluded here to strip them
-				// from forwarded requests. `effort` drives adaptive thinking via the
-				// Bedrock Converse builder (output_config.effort).
+				// from forwarded requests. `effort` drives adaptive thinking through
+				// output_config.effort.
 				supportedParameters: ["max_tokens", "effort"],
 				// Opus 5 is provisioned on Bedrock in global/us/eu at launch; the
 				// jp and au regions return 503 (not yet available) and are omitted
