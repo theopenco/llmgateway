@@ -220,6 +220,31 @@ describe("internal Airside inference transport", () => {
 		expect(request).not.toHaveBeenCalled();
 	});
 
+	test("a caller timeout stays a timeout, not a gateway outage", async () => {
+		vi.stubEnv("AIRSIDE_GATEWAY_API_KEY", operatorToken);
+		vi.stubEnv("GATEWAY_URL", "https://gateway.example");
+		const failed = vi.fn();
+		vi.spyOn(globalThis, "fetch").mockImplementation(
+			async (_input, init) =>
+				await new Promise<Response>((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () =>
+						reject(init.signal!.reason as Error),
+					);
+				}),
+		);
+		await expect(
+			createAirsideGatewayFetch({ ...payload, onInfrastructureError: failed })(
+				payload.endpoint,
+				{
+					method: "POST",
+					body: payload.body,
+					signal: AbortSignal.timeout(10),
+				},
+			),
+		).rejects.toMatchObject({ name: "TimeoutError" });
+		expect(failed).not.toHaveBeenCalled();
+	});
+
 	test("sends only operator auth and ciphertext to gateway, preserves trusted IP header and signed provider errors", async () => {
 		vi.stubEnv("AIRSIDE_GATEWAY_API_KEY", operatorToken);
 		vi.stubEnv("GATEWAY_URL", "https://gateway.example");

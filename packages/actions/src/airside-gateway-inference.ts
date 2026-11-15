@@ -228,10 +228,15 @@ export function createAirsideGatewayFetch(
 				options,
 				init.signal,
 			);
-		} catch {
-			const error = new AirsideGatewayInfrastructureError();
-			options.onInfrastructureError?.(error);
-			throw error;
+		} catch (error) {
+			// The caller's own timeout or abort (a slow upstream) is not a gateway
+			// outage: rethrow it so the check reports and retries the timeout.
+			if (init?.signal?.aborted) {
+				throw error;
+			}
+			const infrastructureError = new AirsideGatewayInfrastructureError();
+			options.onInfrastructureError?.(infrastructureError);
+			throw infrastructureError;
 		}
 	};
 }
