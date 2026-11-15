@@ -182,6 +182,7 @@ export function getBaseAggregationFields() {
 		inputCost: sumLogMoney(log.inputCost, "inputCost"),
 		outputCost: sumLogMoney(log.outputCost, "outputCost"),
 		requestCost: sumLogMoney(log.requestCost, "requestCost"),
+		webSearchCost: sumLogMoney(log.webSearchCost, "webSearchCost"),
 		dataStorageCost: sumLogMoney(log.dataStorageCost, "dataStorageCost"),
 		discountSavings: sql<number>`coalesce(
 			sum(

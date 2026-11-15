@@ -340,6 +340,18 @@ describe("batched project stats refresh", () => {
 			searchCount: 0,
 			webSearchCost: 0.01,
 		});
+
+		// The existing rollups carry the web search total too.
+		const [project] = await db.query.projectHourlyStats.findMany({
+			where: { projectId: projectIds[0] },
+		});
+		expect(project.webSearchCost).toBeCloseTo(0.04, 6);
+		const keyRows = await db.query.apiKeyHourlyStats.findMany({
+			where: { projectId: projectIds[0] },
+		});
+		expect(
+			keyRows.reduce((sum, row) => sum + row.webSearchCost, 0),
+		).toBeCloseTo(0.04, 6);
 	});
 
 	test("skips unchanged detail writes and propagates corrected and late logs", async () => {

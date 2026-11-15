@@ -1,0 +1,1 @@
+ALTER TABLE "project_hourly_source_stats" ADD COLUMN "web_search_cost" real DEFAULT 0 NOT NULL;

@@ -1,0 +1,1 @@
+ALTER TABLE "global_hourly_provider_key_model_stats" ADD COLUMN "web_search_cost" real DEFAULT 0 NOT NULL;

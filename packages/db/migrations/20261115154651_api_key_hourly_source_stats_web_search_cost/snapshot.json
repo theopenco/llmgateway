@@ -1,0 +1,47 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "4f074bdd-4e10-41b0-9b6d-0443e994a5ce",
+  "prevIds": [
+    "4aae8fed-2f26-4f34-ad67-ac834a842f21"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key_hourly_source_stats",
+        "web_search_cost"
+      ],
+      "writes": [
+        "s|col|public.api_key_hourly_source_stats.web_search_cost",
+        "n|col|public.api_key_hourly_source_stats.web_search_cost",
+        "e|col|public.api_key_hourly_source_stats.web_search_cost"
+      ],
+      "reads": [
+        "n|tbl|public.api_key_hourly_source_stats",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key_hourly_source_stats",
+        "name": "web_search_cost",
+        "type": "real",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

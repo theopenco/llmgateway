@@ -217,6 +217,10 @@ function getCommonAggregationFields() {
 			sql<number>`coalesce(sum(cast(${tables.log.requestCost} as double precision)), 0)`.as(
 				"requestCost",
 			),
+		webSearchCost:
+			sql<number>`coalesce(sum(cast(${tables.log.webSearchCost} as double precision)), 0)`.as(
+				"webSearchCost",
+			),
 		dataStorageCost:
 			sql<number>`coalesce(sum(cast(${tables.log.dataStorageCost} as double precision)), 0)`.as(
 				"dataStorageCost",
