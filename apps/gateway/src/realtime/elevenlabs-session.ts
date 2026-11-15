@@ -592,8 +592,10 @@ export class ElevenLabsRealtimeProxySession {
 		}
 
 		// ElevenLabs takes its settings (and the prompt, as the first chunk's
-		// previous_text) when the connection opens, so a change reopens it, which
-		// is only safe while no audio awaits its transcript.
+		// previous_text) when the connection opens, so a change reopens it. Its
+		// transcription state is not observable beyond partials and commits, so
+		// the change waits for those; audio with no transcript yet (usually
+		// silence in server VAD) is dropped, like input_audio_buffer.clear.
 		const settingsChanged =
 			buildElevenLabsUpstreamQuery(next, this.extensionQuery).toString() !==
 				buildElevenLabsUpstreamQuery(
@@ -602,18 +604,15 @@ export class ElevenLabsRealtimeProxySession {
 				).toString() ||
 			(this.promptSent && next.prompt !== this.config.prompt);
 		if (this.upstream && settingsChanged) {
-			if (
-				this.currentItemId !== null ||
-				this.segmentSeconds > 0 ||
-				this.commitQueue.length > 0
-			) {
+			if (this.currentItemId !== null || this.commitQueue.length > 0) {
 				reject(
 					"session_update_in_progress",
-					"Audio format, language, prompt, turn detection and noise reduction can only change while no audio awaits its transcript; send input_audio_buffer.clear first to drop it.",
+					"Audio format, language, prompt, turn detection and noise reduction can only change between transcripts; wait for the pending transcript to complete.",
 				);
 				return;
 			}
 			await this.detachUpstream();
+			this.resetSegment();
 		}
 		this.config = next;
 		this.sendEvent({ type: "session.updated", session: this.sessionObject() });

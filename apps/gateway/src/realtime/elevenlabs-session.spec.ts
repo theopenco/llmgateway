@@ -494,10 +494,23 @@ describe("ElevenLabsRealtimeProxySession", () => {
 		session.shutdown(1000, "test");
 	});
 
-	it("refuses a settings change while audio awaits its transcript", async () => {
-		const { update, append, connectUpstream, events, session } =
-			createSession();
+	it("drops untranscribed audio when settings change", async () => {
+		const { update, append, upstreams, eventTypes, session } = createSession();
 		append(SECOND);
+		await flush();
+		update({ transcription: { language: "de" } });
+		await flush();
+		expect(eventTypes().at(-1)).toBe("session.updated");
+		expect(upstreams[0]!.closed).toHaveLength(1);
+		expect(billedSeconds()).toEqual([1]);
+		session.shutdown(1000, "test");
+	});
+
+	it("refuses a settings change while a commit awaits its transcript", async () => {
+		const { update, append, clientSends, events, session } = createSession();
+		update({ turn_detection: null });
+		append(SECOND);
+		clientSends({ type: "input_audio_buffer.commit" });
 		await flush();
 		update({ transcription: { language: "de" } });
 		await flush();
@@ -505,7 +518,6 @@ describe("ElevenLabsRealtimeProxySession", () => {
 			type: "error",
 			error: { code: "session_update_in_progress" },
 		});
-		expect(connectUpstream).toHaveBeenCalledTimes(1);
 		session.shutdown(1000, "test");
 	});
 
