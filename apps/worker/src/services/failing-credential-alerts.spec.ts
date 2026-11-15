@@ -6,6 +6,7 @@ import { db, eq, inArray, systemSetting, tables } from "@llmgateway/db";
 import { MODEL_ERROR_RATE_ALERTS_SETTING_ID } from "@llmgateway/shared";
 
 import {
+	buildFailingCredentialsPayload,
 	checkFailingCredentialAlerts,
 	credentialCooldownKey,
 	findFailingCredentials,
@@ -172,6 +173,44 @@ describe("failing credential alerts", () => {
 		expect(body.embeds[0].fields[0].name).toBe("openai · note fca-dead");
 		expect(body.embeds[0].fields[0].value).toContain("**100.0%** · 12/12");
 		expect(String(init.body).includes("fca-token-")).toBe(false);
+	});
+
+	it("caps the Discord field name at 256 characters", async () => {
+		await db
+			.update(tables.providerKey)
+			.set({ comment: "x".repeat(300) })
+			.where(eq(tables.providerKey.id, "fca-dead"));
+		const [credential] = await findFailingCredentials();
+		const payload = buildFailingCredentialsPayload([credential], undefined);
+		const name = payload.embeds?.[0]?.fields?.[0]?.name ?? "";
+		expect(name).toHaveLength(256);
+		expect(name.endsWith("…")).toBe(true);
+	});
+
+	it("releases earlier reservations when a later one fails", async () => {
+		await saveSetting(true);
+		await seedKey({
+			id: "fca-client",
+			requestCount: 20,
+			upstreamErrorCount: 20,
+		});
+		// The first reservation succeeds for real; the second throws.
+		const spy = vi
+			.spyOn(redisClient, "set")
+			.mockImplementationOnce(async (key) => {
+				await redisClient.setex(key, 60, "1");
+				return "OK";
+			})
+			.mockImplementationOnce(async () => {
+				throw new Error("redis down");
+			});
+		await expect(checkFailingCredentialAlerts()).rejects.toThrow("redis down");
+		spy.mockRestore();
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(await redisClient.exists(credentialCooldownKey("fca-dead"))).toBe(0);
+		expect(await redisClient.exists(credentialCooldownKey("fca-client"))).toBe(
+			0,
+		);
 	});
 
 	it("releases the cooldown when delivery fails", async () => {

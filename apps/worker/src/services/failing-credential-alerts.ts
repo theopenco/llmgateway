@@ -23,6 +23,12 @@ import type { DiscordWebhookPayload } from "@llmgateway/shared";
 const DISCORD_TIMEOUT_MS = 5_000;
 const MAX_LISTED_CREDENTIALS = 10;
 const CRITICAL_COLOR = 0xef4444;
+/** Discord rejects the whole message when an embed field name exceeds this. */
+const DISCORD_FIELD_NAME_LIMIT = 256;
+
+function truncate(text: string, max: number): string {
+	return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
 /** One alert per credential per window: a dead key stays dead until someone acts. */
 const COOLDOWN_SECONDS = FAILING_CREDENTIAL_WINDOW_HOURS * 60 * 60;
 
@@ -107,7 +113,10 @@ export function buildFailingCredentialsPayload(
 				description: lines.join("\n"),
 				color: CRITICAL_COLOR,
 				fields: listed.map((credential) => ({
-					name: `${credential.provider} · ${credential.comment || credential.id}`,
+					name: truncate(
+						`${credential.provider} · ${credential.comment || credential.id}`,
+						DISCORD_FIELD_NAME_LIMIT,
+					),
 					value: `**${credential.errorRate.toFixed(1)}%** · ${credential.errorsCount}/${credential.requestCount} requests${
 						base
 							? ` · [open](${base}/provider-credentials/${encodeURIComponent(credential.id)})`
@@ -135,23 +144,22 @@ export async function checkFailingCredentialAlerts(): Promise<void> {
 	}
 
 	const fresh: FailingCredential[] = [];
-	for (const credential of await findFailingCredentials()) {
-		const reserved = await redisClient.set(
-			credentialCooldownKey(credential.id),
-			"1",
-			"EX",
-			COOLDOWN_SECONDS,
-			"NX",
-		);
-		if (reserved === "OK") {
-			fresh.push(credential);
-		}
-	}
-	if (fresh.length === 0) {
-		return;
-	}
-
 	try {
+		for (const credential of await findFailingCredentials()) {
+			const reserved = await redisClient.set(
+				credentialCooldownKey(credential.id),
+				"1",
+				"EX",
+				COOLDOWN_SECONDS,
+				"NX",
+			);
+			if (reserved === "OK") {
+				fresh.push(credential);
+			}
+		}
+		if (fresh.length === 0) {
+			return;
+		}
 		await postDiscordWebhook(
 			webhookUrl,
 			buildFailingCredentialsPayload(fresh, process.env.ADMIN_URL),
@@ -159,9 +167,11 @@ export async function checkFailingCredentialAlerts(): Promise<void> {
 		);
 	} catch (error) {
 		// Release the cooldowns so the next tick retries the delivery.
-		await redisClient.del(
-			...fresh.map((credential) => credentialCooldownKey(credential.id)),
-		);
+		if (fresh.length > 0) {
+			await redisClient.del(
+				...fresh.map((credential) => credentialCooldownKey(credential.id)),
+			);
+		}
 		throw error;
 	}
 	logger.info("Sent failing provider credential alert", {
