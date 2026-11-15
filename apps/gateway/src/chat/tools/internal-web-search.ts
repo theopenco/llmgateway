@@ -117,6 +117,36 @@ function countryCode(tool: WebSearchTool): string | undefined {
 		: undefined;
 }
 
+function hostMatches(url: string, domains: string[]): boolean {
+	let host: string;
+	try {
+		host = new URL(url).hostname.toLowerCase();
+	} catch {
+		return false;
+	}
+	return domains.some((d) => {
+		const domain = d.toLowerCase().replace(/^\./, "");
+		return host === domain || host.endsWith(`.${domain}`);
+	});
+}
+
+/**
+ * Engines cap their domain filters (Perplexity: 20), so the caller's filters
+ * are also enforced on the results: a domain past the cap is never cited.
+ */
+export function applyDomainFilters(
+	results: InternalWebSearchResult[],
+	tool: WebSearchTool,
+): InternalWebSearchResult[] {
+	const allowed = tool.allowed_domains ?? [];
+	const blocked = tool.blocked_domains ?? [];
+	return results.filter(
+		(r) =>
+			(allowed.length === 0 || hostMatches(r.url, allowed)) &&
+			!hostMatches(r.url, blocked),
+	);
+}
+
 function isHttpUrl(url: unknown): url is string {
 	return typeof url === "string" && /^https?:\/\//.test(url);
 }
@@ -278,10 +308,12 @@ export async function runInternalWebSearch(
 			});
 			return null;
 		}
+		const parsed = adapter.parseResults(await res.json(), limits);
 		return {
 			engine,
 			query,
-			...adapter.parseResults(await res.json(), limits),
+			results: applyDomainFilters(parsed.results, tool),
+			engineCostUsd: parsed.engineCostUsd,
 		};
 	} catch (error) {
 		const err = toError(error);

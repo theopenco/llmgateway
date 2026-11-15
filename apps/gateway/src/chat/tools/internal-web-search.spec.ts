@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
 	addInternalWebSearchCost,
+	applyDomainFilters,
 	buildWebSearchQuery,
 	injectWebSearchResults,
 	internalWebSearchSkipReason,
@@ -151,6 +152,29 @@ test("webSearchAnnotations maps results to url_citation", () => {
 			},
 		},
 	]);
+});
+
+test("applyDomainFilters enforces caller filters on results", () => {
+	const r = (url: string) => ({ url, highlights: [] });
+	const results = [
+		r("https://a.com/x"),
+		r("https://news.b.com/y"),
+		r("https://c.com/z"),
+	];
+	const blocked = Array.from({ length: 21 }, (_, i) => `x${i}.com`);
+	blocked[20] = "b.com";
+	expect(
+		applyDomainFilters(results, {
+			type: "web_search",
+			blocked_domains: blocked,
+		}).map((x) => x.url),
+	).toEqual(["https://a.com/x", "https://c.com/z"]);
+	expect(
+		applyDomainFilters(results, {
+			type: "web_search",
+			allowed_domains: ["c.com"],
+		}).map((x) => x.url),
+	).toEqual(["https://c.com/z"]);
 });
 
 test("addInternalWebSearchCost adds to web search and total cost", () => {
