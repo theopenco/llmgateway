@@ -94,7 +94,7 @@ When [Smart Routing](/features/routing) selects a provider for a large prompt (�
 
 Some providers — most notably **Anthropic** — also support _explicit_ cache control, where you mark specific content blocks as cacheable using a `cache_control` field. This gives you precise control over what gets cached and lets you opt into longer cache lifetimes than the default.
 
-Explicit caching is provider- and model-specific — the [models page](https://llmgateway.io/models) shows which models support prompt caching. Claude models take `cache_control` markers with a `5m` (default) or `1h` TTL wherever they are served, including Anthropic, AWS Bedrock, and the Vertex and Azure Anthropic endpoints. On AWS Bedrock, `1h` is only forwarded for models priced for it; an unsupported `1h` hint is silently downgraded to the default `5m`. Alibaba accepts `cache_control` on its OpenAI-compatible surface with a fixed 5-minute lifetime (a `1h` TTL is normalized away before forwarding).
+Explicit caching is provider- and model-specific — the [models page](https://llmgateway.io/models) shows which models support prompt caching. Claude models take `cache_control` markers with a `5m` (default) or `1h` TTL wherever they are served, including Anthropic, AWS Bedrock, and the Vertex and Azure Anthropic endpoints. On Claude models that AWS Bedrock serves through its Converse API, `1h` is only forwarded for models priced for it; an unsupported `1h` hint is silently downgraded to the default `5m`. Alibaba accepts `cache_control` on its OpenAI-compatible surface with a fixed 5-minute lifetime (a `1h` TTL is normalized away before forwarding).
 
 To mark content as cacheable, send the message content as an array of blocks and add a `cache_control` field to the block you want to cache:
 

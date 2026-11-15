@@ -103,8 +103,14 @@ export function parseProviderResponse(
 	options?: {
 		cacheThoughtSignatures?: boolean;
 		serverToolUseAlwaysReported?: boolean;
+		/**
+		 * Provider whose replay the thinking signatures are sealed for, when it
+		 * differs from the response format (Claude on AWS Bedrock).
+		 */
+		thinkingProvider?: Provider;
 	},
 ) {
+	const thinkingProvider = options?.thinkingProvider ?? usedProvider;
 	let content = null;
 	let reasoningContent = null;
 	let reasoningDetails: ReasoningDetail[] | null = null;
@@ -317,7 +323,7 @@ export function parseProviderResponse(
 			reasoningContent =
 				thinkingBlocks.map((block: any) => block.thinking).join("") ?? null;
 			reasoningDetails = sealedThinkingDetails(
-				usedProvider,
+				thinkingProvider,
 				contentBlocks.map((block: any): AnthropicThinkingBlock | null =>
 					block.type === "thinking" && typeof block.signature === "string"
 						? {
@@ -440,7 +446,7 @@ export function parseProviderResponse(
 				anthropicContent = contentBlocks.map((block: any) =>
 					(block.type === "thinking" && typeof block.signature === "string") ||
 					(block.type === "redacted_thinking" && typeof block.data === "string")
-						? sealAnthropicThinkingBlock(usedProvider, block)
+						? sealAnthropicThinkingBlock(thinkingProvider, block)
 						: block,
 				);
 			}

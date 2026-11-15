@@ -108,6 +108,14 @@ Once configured, you can access all AWS Bedrock models through LLM Gateway:
 
 Browse all available models at [llmgateway.io/models](https://llmgateway.io/models?provider=aws-bedrock)
 
+## Claude models
+
+Claude models are sent to Bedrock's Anthropic Messages API (`/anthropic/v1/messages` on `bedrock-runtime`) with the same request body as Anthropic's own API, so prompt caching (including the 1-hour TTL), adaptive thinking with `effort`, structured outputs (`response_format: json_schema`, on models whose Bedrock mapping lists JSON schema support on the [models page](https://llmgateway.io/models?provider=aws-bedrock)) and server-side [tool search](/features/anthropic-endpoint#tool-search) work as they do on Anthropic. Older Claude models that Bedrock serves only through its Converse API still use Converse. The selected region decides the inference profile (`global.`, `us.`, `eu.`, …) sent as the model.
+
+No new IAM permission is needed: like Converse, it uses `bedrock:InvokeModel` and, for streaming, `bedrock:InvokeModelWithResponseStream`.
+
+Bedrock does not offer Anthropic's web search, web fetch or programmatic tool calling for Claude. Requests with web search route to another provider when one can serve the model; a request pinned to `aws-bedrock/` with web search is rejected. web fetch tools and `allowed_callers` are dropped from Bedrock requests, so pin a provider that supports them (such as `anthropic/`) when you need them.
+
 ## Troubleshooting
 
 ### "Model not available" error

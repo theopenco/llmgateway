@@ -49,7 +49,7 @@ import {
 } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { db, shortid } from "@llmgateway/db";
-import { PROVIDER_API_FORMATS } from "@llmgateway/models";
+import { REQUEST_API_FORMATS } from "@llmgateway/models";
 import {
 	estimateTokensFromText,
 	estimateTokensFromTextLength,
@@ -88,7 +88,8 @@ const payloadSchema = z.object({
 			providerId: z.string().min(1),
 			modelName: z.string().min(1),
 			externalId: z.string().min(1),
-			apiFormat: z.enum(PROVIDER_API_FORMATS).optional(),
+			// Catalogue mappings include Claude on Bedrock's Messages API.
+			apiFormat: z.enum(REQUEST_API_FORMATS).optional(),
 			region: z.string().nullable().optional(),
 			decisions: z.boolean().optional(),
 			streaming: z.boolean(),

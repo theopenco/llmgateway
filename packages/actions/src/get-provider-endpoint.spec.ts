@@ -1374,6 +1374,34 @@ describe("getProviderEndpoint", () => {
 			);
 		});
 
+		it.each([undefined, "anthropic-messages" as const])(
+			"sends a Claude Messages API mapping to the regional /anthropic route (apiFormat %s)",
+			(apiFormat) => {
+				const endpoint = getProviderEndpoint(
+					"aws-bedrock",
+					undefined,
+					"claude-opus-5-5",
+					undefined,
+					true,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					"eu",
+					true,
+					"claude-opus-5-5",
+					undefined,
+					undefined,
+					apiFormat,
+				);
+
+				expect(endpoint).toBe(
+					"https://bedrock-runtime.eu-central-1.amazonaws.com/anthropic/v1/messages",
+				);
+			},
+		);
+
 		it.each([
 			{
 				region: undefined,

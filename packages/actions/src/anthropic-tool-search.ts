@@ -30,11 +30,10 @@ export const TOOL_SEARCH_TOOL_TYPE_PREFIX = "tool_search_tool";
  * live Foundry deployment accepts `defer_loading` and returns the same
  * `server_tool_use` / `tool_search_tool_regex` blocks as the direct API.
  *
- * AWS Bedrock is excluded for a transport reason, not a capability one:
- * Anthropic offers tool search there only through InvokeModel, and this gateway
- * drives Bedrock through the Converse API (see get-provider-endpoint). Moving
- * the Bedrock Anthropic path to InvokeModel is what would unlock it — do not
- * "fix" this by adding aws-bedrock here while Converse is still the transport.
+ * Claude on AWS Bedrock qualifies through its Messages API mappings
+ * (`apiFormat: "anthropic-messages"`), which arrive here under the `anthropic`
+ * transport. Bedrock's Converse API has no tool search, so `aws-bedrock` itself
+ * stays out.
  *
  * Model support is a separate axis and is deliberately not gated here: tool
  * search needs a Claude 4.5-generation model or newer, and an older model is
