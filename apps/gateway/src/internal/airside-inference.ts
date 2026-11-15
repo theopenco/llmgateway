@@ -303,6 +303,21 @@ async function readBoundedResponse(
 	}
 }
 
+const UPSTREAM_TIMEOUT_MS = 300_000;
+
+/** Names the provider endpoint as the failing side, not the gateway. */
+function upstreamFailureBody(signal: AbortSignal): string {
+	const timedOut =
+		signal.reason instanceof Error && signal.reason.name === "TimeoutError";
+	return JSON.stringify({
+		error: {
+			message: timedOut
+				? `The provider endpoint did not respond within ${UPSTREAM_TIMEOUT_MS / 1000} seconds.`
+				: "The request to the provider endpoint failed.",
+		},
+	});
+}
+
 export const airsideInference = new OpenAPIHono<ServerTypes>();
 
 async function handleAirsideInference(c: Context<ServerTypes>) {
@@ -458,7 +473,7 @@ async function handleAirsideInference(c: Context<ServerTypes>) {
 	const controller = new AbortController();
 	const signal = AbortSignal.any([
 		c.req.raw.signal,
-		AbortSignal.timeout(300_000),
+		AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
 		controller.signal,
 	]);
 	const usageProvider = getProviderApiTransport(
@@ -622,24 +637,19 @@ async function handleAirsideInference(c: Context<ServerTypes>) {
 		status = signal.aborted ? 504 : 502;
 		failed = true;
 		await recordResult();
-		return new Response(
-			JSON.stringify({
-				error: { message: "Internal inference upstream failed" },
-			}),
-			{
-				status,
-				headers: attempted
-					? {
-							"content-type": "application/json",
-							"x-request-id": requestId,
-							"x-airside-inference": signAirsideInferenceResponse(
-								opened.envelope,
-								status,
-							),
-						}
-					: { "content-type": "application/json" },
-			},
-		);
+		return new Response(upstreamFailureBody(signal), {
+			status,
+			headers: attempted
+				? {
+						"content-type": "application/json",
+						"x-request-id": requestId,
+						"x-airside-inference": signAirsideInferenceResponse(
+							opened.envelope,
+							status,
+						),
+					}
+				: { "content-type": "application/json" },
+		});
 	}
 	const contentType =
 		response.headers.get("content-type") ?? "application/json";
@@ -671,6 +681,8 @@ async function handleAirsideInference(c: Context<ServerTypes>) {
 			status = infrastructureFailure ? 503 : signal.aborted ? 504 : 502;
 			if (infrastructureFailure) {
 				c.header("x-airside-inference", undefined);
+			} else {
+				text = upstreamFailureBody(signal);
 			}
 		}
 		await recordResult();
