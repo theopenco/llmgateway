@@ -25,7 +25,6 @@ import { openaiModels } from "./models/openai.js";
 import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { recraftModels } from "./models/recraft.js";
-import { reveModels } from "./models/reve.js";
 import { sakanaModels } from "./models/sakana.js";
 import { stepfunModels } from "./models/stepfun.js";
 import { tencentModels } from "./models/tencent.js";
@@ -1105,7 +1104,6 @@ export const models = [
 	...bytedanceModels,
 	...nousresearchModels,
 	...recraftModels,
-	...reveModels,
 	...sakanaModels,
 	...kinfraModels,
 	...tencentModels,

@@ -383,20 +383,18 @@ export function ImageControls({
 									))}
 								</SelectContent>
 							</Select>
-							{!config.isReve && (
-								<Select value={imageSize} onValueChange={setImageSize}>
-									<SelectTrigger size="sm" className="min-w-[80px]">
-										<SelectValue placeholder="Resolution" />
-									</SelectTrigger>
-									<SelectContent>
-										{config.availableSizes.map((size) => (
-											<SelectItem key={size} value={size}>
-												{size}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							)}
+							<Select value={imageSize} onValueChange={setImageSize}>
+								<SelectTrigger size="sm" className="min-w-[80px]">
+									<SelectValue placeholder="Resolution" />
+								</SelectTrigger>
+								<SelectContent>
+									{config.availableSizes.map((size) => (
+										<SelectItem key={size} value={size}>
+											{size}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
 						</>
 					)}
 					{config.usesPixelDimensions && config.isGptImage && (

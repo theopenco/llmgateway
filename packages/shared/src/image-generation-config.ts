@@ -71,16 +71,6 @@ export function isFalImageModel(model: string): boolean {
 	);
 }
 
-const REVE_ASPECT_RATIOS: AspectRatio[] = [
-	"auto",
-	"1:1",
-	"16:9",
-	"9:16",
-	"3:2",
-	"2:3",
-	"4:3",
-];
-
 // MiniMax H3 Image accepts ratios between 1:3 and 3:1.
 const MINIMAX_H3_IMAGE_ASPECT_RATIOS: AspectRatio[] = [
 	"auto",
@@ -101,7 +91,6 @@ export function getModelImageConfig(model: string) {
 
 	const isGptImage = lower.includes("gpt-image");
 	const hasGptImageMaxQuality = /gpt-image-2\.[56]-/.test(lower);
-	const isReve = lower.includes("reve");
 	const isMuseImage = lower.includes("muse-image");
 	const isHyImage = lower.includes("hy-image");
 	const isWanImagePro = lower.includes("wan-2-7-image-pro");
@@ -154,23 +143,21 @@ export function getModelImageConfig(model: string) {
 										"2048x1024",
 										"1024x2048",
 									] as const)
-								: isReve
-									? (["2K"] as const)
-									: isSeedreamPro || isGrokImagine20
-										? (["1K", "2K"] as const)
-										: isSeedreamFlash
-											? (["1K", "1.5K", "2K"] as const)
-											: isSeedream
-												? (["2K", "4K"] as const)
-												: isGemini31FlashLiteImage || isGemini25FlashImage
-													? (["1K"] as const)
-													: isGemini31FlashImage
-														? (["0.5K", "1K", "2K", "4K"] as const)
-														: (["1K", "2K", "4K"] as const);
+								: isSeedreamPro || isGrokImagine20
+									? (["1K", "2K"] as const)
+									: isSeedreamFlash
+										? (["1K", "1.5K", "2K"] as const)
+										: isSeedream
+											? (["2K", "4K"] as const)
+											: isGemini31FlashLiteImage || isGemini25FlashImage
+												? (["1K"] as const)
+												: isGemini31FlashImage
+													? (["0.5K", "1K", "2K", "4K"] as const)
+													: (["1K", "2K", "4K"] as const);
 
 	const defaultSize = usesPixelDimensions
 		? "1024x1024"
-		: isReve || isSeedream || isWanImage
+		: isSeedream || isWanImage
 			? "2K"
 			: "1K";
 
@@ -201,11 +188,11 @@ export function getModelImageConfig(model: string) {
 
 	const supportsSvgOutput = modelSupportsSvgOutput(model);
 
-	const supportedAspectRatios: AspectRatio[] | undefined = isReve
-		? REVE_ASPECT_RATIOS
-		: lower.includes("minimax-h3-image")
-			? MINIMAX_H3_IMAGE_ASPECT_RATIOS
-			: undefined;
+	const supportedAspectRatios: AspectRatio[] | undefined = lower.includes(
+		"minimax-h3-image",
+	)
+		? MINIMAX_H3_IMAGE_ASPECT_RATIOS
+		: undefined;
 
 	return {
 		usesPixelDimensions,
@@ -214,7 +201,6 @@ export function getModelImageConfig(model: string) {
 		isGrokImagine20,
 		isGptImage,
 		isMuseImage,
-		isReve,
 		availableSizes,
 		defaultSize,
 		supportsQuality,

@@ -2610,7 +2610,7 @@ chat.openapi(completions, async (c) => {
 	// /v1/embeddings). validateModelCapabilities() rejects them later, but only
 	// after the dev/chat-plan restriction checks below, which would surface a
 	// misleading "not available for coding plans" error first. Reject them here
-	// with the correct endpoint pointer. Image-only models (e.g. reve,
+	// with the correct endpoint pointer. Image-only models (e.g.
 	// grok-image) are intentionally allowed — they are served by the
 	// chat-completions image flow.
 	validateModelOutput(modelInfo, requestedModel, ["text", "image"]);
