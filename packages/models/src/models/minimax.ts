@@ -149,6 +149,24 @@ export const minimaxModels = [
 				// away into invalid JSON or nonsense values.
 				jsonOutput: false,
 			},
+			{
+				providerId: "fireworks",
+				externalId: "accounts/fireworks/models/minimax-m3p1-flash",
+				inputPrice: "0.15e-6",
+				cachedInputPrice: "0.015e-6",
+				outputPrice: "0.6e-6",
+				requestPrice: "0",
+				contextSize: 1040384,
+				maxOutput: 1040384,
+				streaming: true,
+				reasoning: true,
+				// Adaptive thinking skips reasoning on simple tool calls.
+				reasoningOutput: "omit",
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+			},
 		],
 	},
 	{
