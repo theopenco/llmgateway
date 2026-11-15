@@ -268,6 +268,14 @@ export {
 } from "./model-error-rate-alerts.js";
 
 export {
+	FAILING_CREDENTIAL_ERROR_RATE,
+	FAILING_CREDENTIAL_MIN_REQUESTS,
+	FAILING_CREDENTIAL_WINDOW_HOURS,
+	failingCredentialWindowStart,
+	getFailingCredentialRate,
+} from "./failing-credentials.js";
+
+export {
 	deriveStabilityMetrics,
 	type StabilityCounts,
 	type StabilityMetrics,

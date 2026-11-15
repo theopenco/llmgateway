@@ -79,6 +79,7 @@ import {
 	scheduleDailyModelVerifications,
 	modelVerificationConcurrency,
 } from "./services/daily-model-verifications.js";
+import { checkFailingCredentialAlerts } from "./services/failing-credential-alerts.js";
 import {
 	runFollowUpEmailsLoop,
 	canSendFollowUp,
@@ -3511,6 +3512,7 @@ async function runModelErrorRateAlertsLoop() {
 				if (await acquireLock(MODEL_ERROR_RATE_ALERTS_LOCK_KEY)) {
 					try {
 						await checkModelErrorRateAlerts();
+						await checkFailingCredentialAlerts();
 					} finally {
 						await releaseLock(MODEL_ERROR_RATE_ALERTS_LOCK_KEY);
 					}
