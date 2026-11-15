@@ -55,7 +55,8 @@ async function requestStream(): Promise<string> {
 			"x-no-fallback": "true",
 		},
 		body: JSON.stringify({
-			model: "aws-bedrock/claude-opus-4-6",
+			// Still served through Converse, which streams AWS EventStream frames.
+			model: "aws-bedrock/claude-sonnet-4-5",
 			messages: [{ role: "user", content: "hi" }],
 			stream: true,
 		}),

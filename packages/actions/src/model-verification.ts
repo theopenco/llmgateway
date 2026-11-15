@@ -26,7 +26,10 @@ import {
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { requiresMessageContentVerification } from "./model-verification-compatibility.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
-import { getProviderApiTransport } from "./provider-api-format.js";
+import {
+	getProviderApiTransport,
+	getUpstreamModelId,
+} from "./provider-api-format.js";
 import {
 	decryptProviderKey,
 	encryptProviderKey,
@@ -2231,11 +2234,27 @@ export async function prepareProviderModelVerificationRequest(
 	) {
 		webSearchTool.forced = false;
 	}
+	// Claude on AWS Bedrock is shaped as Anthropic from its own mapping, and
+	// its Messages API takes the inference profile in the body.
+	const awsBedrockMessages =
+		provider === "aws-bedrock" &&
+		options.target.apiFormat === "anthropic-messages";
 	const requestOptions: Parameters<typeof prepareRequestBody> = [
 		transportProvider,
 		options.target.modelName,
 		options.target.region ?? null,
-		options.target.externalId,
+		awsBedrockMessages
+			? getUpstreamModelId(
+					provider,
+					options.target.modelName,
+					options.target.externalId,
+					options.target.region,
+					{
+						providerKeyOptions: options.providerKeyOptions,
+						skipEnvVars: options.skipEnvVars,
+					},
+				)
+			: options.target.externalId,
 		request.messages,
 		request.stream ?? false,
 		request.temperature,
@@ -2256,7 +2275,7 @@ export async function prepareProviderModelVerificationRequest(
 	requestOptions[24] = reasoningBudget;
 	requestOptions[25] = useResponsesApi;
 	requestOptions[36] = {
-		providerId: transportProvider as Provider,
+		providerId: awsBedrockMessages ? provider : (transportProvider as Provider),
 		externalId: options.target.externalId,
 		streaming: options.target.streaming,
 		vision: options.target.vision,

@@ -3427,11 +3427,14 @@ airside.openapi(importCatalogueModels, async (c) => {
 		// context-length bands or per-region rates cannot be represented by
 		// one, and importing it anyway would bill every request outside the
 		// base band at the wrong rate — so those stay on the catalogue.
+		const apiFormat = mapping.apiFormat ?? "provider-native";
 		if (
 			listed.has(model.id) ||
 			// Catalogue decision models speak each provider's own protocol;
 			// listings are served on the OpenAI-compatible /v1/decisions.
 			mapping.decisions ||
+			// Airside listings cannot take AWS Bedrock's Messages API format.
+			apiFormat === "anthropic-messages" ||
 			!mapping.inputPrice ||
 			!mapping.outputPrice ||
 			(mapping.pricingTiers?.length ?? 0) > 0 ||
@@ -3449,7 +3452,7 @@ airside.openapi(importCatalogueModels, async (c) => {
 					providerId: body.providerId,
 					modelName: model.id,
 					externalId: mapping.externalId,
-					apiFormat: mapping.apiFormat ?? "provider-native",
+					apiFormat,
 					displayName: model.name ?? null,
 					quantization: mapping.quantization ?? null,
 					family: model.family,

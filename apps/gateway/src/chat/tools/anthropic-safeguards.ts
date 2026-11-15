@@ -62,9 +62,10 @@ export function extractAnthropicSafeguards(
 }
 
 // Restores the pair on an outgoing request. Only Anthropic's own API runs the
-// review. Routing excludes other providers when this pair is requested.
+// review, not a cloud serving its Messages API (Claude on AWS Bedrock). Routing
+// excludes other providers when this pair is requested.
 export function applyAnthropicSafeguards(
-	transportProvider: string,
+	usedProvider: string,
 	requestBody: unknown,
 	headers: Record<string, string>,
 	passthrough: AnthropicSafeguardsPassthrough | undefined,
@@ -79,7 +80,7 @@ export function applyAnthropicSafeguards(
 	const body = requestBody as Record<string, unknown>;
 	const betas = passthrough?.betas.filter(isSafeguardBeta) ?? [];
 	if (
-		transportProvider !== "anthropic" ||
+		usedProvider !== "anthropic" ||
 		!passthrough ||
 		passthrough.safeguards.length === 0 ||
 		betas.length === 0

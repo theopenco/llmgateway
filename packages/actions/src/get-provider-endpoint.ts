@@ -22,7 +22,10 @@ import {
 	CLOUDFLARE_ACCOUNT_ID_REGEX,
 } from "@llmgateway/shared";
 
-import { getBedrockProfilePrefix } from "./provider-api-format.js";
+import {
+	getAwsBedrockModelPrefix,
+	getBedrockProfilePrefix,
+} from "./provider-api-format.js";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
@@ -749,10 +752,12 @@ export function getProviderEndpoint(
 		return appendPath(url, "/v1/responses");
 	}
 	if (apiFormat === "anthropic-messages") {
-		// DeepSeek serves its Anthropic-compatible API under `/anthropic`.
+		// DeepSeek and AWS Bedrock serve it under `/anthropic`.
 		return appendPath(
 			url,
-			provider === "deepseek" ? "/anthropic/v1/messages" : "/v1/messages",
+			provider === "deepseek" || provider === "aws-bedrock"
+				? "/anthropic/v1/messages"
+				: "/v1/messages",
 		);
 	}
 	if (apiFormat === "google-vertex") {
@@ -954,20 +959,19 @@ export function getProviderEndpoint(
 			}
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
-			const awsRegionPrefix = region
-				? (
-						providers.find((p) => p.id === "aws-bedrock") as
-							ProviderDefinition | undefined
-					)?.regionConfig?.modelPrefixMap?.[region]
-				: undefined;
-			// envValueOrDefault honors skipEnvVars (BYOK), so the server's
-			// LLM_AWS_BEDROCK_REGION can't silently affect provider-key routing.
-			const prefix =
-				providerKeyOptions?.aws_bedrock_region_prefix ??
-				awsRegionPrefix ??
-				envValueOrDefault("aws-bedrock", "region", "global.") ??
-				"global.";
-
+			// Callers that pass no format (key validation) still reach Claude's
+			// Messages API; the model id goes in its body.
+			if (providerMapping?.apiFormat === "anthropic-messages") {
+				return appendPath(url, "/anthropic/v1/messages");
+			}
+			// skipEnvVars (BYOK) keeps the server's LLM_AWS_BEDROCK_REGION from
+			// silently affecting provider-key routing.
+			const prefix = getAwsBedrockModelPrefix(region, {
+				providerKeyOptions,
+				skipEnvVars,
+				configIndex,
+				variant,
+			});
 			const endpoint = stream ? "converse-stream" : "converse";
 			return `${url}/model/${prefix}${externalId}/${endpoint}`;
 		}

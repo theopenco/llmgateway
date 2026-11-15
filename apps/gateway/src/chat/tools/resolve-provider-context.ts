@@ -960,6 +960,12 @@ export async function resolveProviderContext(
 			usedInternalModel,
 			usedExternalId,
 			usedRegion,
+			{
+				providerKeyOptions: credentialOptions,
+				skipEnvVars: usesDatabaseCredential,
+				configIndex,
+				variant: envVariant,
+			},
 		);
 
 	// --- URL resolution ---

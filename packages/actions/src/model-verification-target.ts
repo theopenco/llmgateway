@@ -9,7 +9,7 @@ import {
 
 import type { ProviderModelVerificationTarget, tables } from "@llmgateway/db";
 import type {
-	ProviderApiFormat,
+	RequestApiFormat,
 	ProviderModelMapping,
 	ToolChoiceMode,
 	WebSearchFormat,
@@ -32,7 +32,7 @@ export interface VerificationTargetInput {
 	providerId: string;
 	modelName: string;
 	externalId?: string | null;
-	apiFormat?: ProviderApiFormat | null;
+	apiFormat?: RequestApiFormat | null;
 	decisions?: boolean | null;
 	region?: string | null;
 	streaming?: boolean | null;

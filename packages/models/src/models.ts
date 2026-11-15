@@ -84,8 +84,9 @@ export const PROVIDER_API_FORMATS = [
 export type ProviderApiFormat = (typeof PROVIDER_API_FORMATS)[number];
 
 /**
- * API surfaces a single request can be sent on: the mapping formats plus
- * `anthropic-messages`, which only `webSearchApiFormat` selects.
+ * API surfaces a single request can be sent on: the Airside-selectable
+ * formats plus `anthropic-messages` (Claude on AWS Bedrock, and DeepSeek's
+ * `webSearchApiFormat`).
  */
 export type RequestApiFormat = ProviderApiFormat | "anthropic-messages";
 
@@ -587,8 +588,10 @@ export interface ProviderModelMapping {
 	/**
 	 * Provider-specific request/endpoint format when a provider has multiple API
 	 * surfaces for different models. Defaults to the provider's native format.
+	 * `anthropic-messages` sends Anthropic's Messages API body (Claude on AWS
+	 * Bedrock).
 	 */
-	apiFormat?: ProviderApiFormat;
+	apiFormat?: RequestApiFormat;
 	/**
 	 * API surface for requests carrying a `web_search` tool, when the
 	 * provider serves hosted search on a different surface than `apiFormat`
