@@ -33,6 +33,7 @@ import {
 	ne,
 	sql,
 	tables,
+	REFUND_TRANSACTION_TYPES,
 } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -303,7 +304,7 @@ async function loadOrganizationRevenue(
 				.where(
 					and(
 						inArray(tables.transaction.organizationId, organizationIds),
-						eq(tables.transaction.type, "credit_refund"),
+						inArray(tables.transaction.type, [...REFUND_TRANSACTION_TYPES]),
 						eq(tables.transaction.status, "completed"),
 						sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
 						eq(

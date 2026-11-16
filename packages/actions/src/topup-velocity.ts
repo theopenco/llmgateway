@@ -8,6 +8,7 @@ import {
 	sql,
 	tables,
 	projectHourlyStats,
+	REFUND_TRANSACTION_TYPES,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -75,10 +76,10 @@ return 1
 /**
  * Gross top-up USD in the rolling window. Deliberately NOT net of refunds:
  * the original `credit_topup` row keeps `status: "completed"` when refunded
- * (the webhook only inserts a separate `credit_refund` row), and it must keep
- * consuming headroom — otherwise top-up → refund → top-up again would cycle
- * money through the window faster than the cap allows. Do not subtract
- * `credit_refund` rows here.
+ * (the webhook only inserts a separate refund row), and it must keep consuming
+ * headroom — otherwise top-up → refund → top-up again would cycle money
+ * through the window faster than the cap allows. Do not subtract refund rows
+ * here.
  */
 async function windowDbSumUsd(organizationId: string, now: number) {
 	const windowStart = new Date(now - TOPUP_VELOCITY_WINDOW_MS);
@@ -99,10 +100,15 @@ async function windowDbSumUsd(organizationId: string, now: number) {
 }
 
 /**
- * Gross USD ever refunded back to the org (completed `credit_refund` rows;
- * `amount` on those is the positive refunded dollar figure). Deducted from the
+ * Gross USD ever refunded back to the org (completed refund rows; `amount` on
+ * those is the positive refunded dollar figure). Deducted from the
  * tier-qualifying spend so money that came back — fraud clawbacks included —
  * cannot buy higher limits.
+ *
+ * Both refund types count. Plan money buys plan credits, and plan usage is
+ * served on platform credentials, so it lands in `creditsCost` and raises the
+ * tier exactly like a top-up would; matching only `credit_refund` would let a
+ * plan purchase → burn allowance → refund cycle keep the tier it bought.
  */
 async function lifetimeRefundedUsd(organizationId: string) {
 	const rows = await db
@@ -113,7 +119,7 @@ async function lifetimeRefundedUsd(organizationId: string) {
 		.where(
 			and(
 				eq(tables.transaction.organizationId, organizationId),
-				eq(tables.transaction.type, "credit_refund"),
+				inArray(tables.transaction.type, [...REFUND_TRANSACTION_TYPES]),
 				eq(tables.transaction.status, "completed"),
 			),
 		);

@@ -22,8 +22,9 @@ vi.mock("@llmgateway/db", () => {
 	const projectHourlyStats = { projectId: {}, cost: {} };
 	const noop = () => ({});
 	// Both the window sum and the refund sum select from `transaction`; the
-	// traceable eq/and let the fake route on the `type` predicate.
+	// traceable eq/inArray/and let the fake route on the `type` predicate.
 	const eq = (col: unknown, val: unknown) => ({ col, val });
+	const inArray = (col: unknown, vals: unknown[]) => ({ col, vals });
 	const and = (...conds: unknown[]) => conds;
 	return {
 		db: {
@@ -38,9 +39,10 @@ vi.mock("@llmgateway/db", () => {
 						: {
 								where: async (cond: unknown) => {
 									const conds = Array.isArray(cond) ? cond : [cond];
-									const isRefundSum = conds.some(
-										(c) =>
-											(c as { val?: unknown } | null)?.val === "credit_refund",
+									const isRefundSum = conds.some((c) =>
+										(c as { vals?: unknown[] } | null)?.vals?.includes(
+											"credit_refund",
+										),
 									);
 									return [
 										{
@@ -56,10 +58,11 @@ vi.mock("@llmgateway/db", () => {
 		and,
 		eq,
 		gte: noop,
-		inArray: noop,
+		inArray,
 		sql: noop,
 		tables: { transaction, project },
 		projectHourlyStats,
+		REFUND_TRANSACTION_TYPES: ["credit_refund", "subscription_refund"],
 	};
 });
 
