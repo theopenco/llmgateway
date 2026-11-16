@@ -963,54 +963,54 @@ export function LogCard({
 								<div>{log.completionTokens}</div>
 								<div className="text-muted-foreground">Total Tokens</div>
 								<div className="font-medium">{log.totalTokens}</div>
-								{log.cachedTokens && Number(log.cachedTokens) > 0 && (
+								{log.cachedTokens && Number(log.cachedTokens) > 0 ? (
 									<>
 										<div className="text-muted-foreground">
 											Cached Input Tokens
 										</div>
 										<div className="font-medium">{log.cachedTokens}</div>
 									</>
-								)}
-								{log.cacheWriteTokens && Number(log.cacheWriteTokens) > 0 && (
+								) : null}
+								{log.cacheWriteTokens && Number(log.cacheWriteTokens) > 0 ? (
 									<>
 										<div className="text-muted-foreground">
 											Cache Write Tokens
 										</div>
 										<div className="font-medium">{log.cacheWriteTokens}</div>
 									</>
-								)}
-								{log.reasoningTokens && Number(log.reasoningTokens) > 0 && (
+								) : null}
+								{log.reasoningTokens && Number(log.reasoningTokens) > 0 ? (
 									<>
 										<div className="text-muted-foreground">
 											Reasoning Tokens
 										</div>
 										<div>{log.reasoningTokens}</div>
 									</>
-								)}
-								{log.imageInputTokens && Number(log.imageInputTokens) > 0 && (
+								) : null}
+								{log.imageInputTokens && Number(log.imageInputTokens) > 0 ? (
 									<>
 										<div className="text-muted-foreground">
 											Image Input Tokens
 										</div>
 										<div>{log.imageInputTokens}</div>
 									</>
-								)}
-								{log.imageOutputTokens && Number(log.imageOutputTokens) > 0 && (
+								) : null}
+								{log.imageOutputTokens && Number(log.imageOutputTokens) > 0 ? (
 									<>
 										<div className="text-muted-foreground">
 											Image Output Tokens
 										</div>
 										<div>{log.imageOutputTokens}</div>
 									</>
-								)}
-								{log.audioInputTokens && Number(log.audioInputTokens) > 0 && (
+								) : null}
+								{log.audioInputTokens && Number(log.audioInputTokens) > 0 ? (
 									<>
 										<div className="text-muted-foreground">
 											Audio Input Tokens
 										</div>
 										<div>{log.audioInputTokens}</div>
 									</>
-								)}
+								) : null}
 								<div className="text-muted-foreground">
 									Original Finish Reason
 								</div>
