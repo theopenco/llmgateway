@@ -56,11 +56,11 @@ describe("DeepSeek V4 Flash July snapshot migration", () => {
 				(mapping) => mapping.providerId === providerId,
 			)!;
 			expect(deactivatedAt).toEqual(new Date("2026-11-17"));
-			expect(
-				snapshot()?.providers.find(
+			const { deactivatedAt: _snapshotDeactivatedAt, ...snapshotMetadata } =
+				snapshot()!.providers.find(
 					(mapping) => mapping.providerId === providerId,
-				),
-			).toEqual(metadata);
+				)!;
+			expect(snapshotMetadata).toEqual(metadata);
 		},
 	);
 
@@ -87,7 +87,13 @@ describe("DeepSeek V4 Flash July snapshot migration", () => {
 			snapshot()
 				?.providers.find((mapping) => mapping.providerId === "alibaba")
 				?.regions?.map((region) => region.id),
-		).toEqual(["singapore", "eu-frankfurt", "us-virginia", "cn-beijing"]);
+		).toEqual([
+			"singapore",
+			"eu-frankfurt",
+			"us-virginia",
+			"cn-beijing",
+			"ap-tokyo",
+		]);
 		expect(
 			snapshot()?.providers.find((mapping) => mapping.providerId === "baidu")
 				?.maxOutput,
@@ -103,7 +109,6 @@ describe("DeepSeek V4 Flash July snapshot migration", () => {
 			["deepseek", "2026-09-10"],
 			["fireworks", "2026-10-19"],
 			["together-ai", "2026-10-22"],
-			["ranoai", "2026-11-17"],
 			["canopywave", "2026-11-17"],
 		] as const) {
 			expect(

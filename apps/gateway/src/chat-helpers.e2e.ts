@@ -903,7 +903,16 @@ export const transcriptionModels = models
 // realtime-transcription.e2e.ts, applying the same TEST_MODELS/TEST_PROVIDERS,
 // deactivation, env-var, and stability filters as transcriptionModels.
 export const realtimeTranscriptionModels = realtimeTestCases(
-	(provider) => provider.realtimeTranscription === true,
+	(provider) =>
+		provider.realtimeTranscription === true &&
+		provider.providerId !== "elevenlabs",
+);
+
+// ElevenLabs Scribe Live sessions speak ElevenLabs' own realtime protocol.
+export const elevenLabsRealtimeTranscriptionModels = realtimeTestCases(
+	(provider) =>
+		provider.realtimeTranscription === true &&
+		provider.providerId === "elevenlabs",
 );
 
 // Speech-to-speech realtime mappings that speak the OpenAI realtime protocol
@@ -1553,18 +1562,6 @@ function providerEnvOptionsForTests(
 		// Without a project the API key falls back to the project-less express
 		// path, which Google pins to us-central1; global-only models 404 there.
 		return { google_vertex_project_id: process.env.LLM_GOOGLE_CLOUD_PROJECT };
-	}
-	if (providerId === "azure-ai-foundry") {
-		const resource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
-		const apiVersion = process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
-		const opts: ProviderKeyOptions = {};
-		if (resource) {
-			opts.azure_ai_foundry_resource = resource;
-		}
-		if (apiVersion) {
-			opts.azure_ai_foundry_api_version = apiVersion;
-		}
-		return Object.keys(opts).length > 0 ? opts : undefined;
 	}
 	if (
 		providerId === "azure-anthropic" &&

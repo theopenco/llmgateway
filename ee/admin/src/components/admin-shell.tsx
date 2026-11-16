@@ -36,6 +36,7 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
+import { FailingCredentialsWarning } from "@/components/failing-credentials-warning";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -407,6 +408,7 @@ export function AdminShell({ children, signedIn }: AdminShellProps) {
 						</AlertDescription>
 					</Alert>
 				)}
+				{adminRole && <FailingCredentialsWarning />}
 				{user?.isAdmin && license?.kind === "white_label" && (
 					<WhiteLabelSeatWarning />
 				)}

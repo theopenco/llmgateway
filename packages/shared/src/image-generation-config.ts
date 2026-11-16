@@ -46,14 +46,44 @@ const HY_IMAGE_SIZES = [
 	"1024x1536",
 ] as const;
 
-const REVE_ASPECT_RATIOS: AspectRatio[] = [
+// fal bills these models by megapixel, so the catalogue prices each preset
+// and the gateway rejects any other size.
+export const FAL_IMAGE_SIZES = [
+	"1024x1024",
+	"1536x1024",
+	"1024x1536",
+	"1344x768",
+	"768x1344",
+	"2048x2048",
+] as const;
+
+const FAL_IMAGE_MODELS = [
+	"flux-2-klein-4b",
+	"flux-3-klein",
+	"z-image-turbo",
+	"recraft-v4.1-flash",
+];
+
+export function isFalImageModel(model: string): boolean {
+	const lower = model.toLowerCase();
+	return FAL_IMAGE_MODELS.some(
+		(id) => lower === id || lower.endsWith(`/${id}`),
+	);
+}
+
+// MiniMax H3 Image accepts ratios between 1:3 and 3:1.
+const MINIMAX_H3_IMAGE_ASPECT_RATIOS: AspectRatio[] = [
 	"auto",
 	"1:1",
 	"16:9",
 	"9:16",
+	"4:3",
+	"3:4",
 	"3:2",
 	"2:3",
-	"4:3",
+	"5:4",
+	"4:5",
+	"21:9",
 ];
 
 export function getModelImageConfig(model: string) {
@@ -61,14 +91,15 @@ export function getModelImageConfig(model: string) {
 
 	const isGptImage = lower.includes("gpt-image");
 	const hasGptImageMaxQuality = /gpt-image-2\.[56]-/.test(lower);
-	const isReve = lower.includes("reve");
 	const isMuseImage = lower.includes("muse-image");
 	const isHyImage = lower.includes("hy-image");
 	const isWanImagePro = lower.includes("wan-2-7-image-pro");
 	const isWanImage = lower.includes("wan-2-7-image");
+	const isFalImage = isFalImageModel(lower);
 
 	const usesPixelDimensions =
 		isGptImage ||
+		isFalImage ||
 		isMuseImage ||
 		isHyImage ||
 		(lower.includes("alibaba") && !isWanImage) ||
@@ -92,26 +123,26 @@ export function getModelImageConfig(model: string) {
 
 	const availableSizes = isGptImage
 		? GPT_IMAGE_SIZES
-		: isMuseImage
-			? (["1024x1024", "1024x1536", "1536x1024"] as const)
-			: isHyImage
-				? HY_IMAGE_SIZES
-				: isWanImagePro
-					? (["1K", "2K", "4K"] as const)
-					: isWanImage
-						? (["1K", "2K"] as const)
-						: usesPixelDimensions
-							? ([
-									"1024x1024",
-									"720x1280",
-									"1280x720",
-									"1024x1536",
-									"1536x1024",
-									"2048x1024",
-									"1024x2048",
-								] as const)
-							: isReve
-								? (["2K"] as const)
+		: isFalImage
+			? FAL_IMAGE_SIZES
+			: isMuseImage
+				? (["1024x1024", "1024x1536", "1536x1024"] as const)
+				: isHyImage
+					? HY_IMAGE_SIZES
+					: isWanImagePro
+						? (["1K", "2K", "4K"] as const)
+						: isWanImage
+							? (["1K", "2K"] as const)
+							: usesPixelDimensions
+								? ([
+										"1024x1024",
+										"720x1280",
+										"1280x720",
+										"1024x1536",
+										"1536x1024",
+										"2048x1024",
+										"1024x2048",
+									] as const)
 								: isSeedreamPro || isGrokImagine20
 									? (["1K", "2K"] as const)
 									: isSeedreamFlash
@@ -126,7 +157,7 @@ export function getModelImageConfig(model: string) {
 
 	const defaultSize = usesPixelDimensions
 		? "1024x1024"
-		: isReve || isSeedream || isWanImage
+		: isSeedream || isWanImage
 			? "2K"
 			: "1K";
 
@@ -157,8 +188,10 @@ export function getModelImageConfig(model: string) {
 
 	const supportsSvgOutput = modelSupportsSvgOutput(model);
 
-	const supportedAspectRatios: AspectRatio[] | undefined = isReve
-		? REVE_ASPECT_RATIOS
+	const supportedAspectRatios: AspectRatio[] | undefined = lower.includes(
+		"minimax-h3-image",
+	)
+		? MINIMAX_H3_IMAGE_ASPECT_RATIOS
 		: undefined;
 
 	return {
@@ -168,7 +201,6 @@ export function getModelImageConfig(model: string) {
 		isGrokImagine20,
 		isGptImage,
 		isMuseImage,
-		isReve,
 		availableSizes,
 		defaultSize,
 		supportsQuality,
@@ -219,6 +251,9 @@ function getMaxInputImages(lowerModel: string): number {
 	}
 	if (lowerModel.includes("hy-image")) {
 		return 20;
+	}
+	if (lowerModel.includes("minimax-h3-image")) {
+		return 16;
 	}
 	if (lowerModel.includes("qwen-image-2.1")) {
 		return 10;

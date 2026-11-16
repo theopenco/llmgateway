@@ -97,12 +97,14 @@ import {
 import { parseProviderModelList } from "@/lib/provider-model-list";
 import { cn } from "@/lib/utils";
 
+import { getEffectiveCredentialRegion } from "@llmgateway/models";
 import {
 	getProviderIcon,
 	MODEL_SYNC_PROVIDERS,
 	PROVIDER_MODEL_KINDS,
 } from "@llmgateway/shared";
 import {
+	formatProviderKeyModelRateLimits,
 	formatProviderKeyRateLimits,
 	MultiModelIdSelector,
 	parseProviderKeyRateLimitInputs,
@@ -269,7 +271,9 @@ function EnvCredentialRow({
 			<TableCell className="text-sm">
 				{VARIANT_LABELS[entry.variant as Variant] ?? entry.variant}
 			</TableCell>
-			<TableCell className="text-sm">{entry.region || "Any"}</TableCell>
+			<TableCell className="text-sm">
+				{getEffectiveCredentialRegion(provider, entry.region) ?? "Any"}
+			</TableCell>
 			<TableCell>
 				<span
 					className="text-sm text-muted-foreground"
@@ -526,11 +530,25 @@ function ManagedCredentialCells({
 						{formatProviderKeyRateLimits(credential)}
 					</div>
 				) : null}
+				{formatProviderKeyModelRateLimits(credential.modelRateLimits)
+					?.split("; ")
+					.map((line) => (
+						<div
+							key={line}
+							className="whitespace-normal text-xs tabular-nums"
+							title="Per-model rate limit. While at a model's cap the credential is skipped for that model."
+						>
+							{line}
+						</div>
+					))}
 			</TableCell>
 			<TableCell className="text-sm">
 				{VARIANT_LABELS[credential.variant as Variant] ?? credential.variant}
 			</TableCell>
-			<TableCell className="text-sm">{credential.region || "Any"}</TableCell>
+			<TableCell className="text-sm">
+				{getEffectiveCredentialRegion(credential.provider, credential.region) ??
+					"Any"}
+			</TableCell>
 			<TableCell>
 				{credential.allowedModels && credential.allowedModels.length > 0 ? (
 					<Badge
@@ -823,7 +841,10 @@ export function ProviderCredentialsManager({
 		() =>
 			liveCredentials.map((credential) => ({
 				provider: credential.provider,
-				region: credential.region,
+				region: getEffectiveCredentialRegion(
+					credential.provider,
+					credential.region,
+				),
 			})),
 		[liveCredentials],
 	);
@@ -1741,6 +1762,14 @@ function CredentialDialog({
 		"ordered" | "round_robin"
 	>(credential?.selectionStrategy ?? "ordered");
 	const [region, setRegion] = useState(credential?.region ?? "");
+	const selectedEntry =
+		catalogEntry ?? catalog.find((entry) => entry.id === provider);
+	// A provider with no global region (Alibaba) has no "any region" credential:
+	// an unpinned one would only ever run in the default region, so the form
+	// pins that region until another is picked.
+	const regionRequired = selectedEntry?.regionRequired ?? false;
+	const effectiveRegion =
+		region || (regionRequired ? (selectedEntry?.defaultRegion ?? "") : "");
 	const [status, setStatus] = useState<"active" | "inactive">(
 		credential?.status === "inactive" ? "inactive" : "active",
 	);
@@ -1811,9 +1840,9 @@ function CredentialDialog({
 			provider,
 			...(token ? { token } : {}),
 			config,
-			region: region || null,
+			region: effectiveRegion || null,
 		}),
-		[credential, provider, token, config, region],
+		[credential, provider, token, config, effectiveRegion],
 	);
 
 	async function handleSelfTest() {
@@ -1958,8 +1987,6 @@ function CredentialDialog({
 		}
 	}
 
-	const selectedEntry =
-		catalogEntry ?? catalog.find((entry) => entry.id === provider);
 	const isRegionScoped = (selectedEntry?.regions.length ?? 0) > 0;
 	const availableModels = selectedEntry?.models ?? NO_MODELS;
 	const modelsByKind = selectedEntry?.modelsByKind ?? NO_MODELS_BY_KIND;
@@ -1970,6 +1997,11 @@ function CredentialDialog({
 		const selected = new Set(allowedModels);
 		return availableModels.every((modelId) => selected.has(modelId));
 	}, [allowedModels, availableModels]);
+	const rateLimitModelOptions = useMemo(
+		() =>
+			availableModels.map((modelId) => ({ value: modelId, label: modelId })),
+		[availableModels],
+	);
 	const exactAvailableModelSelection =
 		allAvailableModelsSelected &&
 		allowedModels.length === availableModels.length;
@@ -2060,7 +2092,7 @@ function CredentialDialog({
 			comment,
 			variant,
 			selectionStrategy,
-			region,
+			region: effectiveRegion,
 			status,
 			config,
 			usageLimit: trimmedLimit,
@@ -2114,6 +2146,10 @@ function CredentialDialog({
 								// would be rejected by the server.
 								setRegion("");
 								setAllowedModels([]);
+								setRateLimits((current) => ({
+									...current,
+									modelRateLimits: [],
+								}));
 								clearProbeResults();
 							}}
 							options={providerOptions}
@@ -2329,7 +2365,7 @@ function CredentialDialog({
 						<div className="flex flex-col gap-2">
 							<Label htmlFor="region">Region</Label>
 							<Select
-								value={region || ANY_REGION}
+								value={effectiveRegion || ANY_REGION}
 								onValueChange={(value) => {
 									setRegion(value === ANY_REGION ? "" : value);
 									clearProbeResults();
@@ -2349,7 +2385,9 @@ function CredentialDialog({
 									)}
 								</SelectTrigger>
 								<SelectContent>
-									<SelectItem value={ANY_REGION}>Any region</SelectItem>
+									{regionRequired ? null : (
+										<SelectItem value={ANY_REGION}>Any region</SelectItem>
+									)}
 									{selectedEntry?.regions.map((entry) => {
 										const used = regionUsage.get(entry.id) ?? 0;
 										return (
@@ -2366,9 +2404,11 @@ function CredentialDialog({
 							<p className="text-xs text-muted-foreground">
 								{!isRegionScoped
 									? `${selectedEntry?.name ?? "This provider"} serves one endpoint for every request, so its credentials are not region-scoped.`
-									: region
-										? "Only requests routed to this region use this credential."
-										: "Serves every region the provider covers."}
+									: regionRequired
+										? `${selectedEntry?.name ?? "This provider"} has no global region: its keys belong to one region, and only requests routed there use this credential.`
+										: effectiveRegion
+											? "Only requests routed to this region use this credential."
+											: "Serves every region the provider covers."}
 							</p>
 						</div>
 					</div>
@@ -2597,6 +2637,7 @@ function CredentialDialog({
 						idPrefix="credential-rate-limits"
 						values={rateLimits}
 						onChange={setRateLimits}
+						models={rateLimitModelOptions}
 					/>
 
 					<div className="flex items-start gap-2">

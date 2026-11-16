@@ -36,6 +36,8 @@ export interface ProviderFilterOptions {
 	/** Drop mappings that would downgrade tool_choice instead of preferring them. */
 	strictToolChoice?: boolean;
 	reasoningEffort?: string;
+	/** Provider a replay's bound reasoning pins; never ranked out by effort. */
+	reasoningPinnedProvider?: string;
 	reasoningMaxTokens?: number;
 	reasoningMode?: ReasoningMode;
 	noReasoning?: boolean;
@@ -157,6 +159,69 @@ export function preferToolChoiceCapableProviders(
 		}
 	}
 	return capable;
+}
+
+/**
+ * Whether a mapping states that it accepts the requested reasoning effort. A
+ * non-reasoning mapping honours `none` by definition.
+ */
+function declaresReasoningEffort(
+	provider: ProviderModelMapping,
+	effort: string,
+): boolean {
+	if (effort === "none" && provider.reasoning !== true) {
+		return true;
+	}
+	return (
+		provider.reasoningEfforts?.some((declared) => declared === effort) === true
+	);
+}
+
+/**
+ * Narrow a candidate list to the mappings that declare the requested reasoning
+ * effort — but only when at least one of them does.
+ *
+ * `getProviderFilterReasons` lets reasoning mappings without declared efforts
+ * through for every effort, while a mapping that declares its list is excluded
+ * from the efforts it omits. Without this preference, leaving the list empty
+ * would win more traffic than declaring it accurately. Undeclared mappings stay
+ * as the fallback when no declared one remains.
+ */
+export function preferDeclaredReasoningEffortProviders(
+	providers: ProviderModelMapping[],
+	options: ProviderFilterOptions,
+	filteredOut?: FilteredProvider[],
+): ProviderModelMapping[] {
+	const effort = options.reasoningEffort;
+	if (effort === undefined) {
+		return providers;
+	}
+
+	const declared = providers.filter(
+		(provider) =>
+			provider.providerId === options.reasoningPinnedProvider ||
+			declaresReasoningEffort(provider, effort),
+	);
+	if (declared.length === 0 || declared.length === providers.length) {
+		return providers;
+	}
+
+	if (filteredOut) {
+		// Record a provider only when none of its mappings survived, as for
+		// tool_choice above.
+		const declaredProviderIds = new Set(declared.map((p) => p.providerId));
+		for (const provider of providers) {
+			if (!declaredProviderIds.has(provider.providerId)) {
+				recordFilteredProvider(filteredOut, provider.providerId, [
+					exclusionReason(
+						"reasoning_effort",
+						"Does not declare support for the requested reasoning effort",
+					),
+				]);
+			}
+		}
+	}
+	return declared;
 }
 
 /**

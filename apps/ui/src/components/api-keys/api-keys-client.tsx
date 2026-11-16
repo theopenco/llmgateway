@@ -20,7 +20,7 @@ import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
 
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
-import type { ApiKeyUsagePeriod } from "@/components/api-keys/api-key-usage-period";
+import type { ApiKeyUsageQuery } from "@/components/api-keys/api-key-usage-period";
 import type { Project } from "@/lib/types";
 
 /**
@@ -30,11 +30,11 @@ import type { Project } from "@/lib/types";
 export function ApiKeysClient({
 	scope: scopeType,
 	initialData,
-	initialPeriod,
+	initialUsageQuery,
 }: {
 	scope: ApiKeysScope["type"];
 	initialData: ApiKeysResponse | undefined;
-	initialPeriod: ApiKeyUsagePeriod;
+	initialUsageQuery: ApiKeyUsageQuery;
 }) {
 	const pathname = usePathname();
 	const { selectedOrganization } = useDashboardNavigation();
@@ -87,7 +87,7 @@ export function ApiKeysClient({
 				query: {
 					...apiKeysScopeQuery(scope),
 					filter: "all",
-					period: initialPeriod,
+					...initialUsageQuery,
 				},
 			},
 		},
@@ -157,7 +157,7 @@ export function ApiKeysClient({
 				<ApiKeysList
 					scope={scope}
 					initialData={initialData}
-					initialPeriod={initialPeriod}
+					initialUsageQuery={initialUsageQuery}
 				/>
 			</div>
 		</div>

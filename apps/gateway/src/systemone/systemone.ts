@@ -332,6 +332,7 @@ systemone.openapi(createSystemOne, async (c): Promise<any> => {
 		rawBody,
 		requestedModel,
 		hasImageInput,
+		hasBoxQuestion: hasBox,
 		logSummary: `state: ${summarizeState(state)}\nquestions: ${summarizeQuestions(questions)}`,
 		supportsProvider: (providerId, wireFormat) =>
 			providerId === "typesafe" && wireFormat === "system-one",

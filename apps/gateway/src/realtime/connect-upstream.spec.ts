@@ -115,6 +115,25 @@ describe("resolveUpstreamTarget", () => {
 		);
 	});
 
+	it("builds the ElevenLabs Scribe Live URL from the validated query", () => {
+		const target = resolveUpstreamTarget(
+			{
+				...buildPreflight("elevenlabs", "scribe_v3_live"),
+				sessionType: "transcription",
+			} as unknown as RealtimePreflightResult,
+			{
+				query: new URLSearchParams({
+					audio_format: "pcm_24000",
+					model_id: "caller-supplied",
+				}),
+			},
+		);
+		expect(target.url).toBe(
+			"wss://api.elevenlabs.io/v1/speech-to-text/realtime?audio_format=pcm_24000&model_id=scribe_v3_live",
+		);
+		expect(target.headers).toEqual({ "xi-api-key": "upstream-secret" });
+	});
+
 	it("connects transcription sessions with intent=transcription and no model", () => {
 		const target = resolveUpstreamTarget({
 			...buildPreflight("openai", "gpt-live-transcribe"),

@@ -66,13 +66,7 @@ To run through a proxy, export the provider's base-URL var (`LLM_OPENAI_BASE_URL
 …) with its `LLM_*_API_KEY`; `beforeAllHook` stamps it onto the seeded provider
 key. An `http://` base URL also needs `ALLOW_INSECURE_PROVIDER_URLS=true`.
 
-CI e2e (`.github/workflows/e2e.yml`) spends real money and runs on demand only:
-comment `/e2e` on a same-repo PR (maintainers) or use `workflow_dispatch`. Push
-first: `/e2e` refuses a head pushed after the comment. Use it
-for complex gateway or backend changes affecting routing, stability, uptime, or
-provider integration. Never `/e2e` for model-mapping PRs; run those locally with
-`TEST_MODELS`, or, only without local credentials, dispatch with
-`test_models` and `full_mode` set.
+e2e does not run in CI; run it locally with your own credentials.
 
 ## Writing tests
 
@@ -82,4 +76,5 @@ provider integration. Never `/e2e` for model-mapping PRs; run those locally with
 - Build credential-shaped fixtures at runtime (`["sk", "live", "..."].join("_")`) so push protection accepts the branch. Assert on booleans, never equality with a credential: CI test artifacts are public and unmasked.
 - Delete cascade-linked tables sequentially, children before parents. `deleteAll()` keeps the catalogue tables, so a spec that seeds `model`/`model_provider_mapping` rows removes them itself, with ids distinct from the real catalogue.
 - Source-loading Node subprocesses using `--import tsx` set `TSX_TSCONFIG_PATH` to the owning app's `tsconfig.json`; the root config does not resolve app `@/` aliases.
+- Fake Resend's contact lookup, create, update and delete, and a contact's topic and segment reads, in `apps/api` specs with `fakeResendContacts` (`apps/api/src/testing-resend.ts`) on `globalThis.fetch`. Topic and segment writes are faked in `public-newsletter.spec.ts` only.
 - Keep logs and scratch files under `.context/`; `/tmp` is shared with other agents.

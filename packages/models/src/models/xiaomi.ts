@@ -77,6 +77,35 @@ export const xiaomiModels = [
 		],
 	},
 	{
+		id: "mimo-v2.6-pro-ultraspeed",
+		name: "MiMo V2.6 Pro UltraSpeed",
+		description:
+			"High-speed edition of Xiaomi's flagship MiMo V2.6 Pro, built from the same checkpoint with matching quality and much faster generation for latency-sensitive workloads, with 1M context.",
+		family: "xiaomi",
+		releasedAt: new Date("2026-09-22"),
+		providers: [
+			{
+				providerId: "xiaomi" as const,
+				externalId: "mimo-v2.6-pro-ultraspeed",
+				inputPrice: "4.35e-6",
+				outputPrice: "8.7e-6",
+				cachedInputPrice: "0.036e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				maxTemperature: 1.5,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high"],
+				vision: true,
+				audio: true,
+				tools: true,
+				supportedToolChoices: ["auto"],
+				jsonOutput: true,
+			},
+		],
+	},
+	{
 		id: "mimo-v2.6-flash",
 		name: "MiMo V2.6 Flash",
 		description:

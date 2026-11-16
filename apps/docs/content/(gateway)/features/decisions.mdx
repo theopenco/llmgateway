@@ -216,7 +216,9 @@ request fits TypeSafe's body limit; TypeSafe rejects images under 280 or over
 `/v1/systemone` is TypeSafe's request format and serves Jev only. It will be
 deprecated in favor of `/v1/decisions`, and new decision models ship on
 `/v1/decisions` only. Jev works on both, at the same price, so you can move
-without changing models.
+without changing models. The exception is Jev 1.14's
+[`box` questions](/features/system-one#bounding-boxes), which OpenAI's format
+has no type for: keep those on `/v1/systemone`.
 
 | `/v1/systemone`                   | `/v1/decisions`                                         |
 | --------------------------------- | ------------------------------------------------------- |

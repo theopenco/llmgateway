@@ -678,7 +678,7 @@ devPlans.openapi(finalize, async (c) => {
 
 	let result;
 	try {
-		result = await finalizeDevPlanSetupSession(sessionId);
+		result = await finalizeDevPlanSetupSession(sessionId, personalOrg.id);
 	} catch (error) {
 		logger.error(
 			`Failed to finalize dev plan session ${sessionId}`,

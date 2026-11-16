@@ -330,6 +330,48 @@ committed; audio that has already produced transcript deltas is committed by
 the gateway on disconnect and ahead of an `input_audio_buffer.clear`, so it is
 billed like any other turn.
 
+### ElevenLabs Scribe Live
+
+ElevenLabs realtime transcription models (such as `scribe-v3-live`) use the
+same OpenAI transcription session protocol: configure the session with
+`session.update`, stream `input_audio_buffer.append`, and receive
+`speech_started`/`speech_stopped`, `input_audio_buffer.committed` and
+`conversation.item.input_audio_transcription.delta`/`.completed` events.
+
+```
+wss://api.llmgateway.io/v1/realtime?intent=transcription&model=scribe-v3-live
+```
+
+- Audio formats: `audio/pcm` at 24 kHz (also 8, 16, 22.05, 44.1 or 48 kHz) and
+  `audio/pcmu`. `audio/pcma` is rejected with `unsupported_audio_format`.
+- `turn_detection`: `server_vad` (the default; `threshold` and
+  `silence_duration_ms` apply), `semantic_vad` (ElevenLabs turn prediction),
+  or `null` for manual commits. A commit needs at least 300 ms of new audio.
+- `transcription.language` (or a `languages` list) and `prompt` are applied;
+  a non-null `noise_reduction` enables ElevenLabs background audio filtering.
+  `keywords` are billed separately by ElevenLabs and are rejected.
+- `threshold` is clamped to 0.1–0.9 and `silence_duration_ms` to 192–3000;
+  `session.updated` reports the values in effect.
+- ElevenLabs applies settings when the gateway opens its connection on the
+  first audio, so a later change reopens it. While a transcript is in
+  progress or a commit awaits its transcript, the change is rejected with
+  `session_update_in_progress`; wait for `.completed` and retry. Audio with no
+  transcript yet is dropped, as with `input_audio_buffer.clear`.
+- Deltas only extend the text already sent; ElevenLabs revisions are settled
+  by the `.completed` transcript. Each `.completed` event reports
+  `usage: {"type": "duration", "seconds": …}`.
+- Optional ElevenLabs URL parameters: `secondary_languages`, `no_verbatim`,
+  `multilang_mode`, `min_speech_duration_ms`, `min_silence_duration_ms`,
+  `keepalive_interval_ms` and `enable_logging`. Add-ons ElevenLabs bills
+  separately (`keyterms`, `transcript_edit`, `entity_detection`,
+  `entity_redaction`) and parameters whose events have no OpenAI equivalent
+  (`diarize`, `include_timestamps`, `include_language_detection`) are rejected
+  with HTTP 400.
+- ElevenLabs bills every second of audio sent, silences included. The gateway
+  meters the audio it forwards and bills it at the model's hourly rate before
+  each completed transcript is delivered, every 30 seconds of uncommitted
+  audio, and when the session closes.
+
 ## Image Input
 
 Realtime mappings with vision support accept `input_image` content in

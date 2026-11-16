@@ -160,6 +160,14 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/state-of-llm-usage"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										State of LLM Usage
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="https://airside.llmgateway.io"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
@@ -351,6 +359,22 @@ export default function Footer() {
 										prefetch
 									>
 										Copilot Cost Calculator
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/savings-audit"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										Savings Audit
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/badges"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										Status & Pricing Badges
 									</Link>
 								</li>
 								<li>

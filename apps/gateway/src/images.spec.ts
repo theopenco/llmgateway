@@ -117,7 +117,12 @@ describe("image generation upstream streaming", () => {
 				background: body.background,
 				outputFormat: body.output_format,
 				outputCompression: body.output_compression,
-				svg: body.svg,
+				svg: multipart
+					? body["svg[model]"] && {
+							model: body["svg[model]"],
+							reasoning: { effort: body["svg[reasoning][effort]"] },
+						}
+					: body.svg,
 				frameCount: body.frame_count,
 				frameDuration: body.frame_duration_ms,
 				markup: body.markup,
@@ -648,6 +653,74 @@ describe("image generation upstream streaming", () => {
 					`data:image/svg+xml;base64,${svgBase64}`,
 				);
 			});
+
+			test("returns an SVG from a JSON edit", async () => {
+				const requestId = randomUUID();
+				const res = await app.request("/v1/images/edits", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer test-token",
+						"x-request-id": requestId,
+						"x-no-fallback": "true",
+					},
+					body: JSON.stringify({
+						model: `openai/${model}`,
+						prompt: "Turn this into a flat icon",
+						images: [{ image_url: inputImage }],
+						output_format: "svg",
+						svg: { model: "gpt-5.4-mini", reasoning: { effort: "low" } },
+						complexity: "low",
+					}),
+				});
+				const json = await res.json();
+				expect(res.status, JSON.stringify(json)).toBe(200);
+				expect(upstreamRequests).toEqual([
+					expect.objectContaining({
+						endpoint: "edits",
+						stream: undefined,
+						outputFormat: "svg",
+						complexity: "low",
+						svg: { model: "gpt-5.4-mini", reasoning: { effort: "low" } },
+					}),
+				]);
+				expect(json.output_format).toBe("svg");
+				expect(json.data).toEqual([
+					expect.objectContaining({ b64_json: svgBase64 }),
+				]);
+				const log = await waitForLogByRequestId(requestId);
+				expect(log.hasError).toBe(false);
+				expect(Number(log.cost)).toBeCloseTo(0.0218, 10);
+			});
+
+			test("returns an SVG from a multipart edit", async () => {
+				const form = new FormData();
+				form.append("model", `openai/${model}`);
+				form.append("prompt", "Turn this into a flat icon");
+				form.append(
+					"image",
+					new File([Buffer.from("hello")], "in.png", { type: "image/png" }),
+				);
+				form.append("output_format", "svg");
+				form.append("svg[model]", "gpt-5.4-mini");
+				form.append("svg[reasoning][effort]", "medium");
+				const res = await app.request("/v1/images/edits", {
+					method: "POST",
+					headers: {
+						Authorization: "Bearer test-token",
+						"x-no-fallback": "true",
+					},
+					body: form,
+				});
+				const json = await res.json();
+				expect(res.status, JSON.stringify(json)).toBe(200);
+				expect(upstreamRequests[0]).toMatchObject({
+					endpoint: "edits",
+					outputFormat: "svg",
+					svg: { model: "gpt-5.4-mini", reasoning: { effort: "medium" } },
+				});
+				expect(json.output_format).toBe("svg");
+			});
 		},
 	);
 
@@ -678,20 +751,25 @@ describe("image generation upstream streaming", () => {
 			"output_compression is not supported with SVG output.",
 		],
 	])("rejects SVG output with %s", async (_case, params, message) => {
-		const res = await app.request("/v1/images/generations", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: "Bearer test-token",
-			},
-			body: JSON.stringify({
-				prompt: "A bakery logo",
-				output_format: "svg",
-				...params,
-			}),
-		});
-		expect(res.status).toBe(400);
-		expect(JSON.stringify(await res.json())).toContain(message);
+		for (const endpoint of ["generations", "edits"]) {
+			const res = await app.request(`/v1/images/${endpoint}`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer test-token",
+				},
+				body: JSON.stringify({
+					prompt: "A bakery logo",
+					output_format: "svg",
+					...(endpoint === "edits" && {
+						images: [{ image_url: inputImage }],
+					}),
+					...params,
+				}),
+			});
+			expect(res.status).toBe(400);
+			expect(JSON.stringify(await res.json())).toContain(message);
+		}
 		expect(upstreamRequests).toHaveLength(0);
 	});
 
@@ -1306,3 +1384,106 @@ describe("image service tiers", () => {
 	});
 });
 const gifBase64 = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+describe("image key rotation", () => {
+	const harness = createGatewayApiTestHarness();
+	const usedKeys: string[] = [];
+
+	beforeEach(async () => {
+		usedKeys.length = 0;
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("test-token"),
+			projectId: "project-id",
+			createdBy: "user-id",
+			description: "Test API Key",
+		});
+		for (const [id, token, createdAt] of [
+			["provider-key-revoked", "revoked-key", "2026-01-01T00:00:00Z"],
+			["provider-key-live", "live-key", "2026-01-02T00:00:00Z"],
+		]) {
+			await db.insert(tables.providerKey).values({
+				id,
+				createdAt: new Date(createdAt),
+				...encryptProviderKeyForStorage(token, id, "org-id"),
+				provider: "google-ai-studio",
+				organizationId: "org-id",
+				baseUrl: harness.mockServerUrl,
+			});
+		}
+
+		const originalFetch = globalThis.fetch;
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const url = new URL(
+				typeof input === "string" || input instanceof URL ? input : input.url,
+			);
+			if (!url.href.startsWith(harness.mockServerUrl)) {
+				return await originalFetch(input, init);
+			}
+			const key =
+				url.searchParams.get("key") ??
+				new Headers(init?.headers).get("x-goog-api-key") ??
+				"";
+			usedKeys.push(key);
+			if (key === "revoked-key") {
+				return Response.json(
+					{
+						error: {
+							code: 401,
+							message: "API key not valid. Please pass a valid API key.",
+							status: "UNAUTHENTICATED",
+						},
+					},
+					{ status: 401 },
+				);
+			}
+			return Response.json({
+				candidates: [
+					{
+						content: {
+							parts: [
+								{
+									inlineData: {
+										mimeType: "image/png",
+										data: pngBytes.toString("base64"),
+									},
+								},
+							],
+							role: "model",
+						},
+						finishReason: "STOP",
+						index: 0,
+					},
+				],
+				usageMetadata: {
+					promptTokenCount: 10,
+					candidatesTokenCount: 1120,
+					totalTokenCount: 1130,
+				},
+			});
+		});
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	test("retries a revoked key on the next key of the same provider", async () => {
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer test-token",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "google-ai-studio/gemini-3-pro-image",
+				prompt: "A blue circle",
+			}),
+		});
+		const json = await res.json();
+		expect(res.status, JSON.stringify(json)).toBe(200);
+		expect(json.data).toHaveLength(1);
+		expect(usedKeys).toEqual(["revoked-key", "live-key"]);
+	});
+});

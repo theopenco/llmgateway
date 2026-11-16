@@ -4,6 +4,7 @@ import { features } from "@/lib/features";
 import { isRedirectedModelId } from "@/lib/model-redirects";
 import { listedProviders } from "@/lib/providers-catalog";
 import { slugify } from "@/lib/slugify";
+import { USAGE_REPORT_PATH, usageReportYears } from "@/lib/usage-report";
 
 import {
 	getProviderCountries,
@@ -210,6 +211,21 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			url: `${baseUrl}/copilot-cost-calculator`,
 			changeFrequency: "weekly",
 			priority: 0.9,
+		},
+		{
+			url: `${baseUrl}/savings-audit`,
+			changeFrequency: "monthly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/badges`,
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}${USAGE_REPORT_PATH}/${usageReportYears()[0]}`,
+			changeFrequency: "weekly",
+			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/nano-banana-simulator/20`,

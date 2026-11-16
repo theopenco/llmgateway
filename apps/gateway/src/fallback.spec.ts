@@ -1178,7 +1178,8 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "aws-bedrock/claude-sonnet-4-6",
+					// Converse reports errors in x-amzn headers.
+					model: "aws-bedrock/claude-sonnet-4-5",
 					messages: [{ role: "user", content: "TRIGGER_BEDROCK_HEADER_ERROR" }],
 					stream: true,
 				}),
@@ -1256,7 +1257,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "aws-bedrock/claude-opus-4-6",
+					model: "aws-bedrock/claude-sonnet-4-5",
 					messages: [{ role: "user", content: "Reply with exactly: hi" }],
 					stream: true,
 				}),
@@ -2061,23 +2062,15 @@ describe("fallback and error status code handling", () => {
 		test("direct provider selection picks the best available region", async () => {
 			await setupKeys("alibaba");
 
-			await ensureRegionalMapping(
-				"deepseek-v4-flash-0731",
-				"alibaba",
-				"singapore",
-			);
-			await ensureRegionalMapping(
-				"deepseek-v4-flash-0731",
-				"alibaba",
-				"cn-beijing",
-			);
+			await ensureRegionalMapping("qwen3.8-27b", "alibaba", "singapore");
+			await ensureRegionalMapping("qwen3.8-27b", "alibaba", "cn-beijing");
 
-			await setRoutingMetrics("deepseek-v4-flash-0731", "alibaba", 100, {
+			await setRoutingMetrics("qwen3.8-27b", "alibaba", 100, {
 				region: "singapore",
 				routingLatency: 1200,
 				routingThroughput: 10,
 			});
-			await setRoutingMetrics("deepseek-v4-flash-0731", "alibaba", 100, {
+			await setRoutingMetrics("qwen3.8-27b", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 900,
 				routingThroughput: 20,
@@ -2090,7 +2083,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "alibaba/deepseek-v4-flash-0731",
+					model: "alibaba/qwen3.8-27b",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -2107,9 +2100,7 @@ describe("fallback and error status code handling", () => {
 					score.providerId === "alibaba" && score.region === "cn-beijing",
 			);
 
-			expect(logs[0].usedModel).toBe(
-				"alibaba/deepseek-v4-flash-0731:cn-beijing",
-			);
+			expect(logs[0].usedModel).toBe("alibaba/qwen3.8-27b:cn-beijing");
 			expect(logs[0].routingMetadata?.selectionReason).toBe(
 				"direct-provider-specified",
 			);
@@ -2120,7 +2111,7 @@ describe("fallback and error status code handling", () => {
 			expect(logs[0].routingMetadata?.routing).toEqual([
 				expect.objectContaining({
 					provider: "alibaba",
-					model: "deepseek-v4-flash-0731",
+					model: "qwen3.8-27b",
 					region: "cn-beijing",
 					status_code: 200,
 					succeeded: true,
@@ -2265,16 +2256,16 @@ describe("fallback and error status code handling", () => {
 		test("provider-agnostic routing keeps regional mappings aggregated", async () => {
 			await setupKeys("alibaba");
 
-			await setRoutingMetrics("deepseek-v4-flash-0731", "alibaba", 99, {
+			await setRoutingMetrics("qwen3.8-27b", "alibaba", 99, {
 				routingLatency: 950,
 				routingThroughput: 15,
 			});
-			await setRoutingMetrics("deepseek-v4-flash-0731", "alibaba", 100, {
+			await setRoutingMetrics("qwen3.8-27b", "alibaba", 100, {
 				region: "singapore",
 				routingLatency: 1200,
 				routingThroughput: 10,
 			});
-			await setRoutingMetrics("deepseek-v4-flash-0731", "alibaba", 100, {
+			await setRoutingMetrics("qwen3.8-27b", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 900,
 				routingThroughput: 20,
@@ -2287,7 +2278,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "deepseek-v4-flash-0731",
+					model: "qwen3.8-27b",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});

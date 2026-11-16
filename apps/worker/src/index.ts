@@ -75,7 +75,7 @@ if (isDirectExecution()) {
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
 	setQueryTags({ application: "worker" });
 
-	// DB pool occupancy for Prometheus, served only when METRICS_PORT is set.
+	// DB pool and log persist lag for Prometheus, served only when METRICS_PORT is set.
 	setMetricsServiceName("llmgateway-worker");
 	registerDbPoolMetrics(getPoolStats);
 	if (process.env.METRICS_PORT) {

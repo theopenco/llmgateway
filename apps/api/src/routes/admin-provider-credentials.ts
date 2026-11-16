@@ -26,6 +26,8 @@ import {
 	validateAllowedModels,
 } from "@/lib/provider-key-allowed-models.js";
 import {
+	modelRateLimitModelIds,
+	normalizeModelRateLimits,
 	pickProviderKeyRateLimits,
 	providerKeyRateLimitsInputShape,
 	providerKeyRateLimitsOutputShape,
@@ -86,10 +88,17 @@ import {
 	getProviderEnvExclusiveGroups,
 	getProviderEnvExclusiveViolations,
 	getProviderEnvKeys,
+	getRegionScopedDefaultRegion,
 	providers,
+	isRetiredProvider,
 } from "@llmgateway/models";
 import {
 	createEmptyProviderModelsByKind,
+	FAILING_CREDENTIAL_ERROR_RATE,
+	FAILING_CREDENTIAL_MIN_REQUESTS,
+	FAILING_CREDENTIAL_WINDOW_HOURS,
+	failingCredentialWindowStart,
+	getFailingCredentialRate,
 	getModelIdsByProvider,
 	getModelIdsByProviderAndKind,
 	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
@@ -288,6 +297,11 @@ const catalogEntrySchema = z.object({
 	regions: z.array(z.object({ id: z.string(), label: z.string() })),
 	/** Region used when a credential does not pin one. Null when not region-scoped. */
 	defaultRegion: z.string().nullable(),
+	/**
+	 * Whether a credential must pin a region: the provider has no global region,
+	 * so each key belongs to exactly one (Alibaba).
+	 */
+	regionRequired: z.boolean(),
 	configKeys: z.array(configKeySchema),
 	/**
 	 * Groups of settings where exactly one member must be supplied. The form
@@ -376,6 +390,11 @@ async function validateConfig(
 	provider: string,
 	config: Record<string, string>,
 ): Promise<void> {
+	if (isRetiredProvider(provider)) {
+		throw new HTTPException(400, {
+			message: `Provider ${provider} is retired. Configure a replacement provider.`,
+		});
+	}
 	// "custom" is a per-organization BYOK construct (each key defines its own
 	// upstream); there is no platform-wide custom deployment a managed
 	// credential could describe, and the catalog route excludes it for the same
@@ -448,10 +467,22 @@ async function validateConfig(
  * A credential's region selects which region's traffic it serves, so it only
  * means anything for a provider whose catalogue declares regions, and only for
  * a region that catalogue actually lists. Anything else would produce a
- * credential that silently never matches a request.
+ * credential that silently never matches a request. `required` (create and
+ * region edits) also rejects an unpinned credential for a provider with no
+ * global region.
  */
-function validateRegion(provider: string, region: string | null): void {
+function validateRegion(
+	provider: string,
+	region: string | null,
+	{ required = false }: { required?: boolean } = {},
+): void {
 	if (!region) {
+		const defaultRegion = getRegionScopedDefaultRegion(provider);
+		if (required && defaultRegion) {
+			throw new HTTPException(400, {
+				message: `${provider} has no global region, so each credential must pin the region its key belongs to (unpinned traffic runs in ${defaultRegion})`,
+			});
+		}
 		return;
 	}
 
@@ -755,7 +786,9 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 	);
 
 	const entries = providers
-		.filter((provider) => provider.id !== "custom")
+		.filter(
+			(provider) => provider.id !== "custom" && !isRetiredProvider(provider.id),
+		)
 		.map((provider) => {
 			const apiKeyEnvVar =
 				getProviderEnvKeys(provider.id).find((entry) => entry.key === "apiKey")
@@ -781,6 +814,7 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				apiKeyEnvConfigured: apiKeyEnvCounts.default > 0,
 				regions,
 				defaultRegion: regionConfig?.defaultRegion ?? null,
+				regionRequired: getRegionScopedDefaultRegion(provider.id) !== undefined,
 				apiKeyEnvCounts,
 				envCredentials,
 				configKeys: getManagedCredentialConfigKeys(provider.id),
@@ -822,6 +856,7 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				apiKeyEnvConfigured: false,
 				regions: [],
 				defaultRegion: null,
+				regionRequired: false,
 				apiKeyEnvCounts: countEnvCredentialsByVariant([]),
 				envCredentials: [],
 				configKeys: [],
@@ -923,6 +958,83 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 	});
 });
 
+const failingCredentialSchema = z.object({
+	id: z.string(),
+	provider: z.string(),
+	comment: z.string().nullable(),
+	maskedToken: z.string(),
+	/** Requests counted toward the rate: client errors excluded. */
+	requestCount: z.number(),
+	/** Gateway and upstream errors. */
+	errorsCount: z.number(),
+	/** Percent, 0–100. */
+	errorRate: z.number(),
+});
+
+const listFailingCredentials = createRoute({
+	method: "get",
+	path: "/provider-credentials/failing",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						windowHours: z.number(),
+						thresholdPercent: z.number(),
+						minRequests: z.number(),
+						credentials: z.array(failingCredentialSchema),
+					}),
+				},
+			},
+			description:
+				"Active managed credentials failing nearly every request in the recent window, worst first.",
+		},
+	},
+});
+
+adminProviderCredentials.openapi(listFailingCredentials, async (c) => {
+	const rows = await db.query.providerKey.findMany({
+		where: { managed: { eq: true }, status: { eq: "active" } },
+	});
+	const stats = await getRecentCredentialStats(
+		rows.map((row) => row.id),
+		failingCredentialWindowStart(),
+	);
+
+	const credentials = rows
+		.flatMap((row) => {
+			const recent = stats.get(row.id);
+			const failing =
+				recent &&
+				getFailingCredentialRate({
+					logsCount: recent.requestCount,
+					clientErrorsCount: recent.clientErrorCount,
+					gatewayErrorsCount: recent.gatewayErrorCount,
+					upstreamErrorsCount: recent.upstreamErrorCount,
+				});
+			if (!failing) {
+				return [];
+			}
+			return [
+				{
+					id: row.id,
+					provider: row.provider,
+					comment: row.comment,
+					maskedToken: maskToken(readProviderKey(row), 6, 4),
+					...failing,
+				},
+			];
+		})
+		.sort((a, b) => b.errorRate - a.errorRate || b.errorsCount - a.errorsCount);
+
+	return c.json({
+		windowHours: FAILING_CREDENTIAL_WINDOW_HOURS,
+		thresholdPercent: FAILING_CREDENTIAL_ERROR_RATE,
+		minRequests: FAILING_CREDENTIAL_MIN_REQUESTS,
+		credentials,
+	});
+});
+
 const NO_RECENT_STATS = {
 	requestCount: 0,
 	errorCount: 0,
@@ -959,7 +1071,10 @@ function hourlyErrorSplitFields() {
  * Buckets are hourly, so the window edge is coarse: the oldest bucket is
  * included whole. That matches the "24h" window the spend charts use.
  */
-async function getRecentCredentialStats(providerKeyIds: string[]) {
+async function getRecentCredentialStats(
+	providerKeyIds: string[],
+	since: Date = getTokenWindowStartDate("1d"),
+) {
 	const stats = new Map<string, z.infer<typeof credentialRecentStatsSchema>>();
 	if (providerKeyIds.length === 0) {
 		return stats;
@@ -982,10 +1097,7 @@ async function getRecentCredentialStats(providerKeyIds: string[]) {
 		.where(
 			and(
 				inArray(tables.providerKeyHourlyStats.providerKeyId, providerKeyIds),
-				gte(
-					tables.providerKeyHourlyStats.hourTimestamp,
-					getTokenWindowStartDate("1d"),
-				),
+				gte(tables.providerKeyHourlyStats.hourTimestamp, since),
 			),
 		)
 		.groupBy(tables.providerKeyHourlyStats.providerKeyId);
@@ -2053,10 +2165,15 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 	const region = body.region?.trim() || null;
 
 	await validateConfig(body.provider, config);
-	validateRegion(body.provider, region);
+	validateRegion(body.provider, region, { required: true });
 	await validateManagedAllowedModels(
 		body.provider,
 		allowedModels,
+		managedCredentialValidationOptions(body.provider, config, region),
+	);
+	await validateManagedAllowedModels(
+		body.provider,
+		modelRateLimitModelIds(normalizeModelRateLimits(body.modelRateLimits)),
 		managedCredentialValidationOptions(body.provider, config, region),
 	);
 
@@ -2195,6 +2312,11 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	if (!existing) {
 		throw new HTTPException(404, { message: "Credential not found" });
 	}
+	if (body.status === "active" && isRetiredProvider(existing.provider)) {
+		throw new HTTPException(400, {
+			message: "This provider is retired. Configure a replacement credential.",
+		});
+	}
 	const region =
 		body.region !== undefined ? body.region?.trim() || null : existing.region;
 
@@ -2233,7 +2355,7 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	}
 
 	if (body.region !== undefined) {
-		validateRegion(existing.provider, region);
+		validateRegion(existing.provider, region, { required: true });
 	}
 
 	if (body.allowedModels !== undefined) {
@@ -2271,6 +2393,18 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 				].filter((modelId) => !allowedModels.includes(modelId))
 			: [];
 		updates.modelSyncExcluded = excluded.length > 0 ? excluded : null;
+	}
+
+	if (updates.modelRateLimits !== undefined) {
+		await validateManagedAllowedModels(
+			existing.provider,
+			modelRateLimitModelIds(updates.modelRateLimits, existing.modelRateLimits),
+			managedCredentialValidationOptions(
+				existing.provider,
+				updates.config ?? existing.config ?? {},
+				region,
+			),
+		);
 	}
 
 	// A new token, a changed config and a changed region all alter what the

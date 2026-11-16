@@ -1,9 +1,6 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { expectResendOk, resendContactPath } from "@/lib/resend-contacts.js";
+import { signLinkToken, verifyLinkToken } from "@/lib/signed-token.js";
 
-import {
-	getApiKeyHashSecret,
-	getApiKeyHashSecrets,
-} from "@llmgateway/shared/api-key-hash";
 import {
 	POSTAL_ADDRESS,
 	escapeHtml,
@@ -11,7 +8,6 @@ import {
 } from "@llmgateway/shared/email-unsubscribe";
 import { resendFetch } from "@llmgateway/shared/resend-api";
 
-const TOKEN_VERSION = "v1";
 const TOKEN_DOMAIN = "newsletter-confirm";
 const TOKEN_TTL_DAYS = 7;
 const TOKEN_TTL_MS = TOKEN_TTL_DAYS * 86_400_000;
@@ -26,58 +22,26 @@ export interface NewsletterTarget {
 	segmentId: string | undefined;
 }
 
-function sign(payload: string, secret: string): string {
-	return createHmac("sha256", secret)
-		.update(`${TOKEN_DOMAIN}:${payload}`)
-		.digest("base64url");
-}
-
 export function signNewsletterToken(
 	email: string,
 	now: Date = new Date(),
 ): string {
-	const payload = Buffer.from(
-		JSON.stringify({
-			e: normalizeEmail(email),
-			x: now.getTime() + TOKEN_TTL_MS,
-		}),
-	).toString("base64url");
-	return `${TOKEN_VERSION}.${payload}.${sign(payload, getApiKeyHashSecret())}`;
+	return signLinkToken(
+		TOKEN_DOMAIN,
+		{ e: normalizeEmail(email) },
+		now.getTime() + TOKEN_TTL_MS,
+	);
 }
 
 /**
  * The address a confirmation link was issued for, or null when the token is
- * forged, malformed or expired. Checked against every keyring entry so
- * rotating the secret keeps links already in inboxes working.
+ * forged, malformed or expired.
  */
 export function verifyNewsletterToken(
 	token: string,
 	now: Date = new Date(),
 ): string | null {
-	const parts = token.split(".");
-	const [version, payload, signature] = parts;
-	if (
-		parts.length !== 3 ||
-		version !== TOKEN_VERSION ||
-		!payload ||
-		!signature
-	) {
-		return null;
-	}
-	const provided = Buffer.from(signature);
-	const matches = getApiKeyHashSecrets().some((secret) => {
-		const expected = Buffer.from(sign(payload, secret));
-		return (
-			provided.length === expected.length && timingSafeEqual(provided, expected)
-		);
-	});
-	if (!matches) {
-		return null;
-	}
-	const decoded = JSON.parse(
-		Buffer.from(payload, "base64url").toString("utf8"),
-	) as { e: string; x: number };
-	return decoded.x > now.getTime() ? decoded.e : null;
+	return verifyLinkToken<{ e: string }>(TOKEN_DOMAIN, token, now)?.e ?? null;
 }
 
 export function buildNewsletterConfirmUrl(token: string): string {
@@ -93,6 +57,9 @@ export function generateNewsletterConfirmEmailHtml(confirmUrl: string): string {
 	const href = escapeHtml(confirmUrl);
 	return `<!doctype html>
 <html lang="en">
+<head>
+<meta charset="UTF-8">
+</head>
 <body style="margin:0;padding:0;background-color:#f6f6f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f6f6f6;">
 <tr><td align="center" style="padding:32px 16px;">
@@ -113,20 +80,12 @@ LLM Gateway. ${escapeHtml(POSTAL_ADDRESS)}
 </html>`;
 }
 
-async function expectOk(response: Response): Promise<Response> {
-	if (!response.ok) {
-		const body = (await response.json()) as { message?: string };
-		throw new Error(body.message ?? `Resend API error: ${response.status}`);
-	}
-	return response;
-}
-
 async function isInSegment(
 	target: NewsletterTarget,
 	contactPath: string,
 	segmentId: string,
 ): Promise<boolean> {
-	const response = await expectOk(
+	const response = await expectResendOk(
 		await resendFetch({
 			apiKey: target.apiKey,
 			method: "GET",
@@ -147,7 +106,7 @@ async function resubscribe(
 	unsubscribed: boolean,
 ): Promise<void> {
 	if (unsubscribed) {
-		await expectOk(
+		await expectResendOk(
 			await resendFetch({
 				apiKey: target.apiKey,
 				method: "PATCH",
@@ -156,7 +115,7 @@ async function resubscribe(
 			}),
 		);
 	}
-	await expectOk(
+	await expectResendOk(
 		await resendFetch({
 			apiKey: target.apiKey,
 			method: "PATCH",
@@ -168,7 +127,7 @@ async function resubscribe(
 		target.segmentId &&
 		!(await isInSegment(target, contactPath, target.segmentId))
 	) {
-		await expectOk(
+		await expectResendOk(
 			await resendFetch({
 				apiKey: target.apiKey,
 				method: "POST",
@@ -183,7 +142,7 @@ export async function subscribeToNewsletter(
 	target: NewsletterTarget,
 	email: string,
 ): Promise<void> {
-	const contactPath = `/contacts/${encodeURIComponent(email)}`;
+	const contactPath = resendContactPath(email);
 	const lookup = await resendFetch({
 		apiKey: target.apiKey,
 		method: "GET",
@@ -195,7 +154,7 @@ export async function subscribeToNewsletter(
 		return;
 	}
 	if (lookup.status !== 404) {
-		await expectOk(lookup);
+		await expectResendOk(lookup);
 	}
 
 	const created = await resendFetch({
@@ -214,5 +173,5 @@ export async function subscribeToNewsletter(
 		await resubscribe(target, contactPath, true);
 		return;
 	}
-	await expectOk(created);
+	await expectResendOk(created);
 }

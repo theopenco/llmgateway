@@ -4,13 +4,13 @@ slug: "introducing-airside"
 date: "2026-09-05"
 updatedAt: "2026-11-05"
 title: "Introducing Airside: List Your Models on LLM Gateway"
-summary: "Airside is the self-serve carrier console where LLM providers claim their listing on LLM Gateway, register models, file prices for review, and tune the discount and margin that win routed traffic. Listing costs a one-time $2,500 fee per provider company, and every model is verified live before it goes on the departure board, with a per-request breakdown of what your endpoint served."
+summary: "Airside is the self-serve carrier console where LLM providers claim their listing on LLM Gateway, register models, file prices for review, and tune the discount and margin that win routed traffic. Listing costs a one-time $5,000 fee per provider company, and every model is verified live before it goes on the departure board, with a per-request breakdown of what your endpoint served."
 categories: ["Announcements"]
 faqs:
   - question: "How do I list my LLM provider on LLM Gateway?"
-    answer: "Sign up at airside.llmgateway.io with your company email. If its domain matches your API endpoint's domain or your published website, your existing catalogue entry is claimable; otherwise register a new carrier by pointing Airside at your API. Every claim is reviewed by the LLM Gateway team, and listing carries a one-time $2,500 fee per provider company unless you have an invite code. Preflight and live traffic use the same provider key; no separate test key is needed."
+    answer: "Sign up at airside.llmgateway.io with your company email. If its domain matches your API endpoint's domain or your published website, your existing catalogue entry is claimable; otherwise register a new carrier by pointing Airside at your API. Every claim is reviewed by the LLM Gateway team, and listing carries a one-time $5,000 fee per provider company unless you have an invite code. Preflight and live traffic use the same provider key; no separate test key is needed."
   - question: "What does it cost to list a model on LLM Gateway?"
-    answer: "A one-time $2,500 listing fee per provider company, paid through Stripe during onboarding. There is no subscription and no minimum volume. Once listed, you share the gateway margin you accept, called the landing fee, on the traffic you win, with a baseline of 20%."
+    answer: "A one-time $5,000 listing fee per provider company, paid through Stripe during onboarding. There is no subscription and no minimum volume. Once listed, you share the gateway margin you accept, called the landing fee, on the traffic you win, with a baseline of 20%."
   - question: "How does LLM Gateway decide which provider serves a request?"
     answer: "Every candidate provider is scored on expected token cost after its discount and landing fee (cache-read savings included), availability, throughput, and latency, and the lowest score wins. There is no paid placement. Offering a traffic discount or accepting a higher landing fee lowers your effective price in that election."
   - question: "What happens when a model fails verification?"
@@ -113,7 +113,7 @@ The [Airside resources hub](https://airside.llmgateway.io/resources) collects wh
 
 ## What it costs
 
-Listing on llmgateway.io carries a one-time **$2,500 listing fee** per provider company, paid through Stripe during onboarding and due before your claim is approved. Providers we already work with receive an invite code that waives it. There is no subscription and no minimum volume: once listed, you only share the landing fee you accept on the traffic you win. The full economics are on the [Airside pricing summary](https://airside.llmgateway.io/pricing.md).
+Listing on llmgateway.io carries a one-time **$5,000 listing fee** per provider company, paid through Stripe during onboarding and due before your claim is approved. Providers we already work with receive an invite code that waives it. There is no subscription and no minimum volume: once listed, you only share the landing fee you accept on the traffic you win. The full economics are on the [Airside pricing summary](https://airside.llmgateway.io/pricing.md).
 
 ## Why we built it this way
 

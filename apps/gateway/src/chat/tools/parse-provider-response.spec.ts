@@ -108,6 +108,66 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("minimax h3 image generation", () => {
+		it("keeps successful images and reads the image token split", () => {
+			const result = parseProviderResponse("minimax", "minimax-h3-image", {
+				created: 1794547450,
+				data: [
+					{
+						url: "https://video-product.cdn.minimax.io/h3_image/a.jpeg",
+						size: "1024x1024",
+						revised_prompt: "A red apple",
+					},
+					{
+						error: {
+							code: "1027",
+							message: "output image failed content safety check",
+						},
+					},
+				],
+				output_format: "jpeg",
+				usage: {
+					generated_images: 1,
+					total_tokens: 9101,
+					input_tokens: 5005,
+					output_tokens: 4096,
+					input_tokens_details: { text_tokens: 2955, image_tokens: 2050 },
+					output_tokens_details: { image_tokens: 4096 },
+				},
+			});
+
+			expect(result.images).toEqual([
+				{
+					type: "image_url",
+					image_url: {
+						url: "https://video-product.cdn.minimax.io/h3_image/a.jpeg",
+					},
+				},
+			]);
+			expect(result.finishReason).toBe("stop");
+			expect(result.promptTokens).toBe(5005);
+			expect(result.completionTokens).toBe(4096);
+			expect(result.imageInputTokens).toBe(2050);
+			expect(result.imageOutputTokens).toBe(4096);
+		});
+
+		it("maps a fully withheld result to content_filter", () => {
+			const result = parseProviderResponse("minimax", "minimax-h3-image", {
+				data: [
+					{
+						error: {
+							code: "1027",
+							message: "output image failed content safety check",
+						},
+					},
+				],
+			});
+
+			expect(result.images).toEqual([]);
+			expect(result.finishReason).toBe("content_filter");
+		});
+	});
+
 	describe("openai responses format reasoning", () => {
 		it("extracts Muse images and usage from Responses output", () => {
 			const result = parseProviderResponse("meta", "muse-image-1.0", {

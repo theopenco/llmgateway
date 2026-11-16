@@ -1,0 +1,32 @@
+---
+title: Status and Pricing Badges
+description: Embed live provider uptime and model prices in a README, docs site or status page.
+icon: BadgeCheck
+---
+
+Badges are small SVG images with live data from the gateway. They need no API key and no account.
+
+Build one on the [badges page](https://llmgateway.io/badges): pick a provider or model, then copy the Markdown, HTML or image URL. Every [provider status page](https://llmgateway.io/status) also carries the snippet for that provider.
+
+## Provider uptime
+
+Shows the share of requests a provider answered without a gateway or upstream error. Client errors are excluded, and only traffic on platform credentials is counted, so the number reflects the provider rather than its callers. It is the same measurement as the provider status pages.
+
+| Query parameter | Values                                 | Default |
+| --------------- | -------------------------------------- | ------- |
+| `window`        | `90d`, `24h`                           | `90d`   |
+| `style`         | `flat`, `flat-square`, `for-the-badge` | `flat`  |
+
+A provider with no measured traffic in the window shows `no data`.
+
+## Model price
+
+Shows the lowest input and output price per million tokens among the providers currently serving the model. It accepts the same `style` parameter.
+
+Models billed per image, second or request have no price badge, because a token price does not describe what they cost.
+
+## Caching
+
+Badges are cached for five minutes. Image proxies, such as the one GitHub puts in front of README images, can hold their own copy for longer.
+
+An unknown provider or model ID returns a grey `not found` badge with status `404`.

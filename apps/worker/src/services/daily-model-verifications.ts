@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 
 import {
 	DAILY_MODEL_VERIFICATION_PREFIX,
+	DAILY_KEY_CHECK_PREFIX,
 	createQueuedModelVerificationChecks,
 	mappingTarget,
 	buildVerificationTarget,
@@ -32,6 +33,25 @@ export function dailyModelVerificationId(mappingId: string, now: Date): string {
 		now.toISOString().slice(0, 10) +
 		":" +
 		createHash("sha256").update(mappingId).digest("hex")
+	);
+}
+
+/**
+ * Re-runs a managed daily failure on another managed key, so an alert can
+ * tell a broken key from a broken model. Never shown as the mapping's health.
+ */
+export function dailyKeyCheckId(
+	mappingId: string,
+	keyId: string,
+	day: Date,
+): string {
+	return (
+		DAILY_KEY_CHECK_PREFIX +
+		day.toISOString().slice(0, 10) +
+		":" +
+		createHash("sha256")
+			.update(mappingId + ":" + keyId)
+			.digest("hex")
 	);
 }
 
@@ -343,6 +363,14 @@ export async function managedVerificationProviderKey(
 	target: ProviderModelVerificationTarget,
 	client: Transaction | typeof db = db,
 ) {
+	return (await managedVerificationProviderKeys(target, client))[0] ?? null;
+}
+
+/** Every managed key that can serve the target, in routing order. */
+export async function managedVerificationProviderKeys(
+	target: ProviderModelVerificationTarget,
+	client: Transaction | typeof db = db,
+) {
 	const keys = await client.query.providerKey.findMany({
 		where: {
 			...(target.providerKeyId ? { id: { eq: target.providerKeyId } } : {}),
@@ -353,14 +381,12 @@ export async function managedVerificationProviderKey(
 		},
 		orderBy: { sortOrder: "asc", createdAt: "asc", id: "asc" },
 	});
-	return (
-		narrowManagedKeysToRegion(
-			keys.filter((key) =>
-				providerKeyAllowsModel(key.allowedModels, target.modelName),
-			),
-			target.providerId,
-			target.region ?? undefined,
-		)[0] ?? null
+	return narrowManagedKeysToRegion(
+		keys.filter((key) =>
+			providerKeyAllowsModel(key.allowedModels, target.modelName),
+		),
+		target.providerId,
+		target.region ?? undefined,
 	);
 }
 export function sameVerificationCredential(

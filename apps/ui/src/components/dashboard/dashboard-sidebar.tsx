@@ -302,6 +302,10 @@ const ORGANIZATION_SETTINGS = [
 		label: "Referrals",
 	},
 	{
+		href: "org/wrapped",
+		label: "Wrapped",
+	},
+	{
 		href: "org/limits",
 		label: "Limits",
 	},

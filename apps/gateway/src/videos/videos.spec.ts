@@ -361,6 +361,60 @@ describe("videos", () => {
 		});
 	});
 
+	test("/v1/videos routes AtlasCloud KLING v3.0 1080p requests to the Pro upstream model", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud",
+				"org-id",
+			),
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0",
+				prompt: "Animate this product shot with a slow camera push",
+				size: "1080x1920",
+				seconds: 5,
+				audio: false,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		expect(created.model).toBe("atlascloud/kling-v3-0");
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob?.usedModel).toBe("kwaivgi/kling-v3.0-pro/image-to-video");
+
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.requestBody).toMatchObject({
+			model: "kwaivgi/kling-v3.0-pro/image-to-video",
+			duration: 5,
+			aspect_ratio: "9:16",
+			sound: false,
+		});
+	});
+
 	test("/v1/videos routes AtlasCloud KLING v3.0 Pro frames to the Pro upstream model", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
@@ -2597,8 +2651,11 @@ describe("videos", () => {
 
 	describe("alibaba wan video", () => {
 		async function startAlibabaVideoMock() {
-			const requests: Array<{ url?: string; body: Record<string, unknown> }> =
-				[];
+			const requests: Array<{
+				url?: string;
+				authorization?: string;
+				body: Record<string, unknown>;
+			}> = [];
 			const server = createServer((req, res) => {
 				let body = "";
 				req.on("data", (chunk) => {
@@ -2610,7 +2667,22 @@ describe("videos", () => {
 						req.method === "POST" &&
 						req.url === "/api/v1/services/aigc/video-generation/video-synthesis"
 					) {
-						requests.push({ url: req.url, body: JSON.parse(body) });
+						requests.push({
+							url: req.url,
+							authorization: req.headers.authorization,
+							body: JSON.parse(body),
+						});
+						if (req.headers.authorization?.includes("revoked")) {
+							res.statusCode = 401;
+							res.end(
+								JSON.stringify({
+									code: "InvalidApiKey",
+									message: "Invalid API-key provided.",
+									request_id: "mock-request",
+								}),
+							);
+							return;
+						}
 						res.end(
 							JSON.stringify({
 								output: {
@@ -2651,6 +2723,7 @@ describe("videos", () => {
 			});
 
 			return {
+				url,
 				requests,
 				close: async () =>
 					await new Promise<void>((resolve) => {
@@ -2777,6 +2850,140 @@ describe("videos", () => {
 					reference_images: Array.from({ length: 11 }, () => image),
 				});
 				expect(eleven.status).toBe(400);
+				expect(mock.requests).toHaveLength(1);
+			} finally {
+				await mock.close();
+			}
+		});
+
+		test("retries a revoked managed credential on the next key", async () => {
+			const mock = await startAlibabaVideoMock();
+			try {
+				await harness.setProjectMode("credits");
+				await cdb.insert(tables.providerKey).values([
+					{
+						id: "managed-alibaba-revoked",
+						provider: "alibaba",
+						...encryptProviderKeyForStorage(
+							"alibaba-revoked-token",
+							"managed-alibaba-revoked",
+							null,
+						),
+						managed: true,
+						organizationId: null,
+						region: "singapore",
+						sortOrder: 0,
+						config: { baseUrl: mock.url },
+					},
+					{
+						id: "managed-alibaba-live",
+						provider: "alibaba",
+						...encryptProviderKeyForStorage(
+							"alibaba-live-token",
+							"managed-alibaba-live",
+							null,
+						),
+						managed: true,
+						organizationId: null,
+						region: "singapore",
+						sortOrder: 1,
+						config: { baseUrl: mock.url },
+					},
+				]);
+
+				const res = await createVideo({
+					model: "alibaba/wan-3-0-video",
+					size: "1280x720",
+					seconds: 2,
+				});
+				expect(res.status, await res.clone().text()).toBe(200);
+				expect(
+					mock.requests.map((request) =>
+						request.authorization?.includes("revoked"),
+					),
+				).toEqual([true, false]);
+
+				const json = await res.json();
+				const videoJob = await db.query.videoJob.findFirst({
+					where: { id: { eq: json.id } },
+				});
+				expect(videoJob?.managedProviderKeyId).toBe("managed-alibaba-live");
+				expect(
+					videoJob?.routingMetadata?.routing?.map((attempt) => [
+						attempt.status_code,
+						attempt.succeeded,
+					]),
+				).toEqual([
+					[401, false],
+					[200, true],
+				]);
+			} finally {
+				await mock.close();
+			}
+		});
+
+		test("retries a revoked BYOK key on the organization's next key", async () => {
+			const mock = await startAlibabaVideoMock();
+			try {
+				await db
+					.update(tables.providerKey)
+					.set({ createdAt: new Date("2026-01-02T00:00:00Z") })
+					.where(eq(tables.providerKey.id, "provider-key-alibaba-video"));
+				await db.insert(tables.providerKey).values({
+					id: "provider-key-alibaba-revoked",
+					createdAt: new Date("2026-01-01T00:00:00Z"),
+					...encryptProviderKeyForStorage(
+						"alibaba-revoked-token",
+						"provider-key-alibaba-revoked",
+						"org-id",
+					),
+					provider: "alibaba",
+					organizationId: "org-id",
+					baseUrl: mock.url,
+				});
+
+				const res = await createVideo({
+					model: "alibaba/wan-3-0-video",
+					size: "1280x720",
+					seconds: 2,
+				});
+				expect(res.status, await res.clone().text()).toBe(200);
+				expect(
+					mock.requests.map((request) =>
+						request.authorization?.includes("revoked"),
+					),
+				).toEqual([true, false]);
+
+				const json = await res.json();
+				const videoJob = await db.query.videoJob.findFirst({
+					where: { id: { eq: json.id } },
+				});
+				expect(videoJob?.providerKeyId).toBe("provider-key-alibaba-video");
+			} finally {
+				await mock.close();
+			}
+		});
+
+		test("returns the auth error once every key has been tried", async () => {
+			const mock = await startAlibabaVideoMock();
+			try {
+				await db
+					.update(tables.providerKey)
+					.set({
+						...encryptProviderKeyForStorage(
+							"alibaba-revoked-token",
+							"provider-key-alibaba-video",
+							"org-id",
+						),
+					})
+					.where(eq(tables.providerKey.id, "provider-key-alibaba-video"));
+
+				const res = await createVideo({
+					model: "alibaba/wan-3-0-video",
+					size: "1280x720",
+					seconds: 2,
+				});
+				expect(res.status).toBe(401);
 				expect(mock.requests).toHaveLength(1);
 			} finally {
 				await mock.close();
@@ -3429,6 +3636,58 @@ describe("videos", () => {
 			mimeType: "image/png",
 		});
 		expect(mockVideo?.ratio).toBe("16:9");
+	});
+
+	test("/v1/videos sends ratio adaptive to Seedance 2.5 with a first frame", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			...encryptProviderKeyForStorage(
+				"sk-bytedance-key",
+				"provider-key-id",
+				"org-id",
+			),
+			provider: "bytedance",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "seedance-2-5",
+				prompt: "Animate the first frame",
+				size: "1280x720",
+				seconds: 5,
+				image: {
+					image_url: "data:image/png;base64,aGVsbG8=",
+				},
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.firstFrame).toEqual({
+			bytesBase64Encoded: "aGVsbG8=",
+			mimeType: "image/png",
+		});
+		expect(mockVideo?.ratio).toBe("adaptive");
 	});
 
 	test("/v1/videos forwards portrait size as ratio 9:16 to bytedance", async () => {
