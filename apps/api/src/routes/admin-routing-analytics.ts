@@ -653,6 +653,7 @@ async function buildMappingInfos(model: {
 	const activeCarrierIds = new Set(
 		activeCarriers.map((carrier) => carrier.providerId),
 	);
+	const defaultPriorities = getDefaultRoutingConfig().providerPriorities;
 	return await Promise.all(
 		mappings.map(async (mapping) => {
 			const providerDef = getProviderDefinition(mapping.providerId);
@@ -661,7 +662,7 @@ async function buildMappingInfos(model: {
 					? (model.stability as string | undefined)
 					: undefined;
 			const stability = mapping.stability ?? modelStability ?? "stable";
-			const priority = providerDef?.priority ?? 1;
+			const priority = defaultPriorities[mapping.providerId] ?? 1;
 			const excludedReasons: string[] = [];
 			if (mapping.status && mapping.status !== "active") {
 				excludedReasons.push("listing inactive");

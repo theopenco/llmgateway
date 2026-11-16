@@ -1,10 +1,12 @@
 import {
 	afterAll,
+	afterEach,
 	beforeAll,
 	beforeEach,
 	describe,
 	expect,
 	test,
+	vi,
 } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
@@ -14,6 +16,7 @@ import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
+import { overrideProviderPriorities } from "./test-utils/routing-priority.js";
 import { requestLogs, waitForLogs } from "./test-utils/test-helpers.js";
 
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
@@ -25,6 +28,14 @@ import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 // suite in chat/tools/evaluate-dynamic-route.spec.ts.
 describe("dynamic routes request path", () => {
 	const harness = createGatewayApiTestHarness();
+	// gpt-5.5 / gpt-6-luna tie on price between openai and azure; make azure
+	// the natural winner so routing assertions are deterministic.
+	beforeEach(() => {
+		overrideProviderPriorities({ azure: 2 });
+	});
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
 	let mockServerUrl = "";
 
 	// The classifier credential is a platform credential, so an LLM_* value left

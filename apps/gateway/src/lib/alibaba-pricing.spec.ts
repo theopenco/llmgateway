@@ -35,6 +35,9 @@ const PUBLISHED_OFF_RATIO_CACHE_PRICES: Record<
 		cacheReadInputPrice: 0.016e-6,
 		cacheWriteInputPrice: 0.2e-6,
 	},
+	// $1.5/M input, but $0.075/M for both implicit and explicit hits (0.05x).
+	// Explicit cache creation still follows the usual 1.25x.
+	"qwen4-max": { cachedInputPrice: 0.075e-6, cacheReadInputPrice: 0.075e-6 },
 };
 
 // Regional deployments priced off-ratio, keyed `<externalId>:<region>`. The
@@ -48,6 +51,11 @@ const QWEN38_FLASH_GLOBAL = {
 	cacheReadInputPrice: 0.014e-6,
 	cacheWriteInputPrice: 0.177e-6,
 };
+const QWEN4_MAX_GLOBAL = {
+	cachedInputPrice: 0.071e-6,
+	cacheReadInputPrice: 0.071e-6,
+	cacheWriteInputPrice: 1.767e-6,
+};
 const PUBLISHED_OFF_RATIO_REGIONAL_CACHE_PRICES: Record<
 	string,
 	(typeof PUBLISHED_OFF_RATIO_CACHE_PRICES)[string]
@@ -58,6 +66,10 @@ const PUBLISHED_OFF_RATIO_REGIONAL_CACHE_PRICES: Record<
 	"qwen3.8-2.4t-a95b:cn-beijing": QWEN38_MAX_GLOBAL,
 	"qwen3.8-flash:cn-beijing": QWEN38_FLASH_GLOBAL,
 	"qwen3.8-flash:ap-tokyo": QWEN38_FLASH_GLOBAL,
+	"qwen4-max:eu-frankfurt": QWEN4_MAX_GLOBAL,
+	"qwen4-max:us-virginia": QWEN4_MAX_GLOBAL,
+	"qwen4-max:cn-beijing": QWEN4_MAX_GLOBAL,
+	"qwen4-max:ap-tokyo": QWEN4_MAX_GLOBAL,
 };
 
 function expectedRegionalCacheRate(
