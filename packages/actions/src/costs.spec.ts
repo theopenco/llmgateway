@@ -865,6 +865,54 @@ describe("calculateCosts", () => {
 		);
 	});
 
+	it("bills web search at full price when the discount excludes it", async () => {
+		const run = () =>
+			calculateCosts(
+				"gemini-2.5-pro",
+				"google-vertex",
+				null,
+				1000,
+				700,
+				200,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				2, // webSearchCount
+			);
+		const base = await run();
+		vi.mocked(mockGetEffectiveDiscount).mockResolvedValueOnce({
+			discount: "0.5",
+			source: "global_provider",
+			discountId: "disc-google",
+			excludedCostTypes: ["web_search"],
+		});
+		const excluded = await run();
+		vi.mocked(mockGetEffectiveDiscount).mockResolvedValueOnce({
+			discount: "0.5",
+			source: "global_provider",
+			discountId: "disc-google",
+			excludedCostTypes: [],
+		});
+		const included = await run();
+
+		expect(base.webSearchCost).toBeGreaterThan(0);
+		expect(base.cachedInputCost).toBeGreaterThan(0);
+		expect(excluded.webSearchCost).toBeCloseTo(base.webSearchCost!);
+		expect(included.webSearchCost).toBeCloseTo(base.webSearchCost! / 2);
+		for (const result of [excluded, included]) {
+			expect(result.discount).toBeCloseTo(0.5);
+			expect(result.inputCost).toBeCloseTo(base.inputCost! / 2);
+			expect(result.outputCost).toBeCloseTo(base.outputCost! / 2);
+			expect(result.cachedInputCost).toBeCloseTo(base.cachedInputCost! / 2);
+		}
+		const discountedNonSearch = (base.totalCost! - base.webSearchCost!) / 2;
+		expect(excluded.totalCost).toBeCloseTo(
+			discountedNonSearch + base.webSearchCost!,
+		);
+	});
+
 	it("should not include discount field when no discount applied", async () => {
 		const result = await calculateCosts("gpt-4", "azure", null, 100, 50, null);
 

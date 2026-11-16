@@ -117,6 +117,7 @@ NEVER put internal or private information into anything published to this public
 
 ### Git and pull requests
 
+- Before starting any task, including read-only analysis, run `git fetch origin` and work from `origin/main` (or the PR branch): a stale checkout gives a wrong model catalogue, schema, and code. Branch new work off `origin/main`; read current state with `git show origin/main:<path>` when the checkout is shared and behind.
 - Use conventional commit format for commits and PR titles. Count the PR title before creating or editing it: at most 50 characters, `type(scope): ` included.
 - Do not `--amend` commits after pushing. Force-push only feature branches, never main.
 - When checking out an existing PR or remote branch, set its upstream (`gh pr checkout <n>`, or `git checkout -B <branch> FETCH_HEAD && git branch --set-upstream-to=origin/<branch>`).

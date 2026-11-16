@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { inArray } from "drizzle-orm";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { resolveEffectiveDiscount } from "./discount-helpers.js";
+import { db } from "./db.js";
+import {
+	getEffectiveDiscount,
+	resolveEffectiveDiscount,
+} from "./discount-helpers.js";
+import { discount as discountTable } from "./schema.js";
 
 type Discount = Parameters<typeof resolveEffectiveDiscount>[0][number];
 
@@ -17,6 +23,7 @@ const discount: Discount = {
 	provider: null,
 	model: null,
 	discountPercent: "0.1",
+	excludedCostTypes: [],
 	expiresAt: null,
 };
 
@@ -111,5 +118,103 @@ describe("Airside discounts", () => {
 				"canonical",
 			).discount,
 		).toBe("0");
+	});
+});
+
+describe("excluded cost types", () => {
+	it("returns the matched row's exclusions", () => {
+		expect(
+			resolveEffectiveDiscount(
+				[
+					{ ...discount, id: "other-org", organizationId: "other" },
+					{
+						...discount,
+						id: "provider",
+						provider: "carrier",
+						excludedCostTypes: ["web_search"],
+					},
+				],
+				[],
+				"org",
+				"carrier",
+				"canonical",
+			),
+		).toMatchObject({
+			discountId: "provider",
+			excludedCostTypes: ["web_search"],
+		});
+	});
+
+	it("takes exclusions from the winning row, not a broader one", () => {
+		expect(
+			resolveEffectiveDiscount(
+				[
+					{
+						...discount,
+						id: "global",
+						provider: "carrier",
+						excludedCostTypes: ["web_search"],
+					},
+					{
+						...discount,
+						id: "org",
+						organizationId: "org",
+						provider: "carrier",
+					},
+				],
+				[],
+				"org",
+				"carrier",
+				"canonical",
+			),
+		).toMatchObject({ discountId: "org", excludedCostTypes: [] });
+	});
+
+	it("excludes nothing for Airside and missing discounts", () => {
+		expect(
+			resolveEffectiveDiscount([], [carrier], null, "carrier", "canonical")
+				.excludedCostTypes ?? [],
+		).toEqual([]);
+		expect(
+			resolveEffectiveDiscount([], [], null, "carrier", "canonical")
+				.excludedCostTypes ?? [],
+		).toEqual([]);
+	});
+
+	describe("getEffectiveDiscount", () => {
+		const ids = ["discount-excl-spec-a", "discount-excl-spec-b"];
+
+		afterEach(async () => {
+			await db.delete(discountTable).where(inArray(discountTable.id, ids));
+		});
+
+		it("loads exclusions from the database, defaulting to none", async () => {
+			await db.insert(discountTable).values([
+				{
+					id: ids[0],
+					provider: "google-vertex",
+					model: "gemini-2.5-pro",
+					discountPercent: "0.5",
+					excludedCostTypes: ["web_search"],
+				},
+				{
+					id: ids[1],
+					provider: "google-vertex",
+					model: "gemini-2.5-flash",
+					discountPercent: "0.5",
+				},
+			]);
+
+			expect(
+				await getEffectiveDiscount(null, "google-vertex", "gemini-2.5-pro"),
+			).toMatchObject({
+				discount: "0.5",
+				source: "global_provider_model",
+				excludedCostTypes: ["web_search"],
+			});
+			expect(
+				await getEffectiveDiscount(null, "google-vertex", "gemini-2.5-flash"),
+			).toMatchObject({ discount: "0.5", excludedCostTypes: [] });
+		});
 	});
 });

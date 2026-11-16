@@ -159,6 +159,8 @@ export interface ApiModelProviderMapping {
 	} | null;
 	serviceTiers?: string[] | null;
 	discount: string | null;
+	/** Cost types the discount leaves at full price, e.g. "web_search". */
+	discountExcludedCostTypes?: string[];
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	supportedParameters: string[] | null;
 	deprecatedAt: string | null;

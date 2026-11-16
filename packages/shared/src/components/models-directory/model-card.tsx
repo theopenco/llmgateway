@@ -1755,7 +1755,12 @@ export function ProviderSection({
 							parseFloat(activeMapping.webSearchPrice) > 0 &&
 							(() => {
 								const original = parseFloat(activeMapping.webSearchPrice);
-								const discountNum = discountFraction(activeMapping.discount);
+								const discountNum =
+									activeMapping.discountExcludedCostTypes?.includes(
+										"web_search",
+									)
+										? 0
+										: discountFraction(activeMapping.discount);
 								return (
 									<span>
 										+{" "}
