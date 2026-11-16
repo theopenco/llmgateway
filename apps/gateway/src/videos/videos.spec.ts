@@ -3259,7 +3259,7 @@ describe("videos", () => {
 		});
 	});
 
-	test("/v1/videos supports completed google-vertex jobs", async () => {
+	test("/v1/videos writes credits google-vertex jobs to the storage project bucket", async () => {
 		const originalGoogleCloudProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 		const originalRuntimeGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
 		const originalGoogleVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
@@ -3281,17 +3281,22 @@ describe("videos", () => {
 				description: "Test API Key",
 				createdBy: "user-id",
 			});
-
-			await db.insert(tables.providerKey).values({
-				id: "provider-key-id",
+			await harness.setProjectMode("credits");
+			await cdb.insert(tables.providerKey).values({
+				id: "managed-vertex-video",
+				provider: "google-vertex",
 				...encryptProviderKeyForStorage(
 					"vertex-test-token",
-					"provider-key-id",
-					"org-id",
+					"managed-vertex-video",
+					null,
 				),
-				provider: "google-vertex",
-				organizationId: "org-id",
-				baseUrl: mockServerUrl,
+				managed: true,
+				organizationId: null,
+				config: {
+					baseUrl: mockServerUrl,
+					project: "runtime-project",
+					region: "us-central1",
+				},
 			});
 
 			const createRes = await app.request("/v1/videos", {
@@ -3318,7 +3323,11 @@ describe("videos", () => {
 			expect(videoJob).toBeTruthy();
 			expect(videoJob?.usedProvider).toBe("google-vertex");
 			expect(videoJob?.usedModel).toBe("veo-3.1-generate-001");
+			expect(videoJob?.usedMode).toBe("credits");
 			expect(videoJob?.upstreamId).toContain("projects/runtime-project/");
+			expect(getMockVideo(videoJob!.upstreamId)?.storageUri).toMatch(
+				/^gs:\/\/vertex-test-bucket\//,
+			);
 			expect(
 				(
 					videoJob?.upstreamStatusResponse as {
@@ -3329,6 +3338,10 @@ describe("videos", () => {
 
 			setMockVideoStatus(videoJob!.upstreamId, "completed");
 			await processPendingVideoJobs();
+			const completedJob = await db.query.videoJob.findFirst({
+				where: { id: { eq: created.id } },
+			});
+			expect(completedJob?.storageBucket).toBe("vertex-test-bucket");
 
 			const getRes = await app.request(`/v1/videos/${created.id}`, {
 				headers: {
@@ -3388,6 +3401,7 @@ describe("videos", () => {
 			expect(logs[0].videoOutputCost).toBe(4.8);
 			expect(logs[0].cost).toBe(4.8);
 		} finally {
+			await harness.setProjectMode("api-keys");
 			if (originalGoogleCloudProject !== undefined) {
 				process.env.LLM_GOOGLE_CLOUD_PROJECT = originalGoogleCloudProject;
 			} else {
@@ -3448,6 +3462,7 @@ describe("videos", () => {
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
+				options: { google_vertex_project_id: "provider-project" },
 			});
 
 			const createRes = await app.request("/v1/videos", {
@@ -3495,6 +3510,131 @@ describe("videos", () => {
 			} else {
 				delete process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET;
 			}
+		}
+	});
+
+	test("/v1/videos runs BYOK google-vertex jobs in the key's project with inline output", async () => {
+		vi.stubEnv("LLM_GOOGLE_CLOUD_PROJECT", "runtime-project");
+		vi.stubEnv("GOOGLE_CLOUD_PROJECT", "runtime-project");
+		vi.stubEnv("LLM_GOOGLE_VERTEX_REGION", "us-central1");
+		vi.stubEnv("LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET", "vertex-test-bucket");
+
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				...hashApiKeyForStorage("real-token"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
+				provider: "google-vertex",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+				options: { google_vertex_project_id: "customer-project" },
+			});
+
+			const createRes = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "google-vertex/veo-3.1-generate-preview",
+					prompt: "A customer-owned Veo render of a harbor at dusk",
+					size: "1920x1080",
+					seconds: 8,
+				}),
+			});
+			expect(createRes.status).toBe(200);
+			const created = await createRes.json();
+
+			const videoJob = await db.query.videoJob.findFirst({
+				where: { id: { eq: created.id } },
+			});
+			expect(videoJob?.usedMode).toBe("api-keys");
+			expect(videoJob?.upstreamId).toContain("projects/customer-project/");
+			expect(videoJob?.storageUri).toBeNull();
+			expect(getMockVideo(videoJob!.upstreamId)?.storageUri).toBeUndefined();
+			expect(
+				(
+					videoJob?.upstreamStatusResponse as {
+						google_vertex_project_id?: string;
+					} | null
+				)?.google_vertex_project_id,
+			).toBe("customer-project");
+
+			setMockVideoStatus(videoJob!.upstreamId, "completed");
+			await processPendingVideoJobs();
+
+			const completedJob = await db.query.videoJob.findFirst({
+				where: { id: { eq: created.id } },
+			});
+			expect(completedJob?.status).toBe("completed");
+			expect(completedJob?.storageUri).toBeNull();
+
+			const contentRes = await app.request(`/v1/videos/${created.id}/content`, {
+				headers: { Authorization: "Bearer real-token" },
+			});
+			expect(contentRes.status).toBe(200);
+			expect(await contentRes.text()).toBe(
+				`mock-video-${videoJob!.upstreamId}`,
+			);
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
+	test("/v1/videos rejects a projectless BYOK google-vertex key even with an output bucket", async () => {
+		vi.stubEnv("LLM_GOOGLE_CLOUD_PROJECT", "runtime-project");
+		vi.stubEnv("GOOGLE_CLOUD_PROJECT", "runtime-project");
+		vi.stubEnv("LLM_GOOGLE_VERTEX_REGION", "us-central1");
+		vi.stubEnv("LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET", "vertex-test-bucket");
+
+		try {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				...hashApiKeyForStorage("real-token"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
+				provider: "google-vertex",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const createRes = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "google-vertex/veo-3.1-generate-preview",
+					prompt: "A projectless key must not borrow the platform project",
+					size: "1920x1080",
+					seconds: 8,
+				}),
+			});
+			expect(createRes.status).toBe(400);
+			expect(getMockVideos()).toHaveLength(0);
+		} finally {
+			vi.unstubAllEnvs();
 		}
 	});
 
@@ -4341,7 +4481,7 @@ describe("videos", () => {
 
 			expect(createRes.status).toBe(400);
 			expect(await createRes.text()).toContain(
-				"GCS output storage or data retention",
+				"requires data retention to be enabled",
 			);
 		} finally {
 			if (originalGoogleCloudProject !== undefined) {
@@ -4360,6 +4500,60 @@ describe("videos", () => {
 			} else {
 				delete process.env.LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET;
 			}
+		}
+	});
+
+	test("/v1/videos rejects BYOK google-vertex video when retention is off despite an output bucket", async () => {
+		vi.stubEnv("LLM_GOOGLE_CLOUD_PROJECT", "runtime-project");
+		vi.stubEnv("GOOGLE_CLOUD_PROJECT", "runtime-project");
+		vi.stubEnv("LLM_GOOGLE_VERTEX_REGION", "us-central1");
+		vi.stubEnv("LLM_GOOGLE_VERTEX_VIDEO_OUTPUT_BUCKET", "vertex-test-bucket");
+
+		try {
+			await db
+				.update(tables.organization)
+				.set({ retentionLevel: "none" })
+				.where(eq(tables.organization.id, "org-id"));
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				...hashApiKeyForStorage("real-token"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id",
+					"org-id",
+				),
+				provider: "google-vertex",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+				options: { google_vertex_project_id: "customer-project" },
+			});
+
+			const createRes = await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "google-vertex/veo-3.1-generate-preview",
+					prompt: "A cinematic waterfall in the mountains",
+					size: "1920x1080",
+					seconds: 8,
+				}),
+			});
+
+			expect(createRes.status).toBe(400);
+			expect(await createRes.text()).toContain(
+				"with your own provider key returns the video inline",
+			);
+		} finally {
+			vi.unstubAllEnvs();
 		}
 	});
 
