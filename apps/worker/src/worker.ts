@@ -98,6 +98,7 @@ import {
 import { checkModelErrorRateAlerts } from "./services/model-error-rate-alerts.js";
 import { deliverModelVerificationRegressions } from "./services/model-verification-regressions.js";
 import { processNextModelVerification } from "./services/model-verifications.js";
+import { runNewModelsDigestLoop } from "./services/new-models-digest.js";
 import { processNotifications } from "./services/notifications.js";
 import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
@@ -3920,6 +3921,18 @@ export async function startWorker() {
 	void runDataStreamsLoop();
 	void runProviderKeyModelSyncLoop();
 	void runFollowUpEmailsLoop({
+		shouldStop: isStopRequested,
+		acquireLock,
+		releaseLock,
+		interruptibleSleep,
+		registerLoop: () => {
+			activeLoops++;
+		},
+		unregisterLoop: () => {
+			activeLoops--;
+		},
+	});
+	void runNewModelsDigestLoop({
 		shouldStop: isStopRequested,
 		acquireLock,
 		releaseLock,

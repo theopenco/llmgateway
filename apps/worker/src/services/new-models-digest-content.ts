@@ -3,7 +3,8 @@ import { Decimal } from "decimal.js";
 import { escapeHtml } from "@llmgateway/shared/email-unsubscribe";
 
 const SITE = "https://llmgateway.io";
-const TRACKING = "utm_source=newsletter&utm_medium=email&utm_campaign=new-models";
+const TRACKING =
+	"utm_source=newsletter&utm_medium=email&utm_campaign=new-models";
 const FROM = "LLM Gateway <contact@mail.llmgateway.io>";
 const REPLY_TO = "contact@llmgateway.io";
 const DAY_MS = 86_400_000;
@@ -73,6 +74,8 @@ export interface DigestChangelogEntry {
 }
 
 export interface Digest {
+	/** Names the broadcast in Resend. Never shown to readers. */
+	name: string;
 	subject: string;
 	previewText: string;
 	html: string;
@@ -108,39 +111,18 @@ export function digestWindow(until: Date, days: number): DigestWindow {
 		until.getUTCMonth(),
 		until.getUTCDate(),
 	);
-	return { start: new Date(end - days * DAY_MS), end: new Date(end) };
+	const span = days * DAY_MS;
+	return { start: new Date(end - span), end: new Date(end) };
 }
 
 function isoDay(date: Date): string {
 	return date.toISOString().slice(0, 10);
 }
 
-/** The first and last day an issue covers, for the run summary. */
+/** The first and last day an issue covers. */
 export function describeWindow(until: Date, days: number): string {
 	const { start, end } = digestWindow(until, days);
-	return `${isoDay(start)} to ${isoDay(new Date(end.getTime() - DAY_MS))} (UTC)`;
-}
-
-/**
- * Reads `--until`: today when absent, otherwise a calendar day that exists and
- * is not in the future.
- */
-export function parseUntil(value: string | undefined, now: Date): Date {
-	if (value === undefined) {
-		return now;
-	}
-	const until = new Date(`${value}T00:00:00Z`);
-	if (
-		!/^\d{4}-\d{2}-\d{2}$/.test(value) ||
-		Number.isNaN(until.getTime()) ||
-		isoDay(until) !== value
-	) {
-		throw new Error("--until must be a real date like 2026-11-16");
-	}
-	if (until > now) {
-		throw new Error("--until cannot be in the future");
-	}
-	return until;
+	return `${isoDay(start)} to ${isoDay(new Date(end.getTime() - DAY_MS))}`;
 }
 
 function inWindow(time: number, window: DigestWindow): boolean {
@@ -211,7 +193,8 @@ export function fromCatalogue(
 				providers: model.mappings
 					.filter(
 						(mapping) =>
-							mapping.status !== "inactive" && !unlisted.has(mapping.providerId),
+							mapping.status !== "inactive" &&
+							!unlisted.has(mapping.providerId),
 					)
 					.map((mapping) => ({
 						providerId: mapping.providerId,
@@ -254,7 +237,8 @@ export function selectNewModels(
 		}
 		const active = model.providers.filter(
 			(mapping) =>
-				!mapping.deactivatedAt || mapping.deactivatedAt.getTime() > now.getTime(),
+				!mapping.deactivatedAt ||
+				mapping.deactivatedAt.getTime() > now.getTime(),
 		);
 		if (active.length === 0) {
 			continue;
@@ -480,6 +464,7 @@ export function buildDigest(input: DigestInput): Digest | null {
 	const changelog = selectChangelog(input.changelog, until, input.days);
 	const intro = buildIntro(models.length, input.days);
 	return {
+		name: `New models: ${describeWindow(until, input.days)}`,
 		subject: buildSubject(models),
 		previewText: models.map((model) => model.name).join(", "),
 		html: renderHtml(intro, models, changelog, input.postalAddress),
@@ -503,7 +488,8 @@ export function buildBroadcastDraft(
 		topic_id: target.topicId,
 		from: FROM,
 		reply_to: REPLY_TO,
-		name: digest.subject,
+		// Resend rejects a name over 70 characters; a subject has no such limit.
+		name: digest.name,
 		subject: digest.subject,
 		preview_text: digest.previewText,
 		html: digest.html,

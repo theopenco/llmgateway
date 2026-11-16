@@ -8157,6 +8157,15 @@ export const modelPriceState = snakeCase.table("model_price_state", {
 		.$onUpdate(() => new Date()),
 });
 
+// One row per newsletter issue the worker handled, so each is drafted once.
+export const newsletterIssue = snakeCase.table("newsletter_issue", {
+	// The issue kind and the first day it does not cover: new-models:2026-11-16.
+	id: text().primaryKey(),
+	createdAt: timestamp().notNull().defaultNow(),
+	// The Resend broadcast draft; null when the period had nothing to announce.
+	broadcastId: text(),
+});
+
 export const loungeConnection = snakeCase.table(
 	"lounge_connection",
 	{
