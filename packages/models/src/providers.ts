@@ -1923,33 +1923,6 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "ranoai",
-		name: "RanoAI",
-		forwardsSafetyIdentifier: false,
-		description:
-			"RanoAI serves open-weight large language models on Furiosa RNGD NPU hardware via an OpenAI-compatible inference API.",
-		env: {
-			required: {
-				apiKey: "LLM_RANOAI_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#000000",
-		website: "https://ranoai.com",
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: "https://ranoai.com/terms",
-		privacyPolicyUrl: "https://ranoai.com/privacy",
-		usagePolicyUrl: "https://ranoai.com/terms",
-		legalEntity: "Always With You, LLC",
-		headquarters: "US",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-		},
-	},
-	{
 		id: "tencent",
 		name: "Tencent Cloud",
 		forwardsSafetyIdentifier: false,
