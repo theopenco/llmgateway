@@ -1,6 +1,5 @@
 "use client";
 
-import { format } from "date-fns";
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 
 import {
@@ -69,8 +68,16 @@ export function ClassifierRateChart({
 	const data = Array.from(byBucket.values()).sort((a, b) =>
 		String(a.timestamp).localeCompare(String(b.timestamp)),
 	);
+	// Buckets are UTC hours and days; label them in UTC so a day's counts are
+	// not shifted onto the previous local day.
+	const formatter = new Intl.DateTimeFormat("en-US", {
+		month: "short",
+		day: "numeric",
+		...(hourly ? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" } : {}),
+		timeZone: "UTC",
+	});
 	const formatTimestamp = (ts: string) =>
-		format(new Date(ts), hourly ? "MMM d HH:mm" : "MMM d");
+		`${formatter.format(new Date(ts))}${hourly ? " UTC" : ""}`;
 
 	return (
 		<ChartContainer

@@ -217,7 +217,7 @@ export default async function ContentFilterClassifiersPage({
 						<CardTitle>Flag rate over time</CardTitle>
 						<CardDescription>
 							Share of sampled requests each classifier flagged, per{" "}
-							{window === "24h" ? "hour" : "day"}.
+							{window === "24h" ? "hour" : "day"} (UTC).
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
