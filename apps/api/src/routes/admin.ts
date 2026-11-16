@@ -5601,7 +5601,9 @@ async function updateDiscount(
 				provider,
 				model,
 				discountPercent: new Decimal(body.discountPercent).div(100).toFixed(4),
-				excludedCostTypes: body.excludedCostTypes ?? before.excludedCostTypes,
+				...(body.excludedCostTypes !== undefined && {
+					excludedCostTypes: body.excludedCostTypes,
+				}),
 				reason: body.reason ?? null,
 				expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
 			})
