@@ -68,19 +68,23 @@ export function buildWebSearchQuery(messages: BaseMessage[]): string | null {
  * - `tool_choice: "none"` disables every tool, search included.
  * - A compliance policy is evaluated against the routed provider only, so the
  *   search engine, a further third party, never received a verdict.
- * A request on the caller's own provider key (BYOK) still searches: the
- * worker charges that search to credits, since it runs on the platform's
- * search account.
+ * - A request on the caller's own provider key (BYOK) searches only with
+ *   credits: the worker charges that search to credits, since it runs on the
+ *   platform's search account.
  */
 export function internalWebSearchSkipReason(args: {
 	toolChoice: unknown;
 	compliancePolicyActive: boolean;
-}): "tool_choice_none" | "compliance_policy" | null {
+	unfundedByokSearch: boolean;
+}): "tool_choice_none" | "compliance_policy" | "unfunded_byok_search" | null {
 	if (args.toolChoice === "none") {
 		return "tool_choice_none";
 	}
 	if (args.compliancePolicyActive) {
 		return "compliance_policy";
+	}
+	if (args.unfundedByokSearch) {
+		return "unfunded_byok_search";
 	}
 	return null;
 }
@@ -337,15 +341,25 @@ export async function runInternalWebSearch(
 	}
 }
 
+// Web content must not close (or reopen) the untrusted results block.
+function stripResultTags(text: string): string {
+	return text.replace(/<\/?\s*web_search_results\b[^>]*>/gi, "");
+}
+
 function formatSearchContext(search: InternalWebSearch): string {
 	const date = new Date().toISOString().slice(0, 10);
 	const sources = search.results
 		.map((r, i) => {
-			const lines = [`[${i + 1}] ${r.title ?? r.url}`, `URL: ${r.url}`];
+			const lines = [
+				`[${i + 1}] ${stripResultTags(r.title ?? r.url)}`,
+				`URL: ${stripResultTags(r.url)}`,
+			];
 			if (r.publishedDate) {
-				lines.push(`Published: ${r.publishedDate.slice(0, 10)}`);
+				lines.push(
+					`Published: ${stripResultTags(r.publishedDate.slice(0, 10))}`,
+				);
 			}
-			lines.push(...r.highlights);
+			lines.push(...r.highlights.map(stripResultTags));
 			return lines.join("\n");
 		})
 		.join("\n\n");

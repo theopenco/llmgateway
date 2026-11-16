@@ -694,7 +694,9 @@ organization.openapi(updateOrganization, async (c) => {
 		retentionLevel !== undefined ||
 		autoTopUpEnabled !== undefined ||
 		autoTopUpThreshold !== undefined ||
-		autoTopUpAmount !== undefined;
+		autoTopUpAmount !== undefined ||
+		// The engine sets the per-search price.
+		webSearchEngine !== undefined;
 
 	// Only owners can update billing and policy settings
 	if (isBillingOrPolicyUpdate && userOrganization.role !== "owner") {

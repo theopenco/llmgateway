@@ -1987,7 +1987,6 @@ chat.openapi(completions, async (c) => {
 		prompt_cache_key,
 		prompt_cache_retention,
 		prompt_cache_options,
-		tool_choice,
 		routing,
 		free_models_only,
 		no_reasoning,
@@ -2100,6 +2099,9 @@ chat.openapi(completions, async (c) => {
 		frequency_penalty,
 		presence_penalty,
 		tools,
+		// Mutable: a gateway-run web search drops a `"required"` choice once no
+		// tool is left to call.
+		tool_choice,
 	} = validationResult.data;
 
 	// Debug: Log tools received from the AI SDK (development only)
@@ -8926,6 +8928,13 @@ chat.openapi(completions, async (c) => {
 		const skip = internalWebSearchSkipReason({
 			toolChoice: tool_choice,
 			compliancePolicyActive: !!compliancePolicy,
+			// BYOK searches are charged to credits by the worker, so they need
+			// credits up front like data retention does.
+			unfundedByokSearch:
+				currentCredentialSource() === "byok" &&
+				!sponsoredOnboarding &&
+				!!organization &&
+				getAvailableCredits(organization).totalAvailableCredits <= 0,
 		});
 		if (skip) {
 			logger.info("Internal web search skipped", {
@@ -8938,6 +8947,18 @@ chat.openapi(completions, async (c) => {
 		const search = query
 			? await runInternalWebSearch(engine, query, webSearchTool, requestId)
 			: null;
+		// `tool_choice: {type: "web_search"}` demands a search: answering
+		// without one would hide that it never ran.
+		if (webSearchTool.forced && (skip || (query && !search))) {
+			throw new HTTPException(skip === "unfunded_byok_search" ? 402 : 503, {
+				message:
+					skip === "compliance_policy"
+						? "Web search is required by tool_choice, but the gateway does not run web search under a compliance policy. Choose a model with native web search."
+						: skip === "unfunded_byok_search"
+							? "Web search is required by tool_choice, but the organization has no credits for the gateway-run search. Please add credits."
+							: "Web search is required by tool_choice, but the search engine is unavailable. Please retry.",
+			});
+		}
 		if (search) {
 			internalWebSearch = {
 				search,
@@ -8949,6 +8970,13 @@ chat.openapi(completions, async (c) => {
 			) as typeof messages;
 		}
 		webSearchTool = undefined;
+		// web_search was the only tool: send a tool-free request.
+		if (tools?.length === 0) {
+			tools = undefined;
+			if (tool_choice === "required") {
+				tool_choice = undefined;
+			}
+		}
 	} else if (webSearchTool) {
 		// Native search keeps the tool, which only a native upstream takes, so
 		// retries stay on native mappings.

@@ -49,6 +49,8 @@ export function OrganizationWebSearchSettings() {
 		return null;
 	}
 
+	const isOwner = selectedOrganization.role === "owner";
+
 	const handleSave = async () => {
 		try {
 			await updateOrganization.mutateAsync({
@@ -74,10 +76,12 @@ export function OrganizationWebSearchSettings() {
 				Used only when a request asks for web search and the provider serving it
 				does not support web search natively. Providers with native web search
 				always use their own.
+				{!isOwner && " Only organization owners can change the engine."}
 			</p>
 			<RadioGroup
 				value={engine}
 				onValueChange={(value: GatewayWebSearchEngine) => setEngine(value)}
+				disabled={!isOwner}
 				className="space-y-2"
 			>
 				{GATEWAY_WEB_SEARCH_ENGINE_IDS.map((id) => (
@@ -99,7 +103,9 @@ export function OrganizationWebSearchSettings() {
 			<div className="flex justify-end">
 				<Button
 					onClick={handleSave}
-					disabled={updateOrganization.isPending || engine === savedEngine}
+					disabled={
+						!isOwner || updateOrganization.isPending || engine === savedEngine
+					}
 				>
 					{updateOrganization.isPending ? "Saving..." : "Save Settings"}
 				</Button>

@@ -43,7 +43,7 @@ The search engine is an organization setting under **Settings â†’ Preferences â†
 | [Perplexity Search API](https://docs.perplexity.ai/docs/search/overview) (default) | $0.005           |
 | [Exa](https://exa.ai)                                                              | $0.007           |
 
-If the search fails, the request continues without results and no search is billed. No search runs when `tool_choice` is `"none"` or when your organization or API key has a [compliance policy](/features/compliance) enabled, since the policy does not cover the search engine. On your own provider keys, the search is charged to your credits. Your activity log shows which engine ran each search.
+If the search fails, the request continues without results and no search is billed. No search runs when `tool_choice` is `"none"` or when your organization or API key has a [compliance policy](/features/compliance) enabled, since the policy does not cover the search engine. On your own provider keys, the search is charged to your credits, and it is skipped when you have none. With `tool_choice: {"type": "web_search"}`, a search that cannot run returns an error instead of an answer without results. Only organization owners can change the engine. Your activity log shows which engine ran each search.
 
 <Callout type="warn">
 	**Perplexity Sonar changed on September 25, 2026.** Perplexity retired its

@@ -1335,10 +1335,18 @@ export async function batchProcessLogs(): Promise<number> {
 					row.cost > 0 &&
 					!row.cached
 				) {
+					// A gateway-run search is paid to the search engine, not spent on
+					// the provider key.
+					const keySpend = isGatewayWebSearch(row.web_search_type)
+						? Decimal.max(
+								0,
+								new Decimal(row.cost).minus(row.web_search_cost ?? 0),
+							)
+						: new Decimal(row.cost);
 					providerKeyCosts.set(
 						row.provider_key_id,
 						(providerKeyCosts.get(row.provider_key_id) ?? new Decimal(0)).plus(
-							new Decimal(row.cost),
+							keySpend,
 						),
 					);
 				}
