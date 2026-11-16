@@ -81,6 +81,11 @@ export function ModelSectionTabs({ sections }: { sections: ModelSection[] }) {
 							key={section.id}
 							value={section.id}
 							asChild
+							onMouseDown={(event) => {
+								if (!isPlainClick(event)) {
+									event.preventDefault();
+								}
+							}}
 							className="relative h-auto flex-none rounded-none border-0 px-3 py-2 font-normal text-muted-foreground shadow-none transition-colors duration-150 ease-out hover:text-foreground focus-visible:ring-inset data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:text-muted-foreground dark:data-[state=active]:bg-transparent"
 						>
 							<a
