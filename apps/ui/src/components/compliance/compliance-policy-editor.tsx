@@ -40,6 +40,7 @@ import {
 	getProviderCountries,
 	getProviderRefPolicyListFailures,
 	getProviderRequirementFailures,
+	isRetiredProvider,
 	models,
 	providers as catalogueProviders,
 	type ProviderCompliancePolicy,
@@ -298,7 +299,10 @@ export function CompliancePolicyEditor({
 		const blockedList: { provider: ProviderDefinition; reasons: string[] }[] =
 			[];
 		for (const provider of providers) {
-			if (HIDDEN_PROVIDER_IDS.has(provider.id)) {
+			if (
+				HIDDEN_PROVIDER_IDS.has(provider.id) ||
+				isRetiredProvider(provider.id)
+			) {
 				continue;
 			}
 			const failures = [
