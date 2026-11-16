@@ -45,7 +45,8 @@ export const zaiModels = [
 				reasoningEfforts: ["low", "high", "max"],
 				vision: true,
 				tools: true,
-				supportedToolChoices: ["auto", "required", "function"],
+				// Z.ai accepts `required` and named functions but answers in text.
+				supportedToolChoices: ["auto"],
 				jsonOutput: true,
 				supportsDeveloperRole: false,
 			},
