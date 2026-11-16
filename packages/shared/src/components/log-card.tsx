@@ -569,9 +569,9 @@ export function LogCard({
 							<Clock className="h-3.5 w-3.5 shrink-0" />
 							<span>
 								{log.totalTokens} tokens
-								{log.cachedTokens && Number(log.cachedTokens) > 0 && (
+								{log.cachedTokens && Number(log.cachedTokens) > 0 ? (
 									<span className="ml-1">({log.cachedTokens} cached)</span>
-								)}
+								) : null}
 							</span>
 						</div>
 						<div className="flex items-center gap-1">
