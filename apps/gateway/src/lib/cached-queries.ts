@@ -285,7 +285,8 @@ export async function findApiKeyByToken(
 		},
 	);
 
-	if (key) {
+	// Re-check after the cache: a stale mirror entry can predate the filter.
+	if (key && key.keyType !== "platform_publishable") {
 		return key;
 	}
 

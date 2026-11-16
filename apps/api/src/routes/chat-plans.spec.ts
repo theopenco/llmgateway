@@ -11,7 +11,8 @@ import {
 import { app } from "@/index.js";
 import { createTestUser } from "@/testing.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, tables } from "@llmgateway/db";
+import { getChatPlanCreditsLimit } from "@llmgateway/shared";
 
 import type * as PaymentsModule from "@/routes/payments.js";
 
@@ -95,19 +96,30 @@ describe("POST /chat-plans/change-tier", () => {
 			where: { id: ORG_ID },
 		});
 		expect(org?.chatPlan).toBe("starter");
+		expect(Number(org?.chatPlanCreditsLimit)).toBe(
+			getChatPlanCreditsLimit("starter"),
+		);
 		expect(Number(org?.chatPlanCreditsUsed)).toBe(147);
 	});
 
-	it("never requests prorations on any tier change", async () => {
-		await changeTier("starter");
-		await db
-			.update(tables.organization)
-			.set({ chatPlan: "starter" })
-			.where(eq(tables.organization.id, ORG_ID));
-		await changeTier("pro");
+	it("charges the full price on the following upgrade", async () => {
+		expect((await changeTier("starter")).status).toBe(200);
+		stripeMock.subscriptions.update.mockResolvedValue({
+			status: "active",
+			items: { data: [{ current_period_end: 1_900_000_000 }] },
+		});
 
-		for (const [, params] of stripeMock.subscriptions.update.mock.calls) {
-			expect(params.proration_behavior).toBe("none");
-		}
+		const res = await changeTier("pro");
+		expect(res.status, await res.text()).toBe(200);
+
+		expect(
+			stripeMock.subscriptions.update.mock.calls.map(
+				([, params]) => params.proration_behavior,
+			),
+		).toEqual(["none", "none"]);
+		const org = await db.query.organization.findFirst({
+			where: { id: ORG_ID },
+		});
+		expect(Number(org?.chatPlanCreditsUsed)).toBe(0);
 	});
 });
