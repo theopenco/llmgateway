@@ -5911,6 +5911,10 @@ export const providerClaim = snakeCase.table(
 		billingMode: text({ enum: ["payg", "postpaid", "payout"] })
 			.notNull()
 			.default("payg"),
+		// Admin-only trust flag. Price updates and fare changes the carrier
+		// files are approved on arrival, and the worker applies the prices the
+		// carrier publishes on its /v1/models the same way.
+		autoApproveFares: boolean().notNull().default(false),
 		// Self-declared public profile shown on the provider page. Display only:
 		// it never feeds compliance routing, which reads the static catalogue.
 		website: text(),
@@ -6377,6 +6381,8 @@ export const providerPriceFiling = snakeCase.table(
 			.default("pending"),
 		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
 		note: text(),
+		// Approved without review under the claim's `autoApproveFares`.
+		autoApproved: boolean().notNull().default(false),
 		reviewedBy: text(),
 		reviewNote: text(),
 		reviewedAt: timestamp(),
@@ -6454,6 +6460,8 @@ export const providerRoutingFiling = snakeCase.table(
 		// Admin-only: the model override was removed and the model falls back to
 		// the default fare (recorded in the discount/margin columns).
 		clearsOverride: boolean().notNull().default(false),
+		// Approved without review under the claim's `autoApproveFares`.
+		autoApproved: boolean().notNull().default(false),
 		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
 		reviewedBy: text(),
 		reviewNote: text(),

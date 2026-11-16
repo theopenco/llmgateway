@@ -1,0 +1,137 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "2938f00d-8a5d-4b7d-b8b8-eb662dbfb1a7",
+  "prevIds": [
+    "1662bcf1-d4e2-4214-8080-de68f495547b"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_claim",
+        "auto_approve_fares"
+      ],
+      "writes": [
+        "s|col|public.provider_claim.auto_approve_fares",
+        "n|col|public.provider_claim.auto_approve_fares",
+        "e|col|public.provider_claim.auto_approve_fares"
+      ],
+      "reads": [
+        "n|tbl|public.provider_claim",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_price_filing",
+        "auto_approved"
+      ],
+      "writes": [
+        "s|col|public.provider_price_filing.auto_approved",
+        "n|col|public.provider_price_filing.auto_approved",
+        "e|col|public.provider_price_filing.auto_approved"
+      ],
+      "reads": [
+        "n|tbl|public.provider_price_filing",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_routing_filing",
+        "auto_approved"
+      ],
+      "writes": [
+        "s|col|public.provider_routing_filing.auto_approved",
+        "n|col|public.provider_routing_filing.auto_approved",
+        "e|col|public.provider_routing_filing.auto_approved"
+      ],
+      "reads": [
+        "n|tbl|public.provider_routing_filing",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "drop_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "crm_integration",
+        "external_id"
+      ],
+      "writes": [
+        "s|col|public.crm_integration.external_id",
+        "n|col|public.crm_integration.external_id",
+        "e|col|public.crm_integration.external_id"
+      ],
+      "reads": [
+        "n|tbl|public.crm_integration",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_claim",
+        "name": "auto_approve_fares",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "false",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_price_filing",
+        "name": "auto_approved",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "false",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_routing_filing",
+        "name": "auto_approved",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "false",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"crm_integration\",\"external_id\"]"
+    }
+  ]
+}

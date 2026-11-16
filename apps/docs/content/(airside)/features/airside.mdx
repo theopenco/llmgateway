@@ -161,6 +161,35 @@ Listed prices are what developers are billed, so pricing never changes silently:
 
 A filing covers input, output, optional cached-input, and optional per-request prices (token prices in USD per million tokens, the per-request price in USD), plus a note for the reviewer. It can also carry **regional fares** — per-region price overrides developers reach with `<provider>/<model>:<region>`, while all other traffic pays the default fares. Each approved filing's regional set fully replaces the previous one, and while no filing is pending a region can be dropped from the Fleet page — removing an offering changes no price, so it applies immediately without review. The latest approved filing is the model's effective price; pending and rejected filings are tracked under **Filings**.
 
+### Automatic fare approval
+
+The LLM Gateway team can approve a carrier for **automatic fare changes**. For an approved carrier:
+
+- Price **update** filings and fare changes under **Fares** take effect as soon as they are filed. Initial filings and metadata changes still go through review.
+- About once an hour, LLM Gateway reads the carrier's own `GET /v1/models` and applies any price that differs from the live one.
+
+Publish prices per model in a `pricing` object, as decimal strings in USD per token:
+
+```json
+{
+	"data": [
+		{
+			"id": "my-model",
+			"pricing": {
+				"prompt": "0.0000004",
+				"completion": "0.0000016",
+				"input_cache_read": "0.00000004",
+				"request": "0"
+			}
+		}
+	]
+}
+```
+
+`id` is the model id your API expects. `prompt` and `completion` are required; `input_cache_read` and `request` (USD per request) are optional and keep their current value when omitted. Regional fares are not read from the endpoint and stay as last filed. A model with a filing awaiting review is skipped until that filing is decided. The request is sent with your provider key when one is on file.
+
+Every automatic change is recorded as an approved filing under **Filings**, next to the reviewed ones.
+
 Reviewers see current → filed only for input, output, or cached-input rates that change. Unchanged rates show a single value. Adding or removing a cached-input rate shows `none` on the corresponding side.
 
 ## Routing and billing
@@ -215,7 +244,7 @@ Under **Fares** each claimed provider has two knobs:
 - **Traffic discount** (0–50%) — a discount you offer on routed traffic.
 - **Landing fee** (5–50%) — the gateway margin you accept; the baseline is **20%**.
 
-Accepting more than the baseline margin or offering a discount makes your traffic effectively cheaper, which boosts you in the [smart routing election](/features/routing); accepting less prices you up. Like price changes, fare changes are filed for review and only reach routing once the LLM Gateway team approves them. The election scores every candidate provider on weighted factors — expected token cost after your discount and margin (`%routing.weights.price%`), availability/uptime (`%routing.weights.uptime%`), throughput (`%routing.weights.throughput%`), and latency (`%routing.weights.latency%`) — and the lowest score wins. Cache-read savings count toward token cost; cache support alone receives no additional preference by default.
+Accepting more than the baseline margin or offering a discount makes your traffic effectively cheaper, which boosts you in the [smart routing election](/features/routing); accepting less prices you up. Like price changes, fare changes are filed for review and only reach routing once the LLM Gateway team approves them, unless the carrier has [automatic fare approval](#automatic-fare-approval). The election scores every candidate provider on weighted factors — expected token cost after your discount and margin (`%routing.weights.price%`), availability/uptime (`%routing.weights.uptime%`), throughput (`%routing.weights.throughput%`), and latency (`%routing.weights.latency%`) — and the lowest score wins. Cache-read savings count toward token cost; cache support alone receives no additional preference by default.
 
 <Callout type="info">
 	Routing reacts to live metrics: reliability and speed still matter. A cheap
