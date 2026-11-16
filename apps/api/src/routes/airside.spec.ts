@@ -4140,6 +4140,130 @@ describe("airside provider portal", () => {
 		).toMatchObject({ providerKeyId: "retired-linked" });
 	});
 
+	it("applies fare changes on arrival for a carrier approved for it", async () => {
+		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const claim = await claimProvider(cookie, company.id);
+		await activateClaim();
+		const [model] = await db
+			.insert(tables.providerDraftModel)
+			.values({
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				modelName: "auto-fare-model",
+				externalId: "auto-fare-model",
+				status: "active",
+			})
+			.returning();
+		await db.insert(tables.providerPriceFiling).values({
+			draftModelId: model.id,
+			providerCompanyId: company.id,
+			kind: "initial",
+			inputPrice: "1e-6",
+			outputPrice: "2e-6",
+			status: "approved",
+		});
+
+		const enabled = await app.request(
+			`/admin/airside/claims/${claim.id}/settings`,
+			json(cookie, { autoApproveFares: true }, "PATCH"),
+		);
+		expect(enabled.status).toBe(200);
+		expect((await enabled.json()).claim.autoApproveFares).toBe(true);
+
+		const price = await app.request(
+			`/airside/models/${model.id}/price-filings`,
+			json(cookie, { inputPrice: "3e-6", outputPrice: "6e-6" }),
+		);
+		expect(price.status).toBe(201);
+		expect((await price.json()).filing).toMatchObject({
+			kind: "update",
+			status: "approved",
+			autoApproved: true,
+		});
+		const mapping = await db.query.modelProviderMapping.findFirst({
+			where: {
+				modelId: { eq: "auto-fare-model" },
+				providerId: { eq: "mistral" },
+			},
+		});
+		expect(Number(mapping!.inputPrice)).toBeCloseTo(3e-6, 12);
+		expect(Number(mapping!.outputPrice)).toBeCloseTo(6e-6, 12);
+
+		const fare = await app.request(
+			"/airside/routing-settings/mistral",
+			json(
+				cookie,
+				{
+					providerCompanyId: company.id,
+					discountPercent: 0.1,
+					marginPercent: 0.3,
+				},
+				"PUT",
+			),
+		);
+		expect(fare.status).toBe(201);
+		expect((await fare.json()).filing).toMatchObject({
+			status: "approved",
+			autoApproved: true,
+		});
+		const live = await db.query.providerRoutingSettings.findFirst({
+			where: { providerId: { eq: "mistral" } },
+		});
+		expect(Number(live!.discountPercent)).toBeCloseTo(0.1);
+		expect(Number(live!.marginPercent)).toBeCloseTo(0.3);
+
+		// Nothing was left for the review queue, and the history marks both.
+		const queue = await app.request("/admin/airside/filings?status=pending", {
+			headers: { Cookie: cookie },
+		});
+		const queueBody = await queue.json();
+		expect(queueBody.filings).toHaveLength(0);
+		expect(queueBody.routingPendingCount).toBe(0);
+
+		// A fare change still awaiting review blocks an automatic one.
+		await db.insert(tables.providerRoutingFiling).values({
+			providerCompanyId: company.id,
+			providerId: "mistral",
+			discountPercent: "0.2",
+			marginPercent: "0.3",
+		});
+		const blocked = await app.request(
+			"/airside/routing-settings/mistral",
+			json(
+				cookie,
+				{
+					providerCompanyId: company.id,
+					discountPercent: 0.3,
+					marginPercent: 0.3,
+				},
+				"PUT",
+			),
+		);
+		expect(blocked.status).toBe(409);
+
+		// A new listing still goes through review.
+		const [draft] = await db
+			.insert(tables.providerDraftModel)
+			.values({
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				modelName: "auto-fare-draft",
+				externalId: "auto-fare-draft",
+			})
+			.returning();
+		const initial = await app.request(
+			`/airside/models/${draft.id}/price-filings`,
+			json(cookie, { inputPrice: "3e-6", outputPrice: "6e-6" }),
+		);
+		expect((await initial.json()).filing).toMatchObject({
+			kind: "initial",
+			status: "pending",
+			autoApproved: false,
+		});
+	});
+
 	it("runs fare changes through the admin approval queue", async () => {
 		process.env.ADMIN_FULL_ACCESS_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");

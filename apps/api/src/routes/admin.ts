@@ -11168,6 +11168,7 @@ const providerDetailSchema = z.object({
 				paidAt: z.string().nullable(),
 				listingInviteCode: z.string().nullable(),
 				billingMode: z.enum(AIRSIDE_BILLING_MODES),
+				autoApproveFares: z.boolean(),
 				domains: z.array(
 					z.object({
 						domain: z.string(),
@@ -11330,6 +11331,7 @@ admin.openapi(getProviderDetail, async (c) => {
 					pendingBranding: tables.providerClaim.pendingBranding,
 
 					billingMode: tables.providerClaim.billingMode,
+					autoApproveFares: tables.providerClaim.autoApproveFares,
 					createdAt: tables.providerClaim.createdAt,
 					reviewedAt: tables.providerClaim.reviewedAt,
 				},
@@ -11582,6 +11584,7 @@ admin.openapi(getProviderDetail, async (c) => {
 						paidAt: carrier.paidAt?.toISOString() ?? null,
 						listingInviteCode: carrier.listingInviteCode,
 						billingMode: carrier.claim.billingMode,
+						autoApproveFares: carrier.claim.autoApproveFares,
 						domains: carrierDomains.map((d) => ({
 							domain: d.domain,
 							verificationMethod: d.verificationMethod,
