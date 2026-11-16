@@ -8,12 +8,13 @@ function checker(overrides: {
 }) {
 	const findFirst = vi.fn(overrides.findFirst ?? (async () => ({ id: "u" })));
 	const ping = vi.fn(overrides.ping ?? (async () => "PONG"));
+	const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 	const healthChecker = new HealthChecker({
 		redisClient: { ping },
 		db: { query: { user: { findFirst } } },
-		logger: { info: vi.fn(), error: vi.fn() },
+		logger,
 	});
-	return { healthChecker, findFirst, ping };
+	return { healthChecker, findFirst, ping, logger };
 }
 
 afterEach(() => {
@@ -105,7 +106,7 @@ describe("HealthChecker", () => {
 	it("holds readiness closed until the first passing check, then keeps it open", async () => {
 		vi.useFakeTimers();
 		let reachable = false;
-		const { healthChecker, findFirst } = checker({
+		const { healthChecker, findFirst, logger } = checker({
 			findFirst: async () => {
 				if (!reachable) {
 					throw new Error("ECONNREFUSED");
@@ -119,10 +120,16 @@ describe("HealthChecker", () => {
 		expect(healthChecker.isReady()).toBe(false);
 		await vi.advanceTimersByTimeAsync(100);
 		expect(healthChecker.isReady()).toBe(false);
+		// The stuck-pod alert counts this line.
+		expect(logger.warn).toHaveBeenCalledWith(
+			"Startup dependency check failed",
+			{ redis: undefined, database: "Database connection failed" },
+		);
 
 		reachable = true;
 		await vi.advanceTimersByTimeAsync(100);
 		expect(healthChecker.isReady()).toBe(true);
+		const warningsWhenOpened = logger.warn.mock.calls.length;
 
 		// A later outage must not close readiness again, and the gate stops
 		// checking once it has opened.
@@ -131,6 +138,7 @@ describe("HealthChecker", () => {
 		await vi.advanceTimersByTimeAsync(1000);
 		expect(healthChecker.isReady()).toBe(true);
 		expect(findFirst).toHaveBeenCalledTimes(callsWhenOpened);
+		expect(logger.warn).toHaveBeenCalledTimes(warningsWhenOpened);
 	});
 
 	it("stops retrying once the gate is stopped", async () => {

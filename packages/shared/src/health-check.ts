@@ -46,6 +46,7 @@ export interface HealthCheckDependencies {
 	};
 	logger: {
 		info: (message: string) => void;
+		warn: (message: string, extra?: object) => void;
 		error: (message: string, error?: object | Error | undefined) => void;
 	};
 }
@@ -82,15 +83,20 @@ export class HealthChecker {
 		let stopped = false;
 		this.ready = false;
 		const attempt = async () => {
-			const { status } = await this.performHealthChecks(checkOptions);
+			const health = await this.performHealthChecks(checkOptions);
 			if (stopped) {
 				return;
 			}
-			if (status === "ok") {
+			if (health.status === "ok") {
 				this.ready = true;
 				this.dependencies.logger.info("Startup dependency check passed");
 				return;
 			}
+			// Alerted on: a pod logging this for minutes is stuck out of rotation.
+			this.dependencies.logger.warn("Startup dependency check failed", {
+				redis: health.redis.error,
+				database: health.database.error,
+			});
 			timer = setTimeout(() => void attempt(), retryMs);
 		};
 		void attempt();
