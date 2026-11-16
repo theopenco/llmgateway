@@ -86,6 +86,9 @@ describe("batched project stats refresh", () => {
 			.delete(tables.projectHourlyRoutingStats)
 			.where(inArray(tables.projectHourlyRoutingStats.projectId, projectIds));
 		await db
+			.delete(tables.projectHourlyWebSearchStats)
+			.where(inArray(tables.projectHourlyWebSearchStats.projectId, projectIds));
+		await db
 			.delete(tables.project)
 			.where(eq(tables.project.organizationId, orgId));
 		await db
@@ -282,6 +285,101 @@ describe("batched project stats refresh", () => {
 			cost: 0.5,
 			baselineCost: 1.5,
 		});
+	});
+
+	test("rolls web search cost up per type and engine", async () => {
+		await db.insert(tables.log).values([
+			logValues({
+				usedProvider: "deepinfra",
+				webSearchEngine: "perplexity",
+				webSearchType: "gateway",
+				webSearchCount: 1,
+				webSearchCost: 0.005,
+				cost: 0.006,
+			}),
+			logValues({
+				usedProvider: "deepinfra",
+				webSearchEngine: "perplexity",
+				webSearchType: "gateway",
+				webSearchCount: 1,
+				webSearchCost: 0.005,
+				cost: 0.007,
+			}),
+			logValues({
+				usedProvider: "openai",
+				webSearchEngine: "openai",
+				webSearchType: "native",
+				webSearchCount: 2,
+				webSearchCost: 0.02,
+				cost: 0.03,
+			}),
+			// Same engine and provider ids, different type: kept apart.
+			logValues({
+				usedProvider: "perplexity",
+				webSearchEngine: "perplexity",
+				webSearchType: "native",
+				webSearchCount: 1,
+				webSearchCost: 0.0025,
+				cost: 0.003,
+			}),
+			logValues({
+				usedProvider: "perplexity",
+				webSearchEngine: "perplexity",
+				webSearchType: "gateway",
+				webSearchCount: 1,
+				webSearchCost: 0.005,
+				cost: 0.006,
+			}),
+			// Logged before the engine was recorded: native, attributed to the provider.
+			logValues({ usedProvider: "anthropic", webSearchCost: 0.01, cost: 0.02 }),
+			logValues({ usedProvider: "deepinfra", cost: 0.001 }),
+		]);
+		await refreshCurrentHourStats();
+
+		const rows = await db.query.projectHourlyWebSearchStats.findMany({
+			where: { projectId: { in: projectIds } },
+		});
+		const byKey = Object.fromEntries(
+			rows.map((row) => [
+				`${row.webSearchType}:${row.webSearchEngine}:${row.usedProvider}`,
+				row,
+			]),
+		);
+		expect(rows).toHaveLength(5);
+		expect(byKey["gateway:perplexity:deepinfra"]).toMatchObject({
+			usedMode: "credits",
+			requestCount: 2,
+			searchCount: 2,
+			webSearchCost: 0.01,
+			cost: 0.013,
+		});
+		expect(byKey["native:openai:openai"]).toMatchObject({
+			searchCount: 2,
+			webSearchCost: 0.02,
+		});
+		expect(byKey["native:perplexity:perplexity"]).toMatchObject({
+			webSearchCost: 0.0025,
+		});
+		expect(byKey["gateway:perplexity:perplexity"]).toMatchObject({
+			webSearchCost: 0.005,
+		});
+		// Logged before the type was recorded: native.
+		expect(byKey["native:anthropic:anthropic"]).toMatchObject({
+			searchCount: 0,
+			webSearchCost: 0.01,
+		});
+
+		// The existing rollups carry the web search total too.
+		const [project] = await db.query.projectHourlyStats.findMany({
+			where: { projectId: projectIds[0] },
+		});
+		expect(project.webSearchCost).toBeCloseTo(0.0475, 6);
+		const keyRows = await db.query.apiKeyHourlyStats.findMany({
+			where: { projectId: projectIds[0] },
+		});
+		expect(
+			keyRows.reduce((sum, row) => sum + row.webSearchCost, 0),
+		).toBeCloseTo(0.0475, 6);
 	});
 
 	test("skips unchanged detail writes and propagates corrected and late logs", async () => {

@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
 import { logger } from "@llmgateway/logger";
+import { supportsWebSearch } from "@llmgateway/models";
 
 import type {
 	ModelDefinition,
@@ -353,8 +354,8 @@ export function validateModelCapabilities(
 			(provider) => (provider as ProviderModelMapping).tools === true,
 		);
 
-		const supportsWebSearch = providersToCheck.some(
-			(provider) => (provider as ProviderModelMapping).webSearch === true,
+		const webSearchSupported = providersToCheck.some((provider) =>
+			supportsWebSearch(provider as ProviderModelMapping),
 		);
 
 		// Determine if we have function tools (web_search tools were already extracted earlier)
@@ -369,16 +370,16 @@ export function validateModelCapabilities(
 		// Allow the request if:
 		// 1. Model supports regular tools, OR
 		// 2. Model supports web search AND request only uses web search (no function tools)
-		if (!supportsTools && !(supportsWebSearch && isWebSearchOnly)) {
+		if (!supportsTools && !(webSearchSupported && isWebSearchOnly)) {
 			throw new HTTPException(400, {
 				message: `Model ${requestedModel} does not support tool calls. Remove the tools/tool_choice parameter or use a tool-capable model.`,
 			});
 		}
 
 		// If web_search tool is specifically requested, ensure the model supports it
-		if (webSearchTool && !supportsWebSearch) {
+		if (webSearchTool && !webSearchSupported) {
 			throw new HTTPException(400, {
-				message: `Model ${requestedModel} does not support native web search. Remove the web_search tool or use a model that supports it. See https://llmgateway.io/models?features=webSearch for supported models.`,
+				message: `Model ${requestedModel} does not support web search. Remove the web_search tool or use a chat model.`,
 			});
 		}
 	}

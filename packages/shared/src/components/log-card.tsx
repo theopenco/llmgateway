@@ -52,6 +52,9 @@ import { regionFromUsedModel } from "@/used-model.js";
 
 import {
 	formatServiceTierMultiplier,
+	describeWebSearch,
+	formatWebSearchEngine,
+	isGatewayWebSearch,
 	getServiceTier,
 } from "@llmgateway/models";
 
@@ -163,6 +166,8 @@ export interface LogCardData {
 	cacheWriteInputCost?: number | string | null;
 	requestCost?: number | null;
 	webSearchCost?: number | string | null;
+	webSearchEngine?: string | null;
+	webSearchType?: string | null;
 	contentFilterCost?: number | string | null;
 	imageInputCost?: number | string | null;
 	imageOutputCost?: number | string | null;
@@ -1106,7 +1111,11 @@ export function LogCard({
 										</div>
 										{!!log.webSearchCost && Number(log.webSearchCost) > 0 && (
 											<>
-												<div>Native Web Search Cost</div>
+												<div>
+													{log.webSearchEngine
+														? `Web Search Cost (${formatWebSearchEngine(log.webSearchEngine)})`
+														: "Web Search Cost"}
+												</div>
 												<div>{`$${Number(log.webSearchCost).toFixed(8)}`}</div>
 											</>
 										)}
@@ -1717,12 +1726,19 @@ export function LogCard({
 							<div className="grid gap-4 md:grid-cols-1">
 								<div className="space-y-2">
 									<h5 className="text-xs font-medium text-muted-foreground">
-										Native Web Search
+										{isGatewayWebSearch(log.webSearchType)
+											? "Gateway Web Search"
+											: "Native Web Search"}
 									</h5>
 									<div className="rounded-md border p-3">
 										<div className="flex items-center gap-2 text-sm">
 											<Globe className="h-4 w-4 text-sky-500" />
-											<span>Web search was used in this request</span>
+											<span>
+												{describeWebSearch(
+													log.webSearchEngine,
+													log.webSearchType,
+												)}
+											</span>
 											<span className="ml-auto text-muted-foreground">
 												Cost: ${Number(log.webSearchCost).toFixed(4)}
 											</span>

@@ -45,7 +45,7 @@ import {
 } from "@llmgateway/db";
 import { recordLogPersistLag } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
-import { hasErrorCode } from "@llmgateway/models";
+import { hasErrorCode, isGatewayWebSearch } from "@llmgateway/models";
 import {
 	assertSafeWebhookUrl,
 	calculateFees,
@@ -309,6 +309,8 @@ const schema = z.object({
 	response_size: z.number(),
 	hasError: z.boolean().nullable(),
 	data_storage_cost: z.string().nullable(),
+	web_search_cost: z.number().nullable(),
+	web_search_type: z.string().nullable(),
 	prompt_tokens: z.string().nullable(),
 	completion_tokens: z.string().nullable(),
 	total_tokens: z.string().nullable(),
@@ -1198,6 +1200,8 @@ export async function batchProcessLogs(): Promise<number> {
 					response_size: log.responseSize,
 					hasError: log.hasError,
 					data_storage_cost: log.dataStorageCost,
+					web_search_cost: log.webSearchCost,
+					web_search_type: log.webSearchType,
 					prompt_tokens: log.promptTokens,
 					completion_tokens: log.completionTokens,
 					total_tokens: log.totalTokens,
@@ -1331,10 +1335,18 @@ export async function batchProcessLogs(): Promise<number> {
 					row.cost > 0 &&
 					!row.cached
 				) {
+					// A gateway-run search is paid to the search engine, not spent on
+					// the provider key.
+					const keySpend = isGatewayWebSearch(row.web_search_type)
+						? Decimal.max(
+								0,
+								new Decimal(row.cost).minus(row.web_search_cost ?? 0),
+							)
+						: new Decimal(row.cost);
 					providerKeyCosts.set(
 						row.provider_key_id,
 						(providerKeyCosts.get(row.provider_key_id) ?? new Decimal(0)).plus(
-							new Decimal(row.cost),
+							keySpend,
 						),
 					);
 				}
@@ -1366,6 +1378,21 @@ export async function batchProcessLogs(): Promise<number> {
 					const storageCost = new Decimal(row.data_storage_cost);
 					if (storageCost.greaterThan(0)) {
 						addToBucket(storageCost, false);
+					}
+				}
+
+				// A gateway-run web search runs on the platform's search account,
+				// so BYOK (api-keys) rows still pay for it from credits, like
+				// storage. Credits-mode rows already carry it in their cost.
+				if (
+					row.used_mode === "api-keys" &&
+					!row.cached &&
+					row.web_search_cost &&
+					isGatewayWebSearch(row.web_search_type)
+				) {
+					const searchCost = new Decimal(row.web_search_cost);
+					if (searchCost.greaterThan(0)) {
+						addToBucket(searchCost, false);
 					}
 				}
 

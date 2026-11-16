@@ -26,7 +26,24 @@ When you include the `web_search` tool in your request, the model can search the
 
 ## Supported Providers
 
-Native web search is available on select models. See all models with native web search support on our [models page](https://llmgateway.io/models?filters=1&webSearch=true).
+The `web_search` tool works on every chat model. Models with native web search, listed on our [models page](https://llmgateway.io/models?filters=1&webSearch=true), search through their provider. For every other chat model, LLM Gateway runs the search itself. If a request with native search fails, it falls back only to providers with native search; after a gateway-run search, it falls back to any provider with the searched prompt.
+
+### Gateway-run search
+
+When the provider serving the request has no native web search, LLM Gateway runs the search with a search engine. The request and response look the same as native search, with three differences:
+
+- The search runs once per request, on the text of your latest user message, before the model answers. Turns ending in a tool result or an assistant message are not searched.
+- The results are appended to your latest user message, so they count toward prompt tokens.
+- `search_context_size` sets the number of results (`low` 3, `medium` 5, `high` 10). `allowed_domains`, `blocked_domains`, and `user_location.country` are passed to the search; `max_uses` is ignored.
+
+The search engine is an organization setting under **Settings → Preferences → Web Search**. It applies only when the serving provider has no native web search:
+
+| Engine                                                                             | Price per search |
+| ---------------------------------------------------------------------------------- | ---------------- |
+| [Perplexity Search API](https://docs.perplexity.ai/docs/search/overview) (default) | $0.005           |
+| [Exa](https://exa.ai)                                                              | $0.007           |
+
+If the search fails, the request continues without results and no search is billed. No search runs when `tool_choice` is `"none"` or when your organization or API key has a [compliance policy](/features/compliance) enabled, since the policy does not cover the search engine. On your own provider keys, the search is charged to your credits, and it is skipped when you have none. With `tool_choice: {"type": "web_search"}`, a search that cannot run returns an error instead of an answer without results. Only organization owners can change the engine. Your activity log shows which engine ran each search.
 
 <Callout type="warn">
 	**Perplexity Sonar changed on September 25, 2026.** Perplexity retired its
@@ -364,7 +381,7 @@ Web search costs are rolled into the total `cost` reported in the usage object:
 }
 ```
 
-Web search is billed per search call at the model's web search price — for example, $0.01 per call on OpenAI reasoning models (GPT-5, o-series). The web search charge is included in the top-level `cost` value and surfaced separately as `cost_details.web_search_cost`.
+Web search is billed per search call at the model's web search price — for example, $0.01 per call on OpenAI reasoning models (GPT-5, o-series). The web search charge is included in the top-level `cost` value and surfaced separately as `cost_details.web_search_cost`. A [gateway-run search](#gateway-run-search) is billed once per search, at the price of your organization's engine.
 
 On [Airside](/features/airside#web-search-format) listings that declare a web search format, a search is billed only when the response shows one ran: `url_citation` annotations, a search counter in `usage` (`server_tool_use.web_search_requests` or `num_search_queries`), or reported prompt tokens beyond what the request itself could encode to — the retrieved pages the endpoint added to the prompt. Offering or requiring a search bills nothing on its own.
 
@@ -471,15 +488,4 @@ You can use web search alongside regular function tools:
 
 ## Error Handling
 
-If you try to use web search with a model that doesn't support it:
-
-```json
-{
-	"error": {
-		"message": "Model gpt-4o does not support native web search. Remove the web_search tool or use a model that supports it. See https://llmgateway.io/models?features=webSearch for supported models.",
-		"type": "invalid_request_error"
-	}
-}
-```
-
-To avoid this error, only use the `web_search` tool with [native web search enabled models](https://llmgateway.io/models?filters=1&webSearch=true).
+Models that do not produce chat completions (image, video, embedding, speech and realtime models) reject the `web_search` tool with a 400 `invalid_request_error`.
