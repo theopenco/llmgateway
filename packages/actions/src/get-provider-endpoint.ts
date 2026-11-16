@@ -249,7 +249,6 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	canopywave: "https://inference.canopywave.io",
 	deepinfra: "https://api.deepinfra.com/v1/openai",
 	fireworks: "https://api.fireworks.ai/inference",
-	ranoai: "https://api.ranoai.com",
 	baidu: "https://api.baiduqianfan.ai",
 	atria: "https://api.atria-asi.ai",
 	tencent: "https://tokenhub-intl.tencentcloudmaas.com",
@@ -1166,7 +1165,6 @@ export function getProviderEndpoint(
 		case "nebius":
 		case "canopywave":
 		case "xiaomi":
-		case "ranoai":
 		case "atria":
 		case "cloudflare":
 		case "custom":

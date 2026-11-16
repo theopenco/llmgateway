@@ -128,14 +128,6 @@ export function getProviderHeaders(
 				...requestIdHeader,
 				"xi-api-key": token,
 			};
-		case "ranoai":
-			return {
-				...requestIdHeader,
-				Authorization: `Bearer ${token}`,
-				// RanoAI serves compressed responses that Node can receive as raw
-				// bytes, so request an uncompressed body for reliable JSON/SSE parsing.
-				"Accept-Encoding": "identity",
-			};
 		case "openai":
 		case "inference.net":
 		case "xai":

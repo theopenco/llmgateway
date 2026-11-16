@@ -1827,7 +1827,6 @@ export function transformStreamingToOpenai(
 		case "custom":
 		case "bytedance":
 		case "minimax":
-		case "ranoai":
 		case "baidu":
 		case "atria":
 		case "cloudflare":

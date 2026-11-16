@@ -41,7 +41,6 @@ export const providerLogoUrls: Partial<
 	sakana: ProviderIcons.sakana,
 	fireworks: ProviderIcons.fireworks,
 	runpod: ProviderIcons.runpod,
-	ranoai: ProviderIcons.ranoai,
 	baidu: ProviderIcons.baidu,
 	atria: ProviderIcons.atria,
 	tencent: ProviderIcons.tencent,
