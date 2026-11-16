@@ -114,7 +114,7 @@ describe("admin provider credentials", () => {
 		}
 	}
 
-	test("rejects new retired credentials even when validation is skipped", async () => {
+	test("rejects the removed azure-ai-foundry provider", async () => {
 		const res = await create({
 			provider: "azure-ai-foundry",
 			token: "test-token",
@@ -122,9 +122,6 @@ describe("admin provider credentials", () => {
 			skipValidation: true,
 		});
 		expect(res.status).toBe(400);
-		expect(await res.json()).toMatchObject({
-			message: expect.stringMatching(/retired/i),
-		});
 	});
 
 	async function create(body: Record<string, unknown>) {
@@ -3678,7 +3675,6 @@ describe("managed credential Airside listings", () => {
 		const provider = catalogueProviders.find(
 			(entry) =>
 				entry.id !== "custom" &&
-				!entry.retired &&
 				Object.keys(entry.env.required).every((key) => key === "apiKey") &&
 				!catalogueModels.some((model) =>
 					(model.providers as readonly ProviderModelMapping[]).some(

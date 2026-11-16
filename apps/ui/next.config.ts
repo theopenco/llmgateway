@@ -190,7 +190,23 @@ const nextConfig: NextConfig = {
 			},
 			{
 				source: "/models/grok-4.3/azure-ai-foundry",
-				destination: "/models/grok-4-3/azure-ai-foundry",
+				destination: "/models/grok-4-3/azure",
+				permanent: true,
+			},
+			// The azure-ai-foundry provider was removed; azure serves its models.
+			{
+				source: "/providers/azure-ai-foundry",
+				destination: "/providers/azure",
+				permanent: true,
+			},
+			{
+				source: "/models/grok-4-1-fast-non-reasoning/azure-ai-foundry",
+				destination: "/models/grok-4-1-fast-non-reasoning",
+				permanent: true,
+			},
+			{
+				source: "/models/:model/azure-ai-foundry",
+				destination: "/models/:model/azure",
 				permanent: true,
 			},
 			// Docs content indexed on the wrong domain (see comment above).
