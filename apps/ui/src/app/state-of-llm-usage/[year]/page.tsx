@@ -216,6 +216,13 @@ export default async function StateOfLlmUsagePage({ params }: PageProps) {
 	if (year === null) {
 		notFound();
 	}
+	// Link only to years that have a report to show. Independent of the main
+	// report, so both fetches start before either is awaited.
+	const otherReportsPromise = Promise.all(
+		usageReportYears()
+			.filter((other) => other !== year)
+			.map(fetchReport),
+	);
 	const report = await fetchReport(year);
 	if (!report || report.totals.totalTokens === 0 || !report.throughMonth) {
 		notFound();
@@ -230,12 +237,7 @@ export default async function StateOfLlmUsagePage({ params }: PageProps) {
 		...report.months.map((month) => month.totalTokens),
 	);
 	const findings = keyFindings(report);
-	// Link only to years that have a report to show.
-	const otherReports = await Promise.all(
-		usageReportYears()
-			.filter((other) => other !== year)
-			.map(fetchReport),
-	);
+	const otherReports = await otherReportsPromise;
 	const otherYears = otherReports.flatMap((other) =>
 		other && other.totals.totalTokens > 0 ? [other.year] : [],
 	);

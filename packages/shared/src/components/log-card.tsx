@@ -596,12 +596,12 @@ export function LogCard({
 								</p>
 							</TooltipContent>
 						</Tooltip>
-						{log.discount && log.discount !== 1 && (
+						{log.discount && log.discount !== 1 ? (
 							<div className="flex items-center gap-1 text-emerald-600">
 								<TrendingDown className="h-3.5 w-3.5 shrink-0" />
 								<span>{(log.discount * 100).toFixed(0)}% off</span>
 							</div>
-						)}
+						) : null}
 						{log.source && (
 							<div className="flex items-center gap-1">
 								<LinkIcon className="h-3.5 w-3.5 shrink-0" />
@@ -1145,14 +1145,14 @@ export function LogCard({
 										)}
 										<div>Inference Total</div>
 										<div>{log.cost ? `$${log.cost.toFixed(8)}` : "$0"}</div>
-										{log.discount && log.discount !== 1 && (
+										{log.discount && log.discount !== 1 ? (
 											<>
 												<div>Discount Applied</div>
 												<div className="text-green-600">
 													{(log.discount * 100).toFixed(0)}% off
 												</div>
 											</>
-										)}
+										) : null}
 										{log.pricingTier && (
 											<>
 												<div>Pricing Tier</div>

@@ -1664,23 +1664,24 @@ export function AllModels({
 				)
 			: baseModels;
 
+		// Fuzzy search: token-based, accent-insensitive, ignores punctuation.
+		// The query only needs tokenizing once, not once per model.
+		const normalize = (str: string) =>
+			str
+				.toLowerCase()
+				.normalize("NFD")
+				.replace(/[\u0300-\u036f]/g, "") // strip accents
+				.replace(/[^a-z0-9]/g, "");
+		const queryTokens = deferredSearchQuery
+			.trim()
+			.toLowerCase()
+			.split(/\s+/)
+			.map((t: string) => t.replace(/[^a-z0-9]/g, ""))
+			.filter(Boolean);
+		const normalizedQuery = normalize(deferredSearchQuery);
+
 		const filteredModels = preFilteredModels.filter((model) => {
-			// Improved fuzzy search: token-based, accent-insensitive, ignores punctuation
 			if (deferredSearchQuery) {
-				const normalize = (str: string) =>
-					str
-						.toLowerCase()
-						.normalize("NFD")
-						.replace(/[\u0300-\u036f]/g, "") // strip accents
-						.replace(/[^a-z0-9]/g, "");
-
-				const queryTokens = deferredSearchQuery
-					.trim()
-					.toLowerCase()
-					.split(/\s+/)
-					.map((t: string) => t.replace(/[^a-z0-9]/g, ""))
-					.filter(Boolean);
-
 				const providerStrings = (model.providerDetails ?? []).flatMap((p) => [
 					p.provider.providerId,
 					p.providerInfo?.name ?? "",
@@ -1693,7 +1694,6 @@ export function AllModels({
 					...providerStrings,
 				];
 				const haystack = normalize(haystackParts.join(" "));
-				const normalizedQuery = normalize(deferredSearchQuery);
 
 				const containsAllTokens = queryTokens.every((t: string) =>
 					haystack.includes(t),
@@ -1980,6 +1980,25 @@ export function AllModels({
 			),
 		);
 		return uniqueProviders.size;
+	}, [modelsWithProviders]);
+
+	// Stat card counts in one pass instead of three filters per render.
+	const statCounts = useMemo(() => {
+		let vision = 0;
+		let tools = 0;
+		let free = 0;
+		for (const model of modelsWithProviders) {
+			if (model.providerDetails.some((p) => p.provider.vision)) {
+				vision += 1;
+			}
+			if (model.providerDetails.some((p) => p.provider.tools)) {
+				tools += 1;
+			}
+			if (model.free) {
+				free += 1;
+			}
+		}
+		return { vision, tools, free };
 	}, [modelsWithProviders]);
 
 	// Flattened rows for table view (one row per provider-model combination)
@@ -3358,11 +3377,7 @@ export function AllModels({
 								<Card>
 									<CardContent>
 										<div className="text-2xl font-bold">
-											{
-												modelsWithProviders.filter((m) =>
-													m.providerDetails.some((p) => p.provider.vision),
-												).length
-											}
+											{statCounts.vision}
 										</div>
 										<div className="text-sm text-muted-foreground">
 											Vision Models{hasActiveFilters ? " (filtered)" : ""}
@@ -3371,13 +3386,7 @@ export function AllModels({
 								</Card>
 								<Card>
 									<CardContent>
-										<div className="text-2xl font-bold">
-											{
-												modelsWithProviders.filter((m) =>
-													m.providerDetails.some((p) => p.provider.tools),
-												).length
-											}
-										</div>
+										<div className="text-2xl font-bold">{statCounts.tools}</div>
 										<div className="text-sm text-muted-foreground">
 											Tool-enabled{hasActiveFilters ? " (filtered)" : ""}
 										</div>
@@ -3385,9 +3394,7 @@ export function AllModels({
 								</Card>
 								<Card>
 									<CardContent>
-										<div className="text-2xl font-bold">
-											{modelsWithProviders.filter((m) => m.free).length}
-										</div>
+										<div className="text-2xl font-bold">{statCounts.free}</div>
 										<div className="text-sm text-muted-foreground">
 											Free Models{hasActiveFilters ? " (filtered)" : ""}
 										</div>
