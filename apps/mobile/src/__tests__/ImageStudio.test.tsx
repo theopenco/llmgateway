@@ -26,12 +26,14 @@ jest.mock("@/api/images", () => ({
 		quality: "low",
 		moderation: "auto",
 		aspectRatio: "auto",
+		format: "image",
 	}),
 	generateImages: jest.fn(),
 }));
 jest.mock("@/components/ImageOptions", () => ({ ImageOptions: () => null }));
 jest.mock("@/lib/files", () => ({ pickFile: jest.fn() }));
 jest.mock("@/lib/export-image", () => ({ exportImage: jest.fn() }));
+jest.mock("react-native-webview", () => ({ WebView: () => null }));
 jest.useFakeTimers();
 
 beforeEach(() => jest.clearAllMocks());
@@ -84,6 +86,30 @@ test("keeps generated images when history fails and retries saving without regen
 	);
 	expect(generateImages).toHaveBeenCalledTimes(1);
 	expect(client.POST).toHaveBeenCalledTimes(2);
+});
+
+test("shows SVG results as vectors without offering them as references", async () => {
+	jest.mocked(generateImages).mockResolvedValue({
+		modelId: "gpt-image-2.6-flare",
+		modelName: "gpt-image-2.6-flare",
+		images: [{ base64: "PHN2Zz48L3N2Zz4=", mediaType: "image/svg+xml" }],
+	});
+	jest
+		.mocked(client.POST)
+		.mockResolvedValue({ data: undefined, response: new Response() });
+	await renderStudio();
+	const user = userEvent.setup();
+	await user.type(screen.getByLabelText("Image prompt"), "A cactus");
+	await user.press(screen.getByRole("button", { name: "Generate image" }));
+	expect(
+		await screen.findByLabelText("Generated image 1.1, SVG"),
+	).toBeOnTheScreen();
+	expect(
+		screen.queryByRole("button", { name: "Edit image 1.1" }),
+	).not.toBeOnTheScreen();
+	expect(
+		screen.getByRole("button", { name: "Save image 1.1" }),
+	).toBeOnTheScreen();
 });
 
 test("preserves successful comparison images when another model fails", async () => {

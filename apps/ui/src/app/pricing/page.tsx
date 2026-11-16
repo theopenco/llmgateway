@@ -1,5 +1,6 @@
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { CommittedUse } from "@/components/pricing/committed-use";
 import { PricingFaq } from "@/components/pricing/pricing-faq";
 import { PricingHero } from "@/components/pricing/pricing-hero";
 import { PricingTable } from "@/components/pricing/pricing-table";
@@ -92,6 +93,7 @@ export default function PricingPage() {
 			<main>
 				<PricingHero />
 				<PricingTable />
+				<CommittedUse location="pricing_committed_use" />
 				<PricingFaq />
 			</main>
 			<Footer />

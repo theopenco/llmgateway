@@ -27,6 +27,7 @@ import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type {
 	Quantization,
 	ProviderApiFormat,
+	RequestApiFormat,
 	ToolChoiceMode,
 	WebSearchFormat,
 	ProviderAccessRestriction,
@@ -739,6 +740,14 @@ export const transaction = snakeCase.table(
 		uniqueIndex("transaction_stripe_invoice_id_unique")
 			.on(table.stripeInvoiceId)
 			.where(sql`${table.stripeInvoiceId} IS NOT NULL`),
+		// Backstop for top-up idempotency: at most one completed credit_topup
+		// row per PaymentIntent, even if app-level locking is bypassed. Failed
+		// attempts don't count, so a payment can fail and later succeed.
+		uniqueIndex("transaction_credit_topup_payment_intent_unique")
+			.on(table.stripePaymentIntentId)
+			.where(
+				sql`${table.type} = 'credit_topup' AND ${table.status} = 'completed'`,
+			),
 	],
 );
 
@@ -1099,8 +1108,16 @@ export const enterpriseContactSubmission = snakeCase.table(
 		clientTimestampMs: text(),
 		ipAddress: text(),
 		userAgent: text(),
+		// "unconfirmed": passed spam checks, waiting for the submitter to confirm
+		// their email before it reaches sales.
 		spamFilterStatus: text({
-			enum: ["pending", "rejected", "delivered", "delivery_failed"],
+			enum: [
+				"pending",
+				"rejected",
+				"unconfirmed",
+				"delivered",
+				"delivery_failed",
+			],
 		})
 			.notNull()
 			.default("pending"),
@@ -1238,9 +1255,10 @@ export const crmActivity = snakeCase.table(
 		// Tasks only: when it is due and when it was ticked off.
 		dueAt: timestamp(),
 		completedAt: timestamp(),
-		// Idempotency key for activities mirrored from an integration:
-		// `gmail:<messageId>` for mail sent from the CRM, `calendly:<eventUri>`
-		// for scheduled meetings, so repeated syncs and webhooks never duplicate.
+		// Idempotency key for activities created from another record:
+		// `gmail:<messageId>` for mail sent from the CRM, `gcal:<uid>` for
+		// held meetings, `lead:<submissionId>` for an inquiry's follow-up, so
+		// repeated syncs never duplicate.
 		externalRef: text(),
 	},
 	(table) => [
@@ -1254,13 +1272,13 @@ export const crmActivity = snakeCase.table(
 	],
 );
 
-export const CRM_INTEGRATION_PROVIDERS = ["gmail", "calendly"] as const;
+export const CRM_INTEGRATION_PROVIDERS = ["gmail"] as const;
 export type CrmIntegrationProvider = (typeof CRM_INTEGRATION_PROVIDERS)[number];
 
-// A mailbox or Calendly user connected to the CRM by an admin. Credentials
-// are sealed with the connector cipher; `shared` lets other admins send mail
-// or offer booking links from it (contact@ is shared, personal inboxes are
-// not). Threads with CRM contacts are readable from every connection.
+// A mailbox connected to the CRM by an admin. Credentials are sealed with the
+// connector cipher; `shared` lets other admins send mail from it (contact@ is
+// shared, personal inboxes are not). Threads and meetings with CRM contacts
+// are readable from every connection.
 export const crmIntegration = snakeCase.table(
 	"crm_integration",
 	{
@@ -1274,11 +1292,9 @@ export const crmIntegration = snakeCase.table(
 		userId: text()
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
-		// Mailbox address or Calendly account email.
+		// Mailbox address.
 		accountEmail: text().notNull(),
 		displayName: text(),
-		// Calendly user URI; Gmail leaves it null.
-		externalId: text(),
 		credentials: text().notNull(),
 		shared: boolean().notNull().default(false),
 	},
@@ -2141,6 +2157,20 @@ export const masterKey = snakeCase.table(
 	],
 );
 
+/** One model's caps on a provider key; a NULL or missing window is uncapped. */
+export interface ProviderKeyModelRateLimit {
+	maxRpm?: number | null;
+	maxRpd?: number | null;
+	maxTpm?: number | null;
+	maxTpd?: number | null;
+}
+
+/** Per-model provider key caps, keyed by canonical model id. */
+export type ProviderKeyModelRateLimits = Record<
+	string,
+	ProviderKeyModelRateLimit
+>;
+
 export interface ProviderKeyOptions {
 	aws_bedrock_region_prefix?: "us." | "global." | "eu." | "apac.";
 	aws_bedrock_region?:
@@ -2161,14 +2191,19 @@ export interface ProviderKeyOptions {
 	azure_deployment_type?: "openai" | "ai-foundry";
 	azure_validation_model?: string;
 	azure_deployment_name?: string;
-	azure_ai_foundry_resource?: string;
-	azure_ai_foundry_api_version?: string;
 	azure_anthropic_resource?: string;
-	alibaba_region?: "singapore" | "eu-frankfurt" | "us-virginia" | "cn-beijing";
+	alibaba_region?:
+		| "singapore"
+		| "eu-frankfurt"
+		| "us-virginia"
+		| "cn-beijing"
+		| "cn-hongkong"
+		| "ap-tokyo";
 	/**
 	 * Model Studio workspace id, required for regions served only by the
 	 * workspace-dedicated `{WorkspaceId}.<region>.maas.aliyuncs.com` host
-	 * (Frankfurt). Ignored by regions that have a shared DashScope domain.
+	 * (Frankfurt, Hong Kong, Tokyo). Ignored by regions that have a shared
+	 * DashScope domain.
 	 */
 	alibaba_workspace_id?: string;
 	aws_mantle_region?: "us-east-1" | "us-east-2" | "us-west-2";
@@ -2318,6 +2353,11 @@ export const providerKey = snakeCase.table(
 		rateLimitMode: text({ enum: ["strict", "soft", "lax"] })
 			.notNull()
 			.default("strict"),
+		// Per-model caps on top of the key-wide ones above, keyed by canonical
+		// model id (as in `allowedModels`), for accounts whose upstream quota is
+		// per deployment or model. The key drops out of rotation for that model
+		// only. Same `rateLimitMode`. NULL = none.
+		modelRateLimits: jsonb().$type<ProviderKeyModelRateLimits>(),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.
@@ -3881,8 +3921,9 @@ export const modelProviderMapping = snakeCase.table(
 				"openai-chat-completions",
 				"openai-responses",
 				"google-vertex",
+				"anthropic-messages",
 			],
-		}).$type<ProviderApiFormat>(),
+		}).$type<RequestApiFormat>(),
 		region: text(),
 		// Airside decision listings, served on `/v1/decisions`. Static rows
 		// keep their catalogue definition.
@@ -6083,6 +6124,12 @@ export const providerDraftModel = snakeCase.table(
 			.where(sql`status <> 'delisted'`),
 		index("provider_draft_model_company_idx").on(table.providerCompanyId),
 		index("provider_draft_model_status_idx").on(table.status),
+		// The listing's model name becomes a public model id: keep it in sync
+		// with MODEL_ID_PATTERN in packages/models/src/model-id.ts.
+		check(
+			"provider_draft_model_model_name_check",
+			sql`${table.modelName} ~ '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$'`,
+		),
 	],
 );
 
@@ -6120,9 +6167,14 @@ export interface ProviderModelVerificationCheck {
 
 export interface ProviderModelVerificationTarget {
 	providerId: string;
+	/** Carrier credential used to prove this snapshot; absent on legacy runs. */
+	providerKeyId?: string;
+	credentialFingerprint?: string;
+	/** Set only by the worker after gateway-accounted execution. */
+	gatewayExecutionVersion?: 1;
 	modelName: string;
 	externalId: string;
-	apiFormat?: ProviderApiFormat;
+	apiFormat?: RequestApiFormat;
 	/** A decision listing, probed on `/v1/decisions` instead of chat. */
 	decisions?: boolean;
 	/** Regional deployment of the mapping; undefined targets the default region. */
@@ -6146,6 +6198,13 @@ export interface ProviderModelVerificationTarget {
 	maxOutput?: number | null;
 	/** The listing declares a cached input price, so repeats must report cache hits. */
 	promptCaching?: boolean;
+	/** Proposed prices before a new listing has a filing. */
+	pricing?: {
+		inputPrice: string;
+		outputPrice: string;
+		cachedInputPrice?: string | null;
+		requestPrice?: string | null;
+	};
 }
 
 // One queued verification of an Airside mapping or a catalogue mapping. The
@@ -6387,6 +6446,55 @@ export const providerRoutingFiling = snakeCase.table(
 			.where(sql`model_id IS NOT NULL AND status = 'pending'`),
 		index("provider_routing_filing_company_idx").on(table.providerCompanyId),
 		index("provider_routing_filing_status_idx").on(table.status),
+	],
+);
+
+// Monthly settlement of a payout-mode Airside carrier. The worker refreshes
+// `draft` rows from global_model_stats until an admin approves them; the wire
+// is sent manually and then marked paid. See AIRSIDE_PAYOUT_STATUSES.
+export const airsidePayoutStatement = snakeCase.table(
+	"airside_payout_statement",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		providerId: text().notNull(),
+		// UTC calendar month, [periodStart, periodEnd).
+		periodStart: timestamp().notNull(),
+		periodEnd: timestamp().notNull(),
+		requestCount: integer().notNull().default(0),
+		// Platform-paid (credits-mode) traffic billed at the carrier's prices.
+		grossAmount: decimal().notNull().default("0"),
+		// Gateway margin on that traffic (provider_margin_amount).
+		gatewayFeeAmount: decimal().notNull().default("0"),
+		// Signed admin correction: payout = gross - fee + adjustment.
+		adjustmentAmount: decimal().notNull().default("0"),
+		adjustmentNote: text(),
+		status: text({ enum: ["draft", "approved", "paid"] })
+			.notNull()
+			.default("draft"),
+		computedAt: timestamp().notNull().defaultNow(),
+		approvedAt: timestamp(),
+		approvedBy: text().references(() => user.id, { onDelete: "set null" }),
+		paidAt: timestamp(),
+		paidBy: text().references(() => user.id, { onDelete: "set null" }),
+		// Wire or transfer reference, for reconciliation.
+		paymentReference: text(),
+	},
+	(table) => [
+		// One statement per carrier and month, whichever company holds it.
+		uniqueIndex("airside_payout_statement_provider_period_uidx").on(
+			table.providerId,
+			table.periodStart,
+		),
+		index("airside_payout_statement_company_idx").on(table.providerCompanyId),
+		index("airside_payout_statement_status_idx").on(table.status),
 	],
 );
 
@@ -8196,5 +8304,187 @@ export const globalHourlyProviderKeyModelStats = snakeCase.table(
 		index("global_hourly_provider_key_model_stats_hour_idx").on(
 			table.hourTimestamp,
 		),
+	],
+);
+
+// Mirrors BATCH_ENDPOINTS in @llmgateway/models; schema.ts only takes types
+// from the catalogue.
+const BATCH_ENDPOINTS = [
+	"/v1/chat/completions",
+	"/v1/responses",
+	"/v1/embeddings",
+] as const;
+
+export const BATCH_STATUSES = [
+	"validating",
+	"failed",
+	"in_progress",
+	"finalizing",
+	"completed",
+	"expired",
+	"cancelling",
+	"cancelled",
+] as const;
+
+export type BatchStatus = (typeof BATCH_STATUSES)[number];
+
+export interface BatchError {
+	code: string;
+	message: string;
+	param?: string | null;
+	line?: number | null;
+}
+
+// Files uploaded for, or produced by, the OpenAI-compatible Batch API.
+// Uploaded files hold their JSONL in `content`; output and error files are
+// rendered from batch_request rows of `batchId`.
+export const batchFile = snakeCase.table(
+	"batch_file",
+	{
+		id: text().primaryKey().notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		apiKeyId: text().references(() => apiKey.id, { onDelete: "set null" }),
+		purpose: text({ enum: ["batch", "batch_output", "batch_error"] }).notNull(),
+		filename: text().notNull(),
+		bytes: integer().notNull(),
+		content: text(),
+		batchId: text(),
+		expiresAt: timestamp().notNull(),
+	},
+	(table) => [
+		index("batch_file_project_id_created_at_idx").on(
+			table.projectId,
+			table.createdAt,
+		),
+		index("batch_file_expires_at_idx").on(table.expiresAt),
+	],
+);
+
+export const batch = snakeCase.table(
+	"batch",
+	{
+		id: text().primaryKey().notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		apiKeyId: text().references(() => apiKey.id, { onDelete: "set null" }),
+		endpoint: text({ enum: BATCH_ENDPOINTS }).notNull(),
+		inputFileId: text().notNull(),
+		completionWindow: text().notNull().default("24h"),
+		status: text({ enum: BATCH_STATUSES }).notNull().default("validating"),
+		metadata: jsonb().$type<Record<string, string>>(),
+		errors: jsonb().$type<BatchError[]>(),
+		outputFileId: text(),
+		errorFileId: text(),
+		requestTotal: integer().notNull().default(0),
+		requestCompleted: integer().notNull().default(0),
+		requestFailed: integer().notNull().default(0),
+		// Trusted client IP of the creating request, replayed on each upstream
+		// call so API key IP rules apply to batch traffic.
+		clientIp: text(),
+		claimedUntil: timestamp(),
+		inProgressAt: timestamp(),
+		finalizingAt: timestamp(),
+		completedAt: timestamp(),
+		failedAt: timestamp(),
+		expiredAt: timestamp(),
+		cancellingAt: timestamp(),
+		cancelledAt: timestamp(),
+		expiresAt: timestamp().notNull(),
+	},
+	(table) => [
+		index("batch_project_id_created_at_idx").on(
+			table.projectId,
+			table.createdAt,
+		),
+		index("batch_active_status_idx")
+			.on(table.status)
+			.where(
+				sql`${table.status} in ('validating', 'in_progress', 'finalizing', 'cancelling')`,
+			),
+		// Retention cleanup of finished batches.
+		index("batch_finished_updated_at_idx")
+			.on(table.updatedAt)
+			.where(
+				sql`${table.status} in ('completed', 'failed', 'expired', 'cancelled')`,
+			),
+	],
+);
+
+// The bearer token that created a batch, encrypted with the provider-key
+// keyring. The gateway stores only token hashes, so the worker needs it to call
+// the gateway as the key. Deleted when the batch reaches a terminal state or
+// its key is disabled, deleted or rolled.
+export const batchCredential = snakeCase.table("batch_credential", {
+	batchId: text()
+		.primaryKey()
+		.notNull()
+		.references(() => batch.id, { onDelete: "cascade" }),
+	createdAt: timestamp().notNull().defaultNow(),
+	apiKeyId: text()
+		.notNull()
+		.references(() => apiKey.id, { onDelete: "cascade" }),
+	encryptedToken: text().notNull(),
+});
+
+export const batchRequest = snakeCase.table(
+	"batch_request",
+	{
+		id: text().primaryKey().notNull(),
+		batchId: text()
+			.notNull()
+			.references(() => batch.id, { onDelete: "cascade" }),
+		lineNumber: integer().notNull(),
+		customId: text().notNull(),
+		body: text().notNull(),
+		status: text({
+			enum: [
+				"pending",
+				"in_progress",
+				"completed",
+				"failed",
+				"cancelled",
+				"expired",
+			],
+		})
+			.notNull()
+			.default("pending"),
+		attempts: integer().notNull().default(0),
+		nextAttemptAt: timestamp().notNull().defaultNow(),
+		claimedUntil: timestamp(),
+		responseStatus: integer(),
+		// Raw upstream response body, kept verbatim for the output file.
+		responseBody: text(),
+		requestId: text(),
+		error: jsonb().$type<BatchError>(),
+		completedAt: timestamp(),
+	},
+	(table) => [
+		unique().on(table.batchId, table.customId),
+		index("batch_request_batch_id_line_number_idx").on(
+			table.batchId,
+			table.lineNumber,
+		),
+		index("batch_request_batch_id_status_idx").on(table.batchId, table.status),
+		index("batch_request_pending_idx")
+			.on(table.batchId, table.nextAttemptAt)
+			.where(sql`${table.status} = 'pending'`),
+		index("batch_request_in_progress_idx")
+			.on(table.claimedUntil)
+			.where(sql`${table.status} = 'in_progress'`),
 	],
 );

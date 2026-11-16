@@ -159,7 +159,10 @@ export function ProviderKeyErrorRateCell({
 
 /** Hover label for one bucket: as much of the timestamp as the grain needs. */
 function bucketLabel(window: ErrorWindow, date: string) {
-	if (window === "7d") {
+	if (window === "all") {
+		return date.slice(0, 7);
+	}
+	if (window === "7d" || window === "30d") {
 		return date.slice(0, 10);
 	}
 	return `${date.slice(5, 10)} ${date.slice(11, 16)} UTC`;

@@ -157,11 +157,11 @@ describe("prepareRequestBody - adaptive thinking (Opus 4.6/4.7/4.8)", () => {
 });
 
 interface BedrockAdaptiveBody {
-	additionalModelRequestFields?: {
-		thinking?: { type: "adaptive" | "enabled"; display?: string };
-		output_config?: { effort?: string };
-	};
-	inferenceConfig?: { temperature?: number; topP?: number; maxTokens?: number };
+	thinking?: { type: "adaptive" | "enabled"; display?: string };
+	output_config?: { effort?: string };
+	temperature?: number;
+	top_p?: number;
+	max_tokens?: number;
 }
 
 async function buildBedrockBody(opts: {
@@ -197,40 +197,38 @@ async function buildBedrockBody(opts: {
 }
 
 describe("prepareRequestBody - Bedrock Opus 4.8 deprecated params", () => {
-	test("top-level effort activates adaptive thinking without temperature", async () => {
+	test("top-level effort sets output_config.effort without temperature", async () => {
 		const body = await buildBedrockBody({ effort: "high" });
-		expect(body.additionalModelRequestFields?.thinking).toEqual({
-			type: "adaptive",
-			display: "summarized",
-		});
-		expect(body.additionalModelRequestFields?.output_config?.effort).toBe(
-			"high",
-		);
+		expect(body.output_config?.effort).toBe("high");
 		// temperature is deprecated for Opus 4.8 and must not be forced to 1.
-		expect(body.inferenceConfig?.temperature).toBeUndefined();
+		expect(body.temperature).toBeUndefined();
 	});
 
 	test("reasoning_effort does not force the deprecated temperature", async () => {
 		const body = await buildBedrockBody({ reasoning_effort: "high" });
-		expect(body.additionalModelRequestFields?.output_config?.effort).toBe(
-			"high",
-		);
-		expect(body.inferenceConfig?.temperature).toBeUndefined();
+		expect(body.thinking).toEqual({ type: "adaptive", display: "summarized" });
+		expect(body.output_config?.effort).toBe("high");
+		expect(body.temperature).toBeUndefined();
 	});
 
 	test("drops top_p below 0.95 when thinking is enabled", async () => {
-		const body = await buildBedrockBody({ effort: "high", top_p: 0.9 });
-		expect(body.inferenceConfig?.topP).toBeUndefined();
+		const body = await buildBedrockBody({
+			reasoning_effort: "high",
+			top_p: 0.9,
+		});
+		expect(body.top_p).toBeUndefined();
 	});
 
 	test("keeps top_p >= 0.95 when thinking is enabled", async () => {
-		const body = await buildBedrockBody({ effort: "high", top_p: 0.95 });
-		expect(body.inferenceConfig?.topP).toBe(0.95);
+		const body = await buildBedrockBody({
+			reasoning_effort: "high",
+			top_p: 0.95,
+		});
+		expect(body.top_p).toBe(0.95);
 	});
 
-	test("defaults maxTokens to the model maxOutput in adaptive mode", async () => {
-		// Converse otherwise caps output + thinking at 4096 tokens.
+	test("defaults max_tokens to the model maxOutput in adaptive mode", async () => {
 		const body = await buildBedrockBody({ effort: "high" });
-		expect(body.inferenceConfig?.maxTokens).toBe(128000);
+		expect(body.max_tokens).toBe(128000);
 	});
 });

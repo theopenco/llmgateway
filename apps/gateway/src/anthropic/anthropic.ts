@@ -429,6 +429,14 @@ const anthropicResponseSchema = z.object({
 				web_fetch_requests: z.number().optional(),
 			})
 			.optional(),
+		cost: z.number().optional().openapi({
+			description:
+				"What the request was billed, in USD at list price: the same figure as `usage.cost` on chat completions. On streams it rides on the message_delta event.",
+		}),
+		cost_details: z.record(z.string(), z.unknown()).optional().openapi({
+			description:
+				"The components of `cost`, the same object as `usage.cost_details` on chat completions.",
+		}),
 	}),
 	metadata: z.record(z.string(), z.unknown()).optional().openapi({
 		description:
@@ -1489,6 +1497,8 @@ anthropic.openapi(messages, async (c) => {
 						ephemeral_5m_input_tokens: number;
 						ephemeral_1h_input_tokens: number;
 					};
+					cost?: number;
+					cost_details?: Record<string, unknown>;
 				} = {
 					input_tokens: 0,
 					output_tokens: 0,
@@ -1545,6 +1555,12 @@ anthropic.openapi(messages, async (c) => {
 										breakdown.ephemeral_1h_input_tokens ?? 0,
 								},
 							}),
+						...(typeof chunk.usage.cost === "number" && {
+							cost: chunk.usage.cost,
+						}),
+						...(chunk.usage.cost_details && {
+							cost_details: chunk.usage.cost_details,
+						}),
 					};
 				};
 
@@ -2412,6 +2428,12 @@ anthropic.openapi(messages, async (c) => {
 					},
 				}),
 			...(serverToolUseUsage && { server_tool_use: serverToolUseUsage }),
+			...(typeof openaiResponse.usage?.cost === "number" && {
+				cost: openaiResponse.usage.cost,
+			}),
+			...(openaiResponse.usage?.cost_details && {
+				cost_details: openaiResponse.usage.cost_details,
+			}),
 		},
 		...(openaiResponse.metadata &&
 			typeof openaiResponse.metadata === "object" && {

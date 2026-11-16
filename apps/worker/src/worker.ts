@@ -35,6 +35,7 @@ import {
 	isPremiumModelAfterDiscounts,
 	log,
 	type LogInsertData,
+	type QueuedLogData,
 	lt,
 	organization,
 	resolveVerifiedOrgRecipient,
@@ -42,6 +43,7 @@ import {
 	sql,
 	tables,
 } from "@llmgateway/db";
+import { recordLogPersistLag } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 import { hasErrorCode } from "@llmgateway/models";
 import {
@@ -62,13 +64,22 @@ import {
 import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
 
 import { posthog } from "./posthog.js";
+import { refreshAirsidePayoutStatements } from "./services/airside-payouts.js";
 import { deliverAirsideVerificationEmails } from "./services/airside-verification-emails.js";
 import { backfillPauseMs } from "./services/backfill-pacing.js";
+import {
+	BATCH_REQUEST_CONCURRENCY,
+	createBatchLoopState,
+	drainBatchRequests,
+	logBatchError,
+	runBatchLoopIteration,
+} from "./services/batches.js";
 import { processNextBenchmarkRun } from "./services/benchmark-runs.js";
 import {
 	scheduleDailyModelVerifications,
 	modelVerificationConcurrency,
 } from "./services/daily-model-verifications.js";
+import { checkFailingCredentialAlerts } from "./services/failing-credential-alerts.js";
 import {
 	runFollowUpEmailsLoop,
 	canSendFollowUp,
@@ -156,6 +167,9 @@ const STALE_TOPUP_PI_LOCK_KEY = "stale_topup_pi_cancel";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
 const MODEL_ERROR_RATE_ALERTS_LOCK_KEY = "model_error_rate_alerts";
+const AIRSIDE_PAYOUTS_LOCK_KEY = "airside_payout_statements";
+const AIRSIDE_PAYOUTS_INTERVAL_SECONDS =
+	Number(process.env.AIRSIDE_PAYOUTS_INTERVAL_SECONDS) || 3600;
 const ROUTING_BASELINE_BACKFILL_LOCK_KEY = "routing_baseline_backfill";
 const SOURCE_MODEL_STATS_BACKFILL_LOCK_KEY = "source_model_stats_backfill";
 const MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY =
@@ -2205,6 +2219,23 @@ function recordLogInsertSuccess(): void {
 	logInsertCircuit.nextAttemptAt = 0;
 }
 
+// Records each row's queue-to-commit lag and returns a log-line suffix with
+// the batch average and max.
+function recordPersistLag(enqueuedAts: number[], persistedAt: number): string {
+	if (enqueuedAts.length === 0) {
+		return "";
+	}
+	let total = 0;
+	let max = 0;
+	for (const enqueuedAt of enqueuedAts) {
+		const lagMs = Math.max(0, persistedAt - enqueuedAt);
+		recordLogPersistLag(lagMs / 1000);
+		total += lagMs;
+		max = Math.max(max, lagMs);
+	}
+	return `, lag avg ${Math.round(total / enqueuedAts.length)}ms max ${max}ms`;
+}
+
 // Returns the number of messages successfully inserted, so the drain loop can
 // decide whether to sleep (partial batch) or immediately fetch the next batch
 // (full batch, queue likely still backed up).
@@ -2225,8 +2256,12 @@ export async function processLogQueue(): Promise<number> {
 		// The gateway decides what to persist: it strips request/response payload
 		// fields before publishing for orgs that don't retain data, so the worker
 		// inserts the queued rows with no per-batch org retention lookup.
-		const logData = message.map((i) => {
-			const data = JSON.parse(i) as LogInsertData;
+		const enqueuedAts: number[] = [];
+		const logData = message.map((i): LogInsertData => {
+			const { enqueuedAt, ...data } = JSON.parse(i) as QueuedLogData;
+			if (typeof enqueuedAt === "number") {
+				enqueuedAts.push(enqueuedAt);
+			}
 			// Failed requests can still carry fractional limits into integer columns.
 			if (typeof data.maxTokens === "number") {
 				data.maxTokens = Math.ceil(data.maxTokens);
@@ -2243,10 +2278,11 @@ export async function processLogQueue(): Promise<number> {
 			try {
 				const insertStart = Date.now();
 				await db.insert(log).values(logData);
-				const insertMs = Date.now() - insertStart;
+				const persistedAt = Date.now();
+				const insertMs = persistedAt - insertStart;
 				recordLogInsertSuccess();
 				logger.info(
-					`Processed log batch: ${message.length} rows (insert ${insertMs}ms)`,
+					`Processed log batch: ${message.length} rows (insert ${insertMs}ms${recordPersistLag(enqueuedAts, persistedAt)})`,
 				);
 				return message.length; // Success, exit function
 			} catch (insertError) {
@@ -2535,6 +2571,57 @@ async function runVideoJobsLoop() {
 	} finally {
 		activeLoops--;
 		logger.info("Video jobs loop stopped");
+	}
+}
+
+// How long a stopping worker lets running batch requests finish before failing
+// them as interrupted. Requests can run up to 10 minutes, so a deployment that
+// wants no interrupted requests raises this together with its termination
+// grace period. stopWorker waits at least this long plus a margin.
+const BATCH_SHUTDOWN_DRAIN_MS =
+	(Number(process.env.BATCH_SHUTDOWN_DRAIN_SECONDS) || 10) * 1000;
+const STOP_MARGIN_MS = 5000;
+const BATCH_POLL_INTERVAL_MS =
+	(Number(process.env.BATCH_POLL_INTERVAL_SECONDS) || 2) * 1000;
+
+async function runBatchApiLoop() {
+	if (
+		process.env.HOSTED === "true" &&
+		!process.env.GATEWAY_BACKEND_URL?.trim()
+	) {
+		// Through the public load balancer the client IP header is overwritten,
+		// so batch requests would lose the creator's IP and fail IP rules.
+		logger.error(
+			"Batch API loop not started: GATEWAY_BACKEND_URL must point at the in-cluster gateway",
+		);
+		return;
+	}
+	activeLoops++;
+	logger.info(
+		`Starting batch API loop (concurrency: ${BATCH_REQUEST_CONCURRENCY})...`,
+	);
+	const state = createBatchLoopState();
+	try {
+		while (!isStopRequested()) {
+			try {
+				await runBatchLoopIteration(state);
+			} catch (error) {
+				logBatchError("loop", error);
+			}
+			await interruptibleSleep(BATCH_POLL_INTERVAL_MS);
+		}
+	} finally {
+		const interrupted = await drainBatchRequests(
+			state,
+			BATCH_SHUTDOWN_DRAIN_MS,
+		);
+		if (interrupted > 0) {
+			logger.warn(
+				`Batch API loop failed ${interrupted} interrupted request(s)`,
+			);
+		}
+		activeLoops--;
+		logger.info("Batch API loop stopped");
 	}
 }
 
@@ -3425,6 +3512,7 @@ async function runModelErrorRateAlertsLoop() {
 				if (await acquireLock(MODEL_ERROR_RATE_ALERTS_LOCK_KEY)) {
 					try {
 						await checkModelErrorRateAlerts();
+						await checkFailingCredentialAlerts();
 					} finally {
 						await releaseLock(MODEL_ERROR_RATE_ALERTS_LOCK_KEY);
 					}
@@ -3441,6 +3529,38 @@ async function runModelErrorRateAlertsLoop() {
 	} finally {
 		activeLoops--;
 		logger.info("Model error-rate alerts loop stopped");
+	}
+}
+
+async function runAirsidePayoutsLoop() {
+	activeLoops++;
+	const interval = AIRSIDE_PAYOUTS_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting Airside payout statements loop (interval: ${AIRSIDE_PAYOUTS_INTERVAL_SECONDS} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock(AIRSIDE_PAYOUTS_LOCK_KEY)) {
+					try {
+						await refreshAirsidePayoutStatements();
+					} finally {
+						await releaseLock(AIRSIDE_PAYOUTS_LOCK_KEY);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in Airside payout statements loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(60_000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Airside payout statements loop stopped");
 	}
 }
 
@@ -3716,9 +3836,13 @@ export async function startWorker() {
 	logger.info(
 		"- API key expiration: runs every 5 minutes to disable keys whose TTL passed",
 	);
+	logger.info(
+		`- Airside payout statements: runs every ${AIRSIDE_PAYOUTS_INTERVAL_SECONDS} seconds to open and refresh last month's previews`,
+	);
 
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
+	void runBatchApiLoop();
 	for (
 		let consumer = 0;
 		consumer < modelVerificationConcurrency();
@@ -3765,6 +3889,7 @@ export async function startWorker() {
 	void runMarginPayoutLoop();
 	void runNotificationsLoop();
 	void runModelErrorRateAlertsLoop();
+	void runAirsidePayoutsLoop();
 	void runDataStreamsLoop();
 	void runProviderKeyModelSyncLoop();
 	void runFollowUpEmailsLoop({
@@ -3791,7 +3916,7 @@ export async function stopWorker(): Promise<boolean> {
 	requestStop();
 
 	// Wait for all loops to finish by polling activeLoops counter
-	const maxWaitTime = 15000; // 15 seconds timeout
+	const maxWaitTime = Math.max(15000, BATCH_SHUTDOWN_DRAIN_MS + STOP_MARGIN_MS);
 	const pollInterval = 100; // 100ms per iteration
 	const startTime = Date.now();
 

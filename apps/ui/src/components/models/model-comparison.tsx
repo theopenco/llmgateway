@@ -556,6 +556,9 @@ function renderRowValue(
 						year: "numeric",
 						month: "short",
 						day: "numeric",
+						// releasedAt is UTC midnight; without this, browsers west of
+						// UTC render the previous day and mismatch the server HTML.
+						timeZone: "UTC",
 					})
 				: PLACEHOLDER;
 		case "stability":

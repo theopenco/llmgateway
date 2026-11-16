@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { logger } from "@llmgateway/logger";
+
 import { insertLog } from "./logs.js";
 
 import type { LogInsertData } from "@llmgateway/db";
@@ -68,4 +70,32 @@ describe("insertLog hasError", () => {
 		const log = await publishedLog(overrides);
 		expect(log.hasError).toBe(false);
 	});
+});
+
+describe("normalized Anthropic cache logs", () => {
+	it.each(["anthropic", "vertex-anthropic", "azure-anthropic"])(
+		"classifies a cached stop for %s without an unknown-reason alert",
+		async (provider) => {
+			publishToQueue.mockClear();
+			const errorSpy = vi.spyOn(logger, "error");
+			try {
+				const log = await publishedLog({
+					usedProvider: provider,
+					usedModel: `${provider}/some-model`,
+					finishReason: "stop",
+					cached: true,
+					streamed: true,
+				});
+				expect(log.unifiedFinishReason).toBe("completed");
+				expect(log.finishReason).toBe("stop");
+				expect(log.hasError).toBe(false);
+				expect(errorSpy).not.toHaveBeenCalledWith(
+					"Unknown finish reason encountered",
+					expect.anything(),
+				);
+			} finally {
+				errorSpy.mockRestore();
+			}
+		},
+	);
 });

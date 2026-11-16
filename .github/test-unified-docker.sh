@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# The API refuses to start in production without a real secret.
+export AUTH_SECRET="${AUTH_SECRET:-$(openssl rand -base64 32)}"
+
 # Colors for output
 GREEN='\033[0;32m'
 RED='\033[0;31m'

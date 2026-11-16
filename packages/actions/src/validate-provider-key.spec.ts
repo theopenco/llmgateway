@@ -312,6 +312,49 @@ describe("validateProviderKey model-specific probes", () => {
 		});
 	});
 
+	it.each([
+		{
+			name: "resource",
+			baseUrl: undefined,
+			options: { azure_resource: "my-resource" },
+			expected: "https://my-resource.openai.azure.com/openai/v1/embeddings",
+		},
+		{
+			name: "managed base URL over resource",
+			baseUrl: undefined,
+			options: {
+				env_config: {
+					baseUrl: "https://proxy.example.com/",
+					resource: "my-resource",
+				},
+			},
+			expected: "https://proxy.example.com/openai/v1/embeddings",
+		},
+		{
+			name: "key base URL over resource",
+			baseUrl: "https://byok.example.com",
+			options: { azure_resource: "my-resource" },
+			expected: "https://byok.example.com/openai/v1/embeddings",
+		},
+	])(
+		"probes Azure embeddings on the v1 API from the $name",
+		async ({ baseUrl, options, expected }) => {
+			const fetchMock = mockSuccess();
+
+			const result = await validateProviderKey(
+				"azure",
+				"azure-test",
+				baseUrl,
+				false,
+				options,
+				"text-embedding-3-small",
+			);
+
+			expect(result.valid).toBe(true);
+			expect(fetchMock.mock.calls[0][0]).toBe(expected);
+		},
+	);
+
 	it("probes an explicit OpenAI-compatible custom model", async () => {
 		const fetchMock = mockSuccess();
 		const abortController = new AbortController();
@@ -744,3 +787,49 @@ describe("validateProviderKey credential hygiene", () => {
 		expect(logged).toContain("[REDACTED_TOKEN]");
 	});
 });
+async function testAzureEmbeddingDeploymentOverride(
+	deploymentName: string | undefined,
+	expectedModel: string,
+) {
+	const fetchMock = vi
+		.spyOn(globalThis, "fetch")
+		.mockImplementation(async (_url, init) => {
+			const body = JSON.parse(String(init?.body)) as { model: string };
+			return body.model === expectedModel
+				? new Response("{}", { status: 200 })
+				: new Response(
+						JSON.stringify({ error: { message: "DeploymentNotFound" } }),
+						{ status: 404 },
+					);
+		});
+	try {
+		const result = await validateProviderKey(
+			"azure",
+			"azure-test",
+			undefined,
+			false,
+			{ azure_resource: "my-resource", azure_deployment_name: deploymentName },
+			"text-embedding-3-small",
+		);
+		expect(result).toEqual({ valid: true, model: "text-embedding-3-small" });
+		expect(fetchMock).toHaveBeenCalledOnce();
+		expect(fetchMock.mock.calls[0]?.[0]).toBe(
+			"https://my-resource.openai.azure.com/openai/v1/embeddings",
+		);
+		expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+			input: "Hello",
+			model: expectedModel,
+		});
+	} finally {
+		vi.restoreAllMocks();
+	}
+}
+
+it.each([
+	["custom-embedding-deployment", "custom-embedding-deployment"],
+	["", "text-embedding-3-small"],
+	[undefined, "text-embedding-3-small"],
+])(
+	"validates the Azure embedding deployment override %s",
+	testAzureEmbeddingDeploymentOverride,
+);

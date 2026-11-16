@@ -18,7 +18,7 @@ import { assertClientIpHeaderConfigured } from "@llmgateway/shared/client-ip";
 import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import { redisClient } from "./auth/config.js";
-import { app } from "./index.js";
+import { app, healthChecker } from "./index.js";
 import {
 	sendInstallationBeacon,
 	startDailyBeacon,
@@ -34,6 +34,7 @@ const keepAliveTimeoutS = Number(process.env.KEEP_ALIVE_TIMEOUT_S) || 60;
 
 let sdk: NodeSDK | null = null;
 let metricsServer: Server | null = null;
+let stopReadinessGate: (() => void) | null = null;
 
 async function startServer() {
 	// API_PORT wins over PORT so a local worktree can pin api and gateway to
@@ -103,6 +104,10 @@ async function startServer() {
 		maxSeats: enterpriseLicense.maxSeats,
 	});
 
+	// Hold readiness closed until Postgres and Redis answer once, so a release
+	// that cannot reach them never replaces healthy pods.
+	stopReadinessGate = healthChecker.gateReadiness();
+
 	logger.info("Server listening", { port });
 
 	return serve({
@@ -159,6 +164,7 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 
 	isShuttingDown = true;
 	logger.info("Starting graceful shutdown", { signal });
+	stopReadinessGate?.();
 
 	try {
 		logger.info("Closing HTTP server");

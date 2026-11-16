@@ -104,6 +104,7 @@ export function CostByModelChart({
 	fetchData,
 	fetchDataRange,
 	externalWindow,
+	showUsageMode = true,
 	showModelView = false,
 	modelView: controlledModelView,
 	onModelViewChange,
@@ -116,6 +117,7 @@ export function CostByModelChart({
 	to,
 }: {
 	title: string;
+	showUsageMode?: boolean;
 	description?: string;
 	fetchData?: (
 		window: TokenWindow,
@@ -287,7 +289,7 @@ export function CostByModelChart({
 						))}
 					</div>
 					<div className="flex flex-wrap items-center justify-end gap-2">
-						<UsageModeSelector />
+						{showUsageMode && <UsageModeSelector />}
 						{showGroupBy && (
 							<div
 								className="flex flex-wrap items-center gap-1 rounded-md border border-border/60 bg-background p-1"

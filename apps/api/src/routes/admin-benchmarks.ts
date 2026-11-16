@@ -7,6 +7,7 @@ import {
 	benchmarkGatewayKeyConfigured,
 	listBenchmarkModelOptions,
 	resolveBenchmarkRunTargets,
+	missingBenchmarkGatewayKeys,
 } from "@/utils/benchmark-targets.js";
 import { createRoute } from "@/utils/create-route.js";
 
@@ -162,17 +163,16 @@ adminBenchmarks.openapi(createRun, async (c) => {
 	const user = c.get("user");
 	const body = c.req.valid("json");
 
-	if (!benchmarkGatewayKeyConfigured()) {
-		throw new HTTPException(400, {
-			message:
-				"BENCHMARK_GATEWAY_API_KEY is not configured, so benchmark runs cannot reach the gateway.",
-		});
-	}
-
 	// Resolving here rather than in the worker means an unknown model or a
 	// mapping selector that matches nothing is rejected while the admin is
 	// still looking at the form, instead of failing a queued run minutes later.
 	const targets = await resolveBenchmarkRunTargets(body.modelId, body.mappings);
+	const missingKeys = missingBenchmarkGatewayKeys(targets);
+	if (missingKeys.length > 0) {
+		throw new HTTPException(400, {
+			message: `${missingKeys.join(", ")} is not configured, so benchmark runs cannot reach the gateway.`,
+		});
+	}
 
 	const [run] = await db
 		.insert(tables.benchmarkRun)

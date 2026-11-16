@@ -151,12 +151,16 @@ export interface ProviderRowFilterOptions {
 	capabilities: {
 		streaming: boolean;
 		vision: boolean;
+		audioInput?: boolean;
+		document?: boolean;
+		realtime?: boolean;
 		tools: boolean;
 		reasoning: boolean;
 		reasoningBudget: boolean;
 		jsonOutput: boolean;
 		jsonOutputSchema: boolean;
 		webSearch: boolean;
+		batch: boolean;
 		discounted: boolean;
 	};
 	categoryFilter?: ModelCategoryFilter;
@@ -180,6 +184,9 @@ export function providerRowPassesFilters(
 	if (
 		(capabilities.streaming && !matchesCapability("streaming", provider)) ||
 		(capabilities.vision && !matchesCapability("vision", provider)) ||
+		(capabilities.audioInput && !matchesCapability("audioInput", provider)) ||
+		(capabilities.document && !matchesCapability("document", provider)) ||
+		(capabilities.realtime && !matchesCapability("realtime", provider)) ||
 		(capabilities.tools && !matchesCapability("tools", provider)) ||
 		(capabilities.reasoning && !matchesCapability("reasoning", provider)) ||
 		(capabilities.reasoningBudget &&
@@ -188,6 +195,7 @@ export function providerRowPassesFilters(
 		(capabilities.jsonOutputSchema &&
 			!matchesCapability("jsonOutputSchema", provider)) ||
 		(capabilities.webSearch && !matchesCapability("webSearch", provider)) ||
+		(capabilities.batch && !matchesCapability("batch", provider)) ||
 		(capabilities.discounted && !matchesCapability("discounted", provider))
 	) {
 		return false;

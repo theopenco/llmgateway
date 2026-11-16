@@ -7,16 +7,19 @@ import type {
 	BenchmarkStreamChunk,
 	BenchmarkTiming,
 	BenchmarkUsage,
+	BenchmarkAssistantReplay,
 } from "./types.js";
 
 interface StreamToolCallDelta {
 	index?: number;
 	id?: string;
 	type?: "function";
+	extra_content?: BenchmarkMessageToolCall["extra_content"];
+	provider_extra?: BenchmarkMessageToolCall["provider_extra"];
 	function?: { name?: string; arguments?: string };
 }
 
-interface StreamDelta {
+interface StreamDelta extends BenchmarkAssistantReplay {
 	content?: string;
 	reasoning?: string;
 	reasoning_content?: string;
@@ -175,6 +178,13 @@ function appendToolCall(
 		function: { name: "", arguments: "" },
 	};
 	toolCalls.set(index, {
+		...existing,
+		...(delta.extra_content !== undefined
+			? { extra_content: delta.extra_content }
+			: {}),
+		...(delta.provider_extra !== undefined
+			? { provider_extra: delta.provider_extra }
+			: {}),
 		id: existing.id + (delta.id ?? ""),
 		type: "function",
 		function: {
@@ -209,13 +219,13 @@ export async function executeStreamingRequest({
 			body: JSON.stringify({
 				...request.parameters,
 				model,
-				messages: request.messages.map((message) => ({
-					role: message.role,
-					content: message.content,
-					...(message.name ? { name: message.name } : {}),
-					...(message.toolCallId ? { tool_call_id: message.toolCallId } : {}),
-					...(message.toolCalls ? { tool_calls: message.toolCalls } : {}),
-				})),
+				messages: request.messages.map(
+					({ toolCallId, toolCalls, ...message }) => ({
+						...message,
+						...(toolCallId ? { tool_call_id: toolCallId } : {}),
+						...(toolCalls ? { tool_calls: toolCalls } : {}),
+					}),
+				),
 				stream: true,
 				stream_options: { include_usage: true },
 				...(request.tools ? { tools: request.tools } : {}),
@@ -265,6 +275,7 @@ export async function executeStreamingRequest({
 	let usageRaw: Record<string, unknown> | null = null;
 	let streamError: BenchmarkError | null = null;
 	const toolCallParts = new Map<number, BenchmarkMessageToolCall>();
+	const replay: BenchmarkAssistantReplay = {};
 	const streamChunks: BenchmarkStreamChunk[] = [];
 	const reader = response.body.getReader();
 	const decoder = new TextDecoder();
@@ -304,6 +315,21 @@ export async function executeStreamingRequest({
 			return;
 		}
 		finishReason = choice.finish_reason ?? finishReason;
+		for (const field of [
+			"reasoning_details",
+			"anthropic_native_blocks",
+		] as const) {
+			const value = choice.delta?.[field];
+			if (Array.isArray(value)) {
+				replay[field] = [...(replay[field] ?? []), ...value];
+			}
+		}
+		for (const field of ["extra_content", "provider_extra", "phase"] as const) {
+			const value = choice.delta?.[field];
+			if (value !== undefined) {
+				Object.assign(replay, { [field]: value });
+			}
+		}
 		for (const toolCall of choice.delta?.tool_calls ?? []) {
 			appendToolCall(toolCallParts, toolCall);
 		}
@@ -357,6 +383,7 @@ export async function executeStreamingRequest({
 
 	const usage = createUsage(usageRaw);
 	return {
+		...replay,
 		content,
 		reasoning,
 		toolCalls: [...toolCallParts.entries()]

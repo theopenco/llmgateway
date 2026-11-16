@@ -46,6 +46,7 @@ const mappings = models
 			.map((p) => ({
 				model: `${p.providerId}/${m.id}`,
 				hasKey: providerKeys[p.providerId],
+				converse: p.providerId === "aws-bedrock" && !p.apiFormat,
 				canDisable:
 					p.reasoningMode !== "adaptive" ||
 					(p.reasoningEfforts?.includes("none") ?? false),
@@ -62,14 +63,12 @@ const weatherTool = {
 	},
 };
 
-function upstreamThinking(model: string, upstreamRequest: unknown) {
+function upstreamThinking(converse: boolean, upstreamRequest: unknown) {
 	const body = upstreamRequest as {
 		thinking?: unknown;
 		additionalModelRequestFields?: { thinking?: unknown };
 	};
-	return model.startsWith("aws-bedrock/")
-		? body.additionalModelRequestFields?.thinking
-		: body.thinking;
+	return converse ? body.additionalModelRequestFields?.thinking : body.thinking;
 }
 
 async function post(path: string, body: unknown, requestId: string) {
@@ -92,7 +91,7 @@ describe("Claude thinking disabled", () => {
 	beforeAll(beforeAllHook);
 	beforeEach(beforeEachHook);
 
-	for (const { model, hasKey, canDisable } of mappings) {
+	for (const { model, hasKey, canDisable, converse } of mappings) {
 		const skip = !hasKey || (selectedModels && !selectedModels.includes(model));
 		const expectedThinking = canDisable ? { type: "disabled" } : undefined;
 
@@ -145,7 +144,7 @@ describe("Claude thinking disabled", () => {
 					}
 
 					const log = await validateLogByRequestId(requestId);
-					expect(upstreamThinking(model, log.upstreamRequest)).toEqual(
+					expect(upstreamThinking(converse, log.upstreamRequest)).toEqual(
 						expectedThinking,
 					);
 				},
@@ -185,7 +184,7 @@ describe("Claude thinking disabled", () => {
 				}
 
 				const log = await validateLogByRequestId(requestId);
-				expect(upstreamThinking(model, log.upstreamRequest)).toEqual(
+				expect(upstreamThinking(converse, log.upstreamRequest)).toEqual(
 					expectedThinking,
 				);
 			},

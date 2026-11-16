@@ -240,7 +240,9 @@ export default function VideoPageClient({
 			(item) => {
 				const inputPreviews: { src: string; label: string }[] = [];
 				const inputImageUrl = (index: number) =>
-					`${config.apiUrl}/playground/video-history/${item.id}/input-image/${index}`;
+					// `v` changes the URL whenever the response headers change, since
+					// these responses are cached as immutable.
+					`${config.apiUrl}/playground/video-history/${item.id}/input-image/${index}?v=2`;
 				if (item.hasStartFrame) {
 					inputPreviews.push({
 						src: inputImageUrl(inputPreviews.length),
@@ -552,10 +554,7 @@ export default function VideoPageClient({
 
 	// Sync URL → state for back/forward navigation
 	useEffect(() => {
-		if (videoIdFromUrl !== selectedItemId) {
-			setSelectedItemId(videoIdFromUrl);
-		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
+		setSelectedItemId(videoIdFromUrl);
 	}, [videoIdFromUrl]);
 
 	const lastRestoredIdRef = useRef<string | null>(null);
@@ -704,10 +703,12 @@ export default function VideoPageClient({
 				videoSize,
 				videoDuration,
 				inputImageCount,
+				referenceVideos.length,
 			),
 		[
 			comparisonMode,
 			inputImageCount,
+			referenceVideos.length,
 			selectedModels,
 			videoDuration,
 			videoGenModels,

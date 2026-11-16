@@ -25,6 +25,7 @@ export const typesafeModels = [
 				tools: false,
 				jsonOutput: false,
 				decisions: true,
+				decisionBoxQuestions: true,
 			},
 		],
 	},

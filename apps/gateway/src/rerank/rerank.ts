@@ -9,6 +9,7 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
+import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -61,6 +62,7 @@ import {
 	shouldRedactProviderError,
 } from "@/lib/stealth-provider-errors.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
 import {
@@ -151,6 +153,7 @@ const rerankResponseSchema = z
 		model: z.string(),
 		results: z.array(rerankResultSchema),
 		meta: rerankMetaSchema.optional(),
+		usage: usageWithCostSchema.optional(),
 	})
 	.passthrough()
 	.openapi({
@@ -540,6 +543,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				providerId as Provider,
 				{
 					selectionScope: upstreamModel,
+					model: modelDefId,
 					variant: envVariant,
 					region: undefined,
 					requiresServiceTier: false,
@@ -559,6 +563,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (!providerKeyInner) {
 				throw new HTTPException(400, {
@@ -583,6 +588,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (providerKeyInner) {
 				usedToken = readProviderKey(providerKeyInner);
@@ -1243,7 +1249,16 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				{ retentionLevel },
 			);
 
-			return c.json(normalizedResponse);
+			return c.json(
+				withUsageCost(
+					normalizedResponse,
+					cost,
+					{ input_cost: inputCost, request_cost: requestCostNum },
+					promptTokens !== null
+						? { input_tokens: promptTokens, total_tokens: totalTokens }
+						: {},
+				),
+			);
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

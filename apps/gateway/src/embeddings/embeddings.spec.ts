@@ -44,6 +44,44 @@ describe("embeddings", () => {
 		);
 	});
 
+	test("/v1/embeddings serves Azure deployments on the v1 API", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-embeddings-azure",
+			...hashApiKeyForStorage("real-token-embeddings-azure"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-azure-embeddings",
+			...encryptProviderKeyForStorage(
+				"azure-embeddings-token",
+				"provider-key-azure-embeddings",
+				"org-id",
+			),
+			provider: "azure",
+			organizationId: "org-id",
+			baseUrl: harness.mockServerUrl,
+		});
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-embeddings-azure",
+			},
+			body: JSON.stringify({
+				model: "azure/text-embedding-3-small",
+				input: "The food was delicious",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json).toHaveProperty("model", "azure/text-embedding-3-small");
+		expect(json.data[0].embedding).toHaveLength(1536);
+	});
+
 	test("/v1/embeddings retries with another BYOK key after upstream 500", async () => {
 		resetFailOnceCounter();
 

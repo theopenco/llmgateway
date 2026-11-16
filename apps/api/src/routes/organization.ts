@@ -2109,7 +2109,11 @@ organization.openapi(getOrganizationLimits, async (c) => {
 		// Only regular orgs get the spend-tier multiplier; dev/chat stay flat.
 		const rpm =
 			planClass === "regular" ? Math.floor(base * tier.rpmMultiplier) : base;
-		return { key: cfg.key, path: cfg.prefix, rpm };
+		return {
+			key: cfg.key,
+			path: cfg.method ? `${cfg.method} ${cfg.prefix}` : cfg.prefix,
+			rpm,
+		};
 	});
 
 	// Rolling-24h top-up allowance (windowed transaction sum + in-flight

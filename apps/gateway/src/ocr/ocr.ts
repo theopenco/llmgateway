@@ -9,6 +9,7 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
+import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -55,6 +56,7 @@ import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
 
 import {
 	getProviderDefaultBaseUrl,
@@ -155,6 +157,7 @@ const ocrResponseSchema = z
 		model: z.string().optional(),
 		document_annotation: z.string().nullable().optional(),
 		usage_info: ocrUsageInfoSchema.optional(),
+		usage: usageWithCostSchema.optional(),
 	})
 	.passthrough()
 	.openapi({
@@ -589,6 +592,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (!providerKey) {
 				throw new HTTPException(400, {
@@ -608,6 +612,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 
 			const platformCredential = await resolvePlatformCredential(providerId, {
 				selectionScope: upstreamModel,
+				model: modelDefId,
 				variant: envVariant,
 				region: undefined,
 				requiresServiceTier: false,
@@ -624,6 +629,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (providerKey) {
 				usedToken = readProviderKey(providerKey);
@@ -639,6 +645,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 
 				const platformCredential = await resolvePlatformCredential(providerId, {
 					selectionScope: upstreamModel,
+					model: modelDefId,
 					variant: envVariant,
 					region: undefined,
 					requiresServiceTier: false,
@@ -1200,10 +1207,17 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				{ retentionLevel },
 			);
 
-			return c.json({
-				...(upstreamJson as z.infer<typeof ocrResponseSchema>),
-				model: responseModel,
-			});
+			return c.json(
+				withUsageCost(
+					{
+						...(upstreamJson as z.infer<typeof ocrResponseSchema>),
+						model: responseModel,
+					},
+					cost,
+					{ page_cost: pageCost, request_cost: requestCost },
+					pagesProcessed !== null ? { pages_processed: pagesProcessed } : {},
+				),
+			);
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

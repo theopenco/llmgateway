@@ -515,8 +515,9 @@ export default function FleetPage() {
 						<span className="font-mono">
 							{uncredentialedCarriers.map((c) => c.providerId).join(", ")}
 						</span>{" "}
-						yet, so approved listings will not receive traffic. Send us one from
-						the crew channel and we will install it.
+						yet, so approved listings will not receive traffic. New carriers
+						file their provider key with their first model; for an existing
+						carrier, contact the crew to configure its provider key.
 					</p>
 				</div>
 			) : null}

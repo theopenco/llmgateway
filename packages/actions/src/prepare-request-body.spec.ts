@@ -2204,6 +2204,85 @@ describe("prepareRequestBody - Tencent Hy Image generation", () => {
 	});
 });
 
+describe("prepareRequestBody - MiniMax H3 Image", () => {
+	async function prepareMinimaxImageRequest(
+		messages: BaseMessage[],
+		imageConfig?: {
+			aspect_ratio?: string;
+			image_size?: string;
+			n?: number;
+			output_format?: string;
+		},
+	) {
+		return (await prepareRequestBody(
+			"minimax",
+			"minimax-h3-image",
+			null,
+			"MiniMax-H3-Image",
+			messages,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			imageConfig,
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("maps an area tier and aspect ratio, and drops unsupported formats", async () => {
+		const requestBody = await prepareMinimaxImageRequest(
+			[{ role: "user", content: "A lighthouse at dawn" }],
+			{ image_size: "2k", aspect_ratio: "16:9", n: 2, output_format: "svg" },
+		);
+
+		expect(requestBody).toEqual({
+			model: "MiniMax-H3-Image",
+			prompt: "A lighthouse at dawn",
+			area: "2K",
+			aspect_ratio: "16:9",
+			n: 2,
+		});
+	});
+
+	test("sends a WxH size without aspect ratio and reference images for edits", async () => {
+		const requestBody = await prepareMinimaxImageRequest(
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Make it a watercolor" },
+						{
+							type: "image_url",
+							image_url: { url: "https://example.com/ref.png" },
+						},
+					],
+				},
+			],
+			{ image_size: "1536x1024", aspect_ratio: "3:2", output_format: "png" },
+		);
+
+		expect(requestBody).toEqual({
+			model: "MiniMax-H3-Image",
+			prompt: "Make it a watercolor",
+			images: [{ image_url: "https://example.com/ref.png" }],
+			size: "1536x1024",
+			output_format: "png",
+		});
+	});
+});
+
 describe("prepareRequestBody - xAI image generation", () => {
 	async function prepareXaiImageRequest(imageConfig: {
 		aspect_ratio?: string;
@@ -2981,13 +3060,13 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 	);
 
 	test("strips none for an OpenAI-compatible mapping that does not declare it", async () => {
-		// grok-4-3 via azure-ai-foundry speaks a non-allowlisted provider and
+		// grok-4-1-fast-reasoning via xai speaks a non-allowlisted provider and
 		// its catalog entry omits `none` from reasoningEfforts. The mapping
 		// must be the authority: with `none` undeclared, the value is
 		// normalized away instead of forwarded to a provider that may 4xx.
 		const requestBody = await prepare({
-			provider: "azure-ai-foundry",
-			model: "grok-4-3",
+			provider: "xai",
+			model: "grok-4-1-fast-reasoning",
 		});
 		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
@@ -3147,8 +3226,8 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 		// xAI mappings that declare reasoning: true but previously omitted
 		// reasoning_effort from supportedParameters, silently dropping any
 		// effort value before the request was built (#3436, #3403).
-		["azure-ai-foundry", "grok-4-3", "medium"],
-		["azure-ai-foundry", "grok-4-1-fast-reasoning", "high"],
+		["azure", "grok-4-3", "medium"],
+		["azure", "grok-4-1-fast-reasoning", "high"],
 		["xai", "grok-4", "high"],
 	];
 
@@ -4864,13 +4943,11 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			false, // isProd
 		)) as any;
 
-		expect(requestBody.additionalModelRequestFields.thinking).toEqual({
+		expect(requestBody.thinking).toEqual({
 			type: "adaptive",
 			display: "summarized",
 		});
-		expect(requestBody.additionalModelRequestFields.output_config.effort).toBe(
-			"max",
-		);
+		expect(requestBody.output_config.effort).toBe("max");
 	});
 
 	test('sets display "summarized" for adaptive thinking on Bedrock', async () => {
@@ -4894,7 +4971,7 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			false, // isProd
 		)) as any;
 
-		expect(requestBody.additionalModelRequestFields.thinking).toEqual({
+		expect(requestBody.thinking).toEqual({
 			type: "adaptive",
 			display: "summarized",
 		});
@@ -4963,6 +5040,11 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			// minimal is undeclared (and 400s) on 3.8 Flash and Pro.
 			{ model: "gemini-3.8-flash", effort: "minimal", expected: "low" },
 			{ model: "gemini-3.1-pro-preview", effort: "minimal", expected: "low" },
+			// xhigh is sent only where declared.
+			{ model: "gemini-3.6-flash", effort: "xhigh", expected: "high" },
+			{ model: "gemini-4-hydrogen", effort: "xhigh", expected: "xhigh" },
+			{ model: "gemini-4-hydrogen", effort: "max", expected: "xhigh" },
+			{ model: "gemini-4-hydrogen", effort: "minimal", expected: "low" },
 		] as const;
 
 		for (const { model, effort, expected } of cases) {
@@ -5213,9 +5295,9 @@ describe("prepareRequestBody - Google AI Studio", () => {
 
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			[{ role: "user", content: "test" }],
 			false,
 			undefined,
@@ -6458,9 +6540,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		const marker = { type: "ephemeral" as const };
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-opus-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-opus-4-6-v1",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[
 				{
 					role: "system",
@@ -6718,9 +6800,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("should sanitize complex tool schemas for Bedrock Converse", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-sonnet-4-6",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[{ role: "user", content: "Run a tool" }],
 			false,
 			undefined,
@@ -6806,9 +6888,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("should group consecutive tool results into a single user message", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-sonnet-4-6",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[
 				{ role: "user", content: "What is the weather and time in Berlin?" },
 				{
@@ -6907,9 +6989,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("sends text parts of an assistant message with tool calls as text blocks", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-sonnet-4-6",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[
 				{ role: "user", content: "What is the weather in Berlin?" },
 				{
@@ -6965,9 +7047,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("synthesizes toolConfig when history has tool blocks but request omits tools", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-opus-4-8",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-opus-4-8",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[
 				{ role: "user", content: "What is the weather in Berlin?" },
 				{
@@ -7028,9 +7110,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("does not synthesize toolConfig when history has no tool blocks", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-opus-4-8",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-opus-4-8",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[{ role: "user", content: "Hello there" }],
 			false,
 			undefined,
@@ -7144,9 +7226,9 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 	test("aws-bedrock forwards budget into additionalModelRequestFields.thinking.budget_tokens", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-sonnet-4-6",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
 			false,
 			undefined,
@@ -7243,6 +7325,69 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 			budget,
 		);
 	});
+});
+
+describe("prepareRequestBody - Alibaba Wan 2.7 image size", () => {
+	async function prepareWanImageRequest(
+		content: BaseMessage["content"],
+		image_size: string,
+	) {
+		return (await prepareRequestBody(
+			"alibaba",
+			"wan-2-7-image-pro",
+			null,
+			"wan2.7-image-pro",
+			[{ role: "user", content }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			{ image_size },
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("forwards 4K for text-to-image", async () => {
+		const body = await prepareWanImageRequest("A teapot", "4K");
+		expect(body.parameters.size).toBe("4K");
+	});
+
+	const editContent: BaseMessage["content"] = [
+		{ type: "text", text: "Make it blue" },
+		{
+			type: "image_url",
+			image_url: { url: "https://example.com/teapot.png" },
+		},
+	];
+
+	test.each(["4K", "4096x4096", "3000x2000"])(
+		"rejects %s with an input image",
+		async (size) => {
+			await expect(prepareWanImageRequest(editContent, size)).rejects.toThrow(
+				"Wan 2.7 image edits support at most 2K",
+			);
+		},
+	);
+
+	test.each(["2K", "2048x2048", "1536x1024"])(
+		"forwards %s with an input image",
+		async (size) => {
+			const body = await prepareWanImageRequest(editContent, size);
+			expect(body.parameters.size).toBe(size.replace("x", "*"));
+		},
+	);
 });
 
 describe("prepareRequestBody - Alibaba cache_control", () => {
@@ -7380,9 +7525,9 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		test("forwards caller-supplied max_tokens verbatim", async () => {
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7406,9 +7551,9 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			// is omitted.
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7424,15 +7569,15 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				false,
 			)) as any;
 
-			expect(requestBody.inferenceConfig?.maxTokens).toBe(64000);
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(8192);
 		});
 
 		test("falls back to model maxOutput when caller omits with reasoning enabled", async () => {
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7448,18 +7593,18 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				false,
 			)) as any;
 
-			// claude-sonnet-4-6's aws-bedrock provider mapping declares maxOutput:
-			// 64000. Falling back to a flat 1024 (the old historical Anthropic
+			// claude-sonnet-4-5's aws-bedrock provider mapping declares maxOutput:
+			// 8192. Falling back to a flat 1024 (the old historical Anthropic
 			// default) silently truncates large reasoning + tool responses.
-			expect(requestBody.inferenceConfig?.maxTokens).toBe(64000);
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(8192);
 		});
 
 		test("preserves caller max_tokens even when reasoning is enabled", async () => {
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7485,9 +7630,9 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			// floored by the reasoning check on the way out.
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7517,9 +7662,9 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			// builder must drop them too.
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[
 					{ role: "user", content: "say hi" },
 					{ role: "assistant", content: "" },
@@ -7876,42 +8021,6 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				expect(requestBody.messages[3].reasoning).toBe(reasoningLeft);
 			},
 		);
-	});
-
-	describe("azure-ai-foundry", () => {
-		test("keeps Grok 4.3 as Azure Foundry chat completions", async () => {
-			const requestBody = (await prepareRequestBody(
-				"azure-ai-foundry",
-				"grok-4-3",
-				null,
-				"grok-4.3",
-				[{ role: "user", content: "Hello!" }],
-				true,
-				0.2,
-				8192,
-				0.9,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				undefined,
-				"medium",
-				true,
-			)) as unknown as Record<string, unknown>;
-
-			expect(requestBody.model).toBe("grok-4.3");
-			expect(requestBody.messages).toEqual([
-				{ role: "user", content: "Hello!" },
-			]);
-			expect(requestBody.stream).toBe(true);
-			expect(requestBody.stream_options).toEqual({ include_usage: true });
-			expect(requestBody.temperature).toBe(0.2);
-			expect(requestBody.max_tokens).toBe(8192);
-			expect(requestBody.max_completion_tokens).toBeUndefined();
-			expect(requestBody.top_p).toBe(0.9);
-			expect(requestBody.reasoning_effort).toBe("medium");
-			expect(requestBody.inferenceConfig).toBeUndefined();
-		});
 	});
 
 	describe("openai (Responses API)", () => {
@@ -9649,6 +9758,8 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 		["anthropic", "claude-sonnet-5"],
 		["anthropic", "claude-sonnet-4-5"],
 		["vertex-anthropic", "claude-sonnet-4-5"],
+		["aws-bedrock", "claude-haiku-5-5"],
+		["aws-bedrock", "claude-sonnet-5"],
 	] as const)(
 		"%s %s forwards none as thinking disabled",
 		async (provider, model) => {
@@ -9684,8 +9795,8 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 		expect(requestBody.thinking).toBeUndefined();
 	});
 
-	test.each(["claude-haiku-5-5", "claude-sonnet-5", "claude-sonnet-4-5"])(
-		"aws-bedrock %s forwards none as thinking disabled",
+	test.each(["claude-sonnet-4-5"])(
+		"aws-bedrock Converse %s forwards none as thinking disabled",
 		async (model) => {
 			const requestBody = await prepare({
 				provider: "aws-bedrock",
@@ -9706,7 +9817,7 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 	test("aws-bedrock sends no thinking field when no effort is requested", async () => {
 		const requestBody = await prepare({
 			provider: "aws-bedrock",
-			model: "claude-haiku-5-5",
+			model: "claude-sonnet-4-5",
 		});
 
 		expect(requestBody.additionalModelRequestFields?.thinking).toBeUndefined();
@@ -9725,10 +9836,10 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 		])(
 			"forwards %s as toolConfig.toolChoice",
 			async (_label, toolChoice, expected) => {
-				for (const reasoningEffort of [undefined, "none", "high"] as const) {
+				for (const reasoningEffort of [undefined, "none"] as const) {
 					const requestBody = await prepare({
 						provider: "aws-bedrock",
-						model: "claude-haiku-5-5",
+						model: "claude-sonnet-4-5",
 						reasoningEffort,
 						toolChoice,
 					});
@@ -9744,6 +9855,7 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 				"anthropic",
 				"vertex-anthropic",
 				"azure-anthropic",
+				"aws-bedrock",
 			] as const) {
 				const requestBody = await prepare({
 					provider,
@@ -9752,18 +9864,12 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 				});
 				expect(requestBody.tool_choice).toEqual({ type: "any" });
 			}
-			const bedrock = await prepare({
-				provider: "aws-bedrock",
-				model: "claude-sonnet-5",
-				toolChoice: "required",
-			});
-			expect(bedrock.toolConfig.toolChoice).toEqual({ any: {} });
 		});
 
 		test("leaves auto unset", async () => {
 			const requestBody = await prepare({
 				provider: "aws-bedrock",
-				model: "claude-haiku-5-5",
+				model: "claude-sonnet-4-5",
 				toolChoice: "auto",
 			});
 
@@ -10493,20 +10599,70 @@ describe("prepareRequestBody - alibaba forced tool use", () => {
 	);
 });
 
-describe("prepareRequestBody - Baidu Kimi K3 empty text parts", () => {
-	test("drops empty text parts", async () => {
-		const requestBody = (await prepareRequestBody(
-			"baidu",
-			"kimi-k3",
+describe("prepareRequestBody - empty text parts", () => {
+	test.each([
+		["baidu", "kimi-k3", "qianfan-vl-v1"],
+		["sakana", "sakana-namazu", "sakana-namazu-v1.0"],
+	] as const)(
+		"drops empty text parts for %s/%s",
+		async (provider, model, externalId) => {
+			const requestBody = (await prepareRequestBody(
+				provider,
+				model,
+				null,
+				externalId,
+				[
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "describe this" },
+							{ type: "text", text: "" },
+						],
+					},
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as { messages: { content: unknown }[] };
+
+			expect(requestBody.messages[0].content).toEqual([
+				{ type: "text", text: "describe this" },
+			]);
+		},
+	);
+});
+
+describe("prepareRequestBody - fal image generation", () => {
+	async function prepareFalImageRequest(
+		model: string,
+		externalId: string,
+		imageConfig?: {
+			image_size?: string;
+			n?: number;
+			seed?: number;
+			output_format?: string;
+		},
+	) {
+		return (await prepareRequestBody(
+			"fal-ai",
+			model,
 			null,
-			"qianfan-vl-v1",
+			externalId,
 			[
+				{ role: "user", content: "An earlier prompt" },
+				{ role: "assistant", content: "Image generated" },
 				{
 					role: "user",
-					content: [
-						{ type: "text", text: "describe this" },
-						{ type: "text", text: "" },
-					],
+					content: [{ type: "text", text: "A lighthouse at dusk" }],
 				},
 			],
 			false,
@@ -10519,13 +10675,70 @@ describe("prepareRequestBody - Baidu Kimi K3 empty text parts", () => {
 			undefined,
 			undefined,
 			undefined,
-			undefined,
 			false,
-		)) as { messages: { content: unknown }[] };
+			false,
+			20,
+			null,
+			undefined,
+			imageConfig,
+			undefined,
+			true,
+		)) as any;
+	}
 
-		expect(requestBody.messages[0].content).toEqual([
-			{ type: "text", text: "describe this" },
-		]);
+	test("sends the prompt with an explicit size, count, format and seed", async () => {
+		expect(
+			await prepareFalImageRequest(
+				"flux-2-klein-4b",
+				"fal-ai/flux-2/klein/4b",
+				{
+					image_size: "1536x1024",
+					n: 2,
+					seed: 7,
+					output_format: "webp",
+				},
+			),
+		).toEqual({
+			prompt: "A lighthouse at dusk",
+			image_size: { width: 1536, height: 1024 },
+			num_images: 2,
+			output_format: "webp",
+			seed: 7,
+		});
+	});
+
+	test("defaults to the 1024x1024 tier the catalogue bills without a size", async () => {
+		expect(
+			await prepareFalImageRequest("z-image-turbo", "fal-ai/z-image/turbo"),
+		).toEqual({
+			prompt: "A lighthouse at dusk",
+			image_size: { width: 1024, height: 1024 },
+		});
+	});
+
+	test("omits parameters Recraft does not accept", async () => {
+		expect(
+			await prepareFalImageRequest(
+				"recraft-v4.1-flash",
+				"recraft/v4.1/flash/text-to-image",
+				{ image_size: "1024x1536", n: 2, seed: 7, output_format: "png" },
+			),
+		).toEqual({
+			prompt: "A lighthouse at dusk",
+			image_size: { width: 1024, height: 1536 },
+		});
+	});
+
+	test("rejects sizes without a catalogue price", async () => {
+		await expect(
+			prepareFalImageRequest(
+				"flux-3-klein",
+				"blackforestlabs/flux-3/klein/text-to-image",
+				{
+					image_size: "4096x4096",
+				},
+			),
+		).rejects.toBeInstanceOf(RequestError);
 	});
 });
 
@@ -10812,7 +11025,7 @@ describe("prepareRequestBody - tool strict, allowed_callers and eager_input_stre
 	});
 
 	test("Bedrock Converse turns eager_input_streaming into the fine-grained tool streaming beta", async () => {
-		const body = await prepare("aws-bedrock", "claude-sonnet-4-6", false, true);
+		const body = await prepare("aws-bedrock", "claude-sonnet-4-5", false, true);
 		expect(body.toolConfig.tools[0].toolSpec).not.toHaveProperty(
 			"eager_input_streaming",
 		);
@@ -10820,7 +11033,7 @@ describe("prepareRequestBody - tool strict, allowed_callers and eager_input_stre
 			"fine-grained-tool-streaming-2025-05-14",
 		]);
 
-		const nonStreaming = await prepare("aws-bedrock", "claude-sonnet-4-6");
+		const nonStreaming = await prepare("aws-bedrock", "claude-sonnet-4-5");
 		expect(
 			nonStreaming.additionalModelRequestFields?.anthropic_beta,
 		).toBeUndefined();
@@ -10829,9 +11042,9 @@ describe("prepareRequestBody - tool strict, allowed_callers and eager_input_stre
 	test("Bedrock Converse keeps buffered streaming unless every tool opts in", async () => {
 		const body = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			[{ role: "user", content: "Weather in Paris?" }],
 			true,
 			undefined,

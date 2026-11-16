@@ -26,6 +26,10 @@
 			"import": "./dist/airside-billing.js",
 			"default": "./dist/airside-billing.js"
 		},
+		"./batch": {
+			"types": "./dist/batch.d.ts",
+			"import": "./dist/batch.js"
+		},
 		"./gcs": {
 			"types": "./dist/gcs.d.ts",
 			"import": "./dist/gcs.js",
@@ -90,6 +94,11 @@
 			"types": "./dist/email-unsubscribe.d.ts",
 			"import": "./dist/email-unsubscribe.js",
 			"default": "./dist/email-unsubscribe.js"
+		},
+		"./resend-api": {
+			"types": "./dist/resend-api.d.ts",
+			"import": "./dist/resend-api.js",
+			"default": "./dist/resend-api.js"
 		},
 		"./security-txt": {
 			"types": "./dist/security-txt.d.ts",
@@ -200,6 +209,11 @@
 			"import": "./dist/lounge-connectors.js",
 			"default": "./dist/lounge-connectors.js"
 		},
+		"./video-token-pricing": {
+			"types": "./dist/video-token-pricing.d.ts",
+			"import": "./dist/video-token-pricing.js",
+			"default": "./dist/video-token-pricing.js"
+		},
 		"./video-generation-config": {
 			"types": "./dist/video-generation-config.d.ts",
 			"import": "./dist/video-generation-config.js",
@@ -244,6 +258,11 @@
 			"types": "./dist/seo-title.d.ts",
 			"import": "./dist/seo-title.js",
 			"default": "./dist/seo-title.js"
+		},
+		"./working-days": {
+			"types": "./dist/working-days.d.ts",
+			"import": "./dist/working-days.js",
+			"default": "./dist/working-days.js"
 		},
 		"./number-format": {
 			"types": "./dist/number-format.d.ts",
@@ -310,6 +329,7 @@
 		"@radix-ui/react-toggle": "1.1.10",
 		"@radix-ui/react-tooltip": "^1.2.8",
 		"@radix-ui/react-use-controllable-state": "1.2.2",
+		"@tanstack/react-virtual": "3.13.26",
 		"class-variance-authority": "0.7.1",
 		"clsx": "^2.1.1",
 		"cmdk": "^1.1.1",
@@ -319,7 +339,7 @@
 		"ipaddr.js": "2.2.0",
 		"lucide-react": "0.561.0",
 		"motion": "12.23.24",
-		"next": "16.4.3",
+		"next": "16.4.4",
 		"next-themes": "^0.4.6",
 		"pretty-bytes": "7.1.0",
 		"prism-react-renderer": "2.4.1",

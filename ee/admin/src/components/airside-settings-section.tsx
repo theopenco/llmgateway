@@ -510,64 +510,6 @@ function BillingModeField({
 	);
 }
 
-function TestKeyEditor({ settings }: { settings: AirsideSettings }) {
-	const $api = useApi();
-	const [apiKey, setApiKey] = useState("");
-	const saveKey = $api.useMutation(
-		"put",
-		"/admin/airside/claims/{id}/verification-key",
-		useRefreshOnSuccess("Test key saved."),
-	);
-	const removeKey = $api.useMutation(
-		"delete",
-		"/admin/airside/claims/{id}/verification-key",
-		useRefreshOnSuccess("Test key removed."),
-	);
-	const path = { path: { id: settings.claimId } };
-
-	return (
-		<form
-			className="mt-2 flex max-w-md gap-2"
-			onSubmit={(e) => {
-				e.preventDefault();
-				saveKey.mutate(
-					{ params: path, body: { apiKey } },
-					{ onSuccess: () => setApiKey("") },
-				);
-			}}
-		>
-			<Input
-				type="password"
-				autoComplete="off"
-				aria-label="Test key"
-				placeholder={
-					settings.verificationKeyMasked ? "New key to replace it" : "Test key"
-				}
-				value={apiKey}
-				onChange={(e) => setApiKey(e.target.value)}
-			/>
-			<Button
-				type="submit"
-				size="sm"
-				disabled={!apiKey.trim() || saveKey.isPending}
-			>
-				{settings.verificationKeyMasked ? "Replace" : "Save"}
-			</Button>
-			{settings.verificationKeyMasked ? (
-				<Button
-					type="button"
-					size="sm"
-					variant="outline"
-					disabled={removeKey.isPending}
-					onClick={() => removeKey.mutate({ params: path })}
-				>
-					Remove
-				</Button>
-			) : null}
-		</form>
-	);
-}
-
 function FareRow({
 	providerId,
 	modelId,
@@ -999,24 +941,6 @@ export function AirsideSettingsSection({
 						<p className="whitespace-pre-wrap">{settings.customDescription}</p>
 					</SettingRow>
 				) : null}
-				<div>
-					<h3 className="text-sm font-semibold">Test key</h3>
-					<p className="text-sm">
-						{settings.verificationKeyMasked ? (
-							<>
-								<span className="font-mono text-xs">
-									{settings.verificationKeyMasked}
-								</span>{" "}
-								<span className="text-xs text-muted-foreground">
-									saved {formatDate(settings.verificationKeyUpdatedAt)}
-								</span>
-							</>
-						) : (
-							<span className="text-muted-foreground">Not set</span>
-						)}
-					</p>
-					{editable ? <TestKeyEditor settings={settings} /> : null}
-				</div>
 				<div>
 					<h3 className="text-sm font-semibold">Fares</h3>
 					<table className="mt-2 w-full text-sm">

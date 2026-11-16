@@ -2,12 +2,13 @@
 id: blog-llm-gateway-vs-openrouter
 slug: llm-gateway-vs-openrouter
 date: 2026-04-11
-title: "LLM Gateway vs OpenRouter: An Honest Comparison"
-summary: "A straightforward comparison of LLM Gateway and OpenRouter — features, pricing, and trade-offs — so you can pick the right one for your stack."
+updatedAt: "2026-11-10"
+title: "LLM Gateway vs OpenRouter: Fees, Models, Self-Hosting"
+summary: "LLM Gateway vs OpenRouter side by side: platform fees, bring-your-own-keys, model coverage, self-hosting, guardrails and routing, plus where OpenRouter is the better pick."
 categories: ["Guides"]
 image:
   src: "/blog/llm-gateway-vs-openrouter.png"
-  alt: "LLM Gateway vs OpenRouter: An Honest Comparison"
+  alt: "LLM Gateway vs OpenRouter: Fees, Models, Self-Hosting"
   width: 1024
   height: 1024
 ---
@@ -61,7 +62,7 @@ With LLM Gateway, you can add your own provider API keys (OpenAI, Anthropic, Goo
 
 This matters for teams that already have provider contracts, volume discounts, or enterprise agreements.
 
-OpenRouter does support BYOK — but it adds a 5% fee on usage above 1M requests per month. With LLM Gateway, BYOK always carries zero gateway markup.
+OpenRouter does support BYOK. On pay-as-you-go it is free up to $25,000 of list-price inference a month, then costs 5% of what the same usage would cost on OpenRouter. With LLM Gateway, BYOK always carries zero gateway markup.
 
 ### Smart Routing Algorithm
 

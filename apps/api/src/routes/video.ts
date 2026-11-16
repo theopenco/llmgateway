@@ -7,7 +7,10 @@ import { createRoute } from "@/utils/create-route.js";
 
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-access";
+import {
+	buildSignedGatewayVideoLogContentUrl,
+	buildSignedGatewayVideoJobContentUrl,
+} from "@llmgateway/shared/video-access";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -106,19 +109,20 @@ video.openapi(getVideoStatus, async (c) => {
 		throw new HTTPException(404, { message: "Video not found" });
 	}
 
-	// Signing needs LLM_VIDEO_CONTENT_JWT_SECRET. If that is missing or invalid
-	// only playback is broken, so keep the failure scoped to `content` instead of
-	// failing the whole response: clients poll this endpoint to learn a job
-	// reached a terminal state, and a 500 here strands finished (already billed)
-	// generations on "in progress" forever.
+	// Signing failures affect playback, not the terminal generation status.
 	let content:
 		{ type: "video"; url: string; mime_type?: string | null }[] | undefined;
-	if (job.status === "completed" && job.logId) {
+	if (
+		job.status === "completed" &&
+		(job.logId || hasUnsettledVideoBilling(job))
+	) {
 		try {
 			content = [
 				{
 					type: "video" as const,
-					url: buildSignedGatewayVideoLogContentUrl(job.logId),
+					url: job.logId
+						? buildSignedGatewayVideoLogContentUrl(job.logId)
+						: buildSignedGatewayVideoJobContentUrl(job.id),
 					mime_type: job.contentType ?? null,
 				},
 			];
@@ -141,6 +145,7 @@ video.openapi(getVideoStatus, async (c) => {
 	const awaitingResultLog =
 		job.status === "completed" &&
 		!job.logId &&
+		!hasUnsettledVideoBilling(job) &&
 		Date.now() - (job.completedAt ?? job.createdAt).getTime() <
 			RESULT_LOG_GRACE_MS;
 
@@ -166,3 +171,18 @@ video.openapi(getVideoStatus, async (c) => {
 		200,
 	);
 });
+function hasUnsettledVideoBilling(job: {
+	usedProvider: string;
+	upstreamStatusResponse: unknown;
+}): boolean {
+	const status = job.upstreamStatusResponse;
+	return (
+		job.usedProvider === "bytedance" &&
+		!!status &&
+		typeof status === "object" &&
+		(("llmgateway_billing_pending" in status &&
+			status.llmgateway_billing_pending === true) ||
+			("llmgateway_billing_quarantined" in status &&
+				status.llmgateway_billing_quarantined === true))
+	);
+}

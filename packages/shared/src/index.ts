@@ -56,6 +56,7 @@ export {
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
+	DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
 	DEV_PLAN_RESET_PASS_PRICES,
 	DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE,
 	DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
@@ -65,6 +66,8 @@ export {
 	getDevPlanCycleUsageFraction,
 	getDevPlanDailyLimit,
 	getDevPlanPremiumWeeklyLimit,
+	getDevPlanRenewalCredits,
+	getDevPlanRenewalRolloverCap,
 	getDevPlanUpgradeCredits,
 	getIncludedResetPassesRemaining,
 	getRemainingDailyAllowance,
@@ -117,9 +120,11 @@ export {
 } from "./model-categories.js";
 
 export {
+	getAppVersion,
 	HealthChecker,
 	type HealthCheckResult,
 	type HealthCheckOptions,
+	type ReadinessGateOptions,
 	type HealthCheckDependencies,
 	type HealthResponse,
 } from "./health-check.js";
@@ -155,6 +160,7 @@ export {
 	formatDateTime,
 	formatDayKey,
 	formatZoneName,
+	isDayKey,
 	isDayString,
 	isNaiveDateTimeString,
 	shiftDayKey,
@@ -207,8 +213,10 @@ export {
 } from "./provider-model-ids.js";
 
 export {
+	FAL_IMAGE_SIZES,
 	getModelImageConfig,
 	GPT_IMAGE_SIZES,
+	isFalImageModel,
 	type AspectRatio,
 } from "./image-generation-config.js";
 
@@ -240,7 +248,8 @@ export {
 	LOUNGE_SOURCE,
 } from "./lounge-source.js";
 
-export { MARKETING_STATS } from "./marketing.js";
+export { ENTERPRISE_BOOKING_URL, MARKETING_STATS } from "./marketing.js";
+export { FIRST_USAGE_YEAR } from "./usage-years.js";
 
 export {
 	type DiscordEmbed,
@@ -259,6 +268,14 @@ export {
 	modelErrorRateAlertsSettingsSchema,
 	parseModelErrorRateAlertsSettings,
 } from "./model-error-rate-alerts.js";
+
+export {
+	FAILING_CREDENTIAL_ERROR_RATE,
+	FAILING_CREDENTIAL_MIN_REQUESTS,
+	FAILING_CREDENTIAL_WINDOW_HOURS,
+	failingCredentialWindowStart,
+	getFailingCredentialRate,
+} from "./failing-credentials.js";
 
 export {
 	deriveStabilityMetrics,
@@ -336,6 +353,7 @@ export {
 export {
 	estimateChatMessageTokens,
 	estimateTokensFromText,
+	estimateTokensFromTextLength,
 	type TokenEstimateFallback,
 } from "./token-estimate.js";
 

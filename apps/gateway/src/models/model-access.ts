@@ -191,6 +191,7 @@ export async function filterAccessibleModels(
 					!isProviderIdCompliant(provider.providerId, policy, {
 						...context,
 						effectiveProviders,
+						mappingDataPolicy: provider.dataPolicy,
 					})) ||
 				(isDevPlan && !providerSupportsCachedInput(provider)) ||
 				(!wallet &&

@@ -6,6 +6,7 @@ import {
 	getEmailChangeRateLimitKeys,
 	getEmailChangeProofRateLimitKeys,
 } from "@/lib/email-change.js";
+import { fakeResendContacts } from "@/testing-resend.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
@@ -175,6 +176,159 @@ describe("user account deletion", () => {
 			method: "DELETE",
 		});
 		expect(res.status).toBe(401);
+	});
+
+	describe("mailing list", () => {
+		const subscriber = { unsubscribed: false, topics: {}, segments: [] };
+		let list: ReturnType<typeof fakeResendContacts>;
+
+		beforeEach(() => {
+			vi.stubEnv("RESEND_API_KEY", "test-resend-key");
+			list = fakeResendContacts(globalThis.fetch);
+			list.contacts.set("admin@example.com", subscriber);
+			vi.spyOn(globalThis, "fetch").mockImplementation(list.fetch);
+		});
+
+		afterEach(() => {
+			vi.mocked(globalThis.fetch).mockRestore();
+			vi.unstubAllEnvs();
+		});
+
+		function deleteAccount() {
+			return app.request("/user/me", {
+				method: "DELETE",
+				headers: { Cookie: token },
+			});
+		}
+
+		it("removes the contact of a deleted account", async () => {
+			expect((await deleteAccount()).status).toBe(200);
+			expect(list.contacts.size).toBe(0);
+		});
+
+		it("leaves the contact at an address the account never verified", async () => {
+			await db
+				.update(tables.user)
+				.set({ emailVerified: false })
+				.where(eq(tables.user.id, "test-user-id"));
+
+			expect((await deleteAccount()).status).toBe(200);
+			expect(Object.fromEntries(list.contacts)).toEqual({
+				"admin@example.com": subscriber,
+			});
+		});
+
+		it("deletes the account while the list is down", async () => {
+			list.failure = "down";
+
+			expect((await deleteAccount()).status).toBe(200);
+			expect(
+				await db.query.user.findFirst({ where: { id: "test-user-id" } }),
+			).toBeUndefined();
+		});
+	});
+});
+
+describe("mailing list profile sync", () => {
+	let token: string;
+	let list: ReturnType<typeof fakeResendContacts>;
+
+	beforeEach(async () => {
+		token = await createTestUser();
+		vi.stubEnv("RESEND_API_KEY", "test-resend-key");
+		list = fakeResendContacts(globalThis.fetch);
+		vi.spyOn(globalThis, "fetch").mockImplementation(list.fetch);
+	});
+
+	afterEach(async () => {
+		vi.mocked(globalThis.fetch).mockRestore();
+		vi.unstubAllEnvs();
+		await deleteAll();
+	});
+
+	function send(method: string, path: string, body: unknown) {
+		return app.request(path, {
+			method,
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		});
+	}
+
+	function rename() {
+		return send("PATCH", "/user/me", { name: "Ada Lovelace King" });
+	}
+
+	function finishOnboarding() {
+		return send("POST", "/user/me/complete-onboarding", {});
+	}
+
+	function join() {
+		list.contacts.set("admin@example.com", {
+			unsubscribed: false,
+			topics: {},
+			segments: [],
+		});
+	}
+
+	it("sends a member's new name to their contact", async () => {
+		join();
+
+		expect((await rename()).status).toBe(200);
+		expect(list.updated).toEqual([
+			{
+				email: "admin@example.com",
+				body: { first_name: "Ada", last_name: "Lovelace King" },
+			},
+		]);
+	});
+
+	it("records a member's finished onboarding on their contact", async () => {
+		join();
+
+		expect((await finishOnboarding()).status).toBe(200);
+		expect(list.updated).toEqual([
+			{
+				email: "admin@example.com",
+				body: { properties: { onboarding_completed: "true" } },
+			},
+		]);
+	});
+
+	it("leaves the contact at an address the account never verified", async () => {
+		await db
+			.update(tables.user)
+			.set({ emailVerified: false })
+			.where(eq(tables.user.id, "test-user-id"));
+		join();
+
+		expect((await rename()).status).toBe(200);
+		expect((await finishOnboarding()).status).toBe(200);
+		expect(list.updated).toEqual([]);
+	});
+
+	it.each([
+		["a user who is not a contact", () => undefined],
+		[
+			"a down list",
+			() => {
+				join();
+				list.failure = "down";
+			},
+		],
+		[
+			"a rate-limited list",
+			() => {
+				join();
+				list.failure = "rate-limited";
+			},
+		],
+	])("a name change and onboarding still work for %s", async (_, arrange) => {
+		arrange();
+
+		expect((await rename()).status).toBe(200);
+		expect((await finishOnboarding()).status).toBe(200);
+		expect(list.updated).toEqual([]);
+		expect(list.contacts.size).toBe(list.failure ? 1 : 0);
 	});
 });
 

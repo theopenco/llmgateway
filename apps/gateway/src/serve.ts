@@ -12,7 +12,7 @@ import { logger, toError } from "@llmgateway/logger";
 import { assertClientIpHeaderConfigured } from "@llmgateway/shared/client-ip";
 import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
-import { app } from "./app.js";
+import { app, healthChecker } from "./app.js";
 import { drainPendingWork, pendingWorkCount } from "./lib/pending-work.js";
 import {
 	closeUpstreamDispatcher,
@@ -52,6 +52,7 @@ let sdk: NodeSDK | null = null;
 let metricsServer: ServerType | null = null;
 let realtime: RealtimeServer | null = null;
 let stopEnvInventoryPublisher: (() => void) | null = null;
+let stopReadinessGate: (() => void) | null = null;
 
 async function startServer() {
 	// IAM IP allow-lists fail closed without a client IP, so refuse to serve
@@ -100,6 +101,10 @@ async function startServer() {
 	// instead of being dropped. The kernel caps the effective value at
 	// net.core.somaxconn (4096 on modern COS nodes), so 1024 is honored.
 	const listenBacklog = Number(process.env.LISTEN_BACKLOG) || 1024;
+
+	// Hold readiness closed until Postgres and Redis answer once, so a release
+	// that cannot reach them never replaces healthy pods.
+	stopReadinessGate = healthChecker.gateReadiness();
 
 	logger.info("Server starting", { port, backlog: listenBacklog });
 
@@ -224,6 +229,7 @@ const gracefulShutdown = async (signal: string, server: ServerType) => {
 	// expires on its own once no gateway is publishing.
 	stopEnvInventoryPublisher?.();
 	stopEnvInventoryPublisher = null;
+	stopReadinessGate?.();
 
 	try {
 		// Stop accepting new realtime sessions, then let the live calls hang up

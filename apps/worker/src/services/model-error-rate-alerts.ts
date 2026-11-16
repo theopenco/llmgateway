@@ -3,9 +3,12 @@ import {
 	and,
 	db,
 	eq,
-	excludeRegionalMappingRows,
+	gt,
 	gte,
+	isNull,
+	modelProviderMapping,
 	modelProviderMappingHistory,
+	or,
 	sql,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -115,10 +118,14 @@ export function buildAlertPayload(
 					: {}),
 				description: lines.join("\n"),
 				color: WARNING_COLOR,
-				fields: listed.map((hit) => ({
-					name: `${hit.modelId} / ${hit.providerId}`,
-					value: `**${hit.errorRate.toFixed(1)}%** · ${hit.errorsCount}/${hit.requestCount} requests · upstream ${hit.upstreamErrorsCount}, gateway ${hit.gatewayErrorsCount}`,
-				})),
+				fields: listed.map((hit) => {
+					const retried =
+						hit.retriedUpstreamErrorsCount + hit.retriedGatewayErrorsCount;
+					return {
+						name: `${hit.modelId} / ${hit.providerId}`,
+						value: `**${hit.errorRate.toFixed(1)}%** · ${hit.errorsCount}/${hit.requestCount} requests · upstream ${hit.upstreamErrorsCount}, gateway ${hit.gatewayErrorsCount}${rule.includeRetriedErrors && retried > 0 ? ` · ${retried} retried elsewhere` : ""}`,
+					};
+				}),
 				timestamp: new Date().toISOString(),
 			},
 		],
@@ -144,12 +151,25 @@ async function queryMappingErrorCounts(
 			retriedUpstreamErrorsCount: sql<string>`coalesce(sum(${mph.retriedUpstreamErrorsCount}), 0)::bigint`,
 		})
 		.from(mph)
+		// Base mappings only, and none already taken out of service: the window
+		// can still hold the failures that led to the deactivation.
+		.innerJoin(
+			modelProviderMapping,
+			and(
+				eq(modelProviderMapping.id, mph.modelProviderMappingId),
+				eq(modelProviderMapping.status, "active"),
+				isNull(modelProviderMapping.region),
+				or(
+					isNull(modelProviderMapping.deactivatedAt),
+					gt(modelProviderMapping.deactivatedAt, new Date()),
+				),
+			),
+		)
 		.where(
 			and(
 				gte(mph.minuteTimestamp, windowStart),
 				// BYOK failures are usually the customer's key, not an incident.
 				eq(mph.usedMode, "credits"),
-				excludeRegionalMappingRows(mph),
 			),
 		)
 		.groupBy(mph.modelProviderMappingId, mph.modelId, mph.providerId);

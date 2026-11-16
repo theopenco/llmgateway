@@ -155,6 +155,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 				providerInfo,
 			},
 			def.id,
+			def.output,
 		);
 
 		return {

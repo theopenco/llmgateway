@@ -13,7 +13,10 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
-import { getAvailableCredits } from "@/chat/tools/resolve-provider-context.js";
+import {
+	buildByokKeyFilter,
+	getAvailableCredits,
+} from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -67,6 +70,7 @@ import {
 	shouldRedactProviderError,
 } from "@/lib/stealth-provider-errors.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { withUsageCost } from "@/lib/usage-cost.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
 import {
@@ -347,6 +351,8 @@ export interface DecisionEndpoint {
 	unsupportedModelHint?: string;
 	/** The request carries image input. */
 	hasImageInput?: boolean;
+	/** The request asks a `box` question. */
+	hasBoxQuestion?: boolean;
 	/**
 	 * Throw an HTTPException(400) for input the provider can't take.
 	 * `safetyIdentifier` is the authenticating API key's abuse-attribution id.
@@ -519,6 +525,19 @@ export async function handleDecisionRequest(
 		});
 	}
 
+	if (endpoint.hasBoxQuestion) {
+		if (!decisionMapping.decisionBoxQuestions) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} does not answer box questions.`,
+			});
+		}
+		if (!endpoint.hasImageInput) {
+			throw new HTTPException(400, {
+				message: "A box question needs an image in the request.",
+			});
+		}
+	}
+
 	// Translate only once the caller is allowed to use the model, so a denied
 	// caller sees the access error rather than an input error. Translation runs
 	// before the rate-limit check, so an invalid request uses no slot.
@@ -663,6 +682,7 @@ export async function handleDecisionRequest(
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (!providerKeyInner) {
 				throw new HTTPException(400, {
@@ -685,6 +705,7 @@ export async function handleDecisionRequest(
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (providerKeyInner) {
 				usedToken = readProviderKey(providerKeyInner);
@@ -1310,7 +1331,12 @@ export async function handleDecisionRequest(
 				{ retentionLevel },
 			);
 
-			return c.json(normalized.body);
+			return c.json(
+				withUsageCost(normalized.body, cost, {
+					input_cost: inputCost,
+					request_cost: requestCostNum,
+				}),
+			);
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

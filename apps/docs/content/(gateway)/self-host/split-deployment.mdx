@@ -34,6 +34,12 @@ Use origins without a trailing slash or `/v1` suffix:
 | `MCP_GATEWAY_URL`      | Gateway                                           | Optional HTTPS origin for MCP generation; overrides both gateway URL variables |
 | `REALTIME_BACKEND_URL` | Lounge when realtime is served separately         | Optional realtime backend origin; otherwise uses the gateway backend           |
 
+The worker runs [Batch API](/features/batch) requests through the gateway and
+forwards each batch creator's IP in `CLIENT_IP_HEADER`. Behind an edge that
+overwrites that header, set `GATEWAY_BACKEND_URL` and `CLIENT_IP_HEADER` on the
+worker so batch requests reach the gateway directly; otherwise IP-restricted
+keys fail their batch requests.
+
 Always set `GATEWAY_URL` explicitly on testing deployments. The shared gateway
 helper defaults to the hosted production gateway when `NODE_ENV=production`.
 `API_URL` instead defaults to `http://localhost:4002` in the frontends; in a
@@ -48,6 +54,35 @@ network; public endpoints require HTTPS. Keep public origins in `API_URL` and
 Unset `MCP_GATEWAY_URL` or set it to the testing gateway. MCP generation sends
 its API-key credential to that override, even when the other gateway URLs point
 to the testing deployment.
+
+## Airside inference credentials
+
+Set `AIRSIDE_GATEWAY_API_KEY` on the API and worker to a dedicated,
+operator-owned project API key. Set `GATEWAY_URL` explicitly on both processes;
+Airside inference does not use a hosted default. Production requires an HTTPS
+gateway origin; HTTP is accepted only outside production. Keep the key out of frontend
+environments and retain the shared `GATEWAY_API_KEY_HASH_SECRET` across backends.
+Prefer database-managed provider credentials. Environment-based provider keys,
+base URLs, regions, and account/project settings must be consistent on the API
+and worker and match the gateway's serving deployment; the operator gateway key
+does not replace upstream credential configuration.
+
+Manual preflight, capability checks, provider-key smoke tests, and enabled daily
+verification use the carrier provider credential through the gateway. Airside
+benchmark and load-test inference uses the same dedicated project; generic admin
+benchmarks retain `BENCHMARK_GATEWAY_API_KEY`. The gateway logs and bills the
+operator project, pins the exact deployment and provider key, and disables
+fallback and response caching. Carriers do not need a separate testing key.
+
+Deploy the compatible gateway, then worker, then API and frontends before enabling these calls. Missing credentials
+or gateway authorization failures fail closed as operator configuration errors,
+not evidence of missing carrier capabilities. Daily scheduling still requires
+`AIRSIDE_DAILY_VERIFICATION_ENABLED=true`; notification flags are unchanged.
+
+For Helm, set `airsideVerification.existingSecret` and optionally
+`airsideVerification.apiKeyKey` (default `AIRSIDE_GATEWAY_API_KEY`). Only the API
+and worker receive that Secret reference. The split Compose templates pass the
+key to the API; a separately deployed worker needs the same variables.
 
 ## Product links
 
@@ -139,8 +174,8 @@ browser can send it.
    The admin dashboard additionally requires an authorized, verified account.
 4. Before entering a key in the docs API explorer, confirm its selected server
    and browser network destination match the testing gateway; generated schemas
-   may contain hosted server URLs. Run inference with a testing key and check the
-   observed client IP. Never reuse a production key.
+   may contain hosted server URLs. Run inference with an API key from an isolated gateway test project and
+   check the observed client IP. Never reuse a production key.
 5. Inspect runtime CPU-limit errors separately from connection, CORS, and auth
    errors. Build memory and build-machine size do not determine request CPU
    budgets; confirm the hosting runtime's effective request limit.

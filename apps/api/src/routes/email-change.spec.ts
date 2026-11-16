@@ -13,6 +13,7 @@ import {
 	getEmailChangeProofRateLimitKeys,
 	getEmailChangeConfirmationRateLimitKey,
 } from "@/lib/email-change.js";
+import { fakeResendContacts, type FakeContact } from "@/testing-resend.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import * as abuseIp from "@/utils/abuse-ip.js";
 import * as email from "@/utils/email.js";
@@ -889,6 +890,209 @@ describe("email change confirmation", () => {
 			expect(checkIp).not.toHaveBeenCalled();
 			expect(user?.riskStatus).toBe("none");
 		}
+	});
+
+	describe("mailing list", () => {
+		const oldEmail = "admin@example.com";
+		let list: ReturnType<typeof fakeResendContacts>;
+
+		function member(overrides: Partial<FakeContact> = {}): FakeContact {
+			return { unsubscribed: false, topics: {}, segments: [], ...overrides };
+		}
+
+		beforeEach(() => {
+			vi.stubEnv("HOSTED", "true");
+			vi.stubEnv("RESEND_API_KEY", "test-resend-key");
+			list = fakeResendContacts(globalThis.fetch);
+			vi.spyOn(globalThis, "fetch").mockImplementation(list.fetch);
+		});
+
+		afterEach(() => {
+			vi.mocked(globalThis.fetch).mockRestore();
+		});
+
+		async function changeEmail() {
+			await patch({ email: newEmail, currentPassword });
+			return await confirm(confirmationToken());
+		}
+
+		/** What the test account writes on a contact it moves. */
+		const fromAccount = {
+			firstName: "Test",
+			lastName: "User",
+			properties: { onboarding_completed: "false" },
+		};
+
+		it("moves a member to the new address with their subscriptions and properties", async () => {
+			const subscriber = member({
+				topics: { newsletter: "opt_in", product: "opt_out" },
+				segments: ["weekly"],
+				firstName: "Old",
+				lastName: "Name",
+				properties: {
+					company_name: "Acme",
+					seats: 12,
+					onboarding_completed: "true",
+				},
+			});
+			list.contacts.set(oldEmail, subscriber);
+
+			expect((await changeEmail()).status).toBe(200);
+			expect(Object.fromEntries(list.contacts)).toEqual({
+				[newEmail]: {
+					...subscriber,
+					...fromAccount,
+					properties: {
+						company_name: "Acme",
+						seats: 12,
+						onboarding_completed: "false",
+					},
+				},
+			});
+		});
+
+		it("keeps the contact's own name for an account without one", async () => {
+			await db
+				.update(tables.user)
+				.set({ name: null })
+				.where(eq(tables.user.id, "test-user-id"));
+			list.contacts.set(
+				oldEmail,
+				member({ firstName: "Old", lastName: "Name" }),
+			);
+
+			expect((await changeEmail()).status).toBe(200);
+			expect(list.contacts.get(newEmail)).toMatchObject({
+				firstName: "Old",
+				lastName: "Name",
+			});
+		});
+
+		it("takes a one-word account name whole, without the contact's last name", async () => {
+			await db
+				.update(tables.user)
+				.set({ name: "Ada" })
+				.where(eq(tables.user.id, "test-user-id"));
+			list.contacts.set(
+				oldEmail,
+				member({ firstName: "Old", lastName: "Name" }),
+			);
+
+			expect((await changeEmail()).status).toBe(200);
+			expect(list.created[0]).toMatchObject({ first_name: "Ada" });
+			expect(list.created[0]).not.toHaveProperty("last_name");
+		});
+
+		it("carries the properties it can read and still moves the member", async () => {
+			list.contacts.set(oldEmail, member());
+			list.tamper = (contact) => ({
+				...contact,
+				properties: {
+					company_name: { value: "Acme", type: "string" },
+					unset: { value: null, type: "string" },
+					flag: { value: true, type: "boolean" },
+					flat: "x",
+				},
+			});
+
+			expect((await changeEmail()).status).toBe(200);
+			expect([...list.contacts.keys()]).toEqual([newEmail]);
+			expect(list.created[0].properties).toEqual({
+				company_name: "Acme",
+				onboarding_completed: "false",
+			});
+		});
+
+		it("moves a member without their properties when the list refuses one", async () => {
+			list.definedProperties = ["company_name"];
+			list.contacts.set(
+				oldEmail,
+				member({ unsubscribed: true, properties: { company_name: "Acme" } }),
+			);
+
+			expect((await changeEmail()).status).toBe(200);
+			expect(Object.fromEntries(list.contacts)).toEqual({
+				[newEmail]: member({
+					unsubscribed: true,
+					firstName: "Test",
+					lastName: "User",
+				}),
+			});
+		});
+
+		it("keeps a member who unsubscribed unsubscribed", async () => {
+			list.contacts.set(oldEmail, member({ unsubscribed: true }));
+
+			expect((await changeEmail()).status).toBe(200);
+			expect(Object.fromEntries(list.contacts)).toEqual({
+				[newEmail]: member({ unsubscribed: true, ...fromAccount }),
+			});
+			expect(list.created[0]).not.toHaveProperty("topics");
+			expect(list.created[0]).not.toHaveProperty("segments");
+		});
+
+		it("leaves a member in place when their unsubscribe cannot be read", async () => {
+			list.contacts.set(oldEmail, member({ unsubscribed: true }));
+			list.tamper = ({ unsubscribed: _unsubscribed, ...contact }) => contact;
+
+			expect((await changeEmail()).status).toBe(200);
+			expect(Object.fromEntries(list.contacts)).toEqual({
+				[oldEmail]: member({ unsubscribed: true }),
+			});
+		});
+
+		it("adds nobody who was not a member", async () => {
+			expect((await changeEmail()).status).toBe(200);
+			expect(list.contacts.size).toBe(0);
+		});
+
+		it("leaves a contact already at the new address as it is", async () => {
+			list.contacts.set(oldEmail, member({ topics: { newsletter: "opt_in" } }));
+			list.contacts.set(newEmail, member({ unsubscribed: true }));
+
+			expect((await changeEmail()).status).toBe(200);
+			expect(Object.fromEntries(list.contacts)).toEqual({
+				[newEmail]: member({ unsubscribed: true }),
+			});
+		});
+
+		it("leaves the address of an account that never verified it alone", async () => {
+			await db
+				.update(tables.user)
+				.set({ emailVerified: false })
+				.where(eq(tables.user.id, "test-user-id"));
+			list.contacts.set(oldEmail, member({ topics: { newsletter: "opt_in" } }));
+
+			expect((await changeEmail()).status).toBe(200);
+			expect(Object.fromEntries(list.contacts)).toEqual({
+				[oldEmail]: member({ topics: { newsletter: "opt_in" } }),
+			});
+		});
+
+		it.each([
+			["down", "every"],
+			["rate-limited", "every"],
+			["down", "POST"],
+			["rate-limited", "POST"],
+			["rate-limited", "DELETE"],
+		] as const)(
+			"neither blocks the change nor drops a member while the list is %s (%s call)",
+			async (failure, calls) => {
+				const failOn = calls === "every" ? undefined : calls;
+				list.contacts.set(oldEmail, member({ segments: ["weekly"] }));
+				list.failure = failure;
+				list.failOn = failOn;
+
+				expect((await changeEmail()).status).toBe(200);
+				expect((await storedUser())?.email).toBe(newEmail);
+				expect(list.contacts.get(oldEmail)).toEqual(
+					member({ segments: ["weekly"] }),
+				);
+				if (failOn !== "DELETE") {
+					expect([...list.contacts.keys()]).toEqual([oldEmail]);
+				}
+			},
+		);
 	});
 
 	it("atomically limits a user's requests across recipients", async () => {

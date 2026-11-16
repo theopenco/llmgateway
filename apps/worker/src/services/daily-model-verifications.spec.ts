@@ -3,12 +3,11 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-	encryptClaimVerificationKey,
 	encryptProviderKeyForStorage,
 	mappingTarget,
 	modelVerificationEnvironmentToken,
 } from "@llmgateway/actions";
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, like, tables } from "@llmgateway/db";
 import { models as catalogueModels } from "@llmgateway/models";
 
 import {
@@ -23,6 +22,7 @@ import {
 import {
 	claimNextModelVerification,
 	processNextModelVerification,
+	resolveCredential,
 } from "./model-verifications.js";
 
 import type { ProviderModelVerificationCheck } from "@llmgateway/db";
@@ -85,6 +85,7 @@ async function seed(
 			id: keyId,
 			provider: providerId,
 			managed: true,
+			baseUrl: "https://provider.example.com",
 			...encryptProviderKeyForStorage("test-provider-key", keyId, null),
 		});
 	}
@@ -97,7 +98,14 @@ async function seed(
 	});
 	const [mapping] = await db
 		.insert(tables.modelProviderMapping)
-		.values({ modelId, providerId, externalId: modelId, source })
+		.values({
+			modelId,
+			providerId,
+			externalId: modelId,
+			source,
+			inputPrice: "0",
+			outputPrice: "0",
+		})
 		.returning();
 	let draftId: string | undefined;
 	let claimId: string | undefined;
@@ -124,11 +132,9 @@ async function seed(
 			customBaseUrl: "https://provider.example.com",
 			status: "active",
 			claimedBy: userId,
-			verificationKeyCiphertext: encryptClaimVerificationKey(
-				"test-carrier-key",
-				claimId,
-				companyId,
-			),
+			providerKeyId: (await db.query.providerKey.findFirst({
+				where: { provider: { eq: providerId } },
+			}))!.id,
 		});
 		const [draft] = await db
 			.insert(tables.providerDraftModel)
@@ -164,9 +170,16 @@ const check = (
 	status,
 });
 async function complete(id: string, status: "passed" | "failed", at = now) {
+	const current = await job(id);
 	await db
 		.update(tables.providerModelVerification)
-		.set({ status, checks: [check(status)], createdAt: at, completedAt: at })
+		.set({
+			status,
+			target: { ...current.target, gatewayExecutionVersion: 1 },
+			checks: [check(status)],
+			createdAt: at,
+			completedAt: at,
+		})
 		.where(eq(tables.providerModelVerification.id, id));
 }
 async function baseline(current: Verification, draftId?: string) {
@@ -176,7 +189,7 @@ async function baseline(current: Verification, draftId?: string) {
 		draftModelId: draftId,
 		providerCompanyId: current.providerCompanyId,
 		initiatedBy: "admin",
-		target: current.target,
+		target: { ...current.target, gatewayExecutionVersion: 1 },
 		checks: [check("passed")],
 		status: "passed",
 		credentialSource: "managed",
@@ -263,7 +276,7 @@ describe("daily model verification scheduling", () => {
 		expect(await scheduleDailyModelVerifications(now)).toBe(0);
 	});
 
-	it.each(["paused", "delisted", "draft", "revoked", "missing-test-key"])(
+	it.each(["paused", "delisted", "draft", "revoked", "missing-serving-key"])(
 		"ignores %s Airside listings without falling back to managed serving keys",
 		async (kind) => {
 			const { draftId, claimId } = await seed("airside");
@@ -285,10 +298,10 @@ describe("daily model verification scheduling", () => {
 					.set({ status: "revoked" })
 					.where(eq(tables.providerClaim.id, claimId!));
 			}
-			if (kind === "missing-test-key") {
+			if (kind === "missing-serving-key") {
 				await db
 					.update(tables.providerClaim)
-					.set({ verificationKeyCiphertext: null })
+					.set({ providerKeyId: null })
 					.where(eq(tables.providerClaim.id, claimId!));
 			}
 			expect(await scheduleDailyModelVerifications(now)).toBe(0);
@@ -310,7 +323,29 @@ describe("daily model verification scheduling", () => {
 		).toBe(true);
 	});
 
-	it("uses current carrier credentials after rotation, not erased history ciphertext", async () => {
+	it("leaves the context, output-budget and prompt-cache probes out of daily runs", async () => {
+		const { mapping, id } = await seed();
+		await db
+			.update(tables.modelProviderMapping)
+			.set({
+				contextSize: 1_000_000,
+				maxOutput: 128_000,
+				cachedInputPrice: "0",
+			})
+			.where(eq(tables.modelProviderMapping.id, mapping.id));
+		expect(await scheduleDailyModelVerifications(now)).toBe(1);
+		const queued = await job(id);
+		expect(queued.target.contextSize).toBeNull();
+		expect(queued.target.maxOutput).toBeNull();
+		expect(queued.target.promptCaching).toBe(false);
+		expect(
+			queued.checks.some((c) =>
+				["context_size", "max_output", "prompt_caching"].includes(c.id),
+			),
+		).toBe(false);
+	});
+
+	it("invalidates queued carrier proof after rotation and snapshots the next daily run", async () => {
 		const { id, claimId } = await seed("airside");
 		expect(await scheduleDailyModelVerifications(now)).toBe(1);
 		const queued = await job(id);
@@ -319,23 +354,52 @@ describe("daily model verification scheduling", () => {
 			where: { id: { eq: claimId! } },
 		}))!;
 		await db
-			.update(tables.providerClaim)
-			.set({
-				verificationKeyCiphertext: encryptClaimVerificationKey(
+			.update(tables.providerKey)
+			.set(
+				encryptProviderKeyForStorage(
 					"rotated-test-key",
-					claim.id,
-					claim.providerCompanyId,
+					claim.providerKeyId!,
+					null,
 				),
-			})
-			.where(eq(tables.providerClaim.id, claim.id));
+			)
+			.where(eq(tables.providerKey.id, claim.providerKeyId!));
 		const runner = vi.fn(async (options) => {
 			expect(options.token === "rotated-test-key").toBe(true);
 			expect(options.baseUrl).toBe("https://provider.example.com");
 			return { passed: true, summary: "Passed", checks: [check("passed")] };
 		});
 		await processNextModelVerification(runner);
-		expect(runner).toHaveBeenCalledTimes(1);
+		expect(runner).not.toHaveBeenCalled();
+		expect(
+			(await job(id)).checks.every((check) => check.status === "skipped"),
+		).toBe(true);
+		expect(
+			await scheduleDailyModelVerifications(new Date(now.getTime() + day)),
+		).toBe(1);
+		await processNextModelVerification(runner);
+		expect(runner).toHaveBeenCalledOnce();
 		expect((await job(id)).credentialCiphertext).toBeNull();
+	});
+
+	it("runs a catalogue claim with a dormant base URL on the managed key", async () => {
+		const { id, claimId } = await seed("airside");
+		await db
+			.update(tables.providerClaim)
+			.set({
+				kind: "catalogue",
+				providerKeyId: null,
+				customBaseUrl: "https://dormant.example.com",
+			})
+			.where(eq(tables.providerClaim.id, claimId!));
+		expect(await scheduleDailyModelVerifications(now)).toBe(1);
+		expect((await job(id)).credentialSource).toBe("managed");
+		const runner = vi.fn(async (options) => {
+			expect(options.baseUrl).toBe("https://provider.example.com");
+			return { passed: true, summary: "Passed", checks: [check("passed")] };
+		});
+		await processNextModelVerification(runner);
+		expect(runner).toHaveBeenCalledOnce();
+		expect((await job(id)).status).toBe("passed");
 	});
 
 	it.each(["inactive", "credential-removed", "changed"])(
@@ -536,6 +600,332 @@ describe("verification regression delivery", () => {
 			[],
 		);
 	});
+
+	async function secondKey(providerId: string) {
+		const keyId = randomUUID();
+		await db.insert(tables.providerKey).values({
+			id: keyId,
+			provider: providerId,
+			managed: true,
+			...encryptProviderKeyForStorage("second-provider-key", keyId, null),
+		});
+		return keyId;
+	}
+
+	it("re-runs a failure on the other managed key before alerting", async () => {
+		const { id, mapping } = await seed();
+		const keyId = await secondKey(mapping.providerId);
+		await scheduleDailyModelVerifications(now);
+		await baseline(await job(id));
+		await complete(id, "failed");
+		const fetcher = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(new Response(null, { status: 204 }));
+		expect(await deliverModelVerificationRegressions(now, fetcher)).toBe(0);
+		expect(fetcher).not.toHaveBeenCalled();
+		const queued = await db.query.providerModelVerification.findMany({
+			where: { id: { like: "daily-verification:key:%" } },
+		});
+		expect(queued.map((run) => run.target.providerKeyId)).toEqual([keyId]);
+		expect(queued[0].status).toBe("queued");
+		const runner = vi.fn(async (options) => {
+			expect(options.token === "second-provider-key").toBe(true);
+			return { passed: false, checks: [check("failed")], summary: "Failed" };
+		});
+		await processNextModelVerification(runner);
+		expect(runner).toHaveBeenCalledOnce();
+		expect(
+			await deliverModelVerificationRegressions(minutesAfterNow(6), fetcher),
+		).toBe(1);
+		const payload = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
+		expect(payload.embeds[0].title).toBe("Model verification regression");
+		expect(payload.embeds[0].fields[2].value).toContain(keyId);
+		expect(payload.embeds[0].fields[2].value).toContain(
+			(await job(id)).target.providerKeyId,
+		);
+	});
+
+	it("waits while another run holds the mapping's active slot", async () => {
+		const { id, mapping } = await seed();
+		await secondKey(mapping.providerId);
+		await scheduleDailyModelVerifications(now);
+		await baseline(await job(id));
+		await complete(id, "failed");
+		await db.insert(tables.providerModelVerification).values({
+			id: randomUUID(),
+			modelProviderMappingId: mapping.id,
+			initiatedBy: "admin",
+			target: (await job(id)).target,
+			checks: [],
+			credentialSource: "managed",
+		});
+		const fetcher = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(new Response(null, { status: 204 }));
+		expect(
+			await deliverModelVerificationRegressions(minutesAfterNow(6), fetcher),
+		).toBe(0);
+		expect(fetcher).not.toHaveBeenCalled();
+		expect(
+			await db.query.providerModelVerification.findMany({
+				where: { id: { like: "daily-verification:key:%" } },
+			}),
+		).toEqual([]);
+	});
+
+	it("alerts every failing key when another key passes", async () => {
+		const { id, mapping } = await seed();
+		const second = await secondKey(mapping.providerId);
+		const third = await secondKey(mapping.providerId);
+		await scheduleDailyModelVerifications(now);
+		await baseline(await job(id));
+		await complete(id, "failed");
+		const fetcher = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(new Response(null, { status: 204 }));
+		const finishKeyCheck = async (
+			keyId: string,
+			status: "passed" | "failed",
+		) => {
+			const runs = await db.query.providerModelVerification.findMany({
+				where: { id: { like: "daily-verification:key:%" } },
+			});
+			const run = runs.find((row) => row.target.providerKeyId === keyId);
+			expect(run?.status).toBe("queued");
+			await db
+				.update(tables.providerModelVerification)
+				.set({ status, checks: [check(status)], completedAt: now })
+				.where(eq(tables.providerModelVerification.id, run!.id));
+		};
+		expect(await deliverModelVerificationRegressions(now, fetcher)).toBe(0);
+		await finishKeyCheck(second, "failed");
+		expect(
+			await deliverModelVerificationRegressions(minutesAfterNow(6), fetcher),
+		).toBe(0);
+		await finishKeyCheck(third, "passed");
+		expect(
+			await deliverModelVerificationRegressions(minutesAfterNow(12), fetcher),
+		).toBe(2);
+		const alerted = fetcher.mock.calls.map(
+			(call) => JSON.parse(String(call[1]?.body)).embeds[0],
+		);
+		expect(alerted.map((embed) => embed.title)).toEqual([
+			"Managed provider key failing verification",
+			"Managed provider key failing verification",
+		]);
+		expect(alerted.map((embed) => embed.fields[0].value)).toEqual([
+			(await job(id)).target.providerKeyId,
+			second,
+		]);
+	});
+
+	it("ignores an alternate key that never finished", async () => {
+		const { id, mapping } = await seed();
+		await secondKey(mapping.providerId);
+		await scheduleDailyModelVerifications(now);
+		await baseline(await job(id));
+		await complete(id, "failed");
+		const fetcher = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(new Response(null, { status: 204 }));
+		expect(await deliverModelVerificationRegressions(now, fetcher)).toBe(0);
+		expect(
+			await deliverModelVerificationRegressions(
+				new Date(now.getTime() + day),
+				fetcher,
+			),
+		).toBe(1);
+		const embed = JSON.parse(String(fetcher.mock.calls[0][1]?.body)).embeds[0];
+		expect(embed.title).toBe("Model verification regression");
+		expect(embed.fields[1].value).toBe("basic");
+	});
+
+	it("splits checks failing everywhere from checks failing on one key", async () => {
+		const { id, mapping } = await seed();
+		await secondKey(mapping.providerId);
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ streaming: true })
+			.where(eq(tables.modelProviderMapping.id, mapping.id));
+		await scheduleDailyModelVerifications(now);
+		const both = (
+			basic: "passed" | "failed",
+			streaming: "passed" | "failed",
+		) => [
+			check(basic),
+			{ id: "streaming", label: "Streaming", status: streaming },
+		];
+		const current = await job(id);
+		expect(current.target.streaming).toBe(true);
+		await db.insert(tables.providerModelVerification).values({
+			id: randomUUID(),
+			modelProviderMappingId: mapping.id,
+			initiatedBy: "admin",
+			target: { ...current.target, gatewayExecutionVersion: 1 },
+			checks: both("passed", "passed"),
+			status: "passed",
+			credentialSource: "managed",
+			createdAt: new Date(now.getTime() - day),
+			completedAt: new Date(now.getTime() - day),
+		});
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				status: "failed",
+				target: { ...current.target, gatewayExecutionVersion: 1 },
+				checks: both("failed", "failed"),
+				createdAt: now,
+				completedAt: now,
+			})
+			.where(eq(tables.providerModelVerification.id, id));
+		const fetcher = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(new Response(null, { status: 204 }));
+		expect(await deliverModelVerificationRegressions(now, fetcher)).toBe(0);
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				status: "failed",
+				checks: both("passed", "failed"),
+				completedAt: now,
+			})
+			.where(
+				like(tables.providerModelVerification.id, "daily-verification:key:%"),
+			);
+		console.log(
+			"DBG",
+			JSON.stringify(
+				await db.query.providerModelVerification.findMany({
+					where: { modelProviderMappingId: { eq: mapping.id } },
+				}),
+			),
+		);
+		expect(
+			await deliverModelVerificationRegressions(minutesAfterNow(6), fetcher),
+		).toBe(2);
+		const embeds = fetcher.mock.calls.map(
+			(call) => JSON.parse(String(call[1]?.body)).embeds[0],
+		);
+		expect(embeds.map((embed) => [embed.title, embed.fields[1].value])).toEqual(
+			[
+				["Model verification regression", "streaming"],
+				[
+					"Managed provider key failing verification",
+					current.target.modelName + " (default)",
+				],
+			],
+		);
+		expect(embeds[1].fields[2].value).toBe("basic");
+	});
+
+	it("alerts an alternate key failing a check outside the regression", async () => {
+		const { id, mapping } = await seed();
+		const second = await secondKey(mapping.providerId);
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ streaming: true })
+			.where(eq(tables.modelProviderMapping.id, mapping.id));
+		await scheduleDailyModelVerifications(now);
+		const both = (
+			basic: "passed" | "failed",
+			streaming: "passed" | "failed",
+		) => [
+			check(basic),
+			{ id: "streaming", label: "Streaming", status: streaming },
+		];
+		const current = await job(id);
+		const target = { ...current.target, gatewayExecutionVersion: 1 as const };
+		await db.insert(tables.providerModelVerification).values({
+			id: randomUUID(),
+			modelProviderMappingId: mapping.id,
+			initiatedBy: "admin",
+			target,
+			checks: both("passed", "passed"),
+			status: "passed",
+			credentialSource: "managed",
+			createdAt: new Date(now.getTime() - day),
+			completedAt: new Date(now.getTime() - day),
+		});
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				status: "failed",
+				target,
+				checks: both("failed", "passed"),
+				createdAt: now,
+				completedAt: now,
+			})
+			.where(eq(tables.providerModelVerification.id, id));
+		const fetcher = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(new Response(null, { status: 204 }));
+		expect(await deliverModelVerificationRegressions(now, fetcher)).toBe(0);
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				status: "failed",
+				checks: both("passed", "failed"),
+				completedAt: now,
+			})
+			.where(
+				like(tables.providerModelVerification.id, "daily-verification:key:%"),
+			);
+		expect(
+			await deliverModelVerificationRegressions(minutesAfterNow(6), fetcher),
+		).toBe(2);
+		const embeds = fetcher.mock.calls.map(
+			(call) => JSON.parse(String(call[1]?.body)).embeds[0],
+		);
+		expect(
+			embeds.map((embed) => [
+				embed.title,
+				embed.fields[0].value,
+				embed.fields[2].value,
+			]),
+		).toEqual([
+			[
+				"Managed provider key failing verification",
+				current.target.providerKeyId,
+				"basic",
+			],
+			["Managed provider key failing verification", second, "streaming"],
+		]);
+	});
+
+	it("reports a key that fails where another key passes once per day", async () => {
+		const first = await seed();
+		const second = await seed("catalogue", first.mapping.providerId);
+		await secondKey(first.mapping.providerId);
+		await scheduleDailyModelVerifications(now);
+		for (const { id } of [first, second]) {
+			await baseline(await job(id));
+			await complete(id, "failed");
+		}
+		const fetcher = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(new Response(null, { status: 204 }));
+		expect(await deliverModelVerificationRegressions(now, fetcher)).toBe(0);
+		await db
+			.update(tables.providerModelVerification)
+			.set({ status: "passed", checks: [check("passed")], completedAt: now })
+			.where(
+				like(tables.providerModelVerification.id, "daily-verification:key:%"),
+			);
+		expect(
+			await deliverModelVerificationRegressions(minutesAfterNow(6), fetcher),
+		).toBe(1);
+		expect(fetcher).toHaveBeenCalledOnce();
+		const payload = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
+		expect(payload.embeds[0].title).toBe(
+			"Managed provider key failing verification",
+		);
+		expect(payload.embeds[0].fields[0].value).toBe(
+			(await job(first.id)).target.providerKeyId,
+		);
+		expect(
+			await deliverModelVerificationRegressions(minutesAfterNow(12), fetcher),
+		).toBe(0);
+	});
 });
 function additionalDailyTests() {
 	it("honours UTC date boundaries", () => {
@@ -611,6 +1001,33 @@ function additionalDailyTests() {
 		expect(
 			mappingTarget({ ...row, source: "catalogue" }).reasoningEfforts,
 		).toEqual(provider.reasoningEfforts);
+	});
+	it("verifies catalogue mappings on the API the gateway serves them on", async () => {
+		const { mapping } = await seed("catalogue");
+		expect(mappingTarget(mapping).apiFormat).toBe("provider-native");
+		expect(
+			mappingTarget({ ...mapping, apiFormat: "openai-responses" }).apiFormat,
+		).toBe("openai-responses");
+		expect(mappingTarget({ ...mapping, source: "airside" }).apiFormat).toBe(
+			"openai-chat-completions",
+		);
+		const definition = (catalogueModels as readonly ModelDefinition[]).find(
+			(model) =>
+				model.providers.some(
+					(provider) => provider.apiFormat === "openai-chat-completions",
+				),
+		)!;
+		const declared = definition.providers.find(
+			(provider) => provider.apiFormat === "openai-chat-completions",
+		)!;
+		expect(
+			mappingTarget({
+				...mapping,
+				modelId: definition.id,
+				providerId: declared.providerId,
+				region: declared.region ?? null,
+			}).apiFormat,
+		).toBe("openai-chat-completions");
 	});
 	it("discovers static decision metadata when sync left the row flag false", async () => {
 		const definition = (catalogueModels as readonly ModelDefinition[]).find(
@@ -855,3 +1272,164 @@ function daysAfterNow(days: number): Date {
 	const delay = days * day;
 	return new Date(now.getTime() + delay);
 }
+
+it("schedules and executes a carrier using only its linked serving key", async () => {
+	const { id, claimId, mapping } = await seed("airside");
+	const key = (await db.query.providerKey.findFirst({
+		where: { provider: { eq: mapping.providerId } },
+	}))!;
+	await db
+		.update(tables.providerClaim)
+		.set({ providerKeyId: key.id })
+		.where(eq(tables.providerClaim.id, claimId!));
+	expect(await scheduleDailyModelVerifications(now)).toBe(1);
+	const runner = vi.fn(async (options) => {
+		expect(options.token === "test-provider-key").toBe(true);
+		expect(options.fetchImplementation).toBeTypeOf("function");
+		return { passed: true, summary: "Passed", checks: [check("passed")] };
+	});
+	await processNextModelVerification(runner);
+	expect(runner).toHaveBeenCalledOnce();
+	expect((await job(id)).status).toBe("passed");
+});
+
+it("keeps daily health pinned to the serving key while an inactive replacement awaits review", async () => {
+	const { id, claimId, mapping } = await seed("airside");
+	const key = (await db.query.providerKey.findFirst({
+		where: { provider: { eq: mapping.providerId } },
+	}))!;
+	const pendingId = randomUUID();
+	await db.insert(tables.providerKey).values({
+		id: pendingId,
+		provider: mapping.providerId,
+		managed: true,
+		status: "inactive",
+		...encryptProviderKeyForStorage("pending-provider-key", pendingId, null),
+	});
+	await db
+		.update(tables.providerClaim)
+		.set({ pendingProviderKeyId: pendingId })
+		.where(eq(tables.providerClaim.id, claimId!));
+	expect(await scheduleDailyModelVerifications(now)).toBe(1);
+	expect((await job(id)).target.providerKeyId).toBe(key.id);
+	const runner = vi.fn(async (options) => {
+		expect(options.token === "test-provider-key").toBe(true);
+		return { passed: true, checks: [check("passed")], summary: "Passed" };
+	});
+	await processNextModelVerification(runner);
+	expect(runner).toHaveBeenCalledOnce();
+	await db
+		.update(tables.providerClaim)
+		.set({ providerKeyId: null })
+		.where(eq(tables.providerClaim.id, claimId!));
+	expect(
+		await scheduleDailyModelVerifications(new Date(now.getTime() + day)),
+	).toBe(0);
+});
+
+it("does not deliver a Discord regression from a rotated credential", async () => {
+	const { id, mapping, draftId } = await seed("airside");
+	await scheduleDailyModelVerifications(now);
+	await baseline(await job(id), draftId);
+	await complete(id, "failed");
+	const key = (await db.query.providerKey.findFirst({
+		where: { provider: { eq: mapping.providerId } },
+	}))!;
+	await db
+		.update(tables.providerKey)
+		.set(encryptProviderKeyForStorage("rotated-carrier-key", key.id, null))
+		.where(eq(tables.providerKey.id, key.id));
+	const fetcher = vi.fn<typeof fetch>();
+	expect(await deliverModelVerificationRegressions(now, fetcher)).toBe(0);
+	expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("does not deliver legacy unbound Discord failure proof for a current serving credential", async () => {
+	const { id, draftId } = await seed("airside");
+	await scheduleDailyModelVerifications(now);
+	const current = await job(id);
+	await baseline(current, draftId);
+	await complete(id, "failed");
+	const target = { ...current.target };
+	delete target.providerKeyId;
+	delete target.credentialFingerprint;
+	await db
+		.update(tables.providerModelVerification)
+		.set({ target })
+		.where(eq(tables.providerModelVerification.id, id));
+	const fetcher = vi.fn<typeof fetch>();
+	expect(await deliverModelVerificationRegressions(now, fetcher)).toBe(0);
+	expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("does not deliver a matching credential proof completed by a legacy direct worker", async () => {
+	const { id, draftId } = await seed("airside");
+	await scheduleDailyModelVerifications(now);
+	const current = await job(id);
+	expect(current.target.gatewayExecutionVersion).toBeUndefined();
+	await baseline(current, draftId);
+	await complete(id, "failed");
+	await db
+		.update(tables.providerModelVerification)
+		.set({ target: current.target })
+		.where(eq(tables.providerModelVerification.id, id));
+	const fetcher = vi.fn<typeof fetch>();
+	expect(await deliverModelVerificationRegressions(now, fetcher)).toBe(0);
+	expect(fetcher).not.toHaveBeenCalled();
+});
+
+it.each(["token", "configuration"])(
+	"invalidates queued environment proof after %s rotation",
+	async (kind) => {
+		vi.stubEnv("LLM_ALIBABA_API_KEY", "");
+		vi.stubEnv("LLM_ALIBABA_API_KEY__US_VIRGINIA", "regional-env-test-key");
+		vi.stubEnv("LLM_ALIBABA_BASE_URL", "https://example.com/v1");
+		const { id, mapping } = await seed("catalogue", "alibaba");
+		await db
+			.delete(tables.providerKey)
+			.where(eq(tables.providerKey.provider, mapping.providerId));
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ region: "us-virginia" })
+			.where(eq(tables.modelProviderMapping.id, mapping.id));
+		expect(await scheduleDailyModelVerifications(now)).toBe(1);
+		expect((await job(id)).target.credentialFingerprint).toBeDefined();
+		vi.stubEnv(
+			kind === "token"
+				? "LLM_ALIBABA_API_KEY__US_VIRGINIA"
+				: "LLM_ALIBABA_BASE_URL",
+			kind === "token"
+				? "rotated-regional-env-test-key"
+				: "https://replacement.example.com/v1",
+		);
+		const runner = vi.fn();
+		await processNextModelVerification(runner);
+		expect(runner).not.toHaveBeenCalled();
+		expect(
+			(await job(id)).checks.every((check) => check.status === "skipped"),
+		).toBe(true);
+		expect((await job(id)).target.gatewayExecutionVersion).toBeUndefined();
+	},
+);
+it("uses the same regional environment token and fingerprint for manual and daily verification", async () => {
+	vi.stubEnv("LLM_ALIBABA_API_KEY", "");
+	vi.stubEnv("LLM_ALIBABA_API_KEY__US_VIRGINIA", "regional-env-test-key");
+	const { id, mapping } = await seed("catalogue", "alibaba");
+	await db
+		.delete(tables.providerKey)
+		.where(eq(tables.providerKey.provider, mapping.providerId));
+	await db
+		.update(tables.modelProviderMapping)
+		.set({ region: "us-virginia" })
+		.where(eq(tables.modelProviderMapping.id, mapping.id));
+	expect(await scheduleDailyModelVerifications(now)).toBe(1);
+	const scheduled = await job(id);
+	const manual = await resolveCredential({
+		...scheduled,
+		id: "manual-" + randomUUID(),
+	});
+	expect(manual.providerKey === "regional-env-test-key").toBe(true);
+	expect(manual.credentialFingerprint).toBe(
+		scheduled.target.credentialFingerprint,
+	);
+});

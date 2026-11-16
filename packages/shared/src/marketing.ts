@@ -13,6 +13,13 @@ export const MARKETING_STATS = {
 	uptimeSla: "99.9%",
 	effectiveUptime: "99.9999%",
 	platformFee: "5%",
+	enterpriseSmallTeamPrice: "$3,000",
+	enterpriseTeamPrice: "$10,000",
 	dataStoragePrice: "$0.01 per 1M tokens",
 	githubStars: "1.6K+",
 } as const;
+
+// Public Calendly page for enterprise calls, embedded on /enterprise and
+// handed out from the admin CRM.
+export const ENTERPRISE_BOOKING_URL =
+	"https://calendly.com/llmgateway/llmgateway-enterprise";

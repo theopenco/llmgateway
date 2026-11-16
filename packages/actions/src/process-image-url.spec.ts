@@ -332,3 +332,61 @@ describe("processImageUrl caller deadline", () => {
 		expect(response.body?.locked).toBe(false);
 	});
 });
+async function testStalledImageCancellation() {
+	vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+	const controller = new AbortController();
+	const reason = new DOMException("image deadline", "TimeoutError");
+	let started!: () => void;
+	let source!: ReadableStreamDefaultController<Uint8Array>;
+	const reading = new Promise<void>((resolve) => {
+		started = resolve;
+	});
+	const cancelled = vi.fn();
+	const response = new Response(
+		new ReadableStream<Uint8Array>(
+			{
+				start(stream) {
+					source = stream;
+				},
+				pull() {
+					started();
+				},
+				cancel: cancelled,
+			},
+			{ highWaterMark: 0 },
+		),
+		{ headers: { "content-type": "image/png" } },
+	);
+	vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+	const result = processImageUrl(
+		REMOTE_URL,
+		false,
+		MAX_SIZE_MB,
+		null,
+		controller.signal,
+	).catch((error: unknown) => error);
+	try {
+		await reading;
+		global.gc?.();
+		controller.abort(reason);
+		const settled = await Promise.race([
+			result,
+			new Promise((resolve) => setTimeout(() => resolve("stalled"), 50)),
+		]);
+		expect(settled).toBe(reason);
+		expect(cancelled).toHaveBeenCalledOnce();
+		expect(response.body?.locked).toBe(false);
+	} finally {
+		if (cancelled.mock.calls.length === 0) {
+			source.close();
+		}
+		await result;
+		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
+	}
+}
+
+it(
+	"cancels a stalled image reader even when fetch loses the abort",
+	testStalledImageCancellation,
+);

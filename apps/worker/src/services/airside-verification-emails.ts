@@ -3,6 +3,7 @@ import { createHash, randomUUID, createHmac } from "node:crypto";
 import {
 	buildVerificationTarget,
 	createQueuedModelVerificationChecks,
+	isDailyModelVerification,
 } from "@llmgateway/actions";
 import { and, db, desc, eq, isNull, like, or, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -14,8 +15,12 @@ import {
 } from "@llmgateway/shared/email";
 
 import {
+	DAILY_SKIPPED_CHECK_IDS,
 	liveVerificationMapping,
 	sameVerificationDeclaration,
+	currentCredentialSource,
+	currentVerificationTarget,
+	sameVerificationCredential,
 } from "./daily-model-verifications.js";
 
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
@@ -105,8 +110,18 @@ function observation(
 	target: ProviderModelVerificationTarget,
 	job?: Verification,
 ): AirsideVerificationObservation {
-	const expected = createQueuedModelVerificationChecks(target);
-	const compatible = job && sameVerificationDeclaration(target, job.target);
+	const daily = Boolean(job && isDailyModelVerification(job));
+	// A daily run queued without the heavy probes is judged without them.
+	const expected = createQueuedModelVerificationChecks(target).filter(
+		(check) =>
+			!daily ||
+			!DAILY_SKIPPED_CHECK_IDS.has(check.id) ||
+			job!.checks.some((actual) => actual.id === check.id),
+	);
+	const compatible =
+		job &&
+		sameVerificationDeclaration(target, job.target, daily) &&
+		sameVerificationCredential(job.target, target);
 	const failedChecks =
 		compatible &&
 		job.completedAt &&
@@ -147,9 +162,6 @@ async function observations(companyId: string, now: Date, tx: Transaction) {
 	});
 	const result: AirsideVerificationObservation[] = [];
 	for (const claim of claims) {
-		if (!claim.verificationKeyCiphertext) {
-			continue;
-		}
 		const mappings = await tx.query.modelProviderMapping.findMany({
 			where: { providerId: { eq: claim.providerId }, status: { eq: "active" } },
 		});
@@ -158,7 +170,7 @@ async function observations(companyId: string, now: Date, tx: Transaction) {
 			if (
 				!live ||
 				live.claim?.providerCompanyId !== companyId ||
-				!live.claim.verificationKeyCiphertext
+				!(await currentCredentialSource(live, tx))
 			) {
 				continue;
 			}
@@ -181,7 +193,9 @@ async function observations(companyId: string, now: Date, tx: Transaction) {
 				)
 				.orderBy(desc(jobs.createdAt), desc(jobs.id))
 				.limit(1);
-			result.push(observation(mapping.id, live.target, job));
+			result.push(
+				observation(mapping.id, await currentVerificationTarget(live, tx), job),
+			);
 		}
 	}
 	return result.sort((a, b) => a.mappingId.localeCompare(b.mappingId));

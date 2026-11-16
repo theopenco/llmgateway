@@ -41,6 +41,8 @@ In DevPass, enable **No AI training** directly under **Settings**. It uses the s
 
 Every requirement is **fail-closed**: a provider passes only if its published data policy explicitly satisfies the requirement. If an attribute is unknown for a provider, that provider is treated as non-compliant.
 
+Some models retain data on a provider that is otherwise zero-retention, for example models that require AWS human review on Bedrock. The data policy is checked per model, so **Zero data retention (ZDR)** routes those models only to providers that meet it for that model, even when the provider passes in the **Provider Impact** preview.
+
 Before enabling **Zero data retention (ZDR)**, set the organization's data retention to **Metadata Only** and disable response caching in every project. While ZDR is active, **Retain All Data** and project response caching are unavailable, gateway response caching is bypassed, provider prompt-cache markers are stripped, Responses API requests must set `store: false`, and asynchronous video generation is unavailable because video jobs require temporary output storage. Disable ZDR before turning payload retention or caching back on. ZDR is a separate Enterprise compliance policy and is unchanged by the Enterprise requirement for **Retain All Data** itself.
 
 Existing policies that use the deprecated **No prompt logging** rule continue to enforce their original provider-routing behavior. The legacy rule is no longer available for new configuration and does not enable the gateway-level ZDR controls described above.

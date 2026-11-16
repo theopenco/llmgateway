@@ -12,7 +12,11 @@ import {
 	type ProviderKeyRateLimitExemption,
 } from "@/lib/provider-key-rate-limit.js";
 
-import { readProviderKey } from "@llmgateway/actions";
+import {
+	managedCredentialOptions,
+	readProviderKey,
+	resolveAzureBaseUrl,
+} from "@llmgateway/actions";
 import { providerKeyAllowsModel } from "@llmgateway/db";
 import { getProviderEnvValue, providers } from "@llmgateway/models";
 
@@ -81,13 +85,9 @@ export interface ResolvePlatformCredentialOptions {
 	/**
 	 * Canonical model id the credential will serve. Managed credentials
 	 * restricted via `allowedModels` are skipped when they exclude it, falling
-	 * through to the next credential or the env vars.
-	 *
-	 * Optional because several endpoints (embeddings, speech, OCR, …) only hold
-	 * the upstream model id here — comparing that against the canonical ids in
-	 * `allowedModels` would silently never match, which is worse than not
-	 * filtering. Every chat-path caller passes it; a caller that omits it
-	 * bypasses the restriction.
+	 * through to the next credential or the env vars, and applies their
+	 * per-model caps. Never pass the upstream id: `allowedModels` holds
+	 * canonical ids. A caller that omits it bypasses both.
 	 */
 	model?: string;
 	variant: EnvVarVariant | undefined;
@@ -148,6 +148,7 @@ export async function resolvePlatformCredential(
 		excludedKeyIds: options.excludedProviderKeyIds,
 		filter,
 		rateLimitExemption: options.rateLimitExemption,
+		model: restrictedToModel,
 		advanceRoundRobin: options.advanceRoundRobin,
 	});
 
@@ -185,6 +186,7 @@ export async function resolvePlatformCredential(
 		const rateLimited = await getRateLimitedProviderKeys(
 			candidates,
 			options.rateLimitExemption,
+			restrictedToModel,
 		);
 		if (candidates.length > 0 && rateLimited.size === candidates.length) {
 			throw new ProviderKeyRateLimitError(
@@ -270,4 +272,60 @@ export function getCredentialSetting(
 		options.defaultValue,
 		options.variant,
 	);
+}
+
+/**
+ * Base URL of the Azure credential serving the request, for endpoints that
+ * build their own URL: its explicit base URL, else its resource's OpenAI host
+ * (a BYOK key's `azure_resource` option, the managed config, or the env var).
+ */
+/**
+ * Base URL of the Azure credential serving the request, for endpoints that
+ * build their own URL. Same precedence as chat: a BYOK key's own base URL,
+ * then the credential's base URL, then its resource's OpenAI host. Env vars
+ * apply only on the env path.
+ */
+export function getAzureCredentialBaseUrl(
+	credential: {
+		providerKey?: ProviderKeyRow;
+		managedKey?: ProviderKeyRow;
+	},
+	options: {
+		configIndex?: number;
+		variant?: EnvVarVariant;
+	} = {},
+): string | undefined {
+	if (credential.providerKey?.baseUrl) {
+		return resolveAzureBaseUrl({
+			providerKeyOptions: {
+				env_config: { baseUrl: credential.providerKey.baseUrl },
+			},
+			skipEnvVars: true,
+		});
+	}
+	return resolveAzureBaseUrl({
+		providerKeyOptions: credential.providerKey
+			? (credential.providerKey.options ?? undefined)
+			: managedCredentialOptions(credential.managedKey),
+		skipEnvVars: Boolean(credential.providerKey ?? credential.managedKey),
+		configIndex: options.configIndex,
+		variant: options.variant,
+	});
+}
+
+/**
+ * Upstream model for an Azure request: the credential's
+ * `azure_deployment_name` override when set, else the mapping's external id.
+ */
+export function getAzureUpstreamModel(
+	credential: {
+		providerKey?: ProviderKeyRow;
+		managedKey?: ProviderKeyRow;
+	},
+	externalId: string,
+): string {
+	const options = credential.providerKey
+		? credential.providerKey.options
+		: managedCredentialOptions(credential.managedKey);
+	return options?.azure_deployment_name || externalId;
 }

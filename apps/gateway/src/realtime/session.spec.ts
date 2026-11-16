@@ -20,11 +20,25 @@ import {
 	recordRealtimeResponse,
 	recordRealtimeTranscription,
 } from "./billing.js";
+import { prepareRealtimeImageInput } from "./image-input.js";
+import { validateRealtimeTools } from "./mcp.js";
 import { RealtimeProxySession } from "./session.js";
 
 import type { RealtimeMappingMatch } from "./catalog.js";
 import type { RealtimePreflightResult } from "./preflight.js";
 import type { WebSocket } from "ws";
+
+vi.mock("./image-input.js", async (importOriginal) => {
+	const actual = await importOriginal<{
+		prepareRealtimeImageInput: typeof prepareRealtimeImageInput;
+	}>();
+	return {
+		...actual,
+		prepareRealtimeImageInput: vi.fn(actual.prepareRealtimeImageInput),
+	};
+});
+
+vi.mock("./mcp.js", () => ({ validateRealtimeTools: vi.fn(async () => null) }));
 
 vi.mock("@/lib/api-key-usage-limits.js", () => ({
 	assertApiKeyWithinUsageLimits: vi.fn(),
@@ -2217,3 +2231,395 @@ describe("realtime audio recovery after transient authorization failure", () => 
 		session.shutdown(1000, "test_done");
 	});
 });
+async function testRealtimeImageInput(providerId: string) {
+	const preflight = buildPreflight();
+	const harness = await openSession(
+		createSession({
+			match: {
+				...preflight.match,
+				mapping: {
+					...preflight.match.mapping,
+					providerId,
+					realtime: true,
+					vision: true,
+					imageInputPrice: "0.8e-6",
+					cachedImageInputPrice: "0.08e-6",
+				},
+			},
+		}),
+	);
+	try {
+		const item = {
+			type: "message",
+			role: "user",
+			content: [
+				{ type: "input_image", image_url: "data:image/png;base64,aW1hZ2U=" },
+			],
+		};
+		harness.clientSends({ type: "conversation.item.create", item });
+		await flush();
+		expect(
+			harness.upstream.sent.some(
+				(event) => JSON.parse(event).type === "conversation.item.create",
+			),
+		).toBe(true);
+		harness.clientSends({
+			type: "response.create",
+			response: { input: [item] },
+		});
+		await flush();
+		expect(
+			harness.upstream.sent.some(
+				(event) => JSON.parse(event).type === "response.create",
+			),
+		).toBe(true);
+		harness.upstreamSends({
+			type: "response.done",
+			response: {
+				id: "resp_image",
+				status: "completed",
+				usage: {
+					...validResponseUsage,
+					input_token_details: {
+						text_tokens: 2,
+						audio_tokens: 8,
+						image_tokens: 10,
+						cached_tokens: 4,
+						cached_tokens_details: {
+							text_tokens: 0,
+							audio_tokens: 0,
+							image_tokens: 4,
+						},
+					},
+				},
+			},
+		});
+		await flush();
+		const bill = vi.mocked(recordRealtimeResponse).mock.calls.at(-1)?.[0];
+		expect(bill?.usage).toMatchObject({
+			inputImageTokens: 10,
+			cachedImageTokens: 4,
+		});
+		expect(bill?.costs.imageInputCost.toString()).toBe("0.00000512");
+		expect(bill?.costs.totalCost.toString()).toBe("0.00021592");
+	} finally {
+		harness.session.close(1000, "test_complete");
+	}
+}
+
+describe("metered realtime image input", () => {
+	it.each(["azure", "openai"])(
+		"forwards and bills %s inline images",
+		testRealtimeImageInput,
+	);
+});
+async function testNativeMcpMetering(providerId: string) {
+	const preflight = buildPreflight();
+	const harness = await openSession(
+		createSession({
+			match: {
+				...preflight.match,
+				mapping: { ...preflight.match.mapping, providerId, realtime: true },
+			},
+		}),
+	);
+	try {
+		const tools = [
+			{
+				type: "mcp",
+				server_label: "documentation",
+				server_url: "https://example.com/mcp",
+				require_approval: "always",
+				authorization: "test-token",
+			},
+		];
+		harness.clientSends({
+			type: "session.update",
+			session: { type: "realtime", tools },
+		});
+		await flush();
+		expect(validateRealtimeTools).toHaveBeenCalledWith(
+			tools,
+			providerId,
+			expect.any(AbortSignal),
+		);
+		expect(
+			harness.upstream.sent.some(
+				(raw) => JSON.parse(raw).session?.tools?.[0]?.type === "mcp",
+			),
+		).toBe(true);
+		harness.clientSends({ type: "response.create", response: { tools } });
+		await flush();
+		const mcpItem = {
+			id: "mcp_call_test",
+			type: "mcp_call",
+			name: "docs_search",
+			status: "in_progress",
+		};
+		harness.upstreamSends({
+			type: "response.created",
+			response: { id: "resp_mcp" },
+		});
+		harness.upstreamSends({
+			type: "response.done",
+			response: {
+				id: "resp_mcp",
+				status: "completed",
+				output: [mcpItem],
+				usage: validResponseUsage,
+			},
+		});
+		await flush();
+		expect(recordRealtimeResponse).toHaveBeenCalledOnce();
+		const before = harness.upstream.sent.filter(
+			(raw) => JSON.parse(raw).type === "response.create",
+		).length;
+		harness.clientSends({ type: "response.create" });
+		await flush();
+		expect(
+			harness.upstream.sent.filter(
+				(raw) => JSON.parse(raw).type === "response.create",
+			),
+		).toHaveLength(before);
+		expect(
+			harness.client.sent.some(
+				(raw) => JSON.parse(raw).error?.code === "response_in_flight",
+			),
+		).toBe(true);
+		harness.session.close(1000, "test_complete");
+		expect(harness.upstream.readyState).toBe(1);
+		harness.upstreamSends({
+			type: "response.mcp_call.completed",
+			item_id: mcpItem.id,
+		});
+		await flush();
+		expect(harness.upstream.readyState).toBe(3);
+	} finally {
+		harness.session.close(1000, "test_complete");
+	}
+}
+async function testMcpValidationBeforeEgress() {
+	const harness = await openSession(createSession());
+	try {
+		vi.mocked(validateRealtimeTools).mockResolvedValueOnce({
+			code: "invalid_mcp_url",
+			message: "MCP server URL must use public HTTPS",
+		});
+		const before = harness.upstream.sent.length;
+		harness.clientSends({
+			type: "session.update",
+			session: {
+				tools: [
+					{
+						type: "mcp",
+						server_label: "private",
+						server_url: "https://127.0.0.1/mcp",
+					},
+				],
+			},
+		});
+		await flush();
+		expect(harness.upstream.sent).toHaveLength(before);
+		expect(
+			harness.client.sent.some(
+				(raw) => JSON.parse(raw).error?.code === "invalid_mcp_url",
+			),
+		).toBe(true);
+	} finally {
+		harness.session.close(1000, "test_complete");
+	}
+}
+
+describe("native realtime MCP", () => {
+	it.each(["azure", "openai"])(
+		"bills %s tool tokens and drains its asynchronous call tail",
+		testNativeMcpMetering,
+	);
+	it(
+		"does not forward MCP configuration when its URL validation fails",
+		testMcpValidationBeforeEgress,
+	);
+});
+async function testImagesAfterRevocation() {
+	const harness = await openSession(createSession());
+	try {
+		vi.mocked(assertProviderCompliant).mockRejectedValueOnce(
+			new Error("policy revoked"),
+		);
+		const before = harness.upstream.sent.length;
+		harness.clientSends({
+			type: "conversation.item.create",
+			item: {
+				type: "message",
+				role: "user",
+				content: [
+					{ type: "input_image", image_url: "https://example.com/image.png" },
+				],
+			},
+		});
+		await flush();
+		expect(prepareRealtimeImageInput).not.toHaveBeenCalled();
+		expect(harness.upstream.sent).toHaveLength(before);
+	} finally {
+		harness.session.close(1000, "test_complete");
+	}
+}
+async function testImageDownloadAfterClose() {
+	const harness = await openSession(createSession());
+	let resolve!: (value: null) => void;
+	vi.mocked(prepareRealtimeImageInput).mockReturnValueOnce(
+		new Promise<null>((done) => {
+			resolve = done;
+		}),
+	);
+	try {
+		const before = harness.upstream.sent.length;
+		harness.clientSends({
+			type: "conversation.item.create",
+			item: {
+				type: "message",
+				role: "user",
+				content: [
+					{ type: "input_image", image_url: "https://example.com/image.png" },
+				],
+			},
+		});
+		await flush();
+		expect(prepareRealtimeImageInput).toHaveBeenCalledOnce();
+		const signal = vi.mocked(prepareRealtimeImageInput).mock.calls[0]?.[2];
+		harness.session.close(1000, "test_complete");
+		expect(signal?.aborted).toBe(true);
+		resolve(null);
+		await flush();
+		expect(harness.upstream.sent).toHaveLength(before);
+	} finally {
+		resolve(null);
+		harness.session.close(1000, "test_complete");
+	}
+}
+async function testMcpApprovalAfterRevocation() {
+	const harness = await openSession(createSession());
+	try {
+		vi.mocked(assertProviderCompliant).mockRejectedValueOnce(
+			new Error("policy revoked"),
+		);
+		const before = harness.upstream.sent.length;
+		harness.clientSends({
+			type: "conversation.item.create",
+			item: {
+				type: "mcp_approval_response",
+				approval_request_id: "approval_test",
+				approve: true,
+			},
+		});
+		await flush();
+		expect(harness.upstream.sent).toHaveLength(before);
+	} finally {
+		harness.session.close(1000, "test_complete");
+	}
+}
+
+it(
+	"does not download image URLs after content authorization is revoked",
+	testImagesAfterRevocation,
+);
+it(
+	"does not forward a late image download after session close",
+	testImageDownloadAfterClose,
+);
+it(
+	"does not approve MCP calls after content authorization is revoked",
+	testMcpApprovalAfterRevocation,
+);
+async function testUnstartedMcpCallAfterTerminalResponse(status: string) {
+	const harness = await openSession(createSession());
+	try {
+		harness.clientSends({ type: "response.create" });
+		await flush();
+		const item = {
+			id: "mcp_partial_test",
+			type: "mcp_call",
+			name: "docs_search",
+			arguments: "{",
+		};
+		harness.upstreamSends({
+			type: "response.created",
+			response: { id: "resp_partial_mcp" },
+		});
+		harness.upstreamSends({ type: "response.output_item.added", item });
+		harness.upstreamSends({
+			type: "response.done",
+			response: {
+				id: "resp_partial_mcp",
+				status,
+				output: [item],
+				usage: validResponseUsage,
+			},
+		});
+		await flush();
+		const before = harness.upstream.sent.filter(
+			(raw) => JSON.parse(raw).type === "response.create",
+		).length;
+		harness.clientSends({ type: "response.create" });
+		await flush();
+		expect(
+			harness.upstream.sent.filter(
+				(raw) => JSON.parse(raw).type === "response.create",
+			),
+		).toHaveLength(before + 1);
+	} finally {
+		harness.session.close(1000, "test_complete");
+	}
+}
+
+it.each(["cancelled", "failed", "incomplete"])(
+	"does not deadlock on a %s response with an unstarted MCP call",
+	testUnstartedMcpCallAfterTerminalResponse,
+);
+async function testSettledMcpOutputAfterCancellation() {
+	const harness = await openSession(createSession());
+	try {
+		harness.clientSends({ type: "response.create" });
+		await flush();
+		const item = {
+			id: "mcp_settled_test",
+			type: "mcp_call",
+			status: "completed",
+		};
+		harness.upstreamSends({
+			type: "response.created",
+			response: { id: "resp_settled_mcp" },
+		});
+		harness.upstreamSends({
+			type: "response.mcp_call.in_progress",
+			item_id: item.id,
+		});
+		harness.upstreamSends({
+			type: "response.done",
+			response: {
+				id: "resp_settled_mcp",
+				status: "cancelled",
+				output: [item],
+				usage: validResponseUsage,
+			},
+		});
+		await flush();
+		const before = harness.upstream.sent.filter(
+			(raw) => JSON.parse(raw).type === "response.create",
+		).length;
+		harness.clientSends({ type: "response.create" });
+		await flush();
+		expect(
+			harness.upstream.sent.filter(
+				(raw) => JSON.parse(raw).type === "response.create",
+			),
+		).toHaveLength(before + 1);
+	} finally {
+		harness.session.close(1000, "test_complete");
+	}
+}
+
+it(
+	"reconciles settled MCP output after a cancelled response",
+	testSettledMcpOutputAfterCancellation,
+);

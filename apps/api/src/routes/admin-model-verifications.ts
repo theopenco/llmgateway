@@ -20,8 +20,17 @@ import {
 import { adminMiddleware } from "@/middleware/admin.js";
 import { createRoute } from "@/utils/create-route.js";
 
-import { mappingTarget } from "@llmgateway/actions";
-import { db, desc, eq, inArray, isNotNull, and, tables } from "@llmgateway/db";
+import { DAILY_KEY_CHECK_PREFIX, mappingTarget } from "@llmgateway/actions";
+import {
+	db,
+	desc,
+	eq,
+	inArray,
+	isNotNull,
+	and,
+	notLike,
+	tables,
+} from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
@@ -109,13 +118,14 @@ const queueVerification = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						// Exactly one anchor: a live catalogue/Airside mapping, or a
-						// carrier's drafted listing awaiting approval.
-						mappingId: z.string().optional(),
-						draftModelId: z.string().optional(),
-						apiKey: z.string().min(1).max(20_000).optional(),
-					}),
+					schema: z
+						.object({
+							// Exactly one anchor: a live catalogue/Airside mapping, or a
+							// carrier's drafted listing awaiting approval.
+							mappingId: z.string().optional(),
+							draftModelId: z.string().optional(),
+						})
+						.strict(),
 				},
 			},
 		},
@@ -134,7 +144,7 @@ const queueVerification = createRoute({
 
 adminModelVerifications.openapi(queueVerification, async (c) => {
 	const user = c.get("user");
-	const { mappingId, draftModelId, apiKey } = c.req.valid("json");
+	const { mappingId, draftModelId } = c.req.valid("json");
 	if (Boolean(mappingId) === Boolean(draftModelId)) {
 		throw new HTTPException(400, {
 			message: "Provide exactly one of mappingId or draftModelId.",
@@ -171,10 +181,9 @@ adminModelVerifications.openapi(queueVerification, async (c) => {
 		providerCompanyId = model.providerCompanyId;
 	}
 
-	// A carrier-claimed provider runs on the carrier's own credential, so our
-	// managed keys never pay for testing a listing we do not bill for.
+	// Carrier verification uses the same managed credential as serving traffic.
 	const claim = await activeProviderClaim(target.providerId);
-	const credential = await resolveVerificationCredential(target, apiKey, claim);
+	const credential = await resolveVerificationCredential(target, claim);
 	// The worker resolves a custom carrier's endpoint from its claim, which it
 	// finds through the run's company; a live mapping carries none of its own.
 	providerCompanyId ??= claim?.providerCompanyId ?? null;
@@ -186,7 +195,7 @@ adminModelVerifications.openapi(queueVerification, async (c) => {
 			draftModelId: draftModelId ?? null,
 			modelProviderMappingId: mappingId ?? null,
 			target,
-			apiKey: credential.apiKey,
+
 			requestedBy: user?.id ?? null,
 			credentialSource: credential.credentialSource,
 		});
@@ -314,9 +323,16 @@ adminModelVerifications.openapi(listLatestVerifications, async (c) => {
 				])
 				.from(tables.providerModelVerification)
 				.where(
-					inArray(
-						tables.providerModelVerification.modelProviderMappingId,
-						mappings.map((mapping) => mapping.id),
+					and(
+						inArray(
+							tables.providerModelVerification.modelProviderMappingId,
+							mappings.map((mapping) => mapping.id),
+						),
+						// Another key's re-run of a daily failure is not the mapping's health.
+						notLike(
+							tables.providerModelVerification.id,
+							DAILY_KEY_CHECK_PREFIX + "%",
+						),
 					),
 				)
 				.orderBy(

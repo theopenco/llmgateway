@@ -3,13 +3,16 @@ import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { deleteResendContact } from "@/auth/config.js";
 import {
 	cancelOrganizationSubscriptions,
 	getCancelledOrganizationPlanState,
 	isTerminalSubscriptionError,
 } from "@/lib/account-deletion.js";
 import { approveHighRiskUser } from "@/lib/account-risk.js";
+import {
+	modelBreakdownKey,
+	modelBreakdownSql,
+} from "@/lib/admin-model-breakdown.js";
 import {
 	ADMIN_REFUND_REASONS,
 	computeAdminRefundability,
@@ -67,6 +70,7 @@ import {
 import { managedProviderKeyName } from "@/lib/provider-key-label.js";
 import { PG_INTEGER_MAX } from "@/lib/provider-key-rate-limits.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
+import { deleteResendContact } from "@/lib/resend-contacts.js";
 import {
 	getBucketUnitForWindow,
 	getTokenWindowStartDate,
@@ -859,6 +863,41 @@ const providerKeysListSchema = z.object({
 	counts: keyStatusCountsSchema,
 });
 
+// High-risk review state of a user (see `user.riskStatus`), returned wherever
+// an admin may need to approve the account.
+const accountRiskSchema = z.object({
+	status: z.enum(["none", "flagged", "approved"]),
+	flaggedAt: z.string().nullable(),
+	source: z.enum(["signup", "email_verification"]).nullable(),
+	ipAddress: z.string().nullable(),
+	abuseConfidenceScore: z.number().nullable(),
+	countryCode: z.string().nullable(),
+	reviewedAt: z.string().nullable(),
+});
+
+const accountRiskColumns = {
+	riskStatus: true,
+	riskFlaggedAt: true,
+	riskFlagSource: true,
+	riskFlagIp: true,
+	riskFlagDetails: true,
+	riskReviewedAt: true,
+} as const;
+
+function toAccountRisk(
+	user: Pick<typeof tables.user.$inferSelect, keyof typeof accountRiskColumns>,
+): z.infer<typeof accountRiskSchema> {
+	return {
+		status: user.riskStatus,
+		flaggedAt: user.riskFlaggedAt?.toISOString() ?? null,
+		source: user.riskFlagSource,
+		ipAddress: user.riskFlagIp,
+		abuseConfidenceScore: user.riskFlagDetails?.abuseConfidenceScore ?? null,
+		countryCode: user.riskFlagDetails?.countryCode ?? null,
+		reviewedAt: user.riskReviewedAt?.toISOString() ?? null,
+	};
+}
+
 const memberSchema = z.object({
 	id: z.string(),
 	userId: z.string(),
@@ -879,6 +918,8 @@ const memberSchema = z.object({
 		email: z.string(),
 		name: z.string().nullable(),
 		emailVerified: z.boolean(),
+		status: z.enum(["active", "deactivated"]),
+		risk: accountRiskSchema,
 	}),
 });
 
@@ -2756,17 +2797,6 @@ admin.openapi(getGlobalStatsProviderKeys, async (c) => {
 	});
 });
 
-// `used_model` in global_model_stats is stored as `<provider>/<canonical-model>[:<region>]`
-// (e.g. `google-ai-studio/gemini-embedding-2`, `alibaba/deepseek-v4-flash:singapore`).
-// The canonical id is the segment between the first `/` and the optional `:`.
-function extractCanonicalModelId(usedModel: string): string {
-	const slashIdx = usedModel.indexOf("/");
-	const withoutProvider =
-		slashIdx === -1 ? usedModel : usedModel.slice(slashIdx + 1);
-	const colonIdx = withoutProvider.indexOf(":");
-	return colonIdx === -1 ? withoutProvider : withoutProvider.slice(0, colonIdx);
-}
-
 const GLOBAL_STATS_MODE_LABELS: Record<string, string> = {
 	credits: "Credits",
 	"api-keys": "BYOK",
@@ -3902,7 +3932,14 @@ admin.openapi(getOrganizationMembers, async (c) => {
 			where: { organizationId: { eq: orgId } },
 			with: {
 				user: {
-					columns: { id: true, email: true, name: true, emailVerified: true },
+					columns: {
+						id: true,
+						email: true,
+						name: true,
+						emailVerified: true,
+						status: true,
+						...accountRiskColumns,
+					},
 				},
 				team: { columns: { id: true, name: true, isDefault: true } },
 				iamRules: true,
@@ -3953,6 +3990,8 @@ admin.openapi(getOrganizationMembers, async (c) => {
 				email: m.user!.email,
 				name: m.user!.name,
 				emailVerified: m.user!.emailVerified,
+				status: m.user!.status,
+				risk: toAccountRisk(m.user!),
 			},
 		})),
 		total: members.length,
@@ -10055,12 +10094,10 @@ async function blockOrganizationById(
 	if (memberUserIds.length > 0) {
 		const members = await db.query.user.findMany({
 			where: { id: { in: memberUserIds } },
-			columns: { email: true },
+			columns: { email: true, emailVerified: true },
 		});
 
-		await Promise.all(
-			members.map((member) => deleteResendContact(member.email)),
-		);
+		await Promise.all(members.map((member) => deleteResendContact(member)));
 	}
 
 	await logAuditEvent({
@@ -11088,8 +11125,7 @@ const providerDetailSchema = z.object({
 				logoUrl: z.string().nullable(),
 				iconUrl: z.string().nullable(),
 				hasPendingBranding: z.boolean(),
-				verificationKeyMasked: z.string().nullable(),
-				verificationKeyUpdatedAt: z.string().nullable(),
+
 				claimedAt: z.string(),
 				approvedAt: z.string().nullable(),
 				companyWebsite: z.string().nullable(),
@@ -11266,9 +11302,7 @@ admin.openapi(getProviderDetail, async (c) => {
 					logoUrl: tables.providerClaim.logoUrl,
 					iconUrl: tables.providerClaim.iconUrl,
 					pendingBranding: tables.providerClaim.pendingBranding,
-					verificationKeyMasked: tables.providerClaim.verificationKeyMasked,
-					verificationKeyUpdatedAt:
-						tables.providerClaim.verificationKeyUpdatedAt,
+
 					billingMode: tables.providerClaim.billingMode,
 					createdAt: tables.providerClaim.createdAt,
 					reviewedAt: tables.providerClaim.reviewedAt,
@@ -11508,9 +11542,7 @@ admin.openapi(getProviderDetail, async (c) => {
 						logoUrl: carrier.claim.logoUrl,
 						iconUrl: carrier.claim.iconUrl,
 						hasPendingBranding: carrier.claim.pendingBranding !== null,
-						verificationKeyMasked: carrier.claim.verificationKeyMasked,
-						verificationKeyUpdatedAt:
-							carrier.claim.verificationKeyUpdatedAt?.toISOString() ?? null,
+
 						claimedAt: carrier.claim.createdAt.toISOString(),
 						approvedAt: carrier.claim.reviewedAt?.toISOString() ?? null,
 						companyWebsite: carrier.companyWebsite,
@@ -11831,7 +11863,12 @@ const costByModelResponseSchema = z.object({
 	totalApiKeysCost: z.number(),
 });
 
-const costByModelViewSchema = z.enum(["mapping", "canonical"]);
+const costByModelViewSchema = z.enum([
+	"mapping",
+	"canonical",
+	"provider",
+	"family",
+]);
 const organizationCostGroupBySchema = z.enum([
 	"model",
 	"project",
@@ -12132,6 +12169,7 @@ admin.openapi(getOrgCostByModel, async (c) => {
 	const rows = await db
 		.select({
 			usedModel: projectHourlyModelStats.usedModel,
+			usedProvider: projectHourlyModelStats.usedProvider,
 			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
 				"cost",
 			),
@@ -12152,14 +12190,14 @@ admin.openapi(getOrgCostByModel, async (c) => {
 				gte(projectHourlyModelStats.hourTimestamp, startDate),
 			),
 		)
-		.groupBy(projectHourlyModelStats.usedModel);
+		.groupBy(
+			projectHourlyModelStats.usedModel,
+			projectHourlyModelStats.usedProvider,
+		);
 
 	const byModel = new Map<string, CostBreakdownRow>();
 	for (const row of rows) {
-		const model =
-			modelView === "canonical"
-				? extractCanonicalModelId(row.usedModel)
-				: row.usedModel;
+		const model = modelBreakdownKey(row.usedModel, row.usedProvider, modelView);
 		const current = byModel.get(model) ?? {
 			model,
 			cost: 0,
@@ -12711,84 +12749,50 @@ async function buildCostByModelTimeseries({
 	models: string[];
 	data: z.infer<typeof costByModelTimeseriesPointSchema>[];
 }> {
-	const keyOf = (usedModel: string) =>
-		modelView === "canonical" ? extractCanonicalModelId(usedModel) : usedModel;
-
+	const dimension = modelBreakdownSql(projectHourlyModelStats, modelView);
 	const modelTotals = await db
 		.select({
-			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
-				"cost",
-			),
+			key: dimension,
+			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`,
 		})
 		.from(projectHourlyModelStats)
 		.where(baseFilter)
-		.groupBy(projectHourlyModelStats.usedModel);
-
-	const totalByKey = new Map<string, number>();
-	const usedModelsByKey = new Map<string, string[]>();
-	for (const row of modelTotals) {
-		const key = keyOf(row.usedModel);
-		totalByKey.set(key, (totalByKey.get(key) ?? 0) + Number(row.cost));
-		const list = usedModelsByKey.get(key) ?? [];
-		list.push(row.usedModel);
-		usedModelsByKey.set(key, list);
-	}
-
-	const topKeys = [...totalByKey.entries()]
-		.sort((a, b) => b[1] - a[1])
+		.groupBy(sql`1`);
+	const topKeys = modelTotals
+		.sort(
+			(a, b) => Number(b.cost) - Number(a.cost) || a.key.localeCompare(b.key),
+		)
 		.slice(0, TOP_TIMESERIES_SERIES)
-		.map(([k]) => k);
-
-	if (topKeys.length === 0) {
+		.map((row) => row.key);
+	if (!topKeys.length) {
 		return { models: [], data: [] };
 	}
-
 	const allBuckets = generateBucketTimestamps(
 		startDate,
 		new Date(),
 		bucketUnit,
 	);
-	const usedModelsToFetch = topKeys.flatMap(
-		(k) => usedModelsByKey.get(k) ?? [],
-	);
-
-	const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${projectHourlyModelStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
-
+	const bucketExpr = sql<string>`to_char(date_trunc(${bucketUnit}, ${projectHourlyModelStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
 	const rows = await db
 		.select({
 			bucket: bucketExpr.as("bucket"),
-			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
-				"cost",
-			),
-			requestCount:
-				sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
-					"request_count",
-				),
-			totalTokens:
-				sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
-					"total_tokens",
-				),
+			key: dimension,
+			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`,
+			requestCount: sql<number>`SUM(${projectHourlyModelStats.requestCount})`,
+			totalTokens: sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`,
 			...modeSplitFields(projectHourlyModelStats),
 		})
 		.from(projectHourlyModelStats)
-		.where(
-			and(
-				baseFilter,
-				inArray(projectHourlyModelStats.usedModel, usedModelsToFetch),
-			),
-		)
-		.groupBy(bucketExpr, projectHourlyModelStats.usedModel)
-		.orderBy(asc(bucketExpr));
-
+		.where(and(baseFilter, inArray(dimension, topKeys)))
+		.groupBy(sql`1, 2`)
+		.orderBy(sql`1`);
 	return {
 		models: topKeys,
 		data: assembleCostTimeseriesPoints({
 			allBuckets,
 			rows: rows.map((row) => ({
 				bucket: row.bucket,
-				key: keyOf(row.usedModel),
+				key: row.key,
 				cost: Number(row.cost),
 				requestCount: Number(row.requestCount),
 				totalTokens: Number(row.totalTokens),
@@ -14365,7 +14369,13 @@ const getContactSubmissions = createRoute({
 			offset: z.coerce.number().min(0).default(0).optional(),
 			search: z.string().optional(),
 			status: z
-				.enum(["pending", "rejected", "delivered", "delivery_failed"])
+				.enum([
+					"pending",
+					"rejected",
+					"unconfirmed",
+					"delivered",
+					"delivery_failed",
+				])
 				.optional(),
 			sortBy: contactSubmissionsSortBySchema.default("createdAt").optional(),
 			sortOrder: sortOrderSchema.default("desc").optional(),
@@ -14722,8 +14732,30 @@ const chatSupportConversationDetailSchema = z.object({
 	archivedAt: z.string().nullable(),
 	resolvedAt: z.string().nullable(),
 	rating: z.number().int().min(0).max(5).nullable(),
-	organizationId: z.string().nullable(),
-	organizationName: z.string().nullable(),
+	// The visitor's account, matched by email, so admins can see restrictions
+	// and jump to (or unblock) every organization the visitor belongs to.
+	account: z
+		.object({
+			userId: z.string(),
+			email: z.string(),
+			status: z.enum(["active", "deactivated"]),
+			blockReason: z.string().nullable(),
+			risk: accountRiskSchema,
+			organizations: z.array(
+				z.object({
+					id: z.string(),
+					name: z.string(),
+					kind: z.enum(["default", "chat", "devpass"]),
+					plan: z.string(),
+					devPlan: z.string(),
+					status: z.string().nullable(),
+					blockReason: z.string().nullable(),
+					riskFlagged: z.boolean(),
+					role: z.string(),
+				}),
+			),
+		})
+		.nullable(),
 	messages: z.array(chatSupportMessageSchema),
 });
 
@@ -14977,6 +15009,63 @@ const getChatSupportConversation = createRoute({
 	},
 });
 
+async function findChatSupportAccount(
+	email: string,
+): Promise<z.infer<typeof chatSupportConversationDetailSchema>["account"]> {
+	const [user] = await db
+		.select({
+			id: tables.user.id,
+			email: tables.user.email,
+			status: tables.user.status,
+			blockReason: tables.user.blockReason,
+			riskStatus: tables.user.riskStatus,
+			riskFlaggedAt: tables.user.riskFlaggedAt,
+			riskFlagSource: tables.user.riskFlagSource,
+			riskFlagIp: tables.user.riskFlagIp,
+			riskFlagDetails: tables.user.riskFlagDetails,
+			riskReviewedAt: tables.user.riskReviewedAt,
+		})
+		.from(tables.user)
+		.where(sql`LOWER(${tables.user.email}) = LOWER(${email})`)
+		.limit(1);
+	if (!user) {
+		return null;
+	}
+
+	// Owners first, so the visitor's own organization leads the list.
+	const organizations = await db
+		.select({
+			id: tables.organization.id,
+			name: tables.organization.name,
+			kind: tables.organization.kind,
+			plan: tables.organization.plan,
+			devPlan: tables.organization.devPlan,
+			status: tables.organization.status,
+			blockReason: tables.organization.blockReason,
+			riskFlagged: tables.organization.riskFlagged,
+			role: tables.userOrganization.role,
+		})
+		.from(tables.userOrganization)
+		.innerJoin(
+			tables.organization,
+			eq(tables.organization.id, tables.userOrganization.organizationId),
+		)
+		.where(eq(tables.userOrganization.userId, user.id))
+		.orderBy(
+			sql`CASE ${tables.userOrganization.role} WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END`,
+			asc(tables.userOrganization.createdAt),
+		);
+
+	return {
+		userId: user.id,
+		email: user.email,
+		status: user.status,
+		blockReason: user.blockReason,
+		risk: toAccountRisk(user),
+		organizations,
+	};
+}
+
 admin.openapi(getChatSupportConversation, async (c) => {
 	const { id } = c.req.valid("param");
 
@@ -15020,37 +15109,9 @@ admin.openapi(getChatSupportConversation, async (c) => {
 		.where(eq(mt.conversationId, id))
 		.orderBy(asc(mt.sequence));
 
-	// Best-effort link to the visitor's organization so admins can jump straight
-	// to their account. Matched by email; owners are preferred when a visitor
-	// belongs to more than one org.
-	let organizationId: string | null = null;
-	let organizationName: string | null = null;
-	if (conversation.email) {
-		const orgRows = await db
-			.select({
-				id: tables.organization.id,
-				name: tables.organization.name,
-			})
-			.from(tables.user)
-			.innerJoin(
-				tables.userOrganization,
-				eq(tables.userOrganization.userId, tables.user.id),
-			)
-			.innerJoin(
-				tables.organization,
-				eq(tables.organization.id, tables.userOrganization.organizationId),
-			)
-			.where(sql`LOWER(${tables.user.email}) = LOWER(${conversation.email})`)
-			.orderBy(
-				sql`CASE ${tables.userOrganization.role} WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END`,
-				asc(tables.userOrganization.createdAt),
-			)
-			.limit(1);
-		if (orgRows[0]) {
-			organizationId = orgRows[0].id;
-			organizationName = orgRows[0].name;
-		}
-	}
+	const account = conversation.email
+		? await findChatSupportAccount(conversation.email)
+		: null;
 
 	return c.json({
 		...conversation,
@@ -15060,8 +15121,7 @@ admin.openapi(getChatSupportConversation, async (c) => {
 		archivedAt: conversation.archivedAt?.toISOString() ?? null,
 		resolvedAt: conversation.resolvedAt?.toISOString() ?? null,
 		rating: conversation.rating ?? null,
-		organizationId,
-		organizationName,
+		account,
 		messages: messages.map((m) => ({
 			...m,
 			createdAt: m.createdAt.toISOString(),

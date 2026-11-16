@@ -114,6 +114,30 @@ data: {"id":"chatcmpl-123","object":"chat.completion.chunk","choices":[...],"usa
 data: [DONE]
 ```
 
+## Every Endpoint
+
+Every billed reply carries `usage.cost`, what the request was billed in USD, with `usage.cost_details` breaking it down; `cost_details.total_cost` equals `cost`. There is nothing to opt into.
+
+| Endpoint                                     | Where the cost is                                                                | What it was billed on, in `usage`                                                                                                           |
+| -------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/chat/completions`                       | `usage`; on streams the final chunk before `[DONE]`                              | `prompt_tokens`, `completion_tokens`, `total_tokens`, and the token details above                                                           |
+| `/v1/messages`                               | `usage`; on streams `message_delta.usage`                                        | `input_tokens` (not cached), `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `cache_creation`, `server_tool_use` |
+| `/v1/responses`                              | `usage`; on streams `response.usage` in `response.completed`                     | `input_tokens`, `output_tokens`, `total_tokens`, `input_tokens_details.cached_tokens`, `output_tokens_details.reasoning_tokens`             |
+| `/v1/responses/compact`                      | `usage`                                                                          | as `/v1/responses`                                                                                                                          |
+| `/v1/images/generations`, `/v1/images/edits` | `usage`                                                                          | `input_tokens`, `output_tokens`, `total_tokens`, `input_tokens_details` and `output_tokens_details` (`image_tokens`, `text_tokens`)         |
+| `/v1/embeddings`                             | `usage`                                                                          | `prompt_tokens`, `total_tokens`                                                                                                             |
+| `/v1/decisions`                              | `usage`                                                                          | `input_tokens`, `output_tokens`, `total_tokens`                                                                                             |
+| `/v1/rerank`                                 | `usage`                                                                          | `input_tokens`, `total_tokens` when the model is priced per token                                                                           |
+| `/v1/audio/transcriptions`                   | `usage`                                                                          | `type: "duration"`, `seconds` of input audio                                                                                                |
+| `/v1/ocr`                                    | `usage`                                                                          | `pages_processed`                                                                                                                           |
+| `/v1/moderations`, `/v1/search`              | `usage`                                                                          | billed per request: `cost_details.request_cost`                                                                                             |
+| `/v1/audio/speech`                           | with `stream_format: "sse"`, `usage` of the final `speech.audio.done` event      | `input_tokens`, `output_tokens`, `total_tokens` for models priced per token, `input_characters` for models priced per character             |
+| `/v1/videos`                                 | `usage` of `GET /v1/videos/{id}` and the signed callback, once the job is billed | `cost_details.video_output_cost`, `cost_details.image_input_cost`                                                                           |
+
+Speech returned as binary audio (the default) has no body to carry a cost. Request `stream_format: "sse"` to receive the audio as `speech.audio.delta` events followed by `speech.audio.done` with its usage and cost; this works for every speech model.
+
+A video job reports `usage` once it reached a terminal status and was billed: a job that failed, was canceled or expired reports a cost of `0`. If a terminal job has no `usage` yet, poll again.
+
 ## Example: Tracking Costs in Code
 
 Here's an example of how to track costs programmatically using the cost breakdown feature:

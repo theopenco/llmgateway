@@ -74,8 +74,22 @@ function imageResponse(count: number, stream: boolean, type: string) {
 		data: Array.from({ length: count }, () => ({ b64_json: image })),
 	});
 }
+const svg = Buffer.from(
+	'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" rx="24" fill="#0f766e"/><circle cx="60" cy="52" r="26" fill="#a3e635"/><rect x="34" y="84" width="52" height="12" rx="6" fill="#f0fdfa"/></svg>',
+).toString("base64");
 mockOpenAIServer.post("/v1/images/generations", async (context) => {
-	const body = await context.req.json<{ n?: number; stream?: boolean }>();
+	const body = await context.req.json<{
+		n?: number;
+		stream?: boolean;
+		output_format?: string;
+	}>();
+	if (body.output_format === "svg") {
+		return Response.json({
+			created: Math.floor(Date.now() / 1000),
+			data: [{ b64_json: svg }],
+			output_format: "svg",
+		});
+	}
 	return imageResponse(
 		body.n ?? 1,
 		!!body.stream,

@@ -98,6 +98,8 @@ export const GATEWAY_CONTENT_FILTER_MESSAGE =
  *   sensitive content in input or generation`
  * - OpenAI cybersecurity policy: `cyber_policy`, `flagged for possible
  *   cybersecurity risk`
+ * - MiniMax H3 Image (codes 1026/1027): `failed safety check`, `failed content
+ *   safety check`
  */
 const CONTENT_FILTER_ERROR_SIGNALS = [
 	"ResponsibleAIPolicyViolation",
@@ -112,6 +114,8 @@ const CONTENT_FILTER_ERROR_SIGNALS = [
 	"System detected potentially unsafe or sensitive content in input or generation",
 	"cyber_policy",
 	"flagged for possible cybersecurity risk",
+	"failed safety check",
+	"failed content safety check",
 ];
 
 /**

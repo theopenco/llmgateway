@@ -6,13 +6,9 @@ import { hashPassword, verifyPassword } from "better-auth/crypto";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import {
-	apiAuth,
-	createResendContact,
-	deleteResendContact,
-	redisClient,
-} from "@/auth/config.js";
+import { apiAuth, redisClient } from "@/auth/config.js";
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
+import { moveResendContact } from "@/lib/resend-contacts.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { and, db, eq, gt, like, ne, sql, tables } from "@llmgateway/db";
@@ -322,13 +318,11 @@ export async function confirmEmailChange(
 			source: "email_verification",
 			headers,
 		});
-		await deleteResendContact(updated.user.email);
-		await createResendContact(
-			updated.newEmail,
-			updated.user.name ?? undefined,
-			{
+		await moveResendContact(updated.user, updated.newEmail, {
+			name: updated.user.name,
+			attributes: {
 				onboarding_completed: updated.user.onboardingCompleted,
 			},
-		);
+		});
 	}
 }

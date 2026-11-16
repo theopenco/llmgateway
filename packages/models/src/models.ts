@@ -6,6 +6,7 @@ import { baaiModels } from "./models/baai.js";
 import { baiduModels } from "./models/baidu.js";
 import { blackForestLabsModels } from "./models/black-forest-labs.js";
 import { bytedanceModels } from "./models/bytedance.js";
+import { canopylabsModels } from "./models/canopylabs.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
 import { googleModels } from "./models/google.js";
@@ -23,7 +24,7 @@ import { nvidiaModels } from "./models/nvidia.js";
 import { openaiModels } from "./models/openai.js";
 import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
-import { reveModels } from "./models/reve.js";
+import { recraftModels } from "./models/recraft.js";
 import { sakanaModels } from "./models/sakana.js";
 import { stepfunModels } from "./models/stepfun.js";
 import { tencentModels } from "./models/tencent.js";
@@ -33,7 +34,7 @@ import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
 
-import type { providers } from "./providers.js";
+import type { MappingDataPolicy, providers } from "./providers.js";
 
 export type Provider = (typeof providers)[number]["id"];
 
@@ -82,10 +83,15 @@ export const PROVIDER_API_FORMATS = [
 export type ProviderApiFormat = (typeof PROVIDER_API_FORMATS)[number];
 
 /**
- * API surfaces a single request can be sent on: the mapping formats plus
- * `anthropic-messages`, which only `webSearchApiFormat` selects.
+ * API surfaces a single request can be sent on: the Airside-selectable
+ * formats plus `anthropic-messages` (Claude on AWS Bedrock, and DeepSeek's
+ * `webSearchApiFormat`).
  */
-export type RequestApiFormat = ProviderApiFormat | "anthropic-messages";
+export const REQUEST_API_FORMATS = [
+	...PROVIDER_API_FORMATS,
+	"anthropic-messages",
+] as const;
+export type RequestApiFormat = (typeof REQUEST_API_FORMATS)[number];
 
 /**
  * Pricing tier for models with context-length based pricing
@@ -276,6 +282,11 @@ export interface ProviderRegion {
 	 */
 	streaming?: boolean | "only";
 	/**
+	 * Web search support override for this region.
+	 * When absent, falls back to the mapping-level webSearch.
+	 */
+	webSearch?: boolean;
+	/**
 	 * Test skip/only for this specific region.
 	 * When absent, falls back to the mapping-level test.
 	 */
@@ -316,6 +327,11 @@ export interface ProviderModelMapping {
 	 * human-readable display name.
 	 */
 	externalId: string;
+	/**
+	 * Overrides the provider's data policy for this mapping, when the upstream
+	 * model's retention terms differ from the provider default.
+	 */
+	dataPolicy?: MappingDataPolicy;
 	/**
 	 * Price per input token in USD
 	 */
@@ -443,8 +459,10 @@ export interface ProviderModelMapping {
 	 * provider bills by output tokens (e.g. Gemini Omni). When the upstream
 	 * usage reports video output tokens, finalization bills them at this rate
 	 * instead of `perSecondPrice`, which still drives estimates and routing.
+	 * Records select `<resolution>_with_video` / `_without_video` or
+	 * `<resolution>_audio` / `_video`, with `default_` fallbacks.
 	 */
-	videoOutputPrice?: Price;
+	videoOutputPrice?: Price | Record<string, Price>;
 	/**
 	 * Price per generated output image in USD, keyed by resolution tier
 	 * (e.g. "1K", "2K") with a "default" fallback. For image models whose
@@ -573,8 +591,10 @@ export interface ProviderModelMapping {
 	/**
 	 * Provider-specific request/endpoint format when a provider has multiple API
 	 * surfaces for different models. Defaults to the provider's native format.
+	 * `anthropic-messages` sends Anthropic's Messages API body (Claude on AWS
+	 * Bedrock).
 	 */
-	apiFormat?: ProviderApiFormat;
+	apiFormat?: RequestApiFormat;
 	/**
 	 * API surface for requests carrying a `web_search` tool, when the
 	 * provider serves hosted search on a different surface than `apiFormat`
@@ -821,6 +841,12 @@ export interface ProviderModelMapping {
 	 */
 	imageGenerations?: boolean;
 	/**
+	 * Whether the image generation endpoint accepts `output_format: "svg"` and
+	 * returns a base64-encoded SVG document. Requests for SVG output are
+	 * rejected up front for mappings without this flag.
+	 */
+	svgOutput?: boolean;
+	/**
 	 * Whether this model uses a dedicated embeddings API.
 	 * When true, requests are routed to a provider-specific /v1/embeddings endpoint
 	 * and pricing is computed against input tokens only (no completion tokens).
@@ -890,6 +916,12 @@ export interface ProviderModelMapping {
 	 */
 	decisions?: boolean;
 	/**
+	 * Whether this decision model answers `box` questions: where a target is in
+	 * an image input, as a bounding box. Requests with a box question are
+	 * rejected on mappings without it.
+	 */
+	decisionBoxQuestions?: boolean;
+	/**
 	 * Whether this model uses a dedicated web search API that returns ranked
 	 * results instead of generated text. When true, requests are routed to the
 	 * gateway's /v1/search endpoint and billed per request via requestPrice.
@@ -900,6 +932,11 @@ export interface ProviderModelMapping {
 	 * used as the default when the caller does not specify a `voice`.
 	 */
 	supportedVoices?: string[];
+	/**
+	 * Gemini TTS models that read `text` verbatim: speech `instructions` are sent
+	 * as `speechMetadata.style` instead of being prefixed to the input.
+	 */
+	speechStyleMetadata?: boolean;
 	/**
 	 * Geographic region for this provider mapping.
 	 * Set automatically when a mapping with `regions` is expanded into flat entries.
@@ -1066,7 +1103,7 @@ export const models = [
 	...blackForestLabsModels,
 	...bytedanceModels,
 	...nousresearchModels,
-	...reveModels,
+	...recraftModels,
 	...sakanaModels,
 	...kinfraModels,
 	...tencentModels,
@@ -1074,6 +1111,7 @@ export const models = [
 	...openbmbModels,
 	...zaiModels,
 	...elevenlabsModels,
+	...canopylabsModels,
 	...typesafeModels,
 	...thinkingmachinesModels,
 	...stepfunModels,

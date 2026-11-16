@@ -19,7 +19,7 @@ import {
 	createRequestLifecycleMiddleware,
 } from "@llmgateway/instrumentation";
 import { logger, toError } from "@llmgateway/logger";
-import { HealthChecker } from "@llmgateway/shared";
+import { getAppVersion, HealthChecker } from "@llmgateway/shared";
 import {
 	getClientIpFromContext,
 	getClientIpHeaderName,
@@ -29,19 +29,25 @@ import { buildSecurityTxt } from "@llmgateway/shared/security-txt";
 import { aisdk } from "./aisdk/aisdk.js";
 import { creditsRoute } from "./aisdk/credits.js";
 import { anthropic } from "./anthropic/anthropic.js";
+import { batches, files } from "./batches/batches.js";
 import { chat } from "./chat/chat.js";
 import { extractErrorCause } from "./chat/tools/extract-error-cause.js";
 import { isUpstreamTermination } from "./chat/tools/normalize-streaming-error.js";
 import { decisionsRoute } from "./decisions/route.js";
 import { embeddingsRoute } from "./embeddings/route.js";
 import { imagesRoute } from "./images/route.js";
+import { airsideInference } from "./internal/airside-inference.js";
 import { keyRoute } from "./key/route.js";
 import { backpressureMiddleware } from "./lib/backpressure.js";
-import { renderGatewayError } from "./lib/error-response.js";
+import {
+	CodedHTTPException,
+	renderGatewayError,
+} from "./lib/error-response.js";
 import { ExpectedHTTPException } from "./lib/expected-http-exception.js";
 import { withManagedKeySelection } from "./lib/managed-key-selection.js";
 import { ProviderKeyRateLimitError } from "./lib/provider-key-rate-limit.js";
-import { mcpHandler, registerMcpOAuthRoutes } from "./mcp/mcp.js";
+import { mcpHandler } from "./mcp/mcp.js";
+import { registerMcpOAuthRoutes } from "./mcp/oauth.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { orgRateLimitMiddleware } from "./middleware/org-rate-limit.js";
 import { rejectionLogMiddleware } from "./middleware/rejection-log.js";
@@ -58,6 +64,7 @@ import { speechRoute } from "./speech/route.js";
 import { systemoneRoute } from "./systemone/route.js";
 import { transcriptionsRoute } from "./transcriptions/route.js";
 import { videosRoute } from "./videos/route.js";
+import { videoAssets } from "./videos/videos.js";
 
 import type { ServerTypes } from "./vars.js";
 
@@ -146,13 +153,16 @@ app.use("*", requestDecompressionMiddleware);
 // Excludes /oauth endpoints which accept form-urlencoded or JSON
 // Excludes /v1/images endpoints which accept multipart/form-data for file uploads
 // Excludes /v1/audio/transcriptions which accepts multipart/form-data audio uploads
+// Excludes /v1/files (multipart uploads) and batch cancellation (no body)
 app.use("*", async (c, next) => {
 	if (
 		c.req.method === "POST" &&
 		!c.req.path.startsWith("/mcp") &&
 		!c.req.path.startsWith("/oauth") &&
 		!c.req.path.startsWith("/v1/images") &&
-		!c.req.path.startsWith("/v1/audio/transcriptions")
+		!c.req.path.startsWith("/v1/audio/transcriptions") &&
+		c.req.path !== "/v1/files" &&
+		!/^\/v1\/batches\/[^/]+\/cancel$/.test(c.req.path)
 	) {
 		const contentType = c.req.header("Content-Type");
 		if (!contentType || !contentType.includes("application/json")) {
@@ -226,7 +236,12 @@ app.onError((error, c) => {
 			logger.warn("HTTP client error", { status, message: error.message });
 		}
 
-		return renderGatewayError(c, status, error.message || "An error occurred");
+		return renderGatewayError(
+			c,
+			status,
+			error.message || "An error occurred",
+			error instanceof CodedHTTPException ? error.code : undefined,
+		);
 	}
 
 	// Handle timeout errors (from AbortSignal.timeout) - these are expected
@@ -270,52 +285,52 @@ app.onError((error, c) => {
 	return renderGatewayError(c, 500, "Internal Server Error");
 });
 
-function createHealthChecker(): HealthChecker {
-	return new HealthChecker({
+// Liveness: the process serves HTTP. Touches neither Redis nor Postgres, so a
+// dependency outage cannot get healthy pods restarted.
+app.get("/livez", (c) => c.json({ status: "ok" }));
+
+// Deep health for external monitoring: checks Postgres and both Redis
+// instances. Readiness uses `/`, so a dependency outage or a schema the
+// running release cannot read never pulls every pod out of the load balancer;
+// this endpoint is what pages when Postgres or Redis is unreachable.
+export const healthChecker = new HealthChecker(
+	{
 		// Ping both the main and the storage Redis; either failing marks the
 		// gateway unhealthy (they may be the same instance via env fallback).
+		// Wait for both to settle so the shared call covers a stalled ping.
 		redisClient: {
 			ping: async () => {
-				await Promise.all([redisClient.ping(), storageRedisClient.ping()]);
+				const results = await Promise.allSettled([
+					redisClient.ping(),
+					storageRedisClient.ping(),
+				]);
+				const failed = results.find((result) => result.status === "rejected");
+				if (failed) {
+					throw failed.reason;
+				}
 				return "PONG";
 			},
 		},
 		db,
 		logger,
-	});
-}
-
-// Liveness: the process serves HTTP. Touches neither Redis nor Postgres, so a
-// dependency outage cannot get healthy pods restarted.
-app.get("/livez", (c) => c.json({ status: "ok" }));
-
-// Deep health for external monitoring: always checks Postgres and both Redis
-// instances. `/` skips Postgres by default so cached traffic keeps the pod in
-// rotation; this endpoint is what pages when Postgres is unreachable.
+	},
+	{ timeoutMs: Number(process.env.DEEP_HEALTH_CHECK_TIMEOUT_MS) || 5000 },
+);
 app.get("/health/deep", async (c) => {
-	const healthChecker = createHealthChecker();
-	const health = await healthChecker.performHealthChecks({
-		timeoutMs: Number(process.env.DEEP_HEALTH_CHECK_TIMEOUT_MS) || 5000,
-	});
-	const { response, statusCode } = healthChecker.createHealthResponse(health);
+	const { response, statusCode } = healthChecker.createHealthResponse(
+		await healthChecker.performHealthChecks(),
+	);
 	return c.json(response, statusCode as 200 | 503);
 });
 
 const root = createRoute({
 	summary: "Health check",
-	description: "Health check endpoint.",
+	description:
+		"Health check endpoint. Returns 503 after boot until Postgres and Redis have answered once, then touches no dependencies; `/health/deep` checks them on every call.",
 	operationId: "health",
 	method: "get",
 	path: "/",
-	request: {
-		query: z.object({
-			skip: z.string().optional().openapi({
-				description:
-					"Comma-separated list of health checks to skip. Options: redis, database",
-				example: "redis,database",
-			}),
-		}),
-	},
+	request: {},
 	responses: {
 		200: {
 			content: {
@@ -326,17 +341,6 @@ const root = createRoute({
 							version: z.string(),
 							clientIp: z.string().nullable(),
 							clientIpHeader: z.string(),
-							health: z.object({
-								status: z.string(),
-								redis: z.object({
-									connected: z.boolean(),
-									error: z.string().optional(),
-								}),
-								database: z.object({
-									connected: z.boolean(),
-									error: z.string().optional(),
-								}),
-							}),
 						})
 						.openapi({}),
 				},
@@ -346,73 +350,37 @@ const root = createRoute({
 		503: {
 			content: {
 				"application/json": {
-					schema: z
-						.object({
-							message: z.string(),
-							version: z.string(),
-							clientIp: z.string().nullable(),
-							clientIpHeader: z.string(),
-							health: z.object({
-								status: z.string(),
-								redis: z.object({
-									connected: z.boolean(),
-									error: z.string().optional(),
-								}),
-								database: z.object({
-									connected: z.boolean(),
-									error: z.string().optional(),
-								}),
-							}),
-						})
-						.openapi({}),
+					schema: z.object({ message: z.string() }).openapi({}),
 				},
 			},
-			description: "Service unavailable - Redis or database connection failed.",
+			description: "Starting: Postgres and Redis have not answered since boot.",
 		},
 	},
 });
 
-app.openapi(root, async (c) => {
-	const { skip } = c.req.valid("query");
-	const skipChecks = skip
-		? skip.split(",").map((s) => s.trim().toLowerCase())
-		: [];
-
-	// By default, skip database health check for gateway since it uses cached db client
-	// and can operate without direct Postgres connectivity as long as Redis is available
-	const skipDatabase = process.env.HEALTH_CHECK_SKIP_DATABASE !== "false";
-	if (skipDatabase && !skipChecks.includes("database")) {
-		skipChecks.push("database");
+app.openapi(root, (c) => {
+	if (!healthChecker.isReady()) {
+		return c.json({ message: "Starting: waiting for Postgres and Redis" }, 503);
 	}
-
-	// Health check timeout - allow more time under load for DB/Redis connections
-	// 15 seconds default to prevent false failures during traffic spikes
-	const TIMEOUT_MS = Number(process.env.HEALTH_CHECK_TIMEOUT_MS) || 15000;
-
-	const healthChecker = createHealthChecker();
-
-	const health = await healthChecker.performHealthChecks({
-		skipChecks,
-		timeoutMs: TIMEOUT_MS,
-	});
-
-	const { response, statusCode } = healthChecker.createHealthResponse(health);
-
 	// Echo the address this service resolves for the caller so a deployment can
 	// be checked against a known client IP before any per-IP limit is relied on.
 	return c.json(
 		{
-			...response,
+			message: "OK",
+			version: getAppVersion(),
 			clientIp: getClientIpFromContext(c),
 			clientIpHeader: getClientIpHeaderName(),
 		},
-		statusCode as 200 | 503,
+		200,
 	);
 });
 
 const v1 = new OpenAPIHono<ServerTypes>();
 
+v1.route("/video-assets", videoAssets);
+
 v1.route("/chat", chat);
+
 v1.route("/embeddings", embeddingsRoute);
 v1.route("/images", imagesRoute);
 v1.route("/key", keyRoute);
@@ -429,7 +397,11 @@ v1.route("/audio/speech", speechRoute);
 v1.route("/audio/transcriptions", transcriptionsRoute);
 v1.route("/realtime", realtimeClientSecretsRoute);
 v1.route("/videos", videosRoute);
+v1.route("/files", files);
+v1.route("/batches", batches);
 v1.route("/credits", creditsRoute);
+
+v1.route("/", airsideInference);
 
 app.route("/v1", v1);
 

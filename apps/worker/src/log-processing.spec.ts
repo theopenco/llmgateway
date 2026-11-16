@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { Decimal } from "decimal.js";
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
 import {
@@ -20,6 +21,7 @@ import {
 	getDevPlanPremiumWeeklyLimit,
 	LOUNGE_SOURCE,
 } from "@llmgateway/shared";
+import { BATCH_SOURCE } from "@llmgateway/shared/batch";
 
 import { batchProcessLogs } from "./worker.js";
 
@@ -195,6 +197,47 @@ describe("Log Processing", () => {
 			});
 
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.01);
+		});
+
+		test("bills a Batch API log exactly like the same live request", async () => {
+			const credits = async () =>
+				new Decimal(
+					(await db.query.organization.findFirst({
+						where: { id: { eq: testOrg.id } },
+					}))!.credits,
+				);
+			const insert = async (requestId: string, source?: string) =>
+				await db.insert(log).values({
+					requestId,
+					organizationId: testOrg.id,
+					projectId: testProject.id,
+					apiKeyId: testApiKey.id,
+					cost: 0.0123,
+					inputCost: 0.0023,
+					outputCost: 0.01,
+					cached: false,
+					usedMode: "credits",
+					duration: 2000,
+					requestedModel: "gpt-4o-mini",
+					requestedProvider: "openai",
+					usedModel: "gpt-4o-mini",
+					usedProvider: "openai",
+					responseSize: 150,
+					mode: "credits",
+					...(source && { source }),
+				});
+
+			const start = await credits();
+			await insert("live-request");
+			await batchProcessLogs();
+			const afterLive = await credits();
+			await insert("batch_req_parity", BATCH_SOURCE);
+			await batchProcessLogs();
+			const afterBatch = await credits();
+
+			const liveCharge = start.minus(afterLive);
+			expect(liveCharge.gt(0)).toBe(true);
+			expect(afterLive.minus(afterBatch).equals(liveCharge)).toBe(true);
 		});
 
 		test("evicts the debited org's tagged cache entry after settling", async () => {

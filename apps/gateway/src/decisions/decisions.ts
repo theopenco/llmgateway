@@ -4,6 +4,7 @@ import {
 	rateLimitHeaders,
 	standardErrorResponses,
 } from "@/lib/error-schemas.js";
+import { usageCostSchema } from "@/lib/usage-cost.js";
 
 import {
 	DECISIONS_UPSTREAM_PATH,
@@ -161,6 +162,7 @@ const decisionResponseSchema = z
 				input_tokens: z.number().int(),
 				output_tokens: z.number().int(),
 				total_tokens: z.number().int(),
+				...usageCostSchema,
 			})
 			.passthrough()
 			.optional(),

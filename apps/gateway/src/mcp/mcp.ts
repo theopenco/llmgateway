@@ -27,6 +27,11 @@ import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { getAuthenticatedReadAccess } from "@/lib/gateway-read-access.js";
 import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
+import {
+	isMcpBearerTokenActive,
+	resolveMcpBearerToken,
+	resolveRequestBaseUrl,
+} from "@/mcp/oauth.js";
 import { getMcpGatewayUrl } from "@/mcp/request-url.js";
 import { registerUsageTools } from "@/mcp/usage-tools.js";
 import { isAllowedOrigin, parseAllowedOrigins } from "@/middleware/cors.js";
@@ -40,8 +45,6 @@ import {
 } from "@llmgateway/models";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
-import type { ServerTypes } from "@/vars.js";
-import type { OpenAPIHono } from "@hono/zod-openapi";
 import type { ApiKey } from "@llmgateway/db";
 import type { Context } from "hono";
 
@@ -1115,14 +1118,41 @@ async function processMcpRequest(
 	}
 }
 
+interface SseConnection {
+	controller: ReadableStreamDefaultController;
+	apiKey: string;
+	// The credential that opened the stream; deliveries stop once it is revoked.
+	bearerToken: string;
+}
+
 // Store active SSE connections for message routing
-const sseConnections = new Map<
-	string,
-	{
-		controller: ReadableStreamDefaultController;
-		apiKey: string;
+const sseConnections = new Map<string, SseConnection>();
+
+/**
+ * Delivers a message on a session's stream, or closes the stream when the
+ * credential that opened it no longer stands for an active API key.
+ */
+async function deliverSseMessage(
+	sessionId: string,
+	connection: SseConnection,
+	data: unknown,
+): Promise<void> {
+	if (
+		!(await isMcpBearerTokenActive(connection.bearerToken, connection.apiKey))
+	) {
+		sseConnections.delete(sessionId);
+		try {
+			connection.controller.close();
+		} catch (error) {
+			// Already closed by the client.
+			if (!(error instanceof TypeError)) {
+				throw error;
+			}
+		}
+		return;
 	}
->();
+	sendSseEvent(connection.controller, "message", data);
+}
 
 /**
  * Send SSE event to a connection
@@ -1206,9 +1236,10 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		},
 	});
 
-	// Extract API key for authentication
-	const apiKey = parseApiToken(c);
-	if (!apiKey) {
+	// Extract the bearer credential: an API key, or an OAuth access token
+	// standing for one.
+	const bearerToken = parseApiToken(c);
+	if (!bearerToken) {
 		c.header(
 			"WWW-Authenticate",
 			`Bearer resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", gatewayUrl).href}"`,
@@ -1230,8 +1261,10 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	// Validate the API key against the database, mirroring the gateway's chat
 	// endpoint. Without this, any arbitrary string was accepted as a valid key
 	// (GHSA-8h26-h6v8-f9cg).
-	const apiKeyRecord = await findApiKeyByToken(apiKey);
+	const apiKey = await resolveMcpBearerToken(bearerToken);
+	const apiKeyRecord = apiKey ? await findApiKeyByToken(apiKey) : undefined;
 	if (
+		!apiKey ||
 		!apiKeyRecord ||
 		apiKeyRecord.status !== "active" ||
 		(apiKeyRecord.keyType === "user" &&
@@ -1418,7 +1451,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		const stream = new ReadableStream({
 			start(controller) {
 				// Store the connection with apiKey for ownership validation
-				sseConnections.set(sessionId!, { controller, apiKey });
+				sseConnections.set(sessionId!, { controller, apiKey, bearerToken });
 
 				// Send initial endpoint event with the absolute URL
 				sendSseEvent(controller, "endpoint", mcpEndpointUrl);
@@ -1514,7 +1547,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 
 					// If valid SSE connection exists (same apiKey), also send via SSE
 					if (validSseConnection) {
-						sendSseEvent(validSseConnection.controller, "message", response);
+						await deliverSseMessage(sessionId, validSseConnection, response);
 					}
 				}
 
@@ -1528,7 +1561,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 
 			// If valid SSE connection exists (same apiKey), also send via SSE
 			if (validSseConnection) {
-				sendSseEvent(validSseConnection.controller, "message", response);
+				await deliverSseMessage(sessionId, validSseConnection, response);
 			}
 
 			return c.json(response, 200, {
@@ -1606,596 +1639,4 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		},
 		405,
 	);
-}
-
-/**
- * OAuth2 metadata for MCP authentication
- * This implements the OAuth 2.0 Authorization Server Metadata (RFC 8414)
- * to allow Claude Code to authenticate via OAuth instead of custom headers
- */
-function getOAuthMetadata(baseUrl: string) {
-	return {
-		issuer: baseUrl,
-		authorization_endpoint: `${baseUrl}/oauth/authorize`,
-		token_endpoint: `${baseUrl}/oauth/token`,
-		registration_endpoint: `${baseUrl}/oauth/register`,
-		response_types_supported: ["code"],
-		grant_types_supported: [
-			"authorization_code",
-			"client_credentials",
-			"refresh_token",
-		],
-		code_challenge_methods_supported: ["S256"],
-		token_endpoint_auth_methods_supported: [
-			"client_secret_basic",
-			"client_secret_post",
-		],
-		scopes_supported: ["mcp:tools", "mcp:resources", "mcp:prompts"],
-	};
-}
-
-/**
- * OAuth authorization endpoint handler
- * For MCP, we use a simplified flow where the API key IS the authorization
- */
-async function oauthAuthorizeHandler(c: Context): Promise<Response> {
-	const url = new URL(c.req.url);
-	const clientId = url.searchParams.get("client_id");
-	const redirectUri = url.searchParams.get("redirect_uri");
-	const state = url.searchParams.get("state");
-	const codeChallenge = url.searchParams.get("code_challenge");
-	const codeChallengeMethod = url.searchParams.get("code_challenge_method");
-
-	if (!clientId || !redirectUri) {
-		return c.json(
-			{
-				error: "invalid_request",
-				error_description: "Missing client_id or redirect_uri",
-			},
-			400,
-		);
-	}
-
-	// Validate redirect_uri against registered client
-	// This MUST happen before generating any auth code to prevent code leakage
-	const registeredClient = getRegisteredClient(clientId);
-	if (!registeredClient) {
-		// Client not registered - reject the request
-		// Do NOT redirect to the unverified redirect_uri
-		return c.json(
-			{
-				error: "invalid_client",
-				error_description:
-					"Client not registered. Please register the client first via /oauth/register",
-			},
-			401,
-		);
-	}
-
-	if (registeredClient.redirectUris.length === 0) {
-		// No redirect URIs registered - reject
-		return c.json(
-			{
-				error: "invalid_request",
-				error_description:
-					"No redirect URIs registered for this client. Register redirect_uris via /oauth/register",
-			},
-			400,
-		);
-	}
-
-	if (!isValidRedirectUri(redirectUri, registeredClient.redirectUris)) {
-		// redirect_uri does not match any registered URI - reject
-		// Do NOT redirect to the invalid URI or generate any code
-		return c.json(
-			{
-				error: "invalid_redirect_uri",
-				error_description:
-					"The redirect_uri does not match any registered redirect URI for this client",
-			},
-			400,
-		);
-	}
-
-	// For MCP OAuth, the client_id is the API key
-	// Generate an authorization code that encodes the API key
-	const authCode = Buffer.from(
-		JSON.stringify({
-			client_id: clientId,
-			code_challenge: codeChallenge,
-			code_challenge_method: codeChallengeMethod,
-			created_at: Date.now(),
-		}),
-	).toString("base64url");
-
-	// Store the auth code temporarily (in production, use Redis)
-	authCodes.set(authCode, {
-		clientId,
-		codeChallenge,
-		codeChallengeMethod,
-		createdAt: Date.now(),
-	});
-
-	// Clean up old codes (older than 10 minutes)
-	// eslint-disable-next-line no-mixed-operators
-	const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
-	for (const [code, data] of authCodes.entries()) {
-		if (data.createdAt < tenMinutesAgo) {
-			authCodes.delete(code);
-		}
-	}
-
-	// Redirect back with the authorization code
-	const redirectUrl = new URL(redirectUri);
-	redirectUrl.searchParams.set("code", authCode);
-	if (state) {
-		redirectUrl.searchParams.set("state", state);
-	}
-
-	return c.redirect(redirectUrl.toString(), 302);
-}
-
-// Store auth codes temporarily (in production, use Redis with TTL)
-const authCodes = new Map<
-	string,
-	{
-		clientId: string;
-		codeChallenge: string | null;
-		codeChallengeMethod: string | null;
-		createdAt: number;
-	}
->();
-
-// Store registered OAuth clients with their allowed redirect URIs
-interface RegisteredClient {
-	clientId: string;
-	clientName: string;
-	redirectUris: string[];
-	createdAt: number;
-}
-
-const registeredClients = new Map<string, RegisteredClient>();
-
-/**
- * Validate redirect_uri against registered URIs for a client
- * Supports loopback addresses (127.0.0.1, [::1], localhost) with any port for native apps (RFC 8252)
- */
-function isValidRedirectUri(
-	redirectUri: string,
-	registeredUris: string[],
-): boolean {
-	// Parse the redirect URI
-	let parsedUri: URL;
-	try {
-		parsedUri = new URL(redirectUri);
-	} catch {
-		return false;
-	}
-
-	// Check for loopback addresses (RFC 8252 Section 7.3)
-	// Native apps can use any port on loopback addresses
-	const isLoopback =
-		parsedUri.hostname === "127.0.0.1" ||
-		parsedUri.hostname === "[::1]" ||
-		parsedUri.hostname === "localhost";
-
-	if (isLoopback && parsedUri.protocol === "http:") {
-		// For loopback, check if any registered URI matches the loopback pattern (ignoring port)
-		for (const registered of registeredUris) {
-			try {
-				const parsedRegistered = new URL(registered);
-				const registeredIsLoopback =
-					parsedRegistered.hostname === "127.0.0.1" ||
-					parsedRegistered.hostname === "[::1]" ||
-					parsedRegistered.hostname === "localhost";
-
-				if (
-					registeredIsLoopback &&
-					parsedRegistered.protocol === parsedUri.protocol &&
-					parsedRegistered.pathname === parsedUri.pathname
-				) {
-					// Loopback match - port can differ per RFC 8252
-					return true;
-				}
-			} catch {
-				continue;
-			}
-		}
-	}
-
-	// For non-loopback URIs, require exact match
-	return registeredUris.includes(redirectUri);
-}
-
-/**
- * Get a registered client by client_id
- */
-function getRegisteredClient(clientId: string): RegisteredClient | undefined {
-	return registeredClients.get(clientId);
-}
-
-/**
- * Verify PKCE code_verifier against code_challenge
- */
-async function verifyPkce(
-	codeVerifier: string,
-	codeChallenge: string,
-	method: string,
-): Promise<boolean> {
-	if (method !== "S256") {
-		return false;
-	}
-
-	// SHA256 hash the verifier and base64url encode it
-	const encoder = new TextEncoder();
-	const data = encoder.encode(codeVerifier);
-	const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-	const hashArray = new Uint8Array(hashBuffer);
-	const hashBase64 = Buffer.from(hashArray)
-		.toString("base64")
-		.replace(/\+/g, "-")
-		.replace(/\//g, "_")
-		.replace(/=/g, "");
-
-	return hashBase64 === codeChallenge;
-}
-
-/**
- * OAuth token endpoint handler
- * Supports both authorization_code and client_credentials grants
- */
-async function oauthTokenHandler(c: Context): Promise<Response> {
-	let grantType: string | null = null;
-	let code: string | null = null;
-	let codeVerifier: string | null = null;
-	let clientId: string | null = null;
-	let clientSecret: string | null = null;
-
-	// Parse request body (can be form-urlencoded or JSON)
-	const contentType = c.req.header("Content-Type") ?? "";
-
-	if (contentType.includes("application/x-www-form-urlencoded")) {
-		const formData = await c.req.parseBody();
-		grantType = formData["grant_type"] as string;
-		code = formData["code"] as string;
-		codeVerifier = formData["code_verifier"] as string;
-		clientId = formData["client_id"] as string;
-		clientSecret = formData["client_secret"] as string;
-	} else if (contentType.includes("application/json")) {
-		const body = await c.req.json();
-		grantType = body.grant_type;
-		code = body.code;
-		codeVerifier = body.code_verifier;
-		clientId = body.client_id;
-		clientSecret = body.client_secret;
-	}
-
-	// Also check Basic auth header for client credentials
-	const authHeader = c.req.header("Authorization");
-	if (authHeader?.startsWith("Basic ")) {
-		const decoded = Buffer.from(authHeader.slice(6), "base64").toString();
-		const [basicClientId, basicClientSecret] = decoded.split(":");
-		clientId ??= basicClientId ?? null;
-		clientSecret ??= basicClientSecret ?? null;
-	}
-
-	if (!grantType) {
-		return c.json(
-			{
-				error: "invalid_request",
-				error_description: "Missing grant_type",
-			},
-			400,
-		);
-	}
-
-	// Handle authorization_code grant
-	if (grantType === "authorization_code") {
-		if (!code) {
-			return c.json(
-				{
-					error: "invalid_request",
-					error_description: "Missing authorization code",
-				},
-				400,
-			);
-		}
-
-		const authCodeData = authCodes.get(code);
-		if (!authCodeData) {
-			return c.json(
-				{
-					error: "invalid_grant",
-					error_description: "Invalid or expired authorization code",
-				},
-				400,
-			);
-		}
-
-		// Check TTL: reject if code has expired (10 minutes)
-		const codeAgeMs = Date.now() - authCodeData.createdAt;
-		const maxCodeAgeMs = 10 * 60 * 1000; // 10 minutes
-		if (codeAgeMs > maxCodeAgeMs) {
-			// Delete expired code to prevent replay attempts
-			authCodes.delete(code);
-			return c.json(
-				{
-					error: "invalid_grant",
-					error_description: "Authorization code has expired",
-				},
-				400,
-			);
-		}
-
-		// Verify client identity: the requesting client must match the original client
-		if (clientId && clientId !== authCodeData.clientId) {
-			return c.json(
-				{
-					error: "invalid_grant",
-					error_description:
-						"Client ID does not match the original authorization request",
-				},
-				400,
-			);
-		}
-
-		// Verify PKCE if code_challenge was provided during authorization
-		if (authCodeData.codeChallenge && authCodeData.codeChallengeMethod) {
-			if (!codeVerifier) {
-				return c.json(
-					{
-						error: "invalid_request",
-						error_description: "Missing code_verifier",
-					},
-					400,
-				);
-			}
-
-			const pkceValid = await verifyPkce(
-				codeVerifier,
-				authCodeData.codeChallenge,
-				authCodeData.codeChallengeMethod,
-			);
-
-			if (!pkceValid) {
-				return c.json(
-					{
-						error: "invalid_grant",
-						error_description: "Invalid code_verifier",
-					},
-					400,
-				);
-			}
-		}
-
-		// Delete the used code
-		authCodes.delete(code);
-
-		// The client_id is the API key - use it as the access token
-		const accessToken = authCodeData.clientId;
-
-		return c.json({
-			access_token: accessToken,
-			token_type: "Bearer",
-			expires_in: 3600,
-			scope: "mcp:tools mcp:resources mcp:prompts",
-		});
-	}
-
-	// Handle client_credentials grant
-	if (grantType === "client_credentials") {
-		// For client_credentials, the client_secret IS the API key
-		const apiKey = clientSecret ?? clientId;
-
-		if (!apiKey) {
-			return c.json(
-				{
-					error: "invalid_client",
-					error_description:
-						"Missing client credentials. Provide API key as client_secret.",
-				},
-				401,
-			);
-		}
-
-		// Return the API key as the access token
-		return c.json({
-			access_token: apiKey,
-			token_type: "Bearer",
-			expires_in: 3600,
-			scope: "mcp:tools mcp:resources mcp:prompts",
-		});
-	}
-
-	return c.json(
-		{
-			error: "unsupported_grant_type",
-			error_description: `Grant type '${grantType}' is not supported`,
-		},
-		400,
-	);
-}
-
-/**
- * OAuth client registration endpoint (Dynamic Client Registration - RFC 7591)
- * This allows clients to register and receive their client_id
- */
-async function oauthRegisterHandler(c: Context): Promise<Response> {
-	const schema = z.object({
-		client_name: z.string().nullish(),
-		redirect_uris: z.unknown(),
-		api_key: z.string().nullish(),
-	});
-	let body: z.infer<typeof schema>;
-	try {
-		body = schema.parse(await c.req.json<unknown>());
-	} catch (error) {
-		if (!(error instanceof SyntaxError) && !(error instanceof z.ZodError)) {
-			throw error;
-		}
-		return c.json(
-			{
-				error: "invalid_request",
-				error_description: "Invalid request body",
-			},
-			400,
-		);
-	}
-
-	// For MCP, the client provides their API key during registration
-	// We use the API key as the client_id
-	const clientName = body.client_name ?? "mcp-client";
-	const redirectUris = body.redirect_uris ?? [];
-
-	// Check if an API key was provided (either in body or header)
-	let apiKey = body.api_key;
-	if (!apiKey) {
-		const authHeader = c.req.header("Authorization");
-		if (authHeader?.startsWith("Bearer ")) {
-			apiKey = authHeader.slice(7);
-		}
-	}
-
-	if (!apiKey) {
-		return c.json(
-			{
-				error: "invalid_request",
-				error_description:
-					"API key required. Provide your LLM Gateway API key in the request body as 'api_key' or in Authorization header.",
-			},
-			400,
-		);
-	}
-
-	// Validate redirect_uris if provided
-	const validatedRedirectUris: string[] = [];
-	if (Array.isArray(redirectUris)) {
-		for (const uri of redirectUris) {
-			if (typeof uri !== "string") {
-				continue;
-			}
-			try {
-				const parsedUri = new URL(uri);
-				// Only allow http for loopback, https for everything else
-				const isLoopback =
-					parsedUri.hostname === "127.0.0.1" ||
-					parsedUri.hostname === "[::1]" ||
-					parsedUri.hostname === "localhost";
-
-				if (isLoopback && parsedUri.protocol === "http:") {
-					validatedRedirectUris.push(uri);
-				} else if (parsedUri.protocol === "https:") {
-					validatedRedirectUris.push(uri);
-				}
-				// Skip invalid URIs (non-https, non-loopback)
-			} catch {
-				// Skip invalid URIs
-			}
-		}
-	}
-
-	// Store the client registration
-	registeredClients.set(apiKey, {
-		clientId: apiKey,
-		clientName,
-		redirectUris: validatedRedirectUris,
-		createdAt: Date.now(),
-	});
-
-	// Clean up old client registrations (older than 30 days)
-	// eslint-disable-next-line no-mixed-operators
-	const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-	for (const [id, client] of registeredClients.entries()) {
-		if (client.createdAt < thirtyDaysAgo) {
-			registeredClients.delete(id);
-		}
-	}
-
-	// Return registration response with API key as client_id
-	return c.json(
-		{
-			client_id: apiKey,
-			client_secret: apiKey, // Same as client_id for our simplified flow
-			client_name: clientName,
-			redirect_uris: validatedRedirectUris,
-			grant_types: ["authorization_code", "client_credentials"],
-			response_types: ["code"],
-			token_endpoint_auth_method: "client_secret_basic",
-		},
-		201,
-	);
-}
-
-/**
- * Base URL of this deployment as the client sees it. TLS terminates at the
- * load balancer, so `c.req.url` reports `http:` in production — trust
- * `x-forwarded-proto` when present or the published metadata advertises
- * plain-http endpoints.
- */
-function resolveRequestBaseUrl(c: Context): string {
-	const url = new URL(c.req.url);
-	// x-forwarded-proto may be a comma-separated chain when multiple proxies
-	// are involved; only the first (client-facing) value is meaningful, and
-	// anything but http/https would produce an invalid URL.
-	const forwarded = (c.req.header("x-forwarded-proto") ?? "")
-		.split(",")[0]!
-		.trim()
-		.toLowerCase();
-	const proto =
-		forwarded === "http" || forwarded === "https"
-			? forwarded
-			: url.protocol.slice(0, -1);
-	return `${proto}://${url.host}`;
-}
-
-/**
- * OAuth metadata endpoint handler
- */
-function oauthMetadataHandler(c: Context): Response {
-	return c.json(getOAuthMetadata(resolveRequestBaseUrl(c)));
-}
-
-/**
- * OAuth 2.0 Protected Resource Metadata (RFC 9728) for the MCP endpoint, so
- * agents can discover the authorization server and supported scopes
- * machine-readably.
- */
-function protectedResourceMetadataHandler(c: Context): Response {
-	const baseUrl = resolveRequestBaseUrl(c);
-	return c.json({
-		resource: `${baseUrl}/mcp`,
-		authorization_servers: [baseUrl],
-		scopes_supported: ["mcp:tools", "mcp:resources", "mcp:prompts"],
-		bearer_methods_supported: ["header"],
-		resource_name: "LLM Gateway MCP server",
-		resource_documentation: "https://llmgateway.io/mcp",
-	});
-}
-
-/**
- * Register MCP OAuth routes on the Hono app
- * This adds the OAuth endpoints required for Claude Code authentication
- */
-export function registerMcpOAuthRoutes(app: OpenAPIHono<ServerTypes>): void {
-	// OAuth 2.0 Authorization Server Metadata (RFC 8414)
-	app.get("/.well-known/oauth-authorization-server", oauthMetadataHandler);
-
-	// Also serve at the MCP-relative path
-	app.get("/.well-known/oauth-authorization-server/mcp", oauthMetadataHandler);
-
-	// OAuth 2.0 Protected Resource Metadata (RFC 9728), plus the
-	// path-suffixed variant RFC 9728 defines for resources under a path
-	app.get(
-		"/.well-known/oauth-protected-resource",
-		protectedResourceMetadataHandler,
-	);
-	app.get(
-		"/.well-known/oauth-protected-resource/mcp",
-		protectedResourceMetadataHandler,
-	);
-
-	// OAuth endpoints
-	app.get("/oauth/authorize", oauthAuthorizeHandler);
-	app.post("/oauth/token", oauthTokenHandler);
-	app.post("/oauth/register", oauthRegisterHandler);
 }

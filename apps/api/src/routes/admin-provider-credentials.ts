@@ -3,7 +3,7 @@ import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { assertNotTestingKey } from "@/lib/airside-carrier-keys.js";
+import {} from "@/lib/airside-carrier-keys.js";
 import {
 	listAirsideModelIds,
 	validateAirsideKey,
@@ -26,6 +26,8 @@ import {
 	validateAllowedModels,
 } from "@/lib/provider-key-allowed-models.js";
 import {
+	modelRateLimitModelIds,
+	normalizeModelRateLimits,
 	pickProviderKeyRateLimits,
 	providerKeyRateLimitsInputShape,
 	providerKeyRateLimitsOutputShape,
@@ -86,10 +88,17 @@ import {
 	getProviderEnvExclusiveGroups,
 	getProviderEnvExclusiveViolations,
 	getProviderEnvKeys,
+	getRegionScopedDefaultRegion,
 	providers,
+	isRetiredProvider,
 } from "@llmgateway/models";
 import {
 	createEmptyProviderModelsByKind,
+	FAILING_CREDENTIAL_ERROR_RATE,
+	FAILING_CREDENTIAL_MIN_REQUESTS,
+	FAILING_CREDENTIAL_WINDOW_HOURS,
+	failingCredentialWindowStart,
+	getFailingCredentialRate,
 	getModelIdsByProvider,
 	getModelIdsByProviderAndKind,
 	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
@@ -108,6 +117,7 @@ import type {
 	ProviderValidationResult,
 } from "@llmgateway/models";
 
+const usageWindowSchema = z.enum(["all", "4h", "1d", "7d", "30d"]);
 const selectionStrategySchema = z.enum(["ordered", "round_robin"]);
 
 export const adminProviderCredentials = new OpenAPIHono<ServerTypes>();
@@ -198,7 +208,7 @@ const credentialDailyPointSchema = z.object({
 });
 
 /** Windows the credentials table can show its error rate over. */
-const errorWindowSchema = z.enum(["4h", "1d", "7d"]);
+const errorWindowSchema = usageWindowSchema;
 
 type ErrorWindow = z.infer<typeof errorWindowSchema>;
 
@@ -211,6 +221,8 @@ type CredentialErrorPoint = z.infer<typeof credentialErrorPointSchema>;
 
 /** List view only — the mutation responses do not compute the rollup. */
 const listedCredentialSchema = credentialSchema.extend({
+	/** Spend in `usageWindow`; lifetime `usage` remains unchanged for caps. */
+	windowUsage: z.string(),
 	last24h: credentialRecentStatsSchema,
 	/**
 	 * The last 7 UTC days, oldest first, always 7 entries. The final entry is the
@@ -285,6 +297,11 @@ const catalogEntrySchema = z.object({
 	regions: z.array(z.object({ id: z.string(), label: z.string() })),
 	/** Region used when a credential does not pin one. Null when not region-scoped. */
 	defaultRegion: z.string().nullable(),
+	/**
+	 * Whether a credential must pin a region: the provider has no global region,
+	 * so each key belongs to exactly one (Alibaba).
+	 */
+	regionRequired: z.boolean(),
 	configKeys: z.array(configKeySchema),
 	/**
 	 * Groups of settings where exactly one member must be supplied. The form
@@ -373,6 +390,11 @@ async function validateConfig(
 	provider: string,
 	config: Record<string, string>,
 ): Promise<void> {
+	if (isRetiredProvider(provider)) {
+		throw new HTTPException(400, {
+			message: `Provider ${provider} is retired. Configure a replacement provider.`,
+		});
+	}
 	// "custom" is a per-organization BYOK construct (each key defines its own
 	// upstream); there is no platform-wide custom deployment a managed
 	// credential could describe, and the catalog route excludes it for the same
@@ -445,10 +467,22 @@ async function validateConfig(
  * A credential's region selects which region's traffic it serves, so it only
  * means anything for a provider whose catalogue declares regions, and only for
  * a region that catalogue actually lists. Anything else would produce a
- * credential that silently never matches a request.
+ * credential that silently never matches a request. `required` (create and
+ * region edits) also rejects an unpinned credential for a provider with no
+ * global region.
  */
-function validateRegion(provider: string, region: string | null): void {
+function validateRegion(
+	provider: string,
+	region: string | null,
+	{ required = false }: { required?: boolean } = {},
+): void {
 	if (!region) {
+		const defaultRegion = getRegionScopedDefaultRegion(provider);
+		if (required && defaultRegion) {
+			throw new HTTPException(400, {
+				message: `${provider} has no global region, so each credential must pin the region its key belongs to (unpinned traffic runs in ${defaultRegion})`,
+			});
+		}
 		return;
 	}
 
@@ -562,27 +596,32 @@ async function probeCredentialToken(
 	token: string,
 	validationOptions: ReturnType<typeof managedCredentialValidationOptions>,
 	allowedModels: string[] | null | undefined,
+	incomingHeaders?: HeadersInit,
+	providerKeyId?: string,
+	region?: string | null,
 ): Promise<ProviderValidationResult | undefined> {
+	const airsideResult = await validateAirsideKey(
+		provider,
+		token,
+		undefined,
+		allowedModels,
+		{
+			providerKeyOptions: validationOptions,
+			skipEnvVars: true,
+			useGateway: true,
+			region,
+			incomingHeaders,
+			providerKeyId,
+			abortSignal: AbortSignal.timeout(SAVE_VALIDATION_TIMEOUT_MS),
+		},
+	);
+	if (airsideResult) {
+		return airsideResult;
+	}
 	let validationProvider = provider as ProviderId;
 	let validationBaseUrl: string | undefined;
 	let pinnedModelId: string | undefined;
 	if (providers.some((entry) => entry.id === provider)) {
-		// Airside listings exist only in the DB catalogue, so the static
-		// validation-model lookup below cannot probe them.
-		const airsideResult = await validateAirsideKey(
-			provider,
-			token,
-			undefined,
-			allowedModels,
-			{
-				providerKeyOptions: validationOptions,
-				skipEnvVars: true,
-				abortSignal: AbortSignal.timeout(SAVE_VALIDATION_TIMEOUT_MS),
-			},
-		);
-		if (airsideResult) {
-			return airsideResult;
-		}
 		pinnedModelId = pickAllowedValidationModel(
 			provider,
 			allowedModels ?? null,
@@ -642,6 +681,8 @@ async function validateCredentialToken(
 	config: Record<string, string>,
 	region: string | null | undefined,
 	allowedModels?: string[] | null,
+	incomingHeaders?: HeadersInit,
+	providerKeyId?: string,
 ): Promise<void> {
 	// Provider keys in unit tests are fixtures, not live credentials; e2e runs
 	// opt back in so the real upstream path stays covered.
@@ -659,6 +700,9 @@ async function validateCredentialToken(
 		token,
 		validationOptions,
 		allowedModels,
+		incomingHeaders,
+		providerKeyId,
+		region,
 	);
 	if (!result || result.valid) {
 		return;
@@ -742,7 +786,9 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 	);
 
 	const entries = providers
-		.filter((provider) => provider.id !== "custom")
+		.filter(
+			(provider) => provider.id !== "custom" && !isRetiredProvider(provider.id),
+		)
 		.map((provider) => {
 			const apiKeyEnvVar =
 				getProviderEnvKeys(provider.id).find((entry) => entry.key === "apiKey")
@@ -768,6 +814,7 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				apiKeyEnvConfigured: apiKeyEnvCounts.default > 0,
 				regions,
 				defaultRegion: regionConfig?.defaultRegion ?? null,
+				regionRequired: getRegionScopedDefaultRegion(provider.id) !== undefined,
 				apiKeyEnvCounts,
 				envCredentials,
 				configKeys: getManagedCredentialConfigKeys(provider.id),
@@ -809,6 +856,7 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				apiKeyEnvConfigured: false,
 				regions: [],
 				defaultRegion: null,
+				regionRequired: false,
 				apiKeyEnvCounts: countEnvCredentialsByVariant([]),
 				envCredentials: [],
 				configKeys: [],
@@ -839,8 +887,10 @@ const listCredentials = createRoute({
 			 * so their lifetime usage and rollup history are still there.
 			 */
 			includeDeleted: z.enum(["true", "false"]).optional(),
-			/** Window `errorSeries` covers; defaults to 1d. */
+			/** Window `errorSeries` covers; defaults to 7d. */
 			errorWindow: errorWindowSchema.optional(),
+			/** Spend display window; defaults to 7d. `all` uses the lifetime counter. */
+			usageWindow: usageWindowSchema.optional(),
 		}),
 	},
 	responses: {
@@ -858,8 +908,8 @@ const listCredentials = createRoute({
 });
 
 adminProviderCredentials.openapi(listCredentials, async (c) => {
-	const { provider, includeDeleted } = c.req.valid("query");
-	const errorWindow = c.req.valid("query").errorWindow ?? "1d";
+	const { provider, includeDeleted, usageWindow = "7d" } = c.req.valid("query");
+	const errorWindow = c.req.valid("query").errorWindow ?? "7d";
 
 	const rows = await db.query.providerKey.findMany({
 		where: {
@@ -881,28 +931,107 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 	});
 
 	const credentialIds = rows.map((row) => row.id);
-	const [recent, daily, bucketed, carrierKeyIds] = await Promise.all([
-		getRecentCredentialStats(credentialIds),
-		getDailyCredentialStats(credentialIds),
-		// The 7d window is the daily series the spend sparkline already loads.
-		errorWindow === "7d"
-			? null
-			: getBucketedCredentialErrorSeries(credentialIds, errorWindow),
-		linkedCarrierKeyIds(),
-	]);
+	const now = new Date();
+	const [recent, daily, bucketed, carrierKeyIds, windowUsage] =
+		await Promise.all([
+			getRecentCredentialStats(credentialIds),
+			getDailyCredentialStats(credentialIds),
+			getBucketedCredentialErrorSeries(credentialIds, errorWindow, now),
+			linkedCarrierKeyIds(),
+			usageWindow === "all"
+				? null
+				: getCredentialWindowUsage(credentialIds, usageWindow, now),
+		]);
 
 	return c.json({
 		credentials: rows.map((row) => {
 			const last7dDaily = daily.get(row.id) ?? buildEmptyDailySeries();
 			return {
 				...toCredential(row, carrierKeyIds),
+				windowUsage:
+					windowUsage === null ? row.usage : (windowUsage.get(row.id) ?? "0"),
 				last24h: recent.get(row.id) ?? NO_RECENT_STATS,
 				last7dDaily,
-				errorSeries:
-					bucketed?.get(row.id) ??
-					last7dDaily.map(({ cost: _cost, ...point }) => point),
+				errorSeries: bucketed.get(row.id) ?? [],
 			};
 		}),
+	});
+});
+
+const failingCredentialSchema = z.object({
+	id: z.string(),
+	provider: z.string(),
+	comment: z.string().nullable(),
+	maskedToken: z.string(),
+	/** Requests counted toward the rate: client errors excluded. */
+	requestCount: z.number(),
+	/** Gateway and upstream errors. */
+	errorsCount: z.number(),
+	/** Percent, 0–100. */
+	errorRate: z.number(),
+});
+
+const listFailingCredentials = createRoute({
+	method: "get",
+	path: "/provider-credentials/failing",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						windowHours: z.number(),
+						thresholdPercent: z.number(),
+						minRequests: z.number(),
+						credentials: z.array(failingCredentialSchema),
+					}),
+				},
+			},
+			description:
+				"Active managed credentials failing nearly every request in the recent window, worst first.",
+		},
+	},
+});
+
+adminProviderCredentials.openapi(listFailingCredentials, async (c) => {
+	const rows = await db.query.providerKey.findMany({
+		where: { managed: { eq: true }, status: { eq: "active" } },
+	});
+	const stats = await getRecentCredentialStats(
+		rows.map((row) => row.id),
+		failingCredentialWindowStart(),
+	);
+
+	const credentials = rows
+		.flatMap((row) => {
+			const recent = stats.get(row.id);
+			const failing =
+				recent &&
+				getFailingCredentialRate({
+					logsCount: recent.requestCount,
+					clientErrorsCount: recent.clientErrorCount,
+					gatewayErrorsCount: recent.gatewayErrorCount,
+					upstreamErrorsCount: recent.upstreamErrorCount,
+				});
+			if (!failing) {
+				return [];
+			}
+			return [
+				{
+					id: row.id,
+					provider: row.provider,
+					comment: row.comment,
+					maskedToken: maskToken(readProviderKey(row), 6, 4),
+					...failing,
+				},
+			];
+		})
+		.sort((a, b) => b.errorRate - a.errorRate || b.errorsCount - a.errorsCount);
+
+	return c.json({
+		windowHours: FAILING_CREDENTIAL_WINDOW_HOURS,
+		thresholdPercent: FAILING_CREDENTIAL_ERROR_RATE,
+		minRequests: FAILING_CREDENTIAL_MIN_REQUESTS,
+		credentials,
 	});
 });
 
@@ -942,7 +1071,10 @@ function hourlyErrorSplitFields() {
  * Buckets are hourly, so the window edge is coarse: the oldest bucket is
  * included whole. That matches the "24h" window the spend charts use.
  */
-async function getRecentCredentialStats(providerKeyIds: string[]) {
+async function getRecentCredentialStats(
+	providerKeyIds: string[],
+	since: Date = getTokenWindowStartDate("1d"),
+) {
 	const stats = new Map<string, z.infer<typeof credentialRecentStatsSchema>>();
 	if (providerKeyIds.length === 0) {
 		return stats;
@@ -965,10 +1097,7 @@ async function getRecentCredentialStats(providerKeyIds: string[]) {
 		.where(
 			and(
 				inArray(tables.providerKeyHourlyStats.providerKeyId, providerKeyIds),
-				gte(
-					tables.providerKeyHourlyStats.hourTimestamp,
-					getTokenWindowStartDate("1d"),
-				),
+				gte(tables.providerKeyHourlyStats.hourTimestamp, since),
 			),
 		)
 		.groupBy(tables.providerKeyHourlyStats.providerKeyId);
@@ -1071,26 +1200,28 @@ async function getDailyCredentialStats(providerKeyIds: string[]) {
 
 const HOUR_MS = 60 * 60 * 1000;
 
-/**
- * Hourly request/error counts per credential for the sub-week error windows,
- * from the hourly rollup. One grouped query for every credential, like the
- * daily series. The rollup's grain is the hour, so nothing shorter is offered.
- */
+/** Group the same rolling window as spend; lifetime history uses monthly points. */
 async function getBucketedCredentialErrorSeries(
 	providerKeyIds: string[],
-	window: Exclude<ErrorWindow, "7d">,
+	window: ErrorWindow,
+	now: Date = new Date(),
 ) {
 	const series = new Map<string, CredentialErrorPoint[]>();
 	if (providerKeyIds.length === 0) {
 		return series;
 	}
-
-	const buckets = hourBucketStarts(window === "4h" ? 4 : 24);
 	const stats = tables.providerKeyHourlyStats;
+	const unit = window === "all" ? "month" : getBucketUnitForWindow(window);
+	const bucketExpr =
+		unit === "hour"
+			? sql<Date>`${stats.hourTimestamp}`
+			: unit === "day"
+				? sql<Date>`date_trunc('day', ${stats.hourTimestamp})`
+				: sql<Date>`date_trunc('month', ${stats.hourTimestamp})`;
 	const rows = await db
 		.select({
 			providerKeyId: stats.providerKeyId,
-			bucket: bucketLabel(sql<Date>`${stats.hourTimestamp}`).as("bucket"),
+			bucket: bucketLabel(bucketExpr).as("bucket"),
 			requestCount: sql<number>`COALESCE(SUM(${stats.requestCount}), 0)`.as(
 				"request_count",
 			),
@@ -1103,21 +1234,41 @@ async function getBucketedCredentialErrorSeries(
 		.where(
 			and(
 				inArray(stats.providerKeyId, providerKeyIds),
-				gte(stats.hourTimestamp, buckets[0]),
+				window === "all"
+					? undefined
+					: gte(stats.hourTimestamp, getTokenWindowStartDate(window, now)),
+				lt(stats.hourTimestamp, now),
 			),
 		)
-		.groupBy(stats.providerKeyId, stats.hourTimestamp);
-
-	const byKeyAndBucket = new Map<string, (typeof rows)[number]>();
-	for (const row of rows) {
-		byKeyAndBucket.set(`${row.providerKeyId}:${row.bucket}`, row);
+		.groupBy(stats.providerKeyId, bucketExpr);
+	let buckets: string[];
+	if (window === "all") {
+		const first = rows.reduce(
+			(earliest, row) => (row.bucket < earliest ? row.bucket : earliest),
+			now.toISOString(),
+		);
+		const month = new Date(first);
+		month.setUTCDate(1);
+		month.setUTCHours(0, 0, 0, 0);
+		buckets = [];
+		while (month <= now) {
+			buckets.push(month.toISOString());
+			month.setUTCMonth(month.getUTCMonth() + 1);
+		}
+	} else if (unit === "hour") {
+		buckets = hourBucketStarts(window === "4h" ? 4 : 24, now).map((bucket) =>
+			bucket.toISOString(),
+		);
+	} else {
+		buckets = getWindowBucketTimestamps(window, now);
 	}
-
+	const byKeyAndBucket = new Map(
+		rows.map((row) => [`${row.providerKeyId}:${row.bucket}`, row]),
+	);
 	for (const providerKeyId of providerKeyIds) {
 		series.set(
 			providerKeyId,
-			buckets.map((bucket) => {
-				const date = bucket.toISOString();
+			buckets.map((date) => {
 				const row = byKeyAndBucket.get(`${providerKeyId}:${date}`);
 				return {
 					date,
@@ -2011,13 +2162,19 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 	const body = c.req.valid("json");
 	const config = normalizeConfig(body.config);
 	const allowedModels = normalizeAllowedModels(body.allowedModels);
+	const region = body.region?.trim() || null;
 
 	await validateConfig(body.provider, config);
-	validateRegion(body.provider, body.region?.trim() || null);
+	validateRegion(body.provider, region, { required: true });
 	await validateManagedAllowedModels(
 		body.provider,
 		allowedModels,
-		managedCredentialValidationOptions(body.provider, config, body.region),
+		managedCredentialValidationOptions(body.provider, config, region),
+	);
+	await validateManagedAllowedModels(
+		body.provider,
+		modelRateLimitModelIds(normalizeModelRateLimits(body.modelRateLimits)),
+		managedCredentialValidationOptions(body.provider, config, region),
 	);
 
 	if (!body.skipValidation) {
@@ -2025,8 +2182,9 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 			body.provider,
 			body.token,
 			config,
-			body.region,
+			region,
 			allowedModels,
+			c.req.raw.headers,
 		);
 	}
 
@@ -2037,10 +2195,6 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 		body.provider === "custom"
 			? undefined
 			: await findActiveCustomCarrier(body.provider);
-	// The carrier's testing key runs preflights; it never serves traffic.
-	if (carrier) {
-		assertNotTestingKey(carrier, body.token);
-	}
 	const created = await cdb.transaction(async (tx) => {
 		const [row] = await tx
 			.insert(tables.providerKey)
@@ -2059,7 +2213,7 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 				comment: body.comment?.trim() || null,
 				variant: body.variant ?? "default",
 				selectionStrategy: body.selectionStrategy ?? "ordered",
-				region: body.region?.trim() || null,
+				region,
 				config,
 				usageLimit: body.usageLimit ?? null,
 				allowedModels,
@@ -2158,6 +2312,14 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	if (!existing) {
 		throw new HTTPException(404, { message: "Credential not found" });
 	}
+	if (body.status === "active" && isRetiredProvider(existing.provider)) {
+		throw new HTTPException(400, {
+			message: "This provider is retired. Configure a replacement credential.",
+		});
+	}
+	const region =
+		body.region !== undefined ? body.region?.trim() || null : existing.region;
+
 	// Soft-deleted credentials stay editable (e.g. renamed for the history they
 	// are kept for), but never move back into rotation.
 	const wasDeleted = isRemovedProviderKeyStatus(existing.status);
@@ -2182,12 +2344,6 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 				"A credential pending deletion cannot change its token, config, region, variant or allowed models.",
 		});
 	}
-	if (body.token !== undefined && existing.provider !== "custom") {
-		const carrier = await findActiveCustomCarrier(existing.provider);
-		if (carrier) {
-			assertNotTestingKey(carrier, body.token);
-		}
-	}
 
 	const updates: Partial<typeof tables.providerKey.$inferInsert> =
 		providerKeyRateLimitUpdates(body);
@@ -2199,7 +2355,7 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	}
 
 	if (body.region !== undefined) {
-		validateRegion(existing.provider, body.region?.trim() || null);
+		validateRegion(existing.provider, region, { required: true });
 	}
 
 	if (body.allowedModels !== undefined) {
@@ -2224,7 +2380,7 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 			managedCredentialValidationOptions(
 				existing.provider,
 				updates.config ?? existing.config ?? {},
-				body.region !== undefined ? body.region : existing.region,
+				region,
 			),
 		);
 		updates.allowedModels = allowedModels;
@@ -2237,6 +2393,18 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 				].filter((modelId) => !allowedModels.includes(modelId))
 			: [];
 		updates.modelSyncExcluded = excluded.length > 0 ? excluded : null;
+	}
+
+	if (updates.modelRateLimits !== undefined) {
+		await validateManagedAllowedModels(
+			existing.provider,
+			modelRateLimitModelIds(updates.modelRateLimits, existing.modelRateLimits),
+			managedCredentialValidationOptions(
+				existing.provider,
+				updates.config ?? existing.config ?? {},
+				region,
+			),
+		);
 	}
 
 	// A new token, a changed config and a changed region all alter what the
@@ -2257,10 +2425,12 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 			existing.provider,
 			body.token ?? readProviderKey(existing),
 			updates.config ?? existing.config ?? {},
-			body.region !== undefined ? body.region : existing.region,
+			region,
 			body.allowedModels !== undefined
 				? (updates.allowedModels ?? null)
 				: existing.allowedModels,
+			c.req.raw.headers,
+			body.token === undefined ? existing.id : undefined,
 		);
 	}
 
@@ -2284,7 +2454,7 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		updates.selectionStrategy = body.selectionStrategy;
 	}
 	if (body.region !== undefined) {
-		updates.region = body.region?.trim() || null;
+		updates.region = region;
 	}
 	if (body.status !== undefined) {
 		updates.status = body.status;
@@ -2378,6 +2548,7 @@ const credentialUnderTestSchema = z.object({
 
 interface CredentialUnderTest {
 	provider: string;
+	providerKeyId?: string;
 	token: string;
 	config: Record<string, string>;
 	region: string | null;
@@ -2446,6 +2617,7 @@ async function resolveCredentialUnderTest(
 
 	return {
 		provider,
+		providerKeyId: explicitToken ? undefined : credential?.id,
 		token,
 		config,
 		region,
@@ -2517,19 +2689,21 @@ adminProviderCredentials.openapi(selfTestCredential, async (c) => {
 	// A provider served only through Airside listings has no static
 	// validation model, so probe one of its listings instead.
 	const result =
-		(target.customCarrier
-			? undefined
-			: await validateAirsideKey(
-					target.provider,
-					target.token,
-					undefined,
-					null,
-					{
-						providerKeyOptions: validationOptions,
-						skipEnvVars: true,
-						abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
-					},
-				)) ??
+		(await validateAirsideKey(
+			target.provider,
+			target.token,
+			undefined,
+			customCarrierModel ? [customCarrierModel[0]] : null,
+			{
+				providerKeyOptions: validationOptions,
+				skipEnvVars: true,
+				useGateway: true,
+				providerKeyId: target.providerKeyId,
+				region: target.region,
+				incomingHeaders: c.req.raw.headers,
+				abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+			},
+		)) ??
 		(await validateProviderKey(
 			target.customCarrier ? "custom" : (target.provider as ProviderId),
 			target.token,
@@ -2622,8 +2796,13 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 	const airsideModelIds = new Set(
 		target.customCarrier
 			? []
-			: ((await listAirsideModelIds([target.provider])).get(target.provider) ??
-					[]),
+			: ((
+					await listAirsideModelIds(
+						[target.provider],
+						new Date(),
+						target.region,
+					)
+				).get(target.provider) ?? []),
 	);
 
 	type VerifyResult = z.infer<typeof verifyModelsResultSchema>;
@@ -2642,15 +2821,26 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 			if (isCredentialTestEnv()) {
 				return { model: modelId, inCatalog: true, valid: true };
 			}
-			const result = await validateProviderKey(
-				"custom",
+			const result = await validateAirsideKey(
+				target.provider,
 				target.token,
-				target.customCarrier.baseUrl,
-				false,
 				undefined,
-				externalId,
-				AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+				[modelId],
+				{
+					providerKeyOptions: validationOptions,
+					skipEnvVars: true,
+					useGateway: true,
+					providerKeyId: target.providerKeyId,
+					region: target.region,
+					incomingHeaders: c.req.raw.headers,
+					abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+				},
 			);
+			if (!result) {
+				throw new HTTPException(503, {
+					message: "The carrier deployment is unavailable for verification.",
+				});
+			}
 			return {
 				model: modelId,
 				inCatalog: true,
@@ -2673,6 +2863,10 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 				{
 					providerKeyOptions: validationOptions,
 					skipEnvVars: true,
+					useGateway: true,
+					providerKeyId: target.providerKeyId,
+					region: target.region,
+					incomingHeaders: c.req.raw.headers,
 					abortSignal: AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
 				},
 			);
@@ -2693,7 +2887,22 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 			modelId,
 			validationOptions,
 			skipLiveProbe: isCredentialTestEnv(),
-			validate: validateProviderKey,
+			validate: async (...args: Parameters<typeof validateProviderKey>) =>
+				(await validateAirsideKey(
+					target.provider,
+					target.token,
+					args[2],
+					[modelId],
+					{
+						providerKeyOptions: validationOptions,
+						skipEnvVars: true,
+						useGateway: true,
+						providerKeyId: target.providerKeyId,
+						region: target.region,
+						incomingHeaders: c.req.raw.headers,
+						abortSignal: args[6] ?? AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
+					},
+				)) ?? (await validateProviderKey(...args)),
 		});
 	};
 
@@ -2887,6 +3096,35 @@ const reorderCredentials = createRoute({
 		},
 	},
 });
+
+async function getCredentialWindowUsage(
+	providerKeyIds: string[],
+	window: Exclude<z.infer<typeof usageWindowSchema>, "all">,
+	now: Date = new Date(),
+) {
+	if (providerKeyIds.length === 0) {
+		return new Map<string, string>();
+	}
+	const stats = tables.providerKeyHourlyStats;
+	const rows = await db
+		.select({
+			providerKeyId: stats.providerKeyId,
+			usage:
+				sql<string>`COALESCE(SUM(CAST(CAST(${stats.cost} AS DOUBLE PRECISION) AS NUMERIC)), 0)::text`.as(
+					"usage",
+				),
+		})
+		.from(stats)
+		.where(
+			and(
+				inArray(stats.providerKeyId, providerKeyIds),
+				gte(stats.hourTimestamp, getTokenWindowStartDate(window, now)),
+				lt(stats.hourTimestamp, now),
+			),
+		)
+		.groupBy(stats.providerKeyId);
+	return new Map(rows.map((row) => [row.providerKeyId, row.usage]));
+}
 
 /**
  * Sets the order the gateway tries a provider's managed credentials.

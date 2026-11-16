@@ -3,6 +3,7 @@ import {
 	stripRetentionSensitiveLogFields,
 	UnifiedFinishReason,
 	type LogInsertData,
+	type QueuedLogData,
 } from "@llmgateway/db";
 import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
@@ -104,19 +105,20 @@ export function getUnifiedFinishReason(
 		case "anthropic":
 		case "vertex-anthropic":
 		case "azure-anthropic":
-			if (finishReason === "stop_sequence") {
+			// Cache entries and OpenAI-compatible transports can carry normalized reasons.
+			if (finishReason === "stop" || finishReason === "stop_sequence") {
 				return UnifiedFinishReason.COMPLETED;
 			}
-			if (finishReason === "max_tokens") {
+			if (finishReason === "max_tokens" || finishReason === "length") {
 				return UnifiedFinishReason.LENGTH_LIMIT;
 			}
 			if (finishReason === "end_turn") {
 				return UnifiedFinishReason.COMPLETED;
 			}
-			if (finishReason === "tool_use") {
+			if (finishReason === "tool_use" || finishReason === "tool_calls") {
 				return UnifiedFinishReason.TOOL_CALLS;
 			}
-			if (finishReason === "refusal") {
+			if (finishReason === "content_filter") {
 				return UnifiedFinishReason.CONTENT_FILTER;
 			}
 			break;
@@ -402,7 +404,13 @@ async function recordRateLimitUsage(logData: LogInsertData): Promise<void> {
 		try {
 			const keyLimits = await findProviderKeyRateLimits(logData.providerKeyId);
 			if (keyLimits) {
-				await recordProviderKeyUsage(keyLimits, tokens);
+				await recordProviderKeyUsage(
+					keyLimits,
+					tokens,
+					logData.usedModel
+						? rootModelIdFromUsedModel(logData.usedModel)
+						: undefined,
+				);
 			}
 		} catch (error) {
 			logger.error("Error loading provider key rate limits:", error as Error);
@@ -520,7 +528,8 @@ export async function insertLog(
 	await recordSpend(logData.organizationId, organizationBilledCost(logData));
 	await recordRateLimitUsage(logData);
 
-	await publishToQueue(LOG_QUEUE, logData);
+	const queued: QueuedLogData = { ...logData, enqueuedAt: Date.now() };
+	await publishToQueue(LOG_QUEUE, queued);
 	markRequestLogged();
 	return 1; // Return 1 to match test expectations
 }

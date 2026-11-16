@@ -1,7 +1,13 @@
+import { HTTPException } from "hono/http-exception";
+
 import { buildVerificationTarget } from "@/lib/model-verification.js";
 
-import { runProviderKeySmokeTest } from "@llmgateway/actions";
-import { db } from "@llmgateway/db";
+import {
+	runProviderKeySmokeTest,
+	createAirsideGatewayFetch,
+	airsideInferencePricing,
+} from "@llmgateway/actions";
+import { db, shortid } from "@llmgateway/db";
 import {
 	models,
 	providers,
@@ -19,6 +25,7 @@ import type { ProviderKeyOptions } from "@llmgateway/db";
 export async function listAirsideModelIds(
 	providerIds: readonly string[],
 	now: Date = new Date(),
+	region: string | null = null,
 ): Promise<Map<string, string[]>> {
 	const byProvider = new Map<string, string[]>();
 	if (providerIds.length === 0) {
@@ -29,7 +36,7 @@ export async function listAirsideModelIds(
 			providerId: { in: [...providerIds] },
 			source: "airside",
 			status: "active",
-			region: { isNull: true },
+			region: region ? { eq: region } : { isNull: true },
 		},
 		columns: { providerId: true, modelId: true, deactivatedAt: true },
 	});
@@ -48,12 +55,13 @@ export async function listAirsideModelIds(
 
 export interface AirsideKeyProbeOptions {
 	providerKeyOptions?: ProviderKeyOptions;
-	/**
-	 * Keep the probe off the deployment's `LLM_*` settings. Set for managed
-	 * credentials, whose settings travel in `providerKeyOptions` only.
-	 */
 	skipEnvVars?: boolean;
 	abortSignal?: AbortSignal;
+	/** Operator-managed probes only; customer BYOK validation stays separate. */
+	useGateway?: boolean;
+	providerKeyId?: string;
+	region?: string | null;
+	incomingHeaders?: HeadersInit;
 }
 
 /**
@@ -73,7 +81,7 @@ export async function validateAirsideKey(
 ): Promise<ProviderValidationResult | undefined> {
 	const isCatalogueProvider = providers.some((entry) => entry.id === provider);
 	const [claim, mappings] = await Promise.all([
-		isCatalogueProvider
+		isCatalogueProvider && !options.useGateway
 			? undefined
 			: db.query.providerClaim.findFirst({
 					where: { providerId: provider, status: "active" },
@@ -81,14 +89,28 @@ export async function validateAirsideKey(
 		db.query.modelProviderMapping.findMany({
 			where: {
 				providerId: provider,
-				source: "airside",
-				region: { isNull: true },
+				...(!options.useGateway
+					? { source: "airside" as const, region: { isNull: true as const } }
+					: {}),
 			},
 		}),
 	]);
 	const now = new Date();
-	const live = mappings.filter(
+	const ownedModelIds = new Set(
+		mappings
+			.filter((row) => row.source === "airside")
+			.map((row) => row.modelId),
+	);
+	const scopedMappings =
+		options.useGateway && claim
+			? mappings.filter(
+					(row) => row.source === "airside" || !ownedModelIds.has(row.modelId),
+				)
+			: mappings.filter((row) => row.source === "airside");
+	const region = options.useGateway ? (options.region ?? null) : null;
+	const live = scopedMappings.filter(
 		(row) =>
+			row.region === region &&
 			row.status === "active" &&
 			(!row.deactivatedAt || row.deactivatedAt > now),
 	);
@@ -98,9 +120,10 @@ export async function validateAirsideKey(
 			.map((modelId) => live.find((row) => row.modelId === modelId))
 			.find((row) => row !== undefined);
 	} else {
-		const owned = new Set(mappings.map((row) => row.modelId));
+		const owned = new Set(scopedMappings.map((row) => row.modelId));
 		const hasStaticModel =
 			isCatalogueProvider &&
+			!claim &&
 			models.some(
 				(model) =>
 					!owned.has(model.id) &&
@@ -112,15 +135,44 @@ export async function validateAirsideKey(
 			);
 		mapping = hasStaticModel ? undefined : live[0];
 	}
-	const carrierBaseUrl = isCatalogueProvider ? undefined : claim?.customBaseUrl;
+	const carrierBaseUrl = claim?.customBaseUrl;
 	if (!mapping || (!isCatalogueProvider && !carrierBaseUrl)) {
+		if (options.useGateway && (claim || !isCatalogueProvider)) {
+			throw new HTTPException(503, {
+				message: "No priced Airside deployment is available for verification.",
+			});
+		}
 		return undefined;
 	}
 	const target = buildVerificationTarget({
 		...mapping,
 		modelName: mapping.modelId,
 	});
+	if (
+		options.useGateway &&
+		mapping.source === "airside" &&
+		(typeof mapping.inputPrice !== "string" ||
+			typeof mapping.outputPrice !== "string")
+	) {
+		throw new HTTPException(503, {
+			message:
+				"The Airside deployment pricing is unavailable for verification.",
+		});
+	}
 	const { abortSignal } = options;
+	let infrastructureError: Error | undefined;
+	const inferenceFetch = options.useGateway
+		? createAirsideGatewayFetch({
+				runId: `managed-key:${shortid()}`,
+				providerKeyId: options.providerKeyId,
+				target,
+				pricing: airsideInferencePricing(target, mapping),
+				incomingHeaders: options.incomingHeaders,
+				onInfrastructureError: (error) => {
+					infrastructureError = error;
+				},
+			})
+		: fetch;
 	const failure = await runProviderKeySmokeTest({
 		target,
 		token,
@@ -129,14 +181,21 @@ export async function validateAirsideKey(
 		skipEnvVars: options.skipEnvVars ?? !isCatalogueProvider,
 		fetchImplementation: abortSignal
 			? async (input, init) =>
-					await fetch(input, {
+					await inferenceFetch(input, {
 						...init,
 						signal: init?.signal
 							? AbortSignal.any([init.signal, abortSignal])
 							: abortSignal,
 					})
-			: undefined,
+			: options.useGateway
+				? inferenceFetch
+				: undefined,
 	});
+	if (infrastructureError) {
+		throw new HTTPException(503, {
+			message: "The verification gateway is unavailable.",
+		});
+	}
 	return {
 		valid: !failure,
 		model: mapping.modelId,
