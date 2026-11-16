@@ -86,7 +86,7 @@ describe("tiered gateway content filter", () => {
 					moderationCalls += 1;
 					return await moderationResponse();
 				}
-				if (url.startsWith(INTERNAL_CLASSIFIER_URL)) {
+				if (new URL(url).origin === INTERNAL_CLASSIFIER_URL) {
 					internalCalls += 1;
 					return await internalResponse();
 				}
