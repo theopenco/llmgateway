@@ -45,6 +45,7 @@ export interface ContentFilterSettingsInput {
 	enforceSampleRatePercent: number;
 	enforceEnterprise: boolean;
 	classifier: "openai" | "jev" | "internal";
+	shadowClassifiers: ("openai" | "jev" | "internal")[];
 	internalScope: "full" | "latest_turn";
 	moderateImages: boolean;
 }

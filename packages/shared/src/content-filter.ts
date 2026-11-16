@@ -55,6 +55,10 @@ export const contentFilterSettingsSchema = z.object({
 	enforceEnterprise: z.boolean().default(false),
 	// Classifier whose scores decide the outcome.
 	classifier: z.enum(CONTENT_FILTER_CLASSIFIERS).default("openai"),
+	// Classifiers that also score every sampled request, in the background and
+	// in parallel, so flag rates compare per classifier on the same traffic.
+	// Their verdicts are recorded, never enforced. The deciding one is skipped.
+	shadowClassifiers: z.array(z.enum(CONTENT_FILTER_CLASSIFIERS)).default([]),
 	internalScope: z.enum(CONTENT_FILTER_INTERNAL_SCOPES).default("full"),
 	// Whether a text-only classifier (jev, internal) hands image parts to
 	// OpenAI moderation. Off leaves images unmoderated.

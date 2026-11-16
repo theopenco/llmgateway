@@ -88,9 +88,32 @@ describe("admin content filter settings", () => {
 			enforceSampleRatePercent: 10,
 			enforceEnterprise: false,
 			classifier: "openai",
+			shadowClassifiers: [],
 			internalScope: "full",
 			moderateImages: true,
 		});
+	});
+
+	test("stores shadow classifiers without the deciding one", async () => {
+		const res = await app.request("/admin/settings/content-filter", {
+			method: "PUT",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				enabled: true,
+				providerIds: ["openai"],
+				sampleRatePercent: 100,
+				enforce: false,
+				enforceEnterprise: false,
+				classifier: "internal",
+				shadowClassifiers: ["openai", "internal", "openai"],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect((await res.json()).shadowClassifiers).toEqual(["openai"]);
+		expect((await getContentFilterSettings()).shadowClassifiers).toEqual([
+			"openai",
+		]);
 	});
 
 	test("rejects unknown providers and out-of-range sample rates", async () => {

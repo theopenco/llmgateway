@@ -31,6 +31,10 @@ export async function setContentFilterSettings(
 		...input,
 		providerIds: [...new Set(input.providerIds)],
 		enforceProviderIds: [...new Set(input.enforceProviderIds)],
+		// The deciding classifier never shadows itself.
+		shadowClassifiers: [...new Set(input.shadowClassifiers)].filter(
+			(classifier) => classifier !== input.classifier,
+		),
 	});
 	const value = JSON.stringify(settings);
 	await db

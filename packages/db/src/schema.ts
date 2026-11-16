@@ -4580,8 +4580,9 @@ export const routingExclusionHourly = snakeCase.table(
 // Sentinel category for the per-(org, project, hour) totals row.
 export const CONTENT_FILTER_STATS_ALL_CATEGORY = "all";
 
-// Whose verdict a content filter stats row counts. Only "deciding" is written;
-// "shadow" rows come from the removed shadow classifier and never blocked.
+// Whose verdict a content filter stats row counts: the classifier that decided
+// the request, or a shadow classifier that scored it in the background and
+// never blocked. Compare classifiers by grouping on classifier, not role.
 export const contentFilterStatsRoles = ["deciding", "shadow"] as const;
 
 // Hourly rollup of log.gatewayContentFilterEvaluation, so abuse rates can be
@@ -4796,7 +4797,7 @@ export const contentFilterHourlyErrorStats = snakeCase.table(
 		hourTimestamp: timestamp().notNull(),
 		organizationId: text().notNull(),
 		projectId: text().notNull(),
-		// The deciding classifier of the evaluation.
+		// The classifier that ran: the deciding one, or a shadow.
 		classifier: text().notNull(),
 		// The classifier whose call failed; differs from `classifier` when a
 		// text-only classifier delegated an image to OpenAI.

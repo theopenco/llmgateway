@@ -67,6 +67,12 @@ while the classifier runs with its hash-all option. Exports, including the
 pseudonymized vendor sample, are in the `internal-classifier` skill.
 Customer-facing log APIs never return the content filter log columns.
 
+Shadow classifiers (`shadowClassifiers` setting) score the same requests
+detached from the client and never block or delay a request; the log row waits
+for them. Their verdicts land in the evaluation's `shadows` and in the hourly
+stats under role `shadow`. Compare classifiers by grouping on `classifier`,
+not role.
+
 Every classifier fails open. OpenAI moderation retries a network error or 5xx
 once and logs the retried attempt at `warn`. Final failures log at
 `contentFilterErrorLogLevel`: `warn` for a 4xx other than 401/403, else `error`.

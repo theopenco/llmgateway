@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -55,6 +57,7 @@ interface ContentFilterSettingsFormProps {
 		enforceSampleRatePercent: number;
 		enforceEnterprise: boolean;
 		classifier: Classifier;
+		shadowClassifiers: Classifier[];
 		internalScope: InternalScope;
 		moderateImages: boolean;
 		providers: ContentFilterProvider[];
@@ -76,6 +79,17 @@ export function ContentFilterSettingsForm({
 		settings.enforceEnterprise,
 	);
 	const [classifier, setClassifier] = useState<Classifier>(settings.classifier);
+	const [shadowClassifiers, setShadowClassifiers] = useState<Classifier[]>(
+		settings.shadowClassifiers,
+	);
+	// The deciding classifier never shadows itself.
+	const activeShadows = shadowClassifiers.filter(
+		(option) => option !== classifier,
+	);
+	const runsInternal =
+		classifier === "internal" || activeShadows.includes("internal");
+	const runsTextOnly =
+		classifier !== "openai" || activeShadows.some((c) => c !== "openai");
 	const [internalScope, setInternalScope] = useState<InternalScope>(
 		settings.internalScope,
 	);
@@ -149,6 +163,7 @@ export function ContentFilterSettingsForm({
 					enforceSampleRatePercent: enforceRate,
 					enforceEnterprise: savedEnforceEnterprise,
 					classifier,
+					shadowClassifiers: activeShadows,
 					internalScope,
 					moderateImages,
 					providerIds,
@@ -286,7 +301,46 @@ export function ContentFilterSettingsForm({
 				</p>
 			</div>
 
-			{classifier === "internal" && (
+			<div className="space-y-2">
+				<p className="text-sm font-medium">Shadow classifiers</p>
+				<div className="flex flex-wrap gap-4">
+					{(Object.keys(CLASSIFIER_LABELS) as Classifier[])
+						.filter((option) => option !== classifier)
+						.map((option) => (
+							<div key={option} className="flex items-center gap-2">
+								<Checkbox
+									id={`content-filter-shadow-${option}`}
+									checked={activeShadows.includes(option)}
+									disabled={pending || readOnly}
+									onCheckedChange={(checked) => {
+										setSaved(false);
+										setShadowClassifiers((current) =>
+											checked === true
+												? [...current.filter((c) => c !== option), option]
+												: current.filter((c) => c !== option),
+										);
+									}}
+								/>
+								<Label htmlFor={`content-filter-shadow-${option}`}>
+									{CLASSIFIER_LABELS[option]}
+								</Label>
+							</div>
+						))}
+				</div>
+				<p className="text-xs text-muted-foreground">
+					Also score every sampled request with these classifiers, in the
+					background and in parallel with the deciding one. Their verdicts are
+					recorded and never block or delay a request. Each runs with the same
+					tier, input scope and image setting it would use if it decided, so its
+					flag rate compares with any other run of it on the{" "}
+					<Link href="/content-filter/classifiers" className="underline">
+						classifier comparison
+					</Link>
+					.
+				</p>
+			</div>
+
+			{runsInternal && (
 				<div className="space-y-2">
 					<Label htmlFor="content-filter-internal-scope">
 						Internal classifier input
@@ -322,7 +376,7 @@ export function ContentFilterSettingsForm({
 				</div>
 			)}
 
-			{classifier !== "openai" && (
+			{runsTextOnly && (
 				<div className="flex items-center gap-3">
 					<Switch
 						id="content-filter-moderate-images"
@@ -338,9 +392,10 @@ export function ContentFilterSettingsForm({
 							Moderate images with OpenAI
 						</Label>
 						<p className="text-xs text-muted-foreground">
-							{CLASSIFIER_LABELS[classifier]} is text-only. On sends image parts
-							to OpenAI moderation and merges the verdicts; off moderates text
-							only and leaves images unchecked.
+							Jev and the internal classifier are text-only. On sends image
+							parts to OpenAI moderation and merges the verdicts, for the
+							deciding and shadow classifiers alike; off moderates text only and
+							leaves images unchecked.
 						</p>
 					</div>
 				</div>
