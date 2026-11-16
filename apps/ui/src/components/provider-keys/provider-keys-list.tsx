@@ -32,7 +32,11 @@ import { StatusBadge } from "@/lib/components/status-badge";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
-import { isStealthProvider, providers } from "@llmgateway/models";
+import {
+	isStealthProvider,
+	providers,
+	isRetiredProvider,
+} from "@llmgateway/models";
 import {
 	formatProviderKeyModelRateLimits,
 	formatProviderKeyRateLimits,
@@ -185,7 +189,9 @@ export function ProviderKeysList({
 		(provider) => (keysByProvider.get(provider.id)?.length ?? 0) > 0,
 	);
 	const providersToAdd = filteredProviders.filter(
-		(provider) => (keysByProvider.get(provider.id)?.length ?? 0) === 0,
+		(provider) =>
+			!isRetiredProvider(provider.id) &&
+			(keysByProvider.get(provider.id)?.length ?? 0) === 0,
 	);
 	const totalKeys = organizationKeys.length;
 
@@ -387,7 +393,11 @@ export function ProviderKeysList({
 													</div>
 												</div>
 
-												{customLocked ? (
+												{isRetiredProvider(provider.id) ? (
+													<Badge variant="outline" className="shrink-0 text-xs">
+														Retired
+													</Badge>
+												) : customLocked ? (
 													<Badge variant="outline" className="shrink-0 text-xs">
 														Enterprise
 													</Badge>
@@ -693,6 +703,10 @@ export function ProviderKeysList({
 																			</ProviderKeyLimitDialog>
 																		)}
 																		<DropdownMenuItem
+																			disabled={
+																				isRetiredProvider(provider.id) &&
+																				providerKey.status !== "active"
+																			}
 																			onClick={() =>
 																				toggleStatus(
 																					providerKey.id,
