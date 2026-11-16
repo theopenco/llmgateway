@@ -1661,7 +1661,7 @@ export function LogDetailClient({
 							<div className="flex items-center gap-2 text-sm">
 								<Globe className="h-4 w-4 text-sky-500" />
 								<span>
-									{describeWebSearch(log.webSearchEngine, log.usedProvider)}
+									{describeWebSearch(log.webSearchEngine, log.webSearchType)}
 								</span>
 								<span className="ml-auto text-muted-foreground">
 									Cost: ${Number(log.webSearchCost).toFixed(4)}

@@ -84,30 +84,28 @@ export function resolveGatewayWebSearchEngine(
 		: DEFAULT_GATEWAY_WEB_SEARCH_ENGINE;
 }
 
+export type WebSearchType = "native" | "gateway";
+
 /**
- * `log.webSearchEngine` holds who ran a request's web search: a gateway
- * engine id, or for native search the id of the provider that ran it. A
- * gateway engine only runs for a provider without native search, so the
- * search is native exactly when the engine is the provider that served the
- * request.
+ * Whether a logged request's web search ran on the gateway (`log.webSearchType`).
+ * An engine id alone can't tell: a provider id can also be an engine id.
  */
 export function isGatewayWebSearch(
-	engine: string | null | undefined,
-	usedProvider: string | null | undefined,
+	webSearchType: string | null | undefined,
 ): boolean {
-	return !!engine && engine !== usedProvider;
+	return webSearchType === "gateway";
 }
 
 /** One-line summary of who ran a logged request's web search. */
 export function describeWebSearch(
 	engine: string | null | undefined,
-	usedProvider: string | null | undefined,
+	webSearchType: string | null | undefined,
 ): string {
 	if (!engine) {
 		return "Web search was used in this request";
 	}
 	const name = formatWebSearchEngine(engine);
-	return isGatewayWebSearch(engine, usedProvider)
+	return isGatewayWebSearch(webSearchType)
 		? `Web search via ${name}, run by LLM Gateway`
 		: `Native web search by ${name}`;
 }

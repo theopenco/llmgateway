@@ -44,6 +44,8 @@ const expectedWebSearchEngine = (providers: ProviderModelMapping[]) =>
 	usesGatewayWebSearch(providers[0])
 		? DEFAULT_GATEWAY_WEB_SEARCH_ENGINE
 		: providers[0].providerId;
+const expectedWebSearchType = (providers: ProviderModelMapping[]) =>
+	usesGatewayWebSearch(providers[0]) ? "gateway" : "native";
 
 const expectsWebSearchAnnotations = (model: string) =>
 	!providersWithoutWebSearchAnnotations.some((prefix) =>
@@ -100,6 +102,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 			expect(typeof log.webSearchCost).toBe("number");
 			expect(log.webSearchCost).toBeGreaterThan(0);
 			expect(log.webSearchEngine).toBe(expectedWebSearchEngine(providers));
+			expect(log.webSearchType).toBe(expectedWebSearchType(providers));
 			expect(log.webSearchCount).toBeGreaterThan(0);
 
 			if (expectsWebSearchAnnotations(model)) {
@@ -270,6 +273,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 			expect(typeof log.webSearchCost).toBe("number");
 			expect(log.webSearchCost).toBeGreaterThan(0);
 			expect(log.webSearchEngine).toBe(expectedWebSearchEngine(providers));
+			expect(log.webSearchType).toBe(expectedWebSearchType(providers));
 			expect(log.webSearchCount).toBeGreaterThan(0);
 
 			if (expectsWebSearchAnnotations(model)) {

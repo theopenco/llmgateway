@@ -2594,6 +2594,9 @@ export const log = snakeCase.table(
 		// (GATEWAY_WEB_SEARCH_ENGINES) for an upstream without native search, or
 		// the provider that ran it natively. Null when no search was billed.
 		webSearchEngine: text(),
+		// Whether the gateway or the upstream ran the search. Null when no
+		// search was billed, and on rows from before gateway-run search (native).
+		webSearchType: text({ enum: ["native", "gateway"] }),
 		webSearchCount: integer(),
 		contentFilterCost: real(),
 		imageInputTokens: decimal(),
@@ -6901,9 +6904,9 @@ export const projectHourlyRoutingStats = snakeCase.table(
 	],
 );
 
-// Web search usage per project, hour and engine. `webSearchEngine` is a
-// gateway engine or, for native search, the provider that ran it (equal to
-// `usedProvider`), so cost by engine and gateway vs. native both read from here.
+// Web search usage per project, hour, type and engine. `webSearchType` splits
+// gateway-run from native search; `webSearchEngine` is the gateway engine, or
+// for native search the provider that ran it.
 export const projectHourlyWebSearchStats = snakeCase.table(
 	"project_hourly_web_search_stats",
 	{
@@ -6915,6 +6918,7 @@ export const projectHourlyWebSearchStats = snakeCase.table(
 			.$onUpdate(() => new Date()),
 		projectId: text().notNull(),
 		hourTimestamp: timestamp().notNull(),
+		webSearchType: text({ enum: ["native", "gateway"] }).notNull(),
 		webSearchEngine: text().notNull(),
 		usedProvider: text().notNull(),
 		usedMode: text({ enum: ["api-keys", "credits"] }).notNull(),
@@ -6925,9 +6929,10 @@ export const projectHourlyWebSearchStats = snakeCase.table(
 		cost: real().notNull().default(0),
 	},
 	(table) => [
-		unique().on(
+		unique("project_hourly_web_search_stats_unique").on(
 			table.projectId,
 			table.hourTimestamp,
+			table.webSearchType,
 			table.webSearchEngine,
 			table.usedProvider,
 			table.usedMode,
@@ -6938,6 +6943,7 @@ export const projectHourlyWebSearchStats = snakeCase.table(
 		),
 		index("project_hourly_web_search_stats_hour_timestamp_engine_idx").on(
 			table.hourTimestamp,
+			table.webSearchType,
 			table.webSearchEngine,
 		),
 	],

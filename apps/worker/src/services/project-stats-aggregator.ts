@@ -684,6 +684,9 @@ export async function recalculateProjectHourlyRoutingStats(
 // Rows before `log.webSearchEngine` existed only searched natively, so the
 // provider that served them is the engine.
 const webSearchEngineExpr = sql<string>`coalesce(${log.webSearchEngine}, ${log.usedProvider})`;
+const webSearchTypeExpr = sql<
+	"native" | "gateway"
+>`coalesce(${log.webSearchType}, 'native')`;
 
 function getWebSearchAggregationFields() {
 	return {
@@ -697,8 +700,9 @@ function getWebSearchAggregationFields() {
 }
 
 /**
- * Calculate hourly web search usage for a batch of projects, per engine (a
- * gateway engine, or the provider for native search), provider and mode.
+ * Calculate hourly web search usage for a batch of projects, per type (gateway
+ * or native), engine (a gateway engine, or the provider for native search),
+ * provider and mode.
  */
 export async function recalculateProjectHourlyWebSearchStats(
 	projectIds: string[],
@@ -708,6 +712,7 @@ export async function recalculateProjectHourlyWebSearchStats(
 	const rows = await db
 		.select({
 			projectId: log.projectId,
+			webSearchType: webSearchTypeExpr.as("webSearchType"),
 			webSearchEngine: webSearchEngineExpr.as("webSearchEngine"),
 			usedProvider: log.usedProvider,
 			usedMode: log.usedMode,
@@ -723,6 +728,7 @@ export async function recalculateProjectHourlyWebSearchStats(
 		)
 		.groupBy(
 			log.projectId,
+			webSearchTypeExpr,
 			webSearchEngineExpr,
 			log.usedProvider,
 			log.usedMode,
@@ -741,6 +747,7 @@ export async function recalculateProjectHourlyWebSearchStats(
 				target: [
 					projectHourlyWebSearchStats.projectId,
 					projectHourlyWebSearchStats.hourTimestamp,
+					projectHourlyWebSearchStats.webSearchType,
 					projectHourlyWebSearchStats.webSearchEngine,
 					projectHourlyWebSearchStats.usedProvider,
 					projectHourlyWebSearchStats.usedMode,

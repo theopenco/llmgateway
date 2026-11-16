@@ -221,6 +221,7 @@ const logSchema = z.object({
 	cacheWriteInputCost: z.number().nullable().optional(),
 	webSearchCost: z.number().nullable().optional(),
 	webSearchEngine: z.string().nullable().optional(),
+	webSearchType: z.enum(["native", "gateway"]).nullable().optional(),
 	webSearchCount: z.number().nullable().optional(),
 	contentFilterCost: z.number().nullable().optional(),
 	imageInputTokens: z.string().nullable(),

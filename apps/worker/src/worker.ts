@@ -309,7 +309,7 @@ const schema = z.object({
 	hasError: z.boolean().nullable(),
 	data_storage_cost: z.string().nullable(),
 	web_search_cost: z.number().nullable(),
-	web_search_engine: z.string().nullable(),
+	web_search_type: z.string().nullable(),
 	prompt_tokens: z.string().nullable(),
 	completion_tokens: z.string().nullable(),
 	total_tokens: z.string().nullable(),
@@ -1200,7 +1200,7 @@ export async function batchProcessLogs(): Promise<number> {
 					hasError: log.hasError,
 					data_storage_cost: log.dataStorageCost,
 					web_search_cost: log.webSearchCost,
-					web_search_engine: log.webSearchEngine,
+					web_search_type: log.webSearchType,
 					prompt_tokens: log.promptTokens,
 					completion_tokens: log.completionTokens,
 					total_tokens: log.totalTokens,
@@ -1379,7 +1379,7 @@ export async function batchProcessLogs(): Promise<number> {
 					row.used_mode === "api-keys" &&
 					!row.cached &&
 					row.web_search_cost &&
-					isGatewayWebSearch(row.web_search_engine, row.used_provider)
+					isGatewayWebSearch(row.web_search_type)
 				) {
 					const searchCost = new Decimal(row.web_search_cost);
 					if (searchCost.greaterThan(0)) {

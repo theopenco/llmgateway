@@ -8,6 +8,7 @@ import type {
 	MessageContent,
 	GatewayWebSearchEngine,
 	WebSearchTool,
+	WebSearchType,
 } from "@llmgateway/models";
 
 const SEARCH_TIMEOUT_MS = 15_000;
@@ -408,16 +409,25 @@ export function webSearchLogFields(
 	row: { webSearchCost?: number | null; usedProvider: string },
 	gatewayEngine: GatewayWebSearchEngine | undefined,
 	nativeSearchCount: number,
-): { webSearchEngine?: string; webSearchCount?: number } {
+): {
+	webSearchEngine?: string;
+	webSearchType?: WebSearchType;
+	webSearchCount?: number;
+} {
 	if (row.webSearchCost === null || row.webSearchCost === undefined) {
 		return {};
 	}
 	if (gatewayEngine) {
-		return { webSearchEngine: gatewayEngine, webSearchCount: 1 };
+		return {
+			webSearchEngine: gatewayEngine,
+			webSearchType: "gateway",
+			webSearchCount: 1,
+		};
 	}
 	if (nativeSearchCount > 0) {
 		return {
 			webSearchEngine: row.usedProvider,
+			webSearchType: "native",
 			webSearchCount: nativeSearchCount,
 		};
 	}

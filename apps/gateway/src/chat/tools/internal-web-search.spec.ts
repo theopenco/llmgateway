@@ -110,7 +110,11 @@ describe("webSearchLogFields", () => {
 				"perplexity",
 				0,
 			),
-		).toEqual({ webSearchEngine: "perplexity", webSearchCount: 1 });
+		).toEqual({
+			webSearchEngine: "perplexity",
+			webSearchType: "gateway",
+			webSearchCount: 1,
+		});
 	});
 
 	test("attributes a native search to the provider", () => {
@@ -120,7 +124,11 @@ describe("webSearchLogFields", () => {
 				undefined,
 				2,
 			),
-		).toEqual({ webSearchEngine: "openai", webSearchCount: 2 });
+		).toEqual({
+			webSearchEngine: "openai",
+			webSearchType: "native",
+			webSearchCount: 2,
+		});
 	});
 
 	test("skips rows that billed no search", () => {

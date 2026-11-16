@@ -49,10 +49,10 @@ test("resolveGatewayWebSearchEngine falls back to the default", () => {
 	expect(resolveGatewayWebSearchEngine("unknown")).toBe("perplexity");
 });
 
-test("isGatewayWebSearch is native when the provider ran the search", () => {
-	expect(isGatewayWebSearch("perplexity", "deepinfra")).toBe(true);
-	expect(isGatewayWebSearch("openai", "openai")).toBe(false);
-	expect(isGatewayWebSearch(null, "openai")).toBe(false);
+test("isGatewayWebSearch reads the logged search type", () => {
+	expect(isGatewayWebSearch("gateway")).toBe(true);
+	expect(isGatewayWebSearch("native")).toBe(false);
+	expect(isGatewayWebSearch(null)).toBe(false);
 });
 
 test("formatWebSearchEngine names gateway engines and providers", () => {

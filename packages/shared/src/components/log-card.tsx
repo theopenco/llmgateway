@@ -167,6 +167,7 @@ export interface LogCardData {
 	requestCost?: number | null;
 	webSearchCost?: number | string | null;
 	webSearchEngine?: string | null;
+	webSearchType?: string | null;
 	contentFilterCost?: number | string | null;
 	imageInputCost?: number | string | null;
 	imageOutputCost?: number | string | null;
@@ -1725,7 +1726,7 @@ export function LogCard({
 							<div className="grid gap-4 md:grid-cols-1">
 								<div className="space-y-2">
 									<h5 className="text-xs font-medium text-muted-foreground">
-										{isGatewayWebSearch(log.webSearchEngine, log.usedProvider)
+										{isGatewayWebSearch(log.webSearchType)
 											? "Gateway Web Search"
 											: "Native Web Search"}
 									</h5>
@@ -1735,7 +1736,7 @@ export function LogCard({
 											<span>
 												{describeWebSearch(
 													log.webSearchEngine,
-													log.usedProvider,
+													log.webSearchType,
 												)}
 											</span>
 											<span className="ml-auto text-muted-foreground">
