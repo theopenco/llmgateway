@@ -57,10 +57,10 @@ describe("/v1/key", () => {
 		expect(res.status).toBe(401);
 	});
 
-	test("403 for non-user key types", async () => {
+	test("401 for platform_publishable keys, which never authenticate", async () => {
 		await insertApiKey({ keyType: "platform_publishable" });
 		const res = await getKey("real-token");
-		expect(res.status).toBe(403);
+		expect(res.status).toBe(401);
 	});
 
 	test("401 for platform_secret keys, which the gateway treats as nonexistent", async () => {

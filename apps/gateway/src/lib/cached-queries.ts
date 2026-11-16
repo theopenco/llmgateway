@@ -277,6 +277,7 @@ export async function findApiKeyByToken(
 						inArray(apiKeyTable.tokenHash, tokenHashes),
 						ne(apiKeyTable.keyType, "end_user_customer"),
 						ne(apiKeyTable.keyType, "platform_secret"),
+						ne(apiKeyTable.keyType, "platform_publishable"),
 					),
 				)
 				.limit(1);
