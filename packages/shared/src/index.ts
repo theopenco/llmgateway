@@ -120,9 +120,11 @@ export {
 } from "./model-categories.js";
 
 export {
+	getAppVersion,
 	HealthChecker,
 	type HealthCheckResult,
 	type HealthCheckOptions,
+	type ReadinessGateOptions,
 	type HealthCheckDependencies,
 	type HealthResponse,
 } from "./health-check.js";
