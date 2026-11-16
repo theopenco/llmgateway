@@ -19,7 +19,7 @@ export async function getContentFilterSettings(): Promise<ContentFilterSettings>
 export async function setContentFilterSettings(
 	input: ContentFilterSettings,
 ): Promise<ContentFilterSettings> {
-	const unknown = input.providerIds.filter(
+	const unknown = [...input.providerIds, ...input.enforceProviderIds].filter(
 		(providerId) => !getProviderDefinition(providerId),
 	);
 	if (unknown.length > 0) {
@@ -30,6 +30,7 @@ export async function setContentFilterSettings(
 	const settings = contentFilterSettingsSchema.parse({
 		...input,
 		providerIds: [...new Set(input.providerIds)],
+		enforceProviderIds: [...new Set(input.enforceProviderIds)],
 	});
 	const value = JSON.stringify(settings);
 	await db
@@ -46,15 +47,17 @@ export async function setContentFilterSettings(
 	return settings;
 }
 
-/** Every catalogue provider with its enabled flag, for the admin page. */
+/** Every catalogue provider with its enabled and enforced flags, for the admin page. */
 export function listContentFilterProviders(settings: ContentFilterSettings) {
 	const enabled = new Set(settings.providerIds);
+	const enforced = new Set(settings.enforceProviderIds);
 	return providers
 		.map((provider) => ({
 			id: provider.id,
 			name: provider.name,
 			color: provider.color ?? null,
 			enabled: enabled.has(provider.id),
+			enforced: enforced.has(provider.id),
 		}))
 		.sort((a, b) => a.name.localeCompare(b.name));
 }
