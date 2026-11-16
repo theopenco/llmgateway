@@ -3,6 +3,7 @@ import {
 	stripRetentionSensitiveLogFields,
 	UnifiedFinishReason,
 	type LogInsertData,
+	type QueuedLogData,
 } from "@llmgateway/db";
 import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
@@ -403,7 +404,13 @@ async function recordRateLimitUsage(logData: LogInsertData): Promise<void> {
 		try {
 			const keyLimits = await findProviderKeyRateLimits(logData.providerKeyId);
 			if (keyLimits) {
-				await recordProviderKeyUsage(keyLimits, tokens);
+				await recordProviderKeyUsage(
+					keyLimits,
+					tokens,
+					logData.usedModel
+						? rootModelIdFromUsedModel(logData.usedModel)
+						: undefined,
+				);
 			}
 		} catch (error) {
 			logger.error("Error loading provider key rate limits:", error as Error);
@@ -521,7 +528,8 @@ export async function insertLog(
 	await recordSpend(logData.organizationId, organizationBilledCost(logData));
 	await recordRateLimitUsage(logData);
 
-	await publishToQueue(LOG_QUEUE, logData);
+	const queued: QueuedLogData = { ...logData, enqueuedAt: Date.now() };
+	await publishToQueue(LOG_QUEUE, queued);
 	markRequestLogged();
 	return 1; // Return 1 to match test expectations
 }

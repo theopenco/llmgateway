@@ -18,6 +18,7 @@ import {
 	beforeAllHook,
 	beforeEachHook,
 	getTestOptions,
+	elevenLabsRealtimeTranscriptionModels,
 	logMode,
 	realtimeTranscriptionModels,
 } from "@/chat-helpers.e2e.js";
@@ -214,6 +215,115 @@ describe("e2e realtime transcription sessions", () => {
 			expect(row).toBeDefined();
 			expect(row?.usedModel).toBe(`${provider.providerId}/${originalModel}`);
 			expect(Number(row?.billingCost)).toBeGreaterThan(0);
+			expect(row?.realtimeUsage?.status).toBe("completed");
+		},
+	);
+
+	test.each(elevenLabsRealtimeTranscriptionModels)(
+		"ElevenLabs transcription session $model",
+		getTestOptions(),
+		async ({ model, provider, originalModel }) => {
+			const pcm = readWavPcm(FIXTURE_AUDIO_PATH);
+			const messages: Record<string, unknown>[] = [];
+			const ws = new WebSocket(
+				`ws://127.0.0.1:${port}/v1/realtime?model=${encodeURIComponent(model)}&audio_format=pcm_24000&commit_strategy=manual`,
+				{ headers: { Authorization: "Bearer real-token" } },
+			);
+
+			const committed = await new Promise<Record<string, unknown>>(
+				(resolve, reject) => {
+					const timer = setTimeout(
+						() =>
+							reject(
+								new Error(
+									`timed out; messages: ${messages.map((m) => m.message_type).join(",")}`,
+								),
+							),
+						60_000,
+					);
+					ws.on("unexpected-response", (_req, res) => {
+						let body = "";
+						res.on("data", (chunk) => (body += chunk));
+						res.on("end", () => {
+							clearTimeout(timer);
+							reject(new Error(`upgrade rejected ${res.statusCode}: ${body}`));
+						});
+					});
+					ws.on("error", (error) => {
+						clearTimeout(timer);
+						reject(error);
+					});
+					ws.on("message", (data) => {
+						const message = JSON.parse(data.toString()) as Record<
+							string,
+							unknown
+						>;
+						messages.push(message);
+						if (logMode) {
+							console.log("elevenlabs message:", JSON.stringify(message));
+						}
+						if (message.message_type === "session_started") {
+							const chunk = 4800;
+							for (let i = 0; i < pcm.length; i += chunk) {
+								ws.send(
+									JSON.stringify({
+										message_type: "input_audio_chunk",
+										audio_base_64: pcm
+											.subarray(i, i + chunk)
+											.toString("base64"),
+										commit: i + chunk >= pcm.length,
+										sample_rate: 24000,
+									}),
+								);
+							}
+						}
+						if (message.message_type === "committed_transcript") {
+							clearTimeout(timer);
+							resolve(message);
+						}
+						if (
+							typeof message.error === "string" &&
+							message.message_type !== "warning"
+						) {
+							clearTimeout(timer);
+							reject(new Error(`session error: ${JSON.stringify(message)}`));
+						}
+					});
+				},
+			);
+
+			const closed = new Promise<void>((resolve) =>
+				ws.on("close", () => resolve()),
+			);
+			ws.close();
+			await closed;
+
+			expect(String(committed.text).toLowerCase()).toContain("fox");
+
+			// Billed from the audio the gateway forwarded, before the transcript
+			// was delivered.
+			const rows = await db
+				.select({
+					cost: tables.log.cost,
+					usedModel: tables.log.usedModel,
+					realtimeUsage: tables.log.realtimeUsage,
+				})
+				.from(tables.log)
+				.where(
+					and(
+						isNotNull(tables.log.realtimeSessionId),
+						eq(tables.log.requestedModel, model),
+					),
+				)
+				.orderBy(desc(tables.log.createdAt))
+				.limit(1);
+			const [row] = rows;
+			expect(row?.usedModel).toBe(`${provider.providerId}/${originalModel}`);
+			const seconds = pcm.length / 48_000;
+			expect(Number(row?.cost)).toBeCloseTo(
+				(seconds / 3600) * Number(provider.inputAudioHourPrice),
+				10,
+			);
 			expect(row?.realtimeUsage?.status).toBe("completed");
 		},
 	);

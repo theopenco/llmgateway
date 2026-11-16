@@ -164,8 +164,9 @@ OpenAI model, `alloy` is used.
 
 ElevenLabs models accept 20 named voices, including `Sarah`, `Aria`, `Roger`,
 `Laura`, `Charlie`, `George`, `Charlotte`, `Jessica`, `Brian`, and `Lily`. When
-`voice` is omitted on an ElevenLabs model, `Sarah` is used. A raw ElevenLabs
-voice id is also accepted directly.
+`voice` is omitted on an ElevenLabs model, `Sarah` is used. Any raw ElevenLabs
+voice id, including voice library voices, is also accepted directly; voices
+your ElevenLabs plan cannot use fail upstream.
 
 Qwen-Audio-3.0-TTS voices are model-specific and cannot be mixed between
 models: `longanlingxin` and `longanlufeng` on Plus (default `longanlingxin`),

@@ -8,9 +8,11 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
+import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	selectNextProvider,
+	shouldRetryAlternateKey,
 	shouldRetryRequest,
 	type RoutingAttempt,
 } from "@/chat/tools/retry-with-fallback.js";
@@ -840,9 +842,8 @@ interface ProviderContext {
 	 */
 	managedProviderKeyId?: string;
 	/**
-	 * BYOK provider key that created the job, for spend attribution on the
-	 * final log row only. Does not pin polling — BYOK polls re-resolve the
-	 * org's active key as they always did.
+	 * BYOK provider key that created the job. Polls and content retrieval
+	 * prefer it, falling back to the org's other active keys once it is gone.
 	 */
 	providerKeyId?: string;
 	/**
@@ -853,6 +854,15 @@ interface ProviderContext {
 	vertexProjectId?: string;
 	vertexRegion?: string;
 	vertexTokenType?: VertexTokenType;
+}
+
+/**
+ * Credentials a video submission already failed on, skipped when it rotates to
+ * another key of the same provider.
+ */
+interface VideoKeyExclusions {
+	providerKeyIds?: ReadonlySet<string>;
+	envIndices?: ReadonlySet<number>;
 }
 
 /**
@@ -1716,8 +1726,13 @@ function getAtlasCloudVideoModelName(
 		return `${baseModelName}/${taskName}`;
 	}
 
+	// KLING v3.0 splits into 720p (std), 1080p (pro), and 4k upstream models.
 	if (videoSize.resolution === "4k") {
 		return `kwaivgi/kling-v3.0-4k/${taskName}`;
+	}
+
+	if (videoSize.resolution === "1080p") {
+		return `kwaivgi/kling-v3.0-pro/${taskName}`;
 	}
 
 	return `kwaivgi/kling-v3.0-std/${taskName}`;
@@ -2019,6 +2034,7 @@ async function resolveProviderContext(
 	organizationId: string,
 	requestId: string,
 	selectionScope: string,
+	exclusions: VideoKeyExclusions = {},
 ): Promise<ProviderContext> {
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
 
@@ -2032,8 +2048,8 @@ async function resolveProviderContext(
 			organizationId,
 			providerId,
 			selectionScope,
-			undefined,
-			getVideoProviderKeyFilter(providerId),
+			exclusions.providerKeyIds,
+			buildByokKeyFilter(selectionScope, getVideoProviderKeyFilter(providerId)),
 		);
 		if (!providerKey) {
 			throw new HTTPException(400, {
@@ -2051,6 +2067,7 @@ async function resolveProviderContext(
 			selectionScope,
 			envVariant,
 			defaultBaseUrl,
+			exclusions,
 		);
 	}
 
@@ -2058,8 +2075,8 @@ async function resolveProviderContext(
 		organizationId,
 		providerId,
 		selectionScope,
-		undefined,
-		getVideoProviderKeyFilter(providerId),
+		exclusions.providerKeyIds,
+		buildByokKeyFilter(selectionScope, getVideoProviderKeyFilter(providerId)),
 	);
 	if (providerKey) {
 		return resolveByokVideoProviderContext(providerId, providerKey, requestId);
@@ -2083,6 +2100,7 @@ async function resolveProviderContext(
 		selectionScope,
 		envVariant,
 		defaultBaseUrl,
+		exclusions,
 	);
 }
 
@@ -2098,13 +2116,18 @@ async function resolvePlatformVideoProviderContext(
 	selectionScope: string,
 	envVariant: EnvVarVariant | undefined,
 	defaultBaseUrl: string | null,
+	exclusions: VideoKeyExclusions = {},
 ): Promise<ProviderContext> {
+	const videoExcludedEnvIndices = getVideoExcludedConfigIndices(providerId);
 	const platformCredential = await resolvePlatformCredential(providerId, {
 		selectionScope,
 		variant: envVariant,
 		region: undefined,
 		requiresServiceTier: false,
-		excludedEnvIndices: getVideoExcludedConfigIndices(providerId),
+		excludedEnvIndices: exclusions.envIndices?.size
+			? new Set([...(videoExcludedEnvIndices ?? []), ...exclusions.envIndices])
+			: videoExcludedEnvIndices,
+		excludedProviderKeyIds: exclusions.providerKeyIds,
 		filter: getManagedVideoCredentialFilter(providerId),
 	});
 	const managedKey = platformCredential.managedKey;
@@ -2160,10 +2183,60 @@ async function resolvePlatformVideoProviderContext(
 	};
 }
 
+interface TriedVideoKeys {
+	providerKeyIds: Set<string>;
+	envIndices: Set<number>;
+}
+
+/**
+ * The same video provider on another of its credentials, after a submission
+ * failed in a way another key may not: an auth rejection (a revoked or
+ * misconfigured key) or a retryable upstream error, as chat's alternate-key
+ * retry does. Records the failed credential in `tried` so each key is
+ * attempted once; null when no untried eligible credential remains.
+ */
+async function resolveAlternateVideoKey(
+	failed: ProviderContext,
+	tried: TriedVideoKeys,
+	project: InferSelectModel<typeof tables.project>,
+	organizationId: string,
+	requestId: string,
+	selectionScope: string,
+): Promise<ProviderContext | null> {
+	const failedKeyId = failed.providerKeyId ?? failed.managedProviderKeyId;
+	if (failedKeyId) {
+		tried.providerKeyIds.add(failedKeyId);
+	} else if (failed.configIndex !== null) {
+		tried.envIndices.add(failed.configIndex);
+	}
+	try {
+		const next = await resolveProviderContext(
+			failed.providerId,
+			project,
+			organizationId,
+			requestId,
+			selectionScope,
+			tried,
+		);
+		// Two credential rows can carry the same token.
+		return next.token === failed.token ? null : next;
+	} catch (error) {
+		// An HTTPException here means no eligible credential is left.
+		if (!(error instanceof HTTPException)) {
+			logger.warn("Failed to resolve an alternate video credential", {
+				providerId: failed.providerId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
+		return null;
+	}
+}
+
 async function hasVideoProviderConfiguration(
 	providerId: Provider,
 	project: InferSelectModel<typeof tables.project>,
 	organizationId: string,
+	modelId: string,
 ): Promise<boolean> {
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
 
@@ -2171,9 +2244,9 @@ async function hasVideoProviderConfiguration(
 		const providerKey = await findProviderKey(
 			organizationId,
 			providerId,
+			modelId,
 			undefined,
-			undefined,
-			getVideoProviderKeyFilter(providerId),
+			buildByokKeyFilter(modelId, getVideoProviderKeyFilter(providerId)),
 		);
 		return Boolean(
 			providerKey && hasByokVideoConfiguration(providerId, providerKey),
@@ -2191,9 +2264,9 @@ async function hasVideoProviderConfiguration(
 	const providerKey = await findProviderKey(
 		organizationId,
 		providerId,
+		modelId,
 		undefined,
-		undefined,
-		getVideoProviderKeyFilter(providerId),
+		buildByokKeyFilter(modelId, getVideoProviderKeyFilter(providerId)),
 	);
 	if (providerKey) {
 		return hasByokVideoConfiguration(providerId, providerKey);
@@ -2317,6 +2390,7 @@ async function resolveVideoExecution(
 				providerMapping.providerId as Provider,
 				project,
 				organizationId,
+				modelInfo.id,
 			)
 		) {
 			configuredEligibleMappings.push(providerMapping);
@@ -2333,6 +2407,7 @@ async function resolveVideoExecution(
 					providerId,
 					project,
 					organizationId,
+					modelInfo.id,
 				))
 			) {
 				configuredProviders.push(providerId);
@@ -4241,7 +4316,12 @@ async function createBytedanceVideoJob(
 		});
 	}
 
-	const videoRatio = getBytedanceVideoAspectRatio(videoSize);
+	// Seedance 2.5 rejects a fixed ratio alongside a first frame; "adaptive"
+	// keeps the image's aspect ratio.
+	const videoRatio =
+		processedFirstFrame && upstreamModelName === "dreamina-seedance-2-5-260628"
+			? "adaptive"
+			: getBytedanceVideoAspectRatio(videoSize);
 	const upstreamRequest: Record<string, unknown> = {
 		model: upstreamModelName,
 		content,
@@ -5548,6 +5628,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 
 	const routingAttempts: RoutingAttempt[] = [];
 	const failedProviders = new Set<string>();
+	const triedKeysByProvider = new Map<string, TriedVideoKeys>();
 	let retryCount = 0;
 
 	let upstreamId: string | undefined;
@@ -5806,6 +5887,47 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					error_type: getErrorType(statusCode),
 					succeeded: false,
 				});
+				// Another key of the same provider first: a revoked or misconfigured
+				// credential fails on its own. A fal-ai submission that was not
+				// rejected outright may already have been charged.
+				const rotateKey =
+					selectedProviderContext.providerId === "fal-ai"
+						? statusCode === 401 || statusCode === 403
+						: shouldRetryAlternateKey(
+								retryErrorType,
+								statusCode,
+								error instanceof Error ? error.message : undefined,
+							);
+				if (rotateKey) {
+					let triedKeys = triedKeysByProvider.get(
+						selectedProviderContext.providerId,
+					);
+					if (!triedKeys) {
+						triedKeys = { providerKeyIds: new Set(), envIndices: new Set() };
+						triedKeysByProvider.set(
+							selectedProviderContext.providerId,
+							triedKeys,
+						);
+					}
+					const alternateKeyContext = await resolveAlternateVideoKey(
+						selectedProviderContext,
+						triedKeys,
+						project,
+						organization.id,
+						requestId,
+						modelInfo.id,
+					);
+					if (alternateKeyContext) {
+						selectedProviderContext = alternateKeyContext;
+						// Hybrid mode falls back from the org's own key to a
+						// credits-billed one once its keys are exhausted.
+						if (selectedProviderContext.usedMode === "credits" && !wallet) {
+							await assertSpendLimit(c, organization, false);
+						}
+						continue;
+					}
+				}
+
 				failedProviders.add(selectedProviderContext.providerId);
 
 				const remainingProviders = (
@@ -5884,11 +6006,17 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				selectedProvider: selectedProviderContext.providerId,
 				routing: routingAttempts,
 				providerScores: enrichedRoutingMetadata.providerScores.map((score) => {
-					const failedAttempt = routingAttempts.find(
+					// A provider that succeeded on another key did not fail.
+					const failedAttempt = routingAttempts.some(
 						(attempt) =>
-							attempt.provider === score.providerId &&
-							attempt.succeeded === false,
-					);
+							attempt.provider === score.providerId && attempt.succeeded,
+					)
+						? undefined
+						: routingAttempts.find(
+								(attempt) =>
+									attempt.provider === score.providerId &&
+									attempt.succeeded === false,
+							);
 					return failedAttempt
 						? {
 								...score,

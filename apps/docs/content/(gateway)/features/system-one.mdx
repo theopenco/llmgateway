@@ -21,7 +21,9 @@ One** models: models that read a state, answer questions you name, and return
 typed decisions with calibrated probabilities. There is no free-form text in the
 response — every answer is a value your code can branch on directly.
 
-New integrations should use [`/v1/decisions`](/features/decisions) instead.
+New integrations should use [`/v1/decisions`](/features/decisions) instead,
+unless they need [`box` questions](#bounding-boxes), which only this endpoint
+supports.
 Requesting a non-TypeSafe decision model here returns a 400 pointing you at
 `/v1/decisions`.
 
@@ -45,7 +47,7 @@ own `criteria`. Answers come back under the ids you chose.
 | `box`    | Where a target is in an image    | `box` (`top`, `bottom`, `left`, `right` as fractions), `confidence`        |
 
 A `box` question takes `instructions` only, needs an image in the request, and
-works on Jev 1.14 only.
+works on Jev 1.14 only; see [Bounding boxes](#bounding-boxes).
 
 ## cURL
 
@@ -173,6 +175,25 @@ supported.
 	}
 }
 ```
+
+## Bounding boxes
+
+A `box` question finds one target in the image and answers with the smallest
+box around it:
+
+```json
+{
+	"type": "box",
+	"box": { "top": 0.24, "bottom": 0.74, "left": 0.5, "right": 0.9 },
+	"confidence": 0.92
+}
+```
+
+Each edge is a fraction of the image's height (`top`, `bottom`) or width
+(`left`, `right`), measured from the top-left corner; multiply by the image's
+size in pixels to crop. There is no "not found" answer, so pair the box with a
+`noul` asking whether the target is there. A box question on another model, or
+without an image, returns a 400.
 
 ## Deciding in code
 

@@ -259,8 +259,7 @@ describeCache(
 		);
 
 		// Bedrock pass-through: same surface as the openai-compat anthropic test
-		// above, but routed through AWS Bedrock so we exercise the cachePoint path
-		// in prepare-request-body and the bedrock streaming usage extraction.
+		// above, but routed through AWS Bedrock's Messages API.
 		(hasBedrockKey ? test : test.skip)(
 			"openai-compat /v1/chat/completions surfaces cached tokens for bedrock",
 			getTestOptions(),
@@ -776,8 +775,7 @@ describeCache(
 
 		// 1h cache TTL via Bedrock /v1/chat/completions: opts into Bedrock's 1h
 		// cache write rate (2x base) on a model that supports it (Haiku 4.5) and
-		// asserts the gateway forwards ttl:"1h" to the Converse API cachePoint and
-		// surfaces the response breakdown
+		// asserts the gateway forwards ttl:"1h" to Bedrock and surfaces the response breakdown
 		// (prompt_tokens_details.cache_creation.ephemeral_1h_input_tokens) so SDK
 		// clients can attribute spend across rates.
 		(hasBedrockKey ? test : test.skip)(

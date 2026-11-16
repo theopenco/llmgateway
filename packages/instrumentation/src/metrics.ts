@@ -287,6 +287,26 @@ export function registerDbPoolMetrics(getStats: () => DbPoolStats): void {
 	}
 }
 
+// Seconds from the gateway publishing a log row to LOG_QUEUE until the worker
+// committed it to Postgres. Registered on first observation so only services
+// that persist logs export it.
+export const logPersistLag = new Histogram({
+	name: "log_persist_lag_seconds",
+	help: "Seconds between a log row being queued by the gateway and persisted by the worker",
+	buckets: [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600],
+	registers: [],
+});
+
+let logPersistLagRegistered = false;
+
+export function recordLogPersistLag(seconds: number): void {
+	if (!logPersistLagRegistered) {
+		logPersistLagRegistered = true;
+		metricsRegistry.registerMetric(logPersistLag);
+	}
+	logPersistLag.observe(Math.max(0, seconds));
+}
+
 /**
  * Serves `GET /metrics` on its own port, for services without an HTTP app of
  * their own (the worker) or that keep metrics off their public port (the API).

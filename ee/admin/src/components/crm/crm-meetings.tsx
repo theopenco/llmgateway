@@ -18,6 +18,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import { ENTERPRISE_BOOKING_URL } from "@llmgateway/shared";
+
 import { type CrmAccountDetail, relativeDays } from "./crm-meta";
 
 import type { paths } from "@/lib/api/v1";
@@ -25,7 +27,6 @@ import type { paths } from "@/lib/api/v1";
 type MeetingsResponse =
 	paths["/admin/crm/accounts/{id}/meetings"]["get"]["responses"]["200"]["content"]["application/json"];
 type Meeting = MeetingsResponse["meetings"][number];
-type BookingLink = MeetingsResponse["bookingLinks"][number];
 type Person = CrmAccountDetail["people"][number];
 
 function whenLabel(iso: string) {
@@ -44,8 +45,8 @@ function durationMin(m: Meeting) {
 	);
 }
 
-function prefilled(link: BookingLink, person: Person | null) {
-	const url = new URL(link.url);
+function prefilled(person: Person | null) {
+	const url = new URL(ENTERPRISE_BOOKING_URL);
 	if (person) {
 		url.searchParams.set("email", person.email);
 		if (person.name) {
@@ -55,18 +56,10 @@ function prefilled(link: BookingLink, person: Person | null) {
 	return url.toString();
 }
 
-function BookingLinks({
-	links,
-	people,
-}: {
-	links: BookingLink[];
-	people: Person[];
-}) {
+function BookingLink({ people }: { people: Person[] }) {
 	const [personEmail, setPersonEmail] = useState(people[0]?.email ?? "");
 	const person = people.find((p) => p.email === personEmail) ?? null;
-	if (!links.length) {
-		return null;
-	}
+	const url = prefilled(person);
 	return (
 		<section className="rounded-xl border border-border/70 bg-card p-3">
 			<div className="flex flex-wrap items-center justify-between gap-2">
@@ -74,75 +67,55 @@ function BookingLinks({
 					<CalendarPlus className="h-3.5 w-3.5" />
 					Offer a time
 				</h3>
-				<select
-					className="h-8 rounded-md border border-border bg-background px-2 text-xs"
-					value={personEmail}
-					onChange={(e) => setPersonEmail(e.target.value)}
-				>
-					<option value="">Blank invite</option>
-					{people.map((p) => (
-						<option key={p.email} value={p.email}>
-							Prefill for {p.name ?? p.email}
-						</option>
-					))}
-				</select>
+				<div className="flex items-center gap-1">
+					<select
+						className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+						value={personEmail}
+						onChange={(e) => setPersonEmail(e.target.value)}
+					>
+						<option value="">Blank invite</option>
+						{people.map((p) => (
+							<option key={p.email} value={p.email}>
+								Prefill for {p.name ?? p.email}
+							</option>
+						))}
+					</select>
+					<Button
+						size="icon"
+						variant="ghost"
+						className="h-8 w-8"
+						aria-label="Copy booking link"
+						onClick={() => {
+							void navigator.clipboard.writeText(url);
+							toast.success("Booking link copied");
+						}}
+					>
+						<Copy className="h-3.5 w-3.5" />
+					</Button>
+					<Button
+						size="icon"
+						variant="ghost"
+						className="h-8 w-8"
+						aria-label="Open booking page"
+						asChild
+					>
+						<a href={url} target="_blank" rel="noreferrer">
+							<ExternalLink className="h-3.5 w-3.5" />
+						</a>
+					</Button>
+				</div>
 			</div>
-			<ul className="mt-3 flex flex-wrap gap-2">
-				{links.map((l) => {
-					const url = prefilled(l, person);
-					return (
-						<li
-							key={`${l.integrationId}:${l.url}`}
-							className="flex items-center gap-1 rounded-lg border border-border/70 pl-3 pr-1 text-xs"
-						>
-							<span className="py-1.5">
-								<span className="font-medium">{l.name}</span>
-								<span className="text-muted-foreground">
-									{" "}
-									· {l.duration} min · {l.owner}
-								</span>
-							</span>
-							<Button
-								size="icon"
-								variant="ghost"
-								className="h-7 w-7"
-								aria-label="Copy booking link"
-								onClick={() => {
-									void navigator.clipboard.writeText(url);
-									toast.success("Booking link copied");
-								}}
-							>
-								<Copy className="h-3.5 w-3.5" />
-							</Button>
-							<Button
-								size="icon"
-								variant="ghost"
-								className="h-7 w-7"
-								aria-label="Open booking page"
-								asChild
-							>
-								<a href={url} target="_blank" rel="noreferrer">
-									<ExternalLink className="h-3.5 w-3.5" />
-								</a>
-							</Button>
-						</li>
-					);
-				})}
-			</ul>
 		</section>
 	);
 }
 
 function MeetingRow({ m, people }: { m: Meeting; people: Person[] }) {
-	const person = people.find((p) => p.email === m.inviteeEmail);
+	const who = m.contactEmails
+		.map((email) => people.find((p) => p.email === email)?.name ?? email)
+		.join(", ");
 	const past = new Date(m.endAt).getTime() < Date.now();
 	return (
-		<li
-			className={cn(
-				"flex items-start gap-3 px-4 py-3",
-				m.status === "canceled" ? "opacity-60" : "",
-			)}
-		>
+		<li className="flex items-start gap-3 px-4 py-3">
 			<span
 				className={cn(
 					"mt-0.5 flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded-lg text-[10px] font-semibold uppercase leading-none",
@@ -155,26 +128,30 @@ function MeetingRow({ m, people }: { m: Meeting; people: Person[] }) {
 				<span className="mt-0.5 text-sm">{new Date(m.startAt).getDate()}</span>
 			</span>
 			<div className="min-w-0 flex-1">
-				<p className="flex flex-wrap items-center gap-2 text-sm font-medium">
-					<span className={m.status === "canceled" ? "line-through" : ""}>
-						{m.name}
-					</span>
-					{m.status === "canceled" ? (
-						<span className="rounded bg-rose-500/10 px-1.5 py-px text-[10px] font-semibold uppercase text-rose-600">
-							canceled
-						</span>
-					) : null}
+				<p className="text-sm font-medium">
+					{m.htmlLink ? (
+						<a
+							href={m.htmlLink}
+							target="_blank"
+							rel="noreferrer"
+							className="hover:underline"
+						>
+							{m.name}
+						</a>
+					) : (
+						m.name
+					)}
 				</p>
 				<p className="text-xs text-muted-foreground">
-					{whenLabel(m.startAt)} · {durationMin(m)} min · with{" "}
-					{person?.name ?? m.inviteeEmail} · hosted by {m.host}
+					{whenLabel(m.startAt)} · {durationMin(m)} min · with {who} · on{" "}
+					{m.calendar}
 				</p>
 			</div>
 			<div className="flex shrink-0 flex-col items-end gap-1 text-right">
 				<span className="text-[11px] text-muted-foreground">
 					{relativeDays(m.startAt)}
 				</span>
-				{m.joinUrl && !past && m.status === "active" ? (
+				{m.joinUrl && !past ? (
 					<a
 						href={m.joinUrl}
 						target="_blank"
@@ -222,25 +199,29 @@ export function MeetingsPanel({
 	if (error || !data) {
 		return (
 			<p className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-4 text-sm text-rose-700">
-				Could not reach the Calendly integration.
+				Could not reach the connected calendars.
 			</p>
 		);
 	}
-	if (!data.connections.length) {
+	if (!data.calendars.length) {
 		return (
-			<div className="rounded-xl border border-dashed border-border p-10 text-center">
-				<CalendarDays className="mx-auto h-8 w-8 text-muted-foreground" />
-				<p className="mt-3 text-sm font-medium">No meetings yet</p>
-				<p className="mt-1 text-sm text-muted-foreground">
-					Connect Calendly to see calls booked with this account and hand out
-					booking links from here.
-				</p>
-				<Button asChild size="sm" variant="outline" className="mt-4">
-					<Link href="/crm/settings">
-						<Settings2 className="h-4 w-4" />
-						Integrations
-					</Link>
-				</Button>
+			<div className="flex flex-col gap-4">
+				<BookingLink people={people} />
+				<div className="rounded-xl border border-dashed border-border p-10 text-center">
+					<CalendarDays className="mx-auto h-8 w-8 text-muted-foreground" />
+					<p className="mt-3 text-sm font-medium">No calendar connected</p>
+					<p className="mt-1 text-sm text-muted-foreground">
+						Connect the Gmail mailbox of whoever hosts calls (calendar access
+						comes with it) to see meetings with this account. Calendly bookings
+						show up through the host's calendar.
+					</p>
+					<Button asChild size="sm" variant="outline" className="mt-4">
+						<Link href="/crm/settings">
+							<Settings2 className="h-4 w-4" />
+							Integrations
+						</Link>
+					</Button>
+				</div>
 			</div>
 		);
 	}
@@ -252,19 +233,19 @@ export function MeetingsPanel({
 	);
 	return (
 		<div className="flex flex-col gap-4">
-			<BookingLinks links={data.bookingLinks} people={people} />
+			<BookingLink people={people} />
 			{data.errors.map((e) => (
 				<p
-					key={e.host}
+					key={e.calendar}
 					className="rounded-md bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300"
 				>
-					{e.host}: {e.message}
+					{e.calendar}: {e.message}
 				</p>
 			))}
 			<div className="flex items-center justify-between">
 				<p className="text-xs text-muted-foreground">
-					Calendly events with this account's contacts. Each one is mirrored
-					into the activity feed.
+					Calendar events with this account's contacts, Calendly bookings
+					included. Held meetings are mirrored into the activity feed.
 				</p>
 				<Button
 					size="sm"
@@ -287,14 +268,14 @@ export function MeetingsPanel({
 						</h3>
 						<ul className="divide-y divide-border/70 overflow-hidden rounded-xl border border-border/70 bg-card">
 							{g.items.map((m) => (
-								<MeetingRow key={m.eventUri} m={m} people={people} />
+								<MeetingRow key={m.uid} m={m} people={people} />
 							))}
 						</ul>
 					</section>
 				))}
 			{data.meetings.length === 0 ? (
 				<p className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-					No calls booked with this account yet.
+					No meetings with this account's contacts yet.
 				</p>
 			) : null}
 		</div>

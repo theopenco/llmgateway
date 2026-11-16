@@ -201,7 +201,7 @@ A `system` message inside `messages` (as Claude Code sends on recent Claude mode
 
 ### Tool definitions and results
 
-A tool's `strict: true` reaches the Anthropic API (with its structured-outputs beta) and OpenAI-compatible providers as `function.strict`; providers without an equivalent receive the tool without it. `allowed_callers` is forwarded to the Anthropic API only, with the advanced-tool-use beta, and stripped elsewhere. `eager_input_streaming: true` (fine-grained tool streaming) is forwarded to Anthropic models on the Anthropic API, Google Vertex AI and Microsoft Foundry, sent to Claude on AWS Bedrock as the request-wide fine-grained tool streaming beta when every tool sets it, and stripped elsewhere; `input_json_delta` events are relayed as they arrive from the upstream.
+A tool's `strict: true` reaches the Anthropic API (with its structured-outputs beta) and OpenAI-compatible providers as `function.strict`; providers without an equivalent receive the tool without it. `allowed_callers` is forwarded to the Anthropic API only, with the advanced-tool-use beta, and stripped elsewhere. `eager_input_streaming: true` (fine-grained tool streaming) is forwarded to Anthropic models on the Anthropic API, Google Vertex AI, Microsoft Foundry and AWS Bedrock; Claude models that Bedrock serves only through its Converse API take it as the request-wide fine-grained tool streaming beta when every tool sets it. It is stripped elsewhere; `input_json_delta` events are relayed as they arrive from the upstream.
 
 Gemini models take tool schemas through Google's typed `parameters` carrier, which has no `const` or `additionalProperties`. A `const` is sent as a single-member `enum` (typed from the value when the node has no `type`; on non-string nodes, where Vertex rejects `enum`, it becomes an "Allowed values" hint in the description), and an explicit `enum` on the same node wins. `pattern` is forwarded on string nodes. `additionalProperties` is dropped. The same translation applies on `/v1/chat/completions`.
 
@@ -225,7 +225,7 @@ Anthropic's server-side web search and web fetch tools work on this endpoint. Pa
 
 When an Anthropic model on the Anthropic API, Google Cloud, or Microsoft Foundry serves the request, the response carries the content blocks exactly as Anthropic returned them, streamed or not: `server_tool_use` with its input, `web_search_tool_result` and `web_fetch_tool_result` with `encrypted_content`, text blocks with their `citations`, and `usage.server_tool_use`. Replay the assistant turn verbatim on the next request and the blocks reach Anthropic with every field intact, ahead of the turn's text, so the model sees the earlier results.
 
-Web search on other providers works too. The response then carries a `server_tool_use` and `web_search_tool_result` pair rebuilt from the provider's citations, without `encrypted_content`. Those rebuilt blocks are dropped on replay. Anthropic does not offer web fetch on Google Cloud, and other providers have no equivalent, so the tool is dropped there. Pin the provider (`anthropic/claude-sonnet-4-6`) when you rely on it.
+Web search on other providers works too. The response then carries a `server_tool_use` and `web_search_tool_result` pair rebuilt from the provider's citations, without `encrypted_content`. Those rebuilt blocks are dropped on replay. Anthropic does not offer web search or web fetch on AWS Bedrock, nor web fetch on Google Cloud, and other providers have no web fetch equivalent, so the tool is dropped there. Pin the provider (`anthropic/claude-sonnet-4-6`) when you rely on it.
 
 ### Thinking Signatures
 
@@ -259,13 +259,7 @@ Deferred tools stay out of the rendered tools section, so adding one does not in
 
 Send every tool definition on every request, including the deferred ones — Anthropic needs them server-side to run the search. At least one tool must stay non-deferred (normally the tool search tool itself), and a tool cannot carry both `defer_loading: true` and `cache_control`.
 
-**Where it works.** Tool search reaches the provider on the Anthropic API and on Anthropic models served through Google Cloud, and it needs a Claude 4.5-generation model or newer — older Claude models reject it upstream. On every other provider, including Anthropic models on AWS Bedrock, the tool search tool and `defer_loading` are dropped and all tools are sent eagerly. The request still succeeds, it just loses the cache and token savings, so pin the provider (`anthropic/claude-sonnet-4-6`) when those savings matter.
-
-<Callout type="info">
-	Bedrock is a transport limitation rather than a missing capability: Anthropic
-	exposes server-side tool search there only through the InvokeModel API, and
-	the gateway routes Bedrock through the Converse API.
-</Callout>
+**Where it works.** Tool search reaches the provider on the Anthropic API, on Anthropic models served through Google Cloud, and on AWS Bedrock through its Anthropic Messages API, and it needs a Claude 4.5-generation model or newer — older Claude models reject it upstream. On every other provider, including Claude models that Bedrock serves only through its Converse API, the tool search tool and `defer_loading` are dropped and all tools are sent eagerly. The request still succeeds, it just loses the cache and token savings, so pin the provider (`anthropic/claude-sonnet-4-6`) when those savings matter.
 
 ### Auto Mode Safeguard Review
 

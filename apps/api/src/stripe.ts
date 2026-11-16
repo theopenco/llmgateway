@@ -907,10 +907,27 @@ function parseDevPlanPaygEnabled(
  * when the card is a duplicate. The duplicate payment method is detached
  * from the customer so it isn't accidentally reused later.
  */
+// Pass expectedOrganizationId when a caller-supplied session id must belong to
+// that org; the webhook omits it because Stripe vouches for the session.
 export async function finalizeDevPlanSetupSession(
 	sessionId: string,
+	expectedOrganizationId?: string,
 ): Promise<FinalizeDevPlanResult> {
-	const session = await getStripe().checkout.sessions.retrieve(sessionId);
+	let session: Stripe.Checkout.Session;
+	try {
+		session = await getStripe().checkout.sessions.retrieve(sessionId);
+	} catch (error) {
+		if (
+			error instanceof Stripe.errors.StripeInvalidRequestError &&
+			error.code === "resource_missing"
+		) {
+			logger.warn("Dev plan finalize: checkout session not found", {
+				sessionId,
+			});
+			return { status: "invalid_session", reason: "not_found" };
+		}
+		throw error;
+	}
 
 	if (session.mode !== "setup") {
 		return { status: "invalid_session", reason: "not_setup_mode" };
@@ -933,6 +950,10 @@ export async function finalizeDevPlanSetupSession(
 
 	if (!organizationId || !devPlanTier || !priceId) {
 		return { status: "invalid_session", reason: "missing_metadata" };
+	}
+
+	if (expectedOrganizationId && organizationId !== expectedOrganizationId) {
+		return { status: "invalid_session", reason: "org_mismatch" };
 	}
 
 	const organization = await db.query.organization.findFirst({

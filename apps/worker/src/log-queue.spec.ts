@@ -4,10 +4,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { LOG_QUEUE, publishToQueue, redisClient } from "@llmgateway/cache";
 import { db, inArray, log } from "@llmgateway/db";
+import { logPersistLag } from "@llmgateway/instrumentation";
 
 import { logInsertCircuit, processLogQueue } from "./worker.js";
 
-import type { LogInsertData } from "@llmgateway/db";
+import type { LogInsertData, QueuedLogData } from "@llmgateway/db";
 
 describe("processLogQueue", () => {
 	let logIds: string[] = [];
@@ -87,5 +88,48 @@ describe("processLogQueue", () => {
 			maxTokens: null,
 			reasoningMaxTokens: null,
 		});
+	});
+
+	it("records queue-to-commit lag without inserting enqueuedAt", async () => {
+		const id = randomUUID();
+		logIds.push(id);
+		const queued: QueuedLogData = {
+			id,
+			requestId: "request-id",
+			organizationId: "org-id",
+			projectId: "project-id",
+			apiKeyId: "api-key-id",
+			duration: 100,
+			requestedModel: "gpt-4o-mini",
+			usedModel: "gpt-4o-mini",
+			usedProvider: "openai",
+			responseSize: 0,
+			mode: "credits",
+			usedMode: "credits",
+			enqueuedAt: Date.now() - 5000,
+		};
+		await publishToQueue(LOG_QUEUE, queued);
+		const before = await logPersistLag.get();
+		const countBefore =
+			before.values.find(
+				(v) => v.metricName === "log_persist_lag_seconds_count",
+			)?.value ?? 0;
+		const sumBefore =
+			before.values.find((v) => v.metricName === "log_persist_lag_seconds_sum")
+				?.value ?? 0;
+
+		expect(await processLogQueue()).toBe(1);
+
+		const after = await logPersistLag.get();
+		const count = after.values.find(
+			(v) => v.metricName === "log_persist_lag_seconds_count",
+		)?.value;
+		const sum = after.values.find(
+			(v) => v.metricName === "log_persist_lag_seconds_sum",
+		)?.value;
+		expect(count).toBe(countBefore + 1);
+		expect((sum ?? 0) - sumBefore).toBeGreaterThanOrEqual(5);
+		const row = await db.query.log.findFirst({ where: { id } });
+		expect(row?.requestId).toBe("request-id");
 	});
 });

@@ -8,6 +8,7 @@ import {
 	type ProviderValidationResult,
 	providers,
 	resolveVertexTokenType,
+	isRetiredProvider,
 } from "@llmgateway/models";
 import { getModelImageConfig, getProviderModelKind } from "@llmgateway/shared";
 
@@ -26,7 +27,10 @@ import {
 } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
-import { getUpstreamModelId } from "./provider-api-format.js";
+import {
+	getProviderApiTransport,
+	getUpstreamModelId,
+} from "./provider-api-format.js";
 import { describeNetworkFailure } from "./provider-key/network-error.js";
 import { redactToken } from "./provider-key/redact.js";
 
@@ -351,6 +355,12 @@ export async function validateProviderKey(
 	pinnedModelId?: string,
 	abortSignal?: AbortSignal,
 ): Promise<ProviderValidationResult> {
+	if (isRetiredProvider(provider)) {
+		return {
+			valid: false,
+			error: `Provider ${provider} is retired. Configure a replacement provider.`,
+		};
+	}
 	// Skip validation if requested (e.g. in test environment)
 	if (skipValidation) {
 		return { valid: true };
@@ -441,6 +451,13 @@ export async function validateProviderKey(
 		const providerMapping = modelDef
 			? findRegionAwareMapping(modelDef, provider, validationRegion)
 			: undefined;
+		// Claude on AWS Bedrock speaks Anthropic's Messages API.
+		const requestProvider = getProviderApiTransport(
+			provider,
+			providerMapping?.apiFormat === "anthropic-messages"
+				? providerMapping.apiFormat
+				: undefined,
+		);
 		let payload: unknown;
 		let vertexTokenType: ReturnType<typeof resolveVertexTokenType> | undefined;
 
@@ -603,6 +620,7 @@ export async function validateProviderKey(
 					validationModel.modelId,
 					validationModel.externalId,
 					validationRegion,
+					{ providerKeyOptions, skipEnvVars: true },
 				),
 				messages,
 				false,
@@ -629,7 +647,7 @@ export async function validateProviderKey(
 			);
 		}
 
-		const headers = getProviderHeaders(provider, requestToken, {
+		const headers = getProviderHeaders(requestProvider, requestToken, {
 			providerKeyOptions,
 			skipEnvVars: true,
 			tokenType: vertexTokenType,

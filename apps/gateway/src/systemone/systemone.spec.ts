@@ -327,6 +327,57 @@ describe("systemone", () => {
 		});
 	});
 
+	test("/v1/systemone rejects a box question without an image", async () => {
+		await seedKeys("systemone-box-text");
+		await seedProviderKey("systemone-box-text");
+
+		const res = await app.request("/v1/systemone", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-systemone-box-text",
+			},
+			body: JSON.stringify({
+				model: "jev-1.14.0",
+				state: "No image here.",
+				questions: { product: { type: "box", instructions: "the product" } },
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).error.message).toBe(
+			"A box question needs an image in the request.",
+		);
+	});
+
+	test("/v1/systemone rejects box questions on Jev 1.13", async () => {
+		await seedKeys("systemone-box-113");
+		await seedProviderKey("systemone-box-113");
+
+		const res = await app.request("/v1/systemone", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-systemone-box-113",
+			},
+			body: JSON.stringify({
+				model: "jev-1.13.0",
+				state: {
+					type: "image_url",
+					image_url: { url: "data:image/png;base64,iVBORw0KGgo=" },
+				},
+				questions: {
+					product: { type: "box", instructions: "the product in `state`" },
+				},
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).error.message).toBe(
+			"Model jev-1.13.0 does not answer box questions.",
+		);
+	});
+
 	test("/v1/systemone rejects a chat model", async () => {
 		await seedKeys("systemone-chat-model");
 

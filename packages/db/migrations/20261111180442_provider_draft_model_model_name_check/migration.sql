@@ -1,0 +1,2 @@
+-- NOT VALID: enforced on every write; listings filed before the lowercase id rule are renamed after the gateway accepts their old ids.
+ALTER TABLE "provider_draft_model" ADD CONSTRAINT "provider_draft_model_model_name_check" CHECK ("model_name" ~ '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$') NOT VALID;

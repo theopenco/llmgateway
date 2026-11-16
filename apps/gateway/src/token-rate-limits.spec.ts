@@ -28,6 +28,7 @@ describe("token and provider key rate limits", () => {
 		limits: Partial<
 			Record<"maxRpm" | "maxRpd" | "maxTpm" | "maxTpd", number> & {
 				rateLimitMode: "strict" | "soft" | "lax";
+				modelRateLimits: Record<string, { maxRpm?: number; maxTpd?: number }>;
 			}
 		> = {},
 		sortOrder?: number,
@@ -43,7 +44,10 @@ describe("token and provider key rate limits", () => {
 		});
 	}
 
-	async function chatCompletion(headers: Record<string, string> = {}) {
+	async function chatCompletion(
+		headers: Record<string, string> = {},
+		model = MODEL,
+	) {
 		return await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
@@ -54,7 +58,7 @@ describe("token and provider key rate limits", () => {
 				...headers,
 			},
 			body: JSON.stringify({
-				model: `openai/${MODEL}`,
+				model: `openai/${model}`,
 				messages: [{ role: "user", content: "Hello" }],
 			}),
 		});
@@ -189,5 +193,66 @@ describe("token and provider key rate limits", () => {
 		expect((await chatCompletion()).status).toBe(200);
 		await waitForKeyRequests("provider-key-trl-lax", 1);
 		expect((await chatCompletion()).status).toBe(200);
+	});
+
+	async function waitForKeyModelRequests(
+		keyId: string,
+		model: string,
+		count: number,
+	) {
+		await vi.waitFor(
+			async () => {
+				expect(
+					await redisClient.zcard(
+						`rate_limit:provider_key_model:rpm:${keyId}:${model}`,
+					),
+				).toBe(count);
+			},
+			{ timeout: 5000 },
+		);
+	}
+
+	test("a key at its cap for one model still serves other models", async () => {
+		await seedApiKey();
+		await seedOpenAiKey("provider-key-trl-model", {
+			modelRateLimits: { [MODEL]: { maxRpm: 1 } },
+		});
+
+		expect((await chatCompletion()).status).toBe(200);
+		await waitForKeyModelRequests("provider-key-trl-model", MODEL, 1);
+
+		const capped = await chatCompletion();
+		expect(capped.status).toBe(429);
+		expect(await capped.text()).toContain("configured rate limit");
+
+		expect((await chatCompletion({}, "gpt-4o")).status).toBe(200);
+		// Only the capped model's window is counted; there are no key-wide caps.
+		expect(
+			await redisClient.exists(
+				"rate_limit:provider_key_model:rpm:provider-key-trl-model:gpt-4o",
+			),
+		).toBe(0);
+		expect(
+			await redisClient.exists(
+				"rate_limit:provider_key:rpm:provider-key-trl-model",
+			),
+		).toBe(0);
+	});
+
+	test("rotates past a provider key at its cap for the requested model", async () => {
+		await seedApiKey();
+		await seedOpenAiKey(
+			"provider-key-trl-model-primary",
+			{ modelRateLimits: { [MODEL]: { maxRpm: 1 } } },
+			0,
+		);
+		await seedOpenAiKey("provider-key-trl-model-secondary", { maxRpm: 100 }, 1);
+
+		expect((await chatCompletion()).status).toBe(200);
+		await waitForKeyModelRequests("provider-key-trl-model-primary", MODEL, 1);
+
+		expect((await chatCompletion()).status).toBe(200);
+		await waitForKeyRequests("provider-key-trl-model-secondary", 1);
+		await waitForKeyModelRequests("provider-key-trl-model-primary", MODEL, 1);
 	});
 });

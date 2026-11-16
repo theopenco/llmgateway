@@ -771,7 +771,10 @@ function modelSupportsSvgOutput(model: string): boolean {
 }
 
 function getSvgOutputError(
-	request: ImageGenerationsRequest,
+	request: Pick<
+		ImageGenerationsRequest,
+		"output_format" | "svg" | "output_compression"
+	> & { n?: number },
 	model: string,
 ): string | undefined {
 	if (request.output_format !== "svg") {
@@ -780,7 +783,7 @@ function getSvgOutputError(
 	if (!modelSupportsSvgOutput(model)) {
 		return `Model ${model} does not support SVG output. Use one of: ${svgOutputModelIds.join(", ")}.`;
 	}
-	if (request.n !== 1) {
+	if ((request.n ?? 1) !== 1) {
 		return "SVG output supports only n=1.";
 	}
 	if (request.output_compression !== undefined) {
@@ -1126,9 +1129,17 @@ const imageEditsRequestSchema = z
 			description: "Compression level for jpeg or webp output.",
 			example: 100,
 		}),
-		output_format: z.enum(["png", "jpeg", "webp", "gif"]).optional().openapi({
-			description: "Output image format.",
-			example: "png",
+		output_format: z
+			.enum(["png", "jpeg", "webp", "svg", "gif"])
+			.optional()
+			.openapi({
+				description:
+					"Output image format. `svg` returns a base64-encoded SVG document in `b64_json`; it requires a model with SVG output (GPT Image 2.6) and `n` of 1, and does not accept `output_compression`.",
+				example: "png",
+			}),
+		svg: svgOptionsSchema.nullable().optional().openapi({
+			description:
+				"SVG author model and reasoning settings. Required when the OpenAI account has SVG model selection enabled; otherwise omit it.",
 		}),
 		quality: z
 			.enum(["low", "medium", "high", "xhigh", "max", "auto"])
@@ -1172,7 +1183,7 @@ type ImageEditsRequest = z.infer<typeof imageEditsRequestSchema>;
 
 const imageEditsResponseSchema = imageGenerationsResponseSchema.extend({
 	background: z.enum(["transparent", "opaque"]).optional(),
-	output_format: z.enum(["png", "webp", "jpeg", "gif"]).optional(),
+	output_format: z.enum(["png", "webp", "jpeg", "svg", "gif"]).optional(),
 	quality: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
 	size: z.string().optional(),
 });
@@ -1383,6 +1394,18 @@ async function parseMultipartEditsRequest(
 			rawRequest[name] = Number(value);
 		}
 	}
+	const svgModel = body["svg[model]"];
+	const svgEffort = body["svg[reasoning][effort]"];
+	if (svgModel !== undefined || svgEffort !== undefined) {
+		rawRequest.svg = {
+			model: Array.isArray(svgModel) ? svgModel[0] : svgModel,
+			...(svgEffort !== undefined && {
+				reasoning: {
+					effort: Array.isArray(svgEffort) ? svgEffort[0] : svgEffort,
+				},
+			}),
+		};
+	}
 	const markupField = body["markup"];
 	const markupFile = Array.isArray(markupField) ? markupField[0] : markupField;
 	if (markupFile !== undefined) {
@@ -1431,6 +1454,18 @@ async function processImageEdit(
 	const model = resolveImageRequestModel(request.model);
 
 	assertImageModel(model);
+	const svgOutputError = getSvgOutputError(request, model);
+	if (svgOutputError) {
+		await logImageClientError(
+			c,
+			getLogContext,
+			logRequest,
+			400,
+			svgOutputError,
+			startedAt,
+		);
+		throw new HTTPException(400, { message: svgOutputError });
+	}
 	if (request.markup && !routesOnlyToNativeOutputOptionProviders(model)) {
 		throw new HTTPException(400, {
 			message: "markup requires an OpenAI or Azure image model.",
@@ -1537,7 +1572,8 @@ async function processImageEdit(
 		normalizedEditQuality ||
 		request.moderation ||
 		request.complexity ||
-		request.markup
+		request.markup ||
+		request.svg
 	) {
 		chatRequest.image_config = {
 			...(aspectRatio && { aspect_ratio: aspectRatio }),
@@ -1555,6 +1591,7 @@ async function processImageEdit(
 			...(request.background && { background: request.background }),
 			...(request.n !== undefined && { n: request.n }),
 			...(request.output_format && { output_format: request.output_format }),
+			...(request.svg && { svg: request.svg }),
 			...(request.output_compression !== undefined && {
 				output_compression: request.output_compression,
 			}),

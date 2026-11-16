@@ -1,11 +1,19 @@
 const PAGE_SIZE = 100;
 const MAX_RETRIES = 5;
 const MS_PER_SECOND = 1000;
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+/**
+ * Resend's rate limit is per team, so production mail shares it with this
+ * scan. One call every 200 ms stays at half of it.
+ */
+export const PACE_MS = 200;
+/** How often a long scan reports its counts. */
+export const PROGRESS_EVERY = 500;
+const LOCAL_HOSTS = new Set(["localhost", "::1", "[::1]"]);
+const IPV4_LOOPBACK = /^127(\.\d{1,3}){3}$/;
 
 /** One Resend call that resolves with the response of a successful request. */
 export type ResendRequest = (
-	method: "GET" | "POST",
+	method: "GET" | "POST" | "DELETE",
 	path: string,
 ) => Promise<Response>;
 
@@ -16,6 +24,8 @@ export interface BackfillInput {
 	topicId: string;
 	segmentId: string;
 	apply: boolean;
+	/** Called with the counts so far, every `PROGRESS_EVERY` contacts. */
+	onProgress?: (result: BackfillResult) => void;
 }
 
 export interface BackfillResult {
@@ -41,6 +51,26 @@ interface ListedTopic extends Listed {
 	subscription: string;
 }
 
+/** A write run decides from the app database, so it must be the real one. */
+export function assertProductionDatabase(
+	databaseHost: string,
+	allowLocalDatabase: boolean,
+): void {
+	// As the URL parser reads it and without the root dot, so LOCALHOST, 127.1,
+	// 0x7f.0.0.1 or localhost. count too.
+	const host = (
+		URL.canParse(`http://${databaseHost}`)
+			? new URL(`http://${databaseHost}`).hostname
+			: databaseHost
+	).replace(/\.+$/, "");
+	const local = LOCAL_HOSTS.has(host) || IPV4_LOOPBACK.test(host);
+	if (local && !allowLocalDatabase) {
+		throw new Error(
+			`DATABASE_URL points at ${databaseHost}; --apply needs the production database (pass --allow-local-database if this is a tunnel to it)`,
+		);
+	}
+}
+
 /**
  * A write run reads marketing unsubscribes from the app database. Pointed at a
  * local or empty one it would find none and add addresses it should leave out.
@@ -51,15 +81,29 @@ export function assertSafeToApply(input: {
 	suppressionsOnFile: number;
 	allowLocalDatabase: boolean;
 }): void {
-	if (LOCAL_HOSTS.has(input.databaseHost) && !input.allowLocalDatabase) {
-		throw new Error(
-			`DATABASE_URL points at ${input.databaseHost}; --apply needs the production database (pass --allow-local-database if this is a tunnel to it)`,
-		);
-	}
+	assertProductionDatabase(input.databaseHost, input.allowLocalDatabase);
 	if (input.suppressionsOnFile === 0) {
 		throw new Error(
 			"The database has no marketing unsubscribes on file, which looks like the wrong database; refusing --apply",
 		);
+	}
+}
+
+export function requireEnv(name: string): string {
+	const value = process.env[name];
+	if (!value) {
+		throw new Error(`${name} is required`);
+	}
+	return value;
+}
+
+/** A response Resend did not mean as a success, with its status. */
+export class ResendError extends Error {
+	constructor(
+		message: string,
+		readonly status: number,
+	) {
+		super(message);
 	}
 }
 
@@ -89,8 +133,9 @@ export function withRetry(
 			}
 			const passing = response.status === 429 || response.status >= 500;
 			if (!passing || lastAttempt) {
-				throw new Error(
+				throw new ResendError(
 					`Resend error on ${method} ${path}: ${response.status} - ${await response.text()}`,
+					response.status,
 				);
 			}
 			const seconds = Number(response.headers.get("retry-after")) || 1;
@@ -99,9 +144,44 @@ export function withRetry(
 	};
 }
 
-async function* list<T extends Listed>(
+function paced(
+	send: ResendRequest,
+	sleep: (ms: number) => Promise<void>,
+): ResendRequest {
+	return async (method, path) => {
+		await sleep(PACE_MS);
+		return await send(method, path);
+	};
+}
+
+/** Every attempt, a retry included, waits its turn before it is sent. */
+export function pacedWithRetry(
+	send: ResendRequest,
+	sleep: (ms: number) => Promise<void>,
+): ResendRequest {
+	return withRetry(paced(send, sleep), sleep);
+}
+
+/** The counts of a scan in progress; a write run reports what it has added. */
+export function progressLine(counts: BackfillResult, apply: boolean): string {
+	return apply
+		? `Scanned ${counts.scanned}: ${counts.added} added to the segment so far`
+		: `Scanned ${counts.scanned}: ${counts.toAdd} opted in and not in the segment so far`;
+}
+
+interface Page<T> {
+	data: T[];
+	has_more: boolean;
+}
+
+/**
+ * Every row of a paged Resend list. `read` checks the shape of a page; without
+ * it the page is taken as it comes.
+ */
+export async function* list<T extends Listed>(
 	request: ResendRequest,
 	path: string,
+	read: (body: unknown) => Page<T> = (body) => body as Page<T>,
 ): AsyncGenerator<T> {
 	const separator = path.includes("?") ? "&" : "?";
 	let after: string | undefined;
@@ -111,7 +191,7 @@ async function* list<T extends Listed>(
 			"GET",
 			`${path}${separator}limit=${PAGE_SIZE}${cursor}`,
 		);
-		const page = (await response.json()) as { data: T[]; has_more: boolean };
+		const page = read(await response.json());
 		yield* page.data;
 		const last = page.data.at(-1);
 		if (!page.has_more || !last) {
@@ -132,7 +212,8 @@ async function* list<T extends Listed>(
 export async function backfillSegment(
 	input: BackfillInput,
 ): Promise<BackfillResult> {
-	const { request, isSuppressed, topicId, segmentId, apply } = input;
+	const { request, isSuppressed, topicId, segmentId, apply, onProgress } =
+		input;
 	const members = new Set<string>();
 	for await (const member of list<Listed>(
 		request,
@@ -150,15 +231,14 @@ export async function backfillSegment(
 		toAdd: 0,
 		added: 0,
 	};
-	for await (const contact of list<ListedContact>(request, "/contacts")) {
-		result.scanned++;
+	const count = async (contact: ListedContact): Promise<void> => {
 		if (members.has(contact.id)) {
 			result.alreadyInSegment++;
-			continue;
+			return;
 		}
 		if (contact.unsubscribed) {
 			result.unsubscribed++;
-			continue;
+			return;
 		}
 		let optedIn = false;
 		for await (const topic of list<ListedTopic>(
@@ -172,11 +252,11 @@ export async function backfillSegment(
 		}
 		if (!optedIn) {
 			result.notOptedIn++;
-			continue;
+			return;
 		}
 		if (await isSuppressed(contact.email)) {
 			result.suppressed++;
-			continue;
+			return;
 		}
 		result.toAdd++;
 		if (apply) {
@@ -185,6 +265,14 @@ export async function backfillSegment(
 				`/contacts/${contact.id}/segments/${encodeURIComponent(segmentId)}`,
 			);
 			result.added++;
+		}
+	};
+
+	for await (const contact of list<ListedContact>(request, "/contacts")) {
+		result.scanned++;
+		await count(contact);
+		if (result.scanned % PROGRESS_EVERY === 0) {
+			onProgress?.({ ...result });
 		}
 	}
 	return result;

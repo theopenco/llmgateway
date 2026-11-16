@@ -24,7 +24,7 @@ import { nvidiaModels } from "./models/nvidia.js";
 import { openaiModels } from "./models/openai.js";
 import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
-import { reveModels } from "./models/reve.js";
+import { recraftModels } from "./models/recraft.js";
 import { sakanaModels } from "./models/sakana.js";
 import { stepfunModels } from "./models/stepfun.js";
 import { tencentModels } from "./models/tencent.js";
@@ -83,10 +83,15 @@ export const PROVIDER_API_FORMATS = [
 export type ProviderApiFormat = (typeof PROVIDER_API_FORMATS)[number];
 
 /**
- * API surfaces a single request can be sent on: the mapping formats plus
- * `anthropic-messages`, which only `webSearchApiFormat` selects.
+ * API surfaces a single request can be sent on: the Airside-selectable
+ * formats plus `anthropic-messages` (Claude on AWS Bedrock, and DeepSeek's
+ * `webSearchApiFormat`).
  */
-export type RequestApiFormat = ProviderApiFormat | "anthropic-messages";
+export const REQUEST_API_FORMATS = [
+	...PROVIDER_API_FORMATS,
+	"anthropic-messages",
+] as const;
+export type RequestApiFormat = (typeof REQUEST_API_FORMATS)[number];
 
 /**
  * Pricing tier for models with context-length based pricing
@@ -276,6 +281,11 @@ export interface ProviderRegion {
 	 * When absent, falls back to the mapping-level streaming.
 	 */
 	streaming?: boolean | "only";
+	/**
+	 * Web search support override for this region.
+	 * When absent, falls back to the mapping-level webSearch.
+	 */
+	webSearch?: boolean;
 	/**
 	 * Test skip/only for this specific region.
 	 * When absent, falls back to the mapping-level test.
@@ -581,8 +591,10 @@ export interface ProviderModelMapping {
 	/**
 	 * Provider-specific request/endpoint format when a provider has multiple API
 	 * surfaces for different models. Defaults to the provider's native format.
+	 * `anthropic-messages` sends Anthropic's Messages API body (Claude on AWS
+	 * Bedrock).
 	 */
-	apiFormat?: ProviderApiFormat;
+	apiFormat?: RequestApiFormat;
 	/**
 	 * API surface for requests carrying a `web_search` tool, when the
 	 * provider serves hosted search on a different surface than `apiFormat`
@@ -904,6 +916,12 @@ export interface ProviderModelMapping {
 	 */
 	decisions?: boolean;
 	/**
+	 * Whether this decision model answers `box` questions: where a target is in
+	 * an image input, as a bounding box. Requests with a box question are
+	 * rejected on mappings without it.
+	 */
+	decisionBoxQuestions?: boolean;
+	/**
 	 * Whether this model uses a dedicated web search API that returns ranked
 	 * results instead of generated text. When true, requests are routed to the
 	 * gateway's /v1/search endpoint and billed per request via requestPrice.
@@ -914,6 +932,11 @@ export interface ProviderModelMapping {
 	 * used as the default when the caller does not specify a `voice`.
 	 */
 	supportedVoices?: string[];
+	/**
+	 * Gemini TTS models that read `text` verbatim: speech `instructions` are sent
+	 * as `speechMetadata.style` instead of being prefixed to the input.
+	 */
+	speechStyleMetadata?: boolean;
 	/**
 	 * Geographic region for this provider mapping.
 	 * Set automatically when a mapping with `regions` is expanded into flat entries.
@@ -1080,7 +1103,7 @@ export const models = [
 	...blackForestLabsModels,
 	...bytedanceModels,
 	...nousresearchModels,
-	...reveModels,
+	...recraftModels,
 	...sakanaModels,
 	...kinfraModels,
 	...tencentModels,

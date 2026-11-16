@@ -154,9 +154,9 @@ function rethrowAsHttpException(error: unknown): never {
 // (needed to keep the emitted .d.ts portable), which erases the sso plugin's
 // endpoint signatures. Rather than hand-maintain the request shape, derive it
 // from the plugin's own register endpoint so it tracks the installed
-// @better-auth/sso version — including the required `spMetadata` object and the
-// required `mapping.id`, both of which are looser in the plugin's public
-// `SAMLConfig`/`SAMLMapping` types than in the endpoint's actual schema.
+// @better-auth/sso version — including the required `spMetadata` object, which
+// is looser in the plugin's public `SAMLConfig` type than in the endpoint's
+// actual schema.
 type RegisterEndpoint =
 	SSOPlugin<SSOOptions>["endpoints"]["registerSSOProvider"];
 type RegisterBody = NonNullable<Parameters<RegisterEndpoint>[0]>["body"];
@@ -173,14 +173,11 @@ const registerSSOProvider = (
 ).registerSSOProvider;
 
 // Microsoft Entra ID (Azure AD) sends the user's email/name as SAML claim
-// attributes (not as the NameID, which defaults to an opaque persistent id), so
-// we map them explicitly. Okta/generic IdPs work with the default mapping (the
-// plugin falls back to the NameID for email), so we leave those unmapped.
-// `id` is a required field in the plugin's mapping schema. Use Entra's
-// immutable object id (present in the default claim set) as the stable account
-// identifier rather than the NameID, which can change with the user's UPN.
+// attributes, so we map them explicitly. Okta/generic IdPs work with the
+// default mapping (the plugin falls back to the NameID for email), so we leave
+// those unmapped. The account identity is always the signed NameID (the UPN by
+// default in Entra), so a changed `mail` attribute keeps the same account.
 const ENTRA_SAML_MAPPING: SamlMapping = {
-	id: "http://schemas.microsoft.com/identity/claims/objectidentifier",
 	email: "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
 	name: "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name",
 	firstName: "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname",

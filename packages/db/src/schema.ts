@@ -27,6 +27,7 @@ import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type {
 	Quantization,
 	ProviderApiFormat,
+	RequestApiFormat,
 	ToolChoiceMode,
 	WebSearchFormat,
 	ProviderAccessRestriction,
@@ -1107,8 +1108,16 @@ export const enterpriseContactSubmission = snakeCase.table(
 		clientTimestampMs: text(),
 		ipAddress: text(),
 		userAgent: text(),
+		// "unconfirmed": passed spam checks, waiting for the submitter to confirm
+		// their email before it reaches sales.
 		spamFilterStatus: text({
-			enum: ["pending", "rejected", "delivered", "delivery_failed"],
+			enum: [
+				"pending",
+				"rejected",
+				"unconfirmed",
+				"delivered",
+				"delivery_failed",
+			],
 		})
 			.notNull()
 			.default("pending"),
@@ -1247,9 +1256,9 @@ export const crmActivity = snakeCase.table(
 		dueAt: timestamp(),
 		completedAt: timestamp(),
 		// Idempotency key for activities created from another record:
-		// `gmail:<messageId>` for mail sent from the CRM, `calendly:<eventUri>`
-		// for scheduled meetings, `lead:<submissionId>` for an inquiry's
-		// follow-up, so repeated syncs and webhooks never duplicate.
+		// `gmail:<messageId>` for mail sent from the CRM, `gcal:<uid>` for
+		// held meetings, `lead:<submissionId>` for an inquiry's follow-up, so
+		// repeated syncs never duplicate.
 		externalRef: text(),
 	},
 	(table) => [
@@ -1263,13 +1272,13 @@ export const crmActivity = snakeCase.table(
 	],
 );
 
-export const CRM_INTEGRATION_PROVIDERS = ["gmail", "calendly"] as const;
+export const CRM_INTEGRATION_PROVIDERS = ["gmail"] as const;
 export type CrmIntegrationProvider = (typeof CRM_INTEGRATION_PROVIDERS)[number];
 
-// A mailbox or Calendly user connected to the CRM by an admin. Credentials
-// are sealed with the connector cipher; `shared` lets other admins send mail
-// or offer booking links from it (contact@ is shared, personal inboxes are
-// not). Threads with CRM contacts are readable from every connection.
+// A mailbox connected to the CRM by an admin. Credentials are sealed with the
+// connector cipher; `shared` lets other admins send mail from it (contact@ is
+// shared, personal inboxes are not). Threads and meetings with CRM contacts
+// are readable from every connection.
 export const crmIntegration = snakeCase.table(
 	"crm_integration",
 	{
@@ -1283,11 +1292,9 @@ export const crmIntegration = snakeCase.table(
 		userId: text()
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
-		// Mailbox address or Calendly account email.
+		// Mailbox address.
 		accountEmail: text().notNull(),
 		displayName: text(),
-		// Calendly user URI; Gmail leaves it null.
-		externalId: text(),
 		credentials: text().notNull(),
 		shared: boolean().notNull().default(false),
 	},
@@ -2150,6 +2157,20 @@ export const masterKey = snakeCase.table(
 	],
 );
 
+/** One model's caps on a provider key; a NULL or missing window is uncapped. */
+export interface ProviderKeyModelRateLimit {
+	maxRpm?: number | null;
+	maxRpd?: number | null;
+	maxTpm?: number | null;
+	maxTpd?: number | null;
+}
+
+/** Per-model provider key caps, keyed by canonical model id. */
+export type ProviderKeyModelRateLimits = Record<
+	string,
+	ProviderKeyModelRateLimit
+>;
+
 export interface ProviderKeyOptions {
 	aws_bedrock_region_prefix?: "us." | "global." | "eu." | "apac.";
 	aws_bedrock_region?:
@@ -2170,14 +2191,19 @@ export interface ProviderKeyOptions {
 	azure_deployment_type?: "openai" | "ai-foundry";
 	azure_validation_model?: string;
 	azure_deployment_name?: string;
-	azure_ai_foundry_resource?: string;
-	azure_ai_foundry_api_version?: string;
 	azure_anthropic_resource?: string;
-	alibaba_region?: "singapore" | "eu-frankfurt" | "us-virginia" | "cn-beijing";
+	alibaba_region?:
+		| "singapore"
+		| "eu-frankfurt"
+		| "us-virginia"
+		| "cn-beijing"
+		| "cn-hongkong"
+		| "ap-tokyo";
 	/**
 	 * Model Studio workspace id, required for regions served only by the
 	 * workspace-dedicated `{WorkspaceId}.<region>.maas.aliyuncs.com` host
-	 * (Frankfurt). Ignored by regions that have a shared DashScope domain.
+	 * (Frankfurt, Hong Kong, Tokyo). Ignored by regions that have a shared
+	 * DashScope domain.
 	 */
 	alibaba_workspace_id?: string;
 	aws_mantle_region?: "us-east-1" | "us-east-2" | "us-west-2";
@@ -2327,6 +2353,11 @@ export const providerKey = snakeCase.table(
 		rateLimitMode: text({ enum: ["strict", "soft", "lax"] })
 			.notNull()
 			.default("strict"),
+		// Per-model caps on top of the key-wide ones above, keyed by canonical
+		// model id (as in `allowedModels`), for accounts whose upstream quota is
+		// per deployment or model. The key drops out of rotation for that model
+		// only. Same `rateLimitMode`. NULL = none.
+		modelRateLimits: jsonb().$type<ProviderKeyModelRateLimits>(),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.
@@ -3890,8 +3921,9 @@ export const modelProviderMapping = snakeCase.table(
 				"openai-chat-completions",
 				"openai-responses",
 				"google-vertex",
+				"anthropic-messages",
 			],
-		}).$type<ProviderApiFormat>(),
+		}).$type<RequestApiFormat>(),
 		region: text(),
 		// Airside decision listings, served on `/v1/decisions`. Static rows
 		// keep their catalogue definition.
@@ -6092,6 +6124,12 @@ export const providerDraftModel = snakeCase.table(
 			.where(sql`status <> 'delisted'`),
 		index("provider_draft_model_company_idx").on(table.providerCompanyId),
 		index("provider_draft_model_status_idx").on(table.status),
+		// The listing's model name becomes a public model id: keep it in sync
+		// with MODEL_ID_PATTERN in packages/models/src/model-id.ts.
+		check(
+			"provider_draft_model_model_name_check",
+			sql`${table.modelName} ~ '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$'`,
+		),
 	],
 );
 
@@ -6136,7 +6174,7 @@ export interface ProviderModelVerificationTarget {
 	gatewayExecutionVersion?: 1;
 	modelName: string;
 	externalId: string;
-	apiFormat?: ProviderApiFormat;
+	apiFormat?: RequestApiFormat;
 	/** A decision listing, probed on `/v1/decisions` instead of chat. */
 	decisions?: boolean;
 	/** Regional deployment of the mapping; undefined targets the default region. */

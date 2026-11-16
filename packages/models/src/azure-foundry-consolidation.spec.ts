@@ -127,7 +127,7 @@ it("can enable binding per mapping without changing a provider default", () => {
 	expect(usesEncryptedReasoning(withoutReasoning)).toBe(false);
 });
 
-it.each(["azure", "azure-ai-foundry"] as const)(
+it.each(["azure"] as const)(
 	"keeps vision enabled and inlines remote Grok images on %s",
 	(providerId) => {
 		const mapping = catalogue

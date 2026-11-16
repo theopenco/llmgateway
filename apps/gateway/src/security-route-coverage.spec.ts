@@ -28,6 +28,9 @@ const publicRoutes = [
 	"GET /oauth/authorize",
 	"POST /oauth/register",
 	"POST /oauth/token",
+	// Authenticated by the OAuth credential they act on.
+	"POST /oauth/revoke",
+	"DELETE /oauth/register/:client_id",
 ];
 const readRoutes = [
 	"GET /v1/key",
@@ -95,7 +98,7 @@ describe("complete gateway route inventory", () => {
 			"ALL /mcp",
 		].sort();
 		expect(actual).toEqual(classified);
-		expect(actual).toHaveLength(59);
+		expect(actual).toHaveLength(61);
 	});
 
 	test("tracks the separate realtime upgrade and internal-only metrics router", () => {

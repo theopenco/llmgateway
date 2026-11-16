@@ -88,7 +88,7 @@ const imageTestCases = filteredModels
 	});
 
 // Image cases bill per image, so they run on request or when TEST_MODELS names
-// image mappings explicitly (as the e2e workflow's test_models input does).
+// image mappings explicitly.
 const testImageMode =
 	process.env.TEST_IMAGE_MODE === "true" ||
 	(specifiedModels !== null && imageTestCases.length > 0);
@@ -343,7 +343,8 @@ describe("e2e image generation", getConcurrentTestOptions(), () => {
 			},
 		);
 
-		test.each(imageTestCases)(
+		// Text-to-image mappings reject input images by design.
+		test.each(imageTestCases.filter(({ provider }) => provider.vision))(
 			"/v1/images/edits returns image for $model",
 			{ ...getTestOptions(), timeout: 300_000 },
 			async ({ model, provider }) => {
@@ -391,6 +392,53 @@ describe("e2e image generation", getConcurrentTestOptions(), () => {
 					? `data:image/png;base64,${first.b64_json}`
 					: first.url;
 				expectValidImageUrl(url);
+			},
+		);
+
+		test.each(
+			imageTestCases.filter(
+				({ provider }) => provider.svgOutput && provider.vision,
+			),
+		)(
+			"/v1/images/edits returns SVG for $model",
+			{ ...getTestOptions(), timeout: 300_000 },
+			async ({ model }) => {
+				const requestId = randomUUID();
+				const res = await app.request("/v1/images/edits", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${IMAGE_API_KEY_TOKEN}`,
+						"x-no-fallback": "true",
+						"x-request-id": requestId,
+					},
+					body: JSON.stringify({
+						model,
+						prompt: "Turn this image into a flat vector icon, two colors.",
+						images: [{ image_url: readFixtureImageDataUrl() }],
+						output_format: "svg",
+						svg: { model: "gpt-5.4-mini", reasoning: { effort: "low" } },
+						complexity: "low",
+						quality: qualityOverride ?? "low",
+					}),
+				});
+
+				const json = await res.json();
+				expect(res.status, JSON.stringify(json)).toBe(200);
+				expect(json.output_format).toBe("svg");
+				expect(json.data).toHaveLength(1);
+				const svg = Buffer.from(json.data[0].b64_json, "base64").toString(
+					"utf8",
+				);
+				expect(svg).toContain("<svg");
+				const log = await waitForLogByRequestId(requestId);
+				const upstream = log.upstreamResponse as {
+					svg_usage: { model: string };
+				};
+				expect(upstream.svg_usage.model).toMatch(
+					/^gpt-5\.4-mini(?:-\d{4}-\d{2}-\d{2})?$/,
+				);
+				expect(json.usage.cost).toBeCloseTo(Number(log.cost), 6);
 			},
 		);
 	}

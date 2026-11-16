@@ -8,7 +8,7 @@ summary: "A checklist for inference providers who want their LLM API listed on a
 categories: ["Guides", "Engineering"]
 faqs:
   - question: "What do I need to list my LLM API on LLM Gateway?"
-    answer: "A company email on the same registrable domain as your API endpoint or published website, an API endpoint you operate, and on llmgateway.io a one-time $2,500 listing fee per provider company, waived with an invite code. Self-hosted deployments with no fee configured list for free. You then register each model with its capabilities and pricing, pass a live preflight using the same saved provider key as live traffic, and wait for the LLM Gateway team to approve the claim and the initial price filing. No separate test key is needed."
+    answer: "A company email on the same registrable domain as your API endpoint or published website, an API endpoint you operate, and on llmgateway.io a one-time $5,000 listing fee per provider company, waived with an invite code. Self-hosted deployments with no fee configured list for free. You then register each model with its capabilities and pricing, pass a live preflight using the same saved provider key as live traffic, and wait for the LLM Gateway team to approve the claim and the initial price filing. No separate test key is needed."
   - question: "Does my API have to be OpenAI-compatible?"
     answer: "The carrier default is OpenAI Chat Completions, and the gateway calls your base URL plus /v1/chat/completions. Each model can instead declare the OpenAI Responses API or Google Vertex generateContent as its upstream format, and preflight verification runs through whichever format you pick."
   - question: "Why was my base URL rejected?"
@@ -34,7 +34,7 @@ The gateway needs to know that the person claiming `acme` actually runs `api.acm
 - If your API lives on a different domain than your email, prove the website instead by publishing a `_llmgateway-airside` DNS TXT record from onboarding.
 - Free and disposable email domains are rejected, and only one live claim can exist per provider.
 
-Claims are reviewed by the LLM Gateway team before the carrier goes live. Listing carries a one-time, non-refundable **$2,500 fee** per provider company, paid through Stripe before approval, or an invite code if we already work with you. One fee covers every carrier your company operates. Self-hosted deployments with no fee configured list for free.
+Claims are reviewed by the LLM Gateway team before the carrier goes live. Listing carries a one-time, non-refundable **$5,000 fee** per provider company, paid through Stripe before approval, or an invite code if we already work with you. One fee covers every carrier your company operates. Self-hosted deployments with no fee configured list for free.
 
 ## 2. Give the gateway a base URL it can call
 

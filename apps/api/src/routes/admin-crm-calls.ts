@@ -204,11 +204,10 @@ adminCrmCalls.openapi(listCalls, async (c) => {
 	);
 	const seen = new Set<string>();
 	const external = lists.flat().filter((e) => {
-		const key = `${e.summary}|${e.startAt}`;
-		if (seen.has(key)) {
+		if (seen.has(e.uid)) {
 			return false;
 		}
-		seen.add(key);
+		seen.add(e.uid);
 		const calendarDomain = emailDomain(e.calendar);
 		return e.attendees.some(
 			(a) => !a.self && emailDomain(a.email) !== calendarDomain,

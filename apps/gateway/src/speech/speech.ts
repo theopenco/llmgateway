@@ -13,6 +13,7 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
+import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -107,6 +108,21 @@ import type {
 import type { ContentFilterClassifier } from "@llmgateway/shared";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
 import type { Context } from "hono";
+
+const ELEVENLABS_VOICE_ID_PATTERN = /^[A-Za-z0-9]{20}$/;
+
+function isElevenLabsVoiceAccessDenied(body: unknown): boolean {
+	if (typeof body !== "object" || body === null || !("detail" in body)) {
+		return false;
+	}
+	const { detail } = body;
+	return (
+		typeof detail === "object" &&
+		detail !== null &&
+		"code" in detail &&
+		detail.code === "voice_access_denied"
+	);
+}
 
 const speechRequestSchema = z.object({
 	model: z.string().openapi({
@@ -302,6 +318,32 @@ function pcmToWav(
 	header.write("data", 36);
 	header.writeUInt32LE(pcm.length, 40);
 	return Buffer.concat([header, pcm]);
+}
+
+/**
+ * Return the PCM samples of a RIFF/WAVE buffer, or undefined when `buf` is not
+ * a WAV file. Gemini 3.8 TTS returns complete WAV files for unary requests,
+ * while earlier models return headerless `audio/L16`.
+ */
+function extractWavPcm(buf: Buffer): Buffer | undefined {
+	if (
+		buf.length < 12 ||
+		buf.toString("ascii", 0, 4) !== "RIFF" ||
+		buf.toString("ascii", 8, 12) !== "WAVE"
+	) {
+		return undefined;
+	}
+	let offset = 12;
+	while (offset + 8 <= buf.length) {
+		const chunkId = buf.toString("ascii", offset, offset + 4);
+		const chunkSize = buf.readUInt32LE(offset + 4);
+		const start = offset + 8;
+		if (chunkId === "data") {
+			return buf.subarray(start, Math.min(start + chunkSize, buf.length));
+		}
+		offset = start + chunkSize + (chunkSize % 2);
+	}
+	return undefined;
 }
 
 function parseSampleRate(mimeType: string | undefined): number {
@@ -639,10 +681,17 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 	}
 
 	const supportedVoices = mapping.supportedVoices ?? [];
+	// ElevenLabs also accepts any raw voice id (e.g. from its voice library);
+	// the upstream rejects ids the key cannot use.
+	const isRawElevenLabsVoiceId =
+		isElevenLabs &&
+		request.voice !== undefined &&
+		ELEVENLABS_VOICE_ID_PATTERN.test(request.voice);
 	if (
 		request.voice !== undefined &&
 		supportedVoices.length > 0 &&
-		!supportedVoices.includes(request.voice)
+		!supportedVoices.includes(request.voice) &&
+		!isRawElevenLabsVoiceId
 	) {
 		return c.json(
 			{
@@ -781,9 +830,20 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 	// this org's env-credential reads. Undefined = base vars only.
 	const envVariant = getLicensedOrganizationEnvVariant(retryOrganization);
 
-	const promptText = request.instructions
-		? `${request.instructions}: ${request.input}`
-		: request.input;
+	// Gemini 3.8 TTS reads `text` verbatim, so instructions go in
+	// `speechMetadata.style` rather than being spoken as a prefix.
+	const googleTextPart = mapping.speechStyleMetadata
+		? {
+				text: request.input,
+				...(request.instructions
+					? { speechMetadata: { style: request.instructions } }
+					: {}),
+			}
+		: {
+				text: request.instructions
+					? `${request.instructions}: ${request.input}`
+					: request.input,
+			};
 
 	const upstreamRequestBody: Record<string, unknown> = isOpenAI
 		? {
@@ -826,7 +886,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 						},
 					}
 				: {
-						contents: [{ role: "user", parts: [{ text: promptText }] }],
+						contents: [{ role: "user", parts: [googleTextPart] }],
 						generationConfig: {
 							responseModalities: ["AUDIO"],
 							speechConfig: {
@@ -873,6 +933,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (!providerKey) {
 				throw new HTTPException(400, {
@@ -893,6 +954,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 
 			const platformCredential = await resolvePlatformCredential(providerId, {
 				selectionScope: upstreamModel,
+				model: modelDefId,
 				variant: envVariant,
 				region: undefined,
 				requiresServiceTier: false,
@@ -909,6 +971,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (providerKey) {
 				usedToken = readProviderKey(providerKey);
@@ -925,6 +988,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 
 				const platformCredential = await resolvePlatformCredential(providerId, {
 					selectionScope: upstreamModel,
+					model: modelDefId,
 					variant: envVariant,
 					region: undefined,
 					requiresServiceTier: false,
@@ -1486,7 +1550,13 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 					}
 				}
 				const status = upstreamResponse.status;
-				if (attempt.envVarName !== undefined) {
+				// A voice the key cannot use is a request error, not a bad key.
+				const reportsKeyHealth = !(
+					isElevenLabs &&
+					status === 403 &&
+					isElevenLabsVoiceAccessDenied(upstreamJson)
+				);
+				if (reportsKeyHealth && attempt.envVarName !== undefined) {
 					reportKeyError(
 						attempt.envVarName,
 						attempt.configIndex,
@@ -1497,7 +1567,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 				}
 				const trackedKeyHealthId =
 					attempt.providerKey?.id ?? attempt.managedKey?.id;
-				if (trackedKeyHealthId) {
+				if (reportsKeyHealth && trackedKeyHealthId) {
 					reportTrackedKeyError(
 						trackedKeyHealthId,
 						status,
@@ -2180,9 +2250,16 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 				);
 			}
 
-			const pcm = Buffer.from(base64Audio, "base64");
+			const audio = Buffer.from(base64Audio, "base64");
+			const wavPcm = extractWavPcm(audio);
+			const pcm = wavPcm ?? audio;
 			const sampleRate = parseSampleRate(audioMimeType);
-			const out = responseFormat === "pcm" ? pcm : pcmToWav(pcm, sampleRate);
+			const out =
+				responseFormat === "pcm"
+					? pcm
+					: wavPcm
+						? audio
+						: pcmToWav(pcm, sampleRate);
 			const contentType = responseFormat === "pcm" ? "audio/pcm" : "audio/wav";
 
 			const usage = upstreamJson.usageMetadata ?? {};

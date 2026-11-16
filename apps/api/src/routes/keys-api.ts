@@ -5,12 +5,14 @@ import { z } from "zod";
 import { readApiKeyMask } from "@/lib/api-key-mask.js";
 import {
 	apiKeyUsagePeriods,
+	apiKeyUsagePeriodWindow,
 	getApiKeyUsageStats,
 } from "@/lib/api-key-usage-stats.js";
 import {
 	CLI_CODE_CHALLENGE_PATTERN,
 	issueCliAuthCode,
 } from "@/lib/cli-auth-code.js";
+import { dayKeyField, resolveDateRange } from "@/lib/date-range.js";
 import {
 	assertEnterpriseForIpCidrRule,
 	createIamRuleSchema,
@@ -32,6 +34,7 @@ import {
 	userHasProjectAccess,
 } from "@/utils/authorization.js";
 import { createRoute } from "@/utils/create-route.js";
+import { timezoneQueryField } from "@/utils/timezone.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -472,7 +475,18 @@ const listApiKeysQuerySchema = z.object({
 	}),
 	period: z.enum(apiKeyUsagePeriods).optional().openapi({
 		description:
-			"Usage window for periodUsage and periodRequestCount. Defaults to 'all'.",
+			"Usage window for periodUsage and periodRequestCount. Defaults to 'all'. Ignored when from and to are set.",
+	}),
+	from: dayKeyField.optional().openapi({
+		description:
+			"First day (YYYY-MM-DD) of a custom usage window, in timezone. Requires to.",
+	}),
+	to: dayKeyField.optional().openapi({
+		description:
+			"Last day (YYYY-MM-DD, inclusive) of a custom usage window, in timezone. Requires from.",
+	}),
+	timezone: timezoneQueryField.openapi({
+		description: "IANA timezone for from and to. Defaults to UTC.",
 	}),
 	filter: z.enum(["mine", "all"]).optional().openapi({
 		description:
@@ -1433,7 +1447,9 @@ const list = createRoute({
 								plan: z.enum(["free", "pro", "enterprise"]),
 							})
 							.optional(),
-						period: z.enum(apiKeyUsagePeriods).optional(),
+						period: z
+							.enum([...apiKeyUsagePeriods, "custom"] as const)
+							.optional(),
 						userRole: z.enum(["owner", "admin", "project_admin", "developer"]),
 					}),
 				},
@@ -1459,6 +1475,23 @@ keysApi.openapi(list, async (c) => {
 			message: "Pass either projectId or organizationId, not both",
 		});
 	}
+
+	if (Boolean(query.from) !== Boolean(query.to)) {
+		throw new HTTPException(400, {
+			message: "from and to must be provided together",
+		});
+	}
+	if (query.from && query.to && query.from > query.to) {
+		throw new HTTPException(400, { message: "from must not be after to" });
+	}
+	const customRange =
+		query.from && query.to
+			? resolveDateRange(query.from, query.to, query.timezone ?? "UTC")
+			: null;
+	const usagePeriod = customRange ? "custom" : period;
+	const usageWindow = customRange
+		? { start: customRange.startDate, end: customRange.endDate }
+		: apiKeyUsagePeriodWindow(period);
 
 	// Get the user's projects and role
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -1584,7 +1617,7 @@ keysApi.openapi(list, async (c) => {
 		resolveApiKeyOwnerBudgets(apiKeys, userOrgs),
 		getApiKeyUsageStats(
 			apiKeys.filter((key) => key.status !== "deleted").map((key) => key.id),
-			period,
+			usageWindow,
 		),
 		planOrganization ? getApiKeyPlanLimits(planOrganization) : undefined,
 	]);
@@ -1598,14 +1631,14 @@ keysApi.openapi(list, async (c) => {
 				ownerBudget: isPlaygroundApiKey(key)
 					? null
 					: (ownerBudgets.get(key.id) ?? null),
-				periodUsage: stats?.periodUsage ?? (period === "all" ? null : "0"),
+				periodUsage: stats?.periodUsage ?? (usageWindow ? "0" : null),
 				periodRequestCount:
-					stats?.periodRequestCount ?? (period === "all" ? null : 0),
+					stats?.periodRequestCount ?? (usageWindow ? 0 : null),
 				lastUsedAt: stats?.lastUsedAt ?? null,
 			};
 		}),
 		planLimits,
-		period,
+		period: usagePeriod,
 		userRole,
 	});
 });

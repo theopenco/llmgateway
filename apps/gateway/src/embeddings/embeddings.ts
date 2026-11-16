@@ -11,6 +11,7 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
+import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -694,6 +695,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (!providerKey) {
 				throw new HTTPException(400, {
@@ -714,6 +716,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 			const platformCredential = await resolvePlatformCredential(providerId, {
 				selectionScope: upstreamModel,
+				model: modelDefId,
 				variant: envVariant,
 				region: undefined,
 				requiresServiceTier: false,
@@ -730,6 +733,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (providerKey) {
 				usedToken = readProviderKey(providerKey);
@@ -746,6 +750,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 				const platformCredential = await resolvePlatformCredential(providerId, {
 					selectionScope: upstreamModel,
+					model: modelDefId,
 					variant: envVariant,
 					region: undefined,
 					requiresServiceTier: false,

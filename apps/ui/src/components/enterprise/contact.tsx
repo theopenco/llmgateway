@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowRight, CheckCircle2, Info, Loader2 } from "lucide-react";
+import { ArrowRight, Info, Loader2, MailCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -32,13 +32,9 @@ import { usePostHog } from "@/lib/posthog";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
 
-import { CalendlyInline } from "./calendly-inline";
 import { AirsideRedirect, ContactAudiencePicker } from "./contact-audience";
 
 import type { ContactAudience } from "./contact-audience";
-
-const CALENDLY_ENTERPRISE_URL =
-	"https://calendly.com/llmgateway/llmgateway-enterprise";
 
 // Teams this small don't need enterprise; the form points them to the free plan.
 const NON_ENTERPRISE_SIZE = "1-5";
@@ -64,10 +60,7 @@ export function ContactFormEnterprise() {
 	const submitContact = api.useMutation("post", "/public/contact/enterprise");
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isSuccess, setIsSuccess] = useState(false);
-	const [scheduled, setScheduled] = useState<{ name: string; email: string }>({
-		name: "",
-		email: "",
-	});
+	const [submittedEmail, setSubmittedEmail] = useState("");
 	const [formLoadTime] = useState(() => Date.now());
 	const [audience, setAudience] = useState<ContactAudience>("company");
 
@@ -111,11 +104,11 @@ export function ContactFormEnterprise() {
 					companySize: data.size,
 					deployment: data.deployment,
 				});
-				setScheduled({ name: data.name, email: data.email });
+				setSubmittedEmail(data.email);
 				setIsSuccess(true);
 				form.reset();
-				toast.success("Message sent successfully!", {
-					description: "Our team will reach out to you shortly.",
+				toast.success("Check your inbox", {
+					description: "Confirm your email to book a call with our team.",
 				});
 			} else {
 				toast.error("Failed to send message", {
@@ -151,35 +144,27 @@ export function ContactFormEnterprise() {
 
 					<div className="rounded-2xl border border-border bg-card/50 backdrop-blur-sm p-8 sm:p-10 shadow-lg">
 						{isSuccess ? (
-							<div className="py-4">
-								<div className="text-center">
-									<div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/20 mb-6">
-										<CheckCircle2 className="w-8 h-8 text-green-600 dark:text-green-400" />
-									</div>
-									<h3 className="text-2xl font-semibold mb-2">
-										Thank you for reaching out!
-									</h3>
-									<p className="text-muted-foreground">
-										We've received your message. Book a time below and our team
-										will meet you then — otherwise we'll reply within 24 hours.
-									</p>
+							<div className="py-4 text-center">
+								<div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/20 mb-6">
+									<MailCheck className="w-8 h-8 text-green-600 dark:text-green-400" />
 								</div>
-
-								<div className="mt-8">
-									<CalendlyInline
-										url={CALENDLY_ENTERPRISE_URL}
-										name={scheduled.name}
-										email={scheduled.email}
-									/>
-								</div>
-
-								<div className="mt-6 text-center">
+								<h3 className="text-2xl font-semibold mb-2">
+									Confirm your email
+								</h3>
+								<p className="text-muted-foreground text-balance">
+									We sent a confirmation link to{" "}
+									<span className="font-medium text-foreground">
+										{submittedEmail}
+									</span>
+									. Open it to send your request to our team and book a call.
+								</p>
+								<div className="mt-6">
 									<Button
 										onClick={() => setIsSuccess(false)}
 										variant="outline"
 										size="lg"
 									>
-										Send Another Message
+										Use a different email
 									</Button>
 								</div>
 							</div>

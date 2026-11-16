@@ -3,15 +3,15 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 
 export interface ResendCall {
 	apiKey: string;
-	method: "GET" | "POST" | "PATCH";
+	method: "GET" | "POST" | "PATCH" | "DELETE";
 	path: string;
 	body?: unknown;
 	timeoutMs?: number;
 }
 
 /**
- * One call to Resend's REST API, for what the pinned SDK predates: contact
- * topics, segments, and broadcasts addressed to a segment and topic.
+ * One call to Resend's REST API: contacts with their topics and segments, and
+ * broadcasts addressed to a segment and topic.
  */
 export async function resendFetch(call: ResendCall): Promise<Response> {
 	const hasBody = call.body !== undefined;

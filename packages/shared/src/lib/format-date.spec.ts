@@ -7,6 +7,7 @@ import {
 	formatDateTime,
 	formatDayKey,
 	formatZoneName,
+	isDayKey,
 	isNaiveDateTimeString,
 	shiftDayKey,
 } from "./format-date.js";
@@ -297,6 +298,16 @@ describe("shiftDayKey", () => {
 		// Spans a US spring-forward transition — a Date-based shift in a local
 		// zone can land an hour short and roll back a day.
 		expect(shiftDayKey("2026-03-09", -6)).toBe("2026-03-03");
+	});
+});
+
+describe("isDayKey", () => {
+	it("accepts real calendar days only", () => {
+		expect(isDayKey("2024-02-29")).toBe(true);
+		expect(isDayKey("2023-02-29")).toBe(false);
+		expect(isDayKey("2024-1-05")).toBe(false);
+		expect(isDayKey("")).toBe(false);
+		expect(isDayKey(null)).toBe(false);
 	});
 });
 

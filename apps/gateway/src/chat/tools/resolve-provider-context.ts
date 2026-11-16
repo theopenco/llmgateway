@@ -736,6 +736,7 @@ export async function resolveProviderContext(
 				options.excludedProviderKeyIds,
 				byokKeyFilter,
 				options.rateLimitExemption,
+				usedInternalModel,
 			);
 		}
 
@@ -748,6 +749,7 @@ export async function resolveProviderContext(
 					filter: byokKeyFilter,
 					excludedKeyIds: options.excludedProviderKeyIds,
 					rateLimitExemption: options.rateLimitExemption,
+					model: usedInternalModel,
 				},
 			);
 			throw new HTTPException(400, {
@@ -796,6 +798,7 @@ export async function resolveProviderContext(
 				options.excludedProviderKeyIds,
 				byokKeyFilter,
 				options.rateLimitExemption,
+				usedInternalModel,
 			);
 		}
 
@@ -957,6 +960,12 @@ export async function resolveProviderContext(
 			usedInternalModel,
 			usedExternalId,
 			usedRegion,
+			{
+				providerKeyOptions: credentialOptions,
+				skipEnvVars: usesDatabaseCredential,
+				configIndex,
+				variant: envVariant,
+			},
 		);
 
 	// --- URL resolution ---
@@ -1079,7 +1088,7 @@ export async function resolveProviderContext(
 	temperature = clampTemperature(
 		temperature,
 		usedProvider,
-		providerMappingForSelected?.maxTemperature,
+		providerMappingForSelected,
 	);
 
 	// --- max_tokens validation ---

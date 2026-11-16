@@ -5,6 +5,7 @@ import {
 	getRateLimitedProviderKeys,
 	ProviderKeyRateLimitError,
 	recordProviderKeyUsage,
+	withModelRateLimitedProviderKeyIds,
 } from "./provider-key-rate-limit.js";
 
 vi.mock("@llmgateway/cache", () => ({
@@ -33,7 +34,13 @@ const uncapped = {
 	maxTpm: null,
 	maxTpd: null,
 	rateLimitMode: "strict",
+	modelRateLimits: null,
 } as const;
+
+const imageCapped = {
+	...uncapped,
+	modelRateLimits: { "gpt-image-2": { maxRpm: 12 } },
+};
 
 describe("provider key rate limits", () => {
 	const now = 1_700_000_000_000;
@@ -163,5 +170,108 @@ describe("provider key rate limits", () => {
 			String(now),
 			250,
 		);
+	});
+
+	it("caps a key for a model only when that model's window is full", async () => {
+		vi.mocked(redis.zcard).mockImplementation(async (key) =>
+			key === "rate_limit:provider_key_model:rpm:key-1:gpt-image-2" ? 12 : 0,
+		);
+		const keys = [{ id: "key-1", ...imageCapped }];
+
+		expect(
+			(await getRateLimitedProviderKeyIds(keys, undefined, "gpt-image-2")).has(
+				"key-1",
+			),
+		).toBe(true);
+		expect(
+			(await getRateLimitedProviderKeyIds(keys, undefined, "gpt-5.2")).size,
+		).toBe(0);
+		// Without a model only key-wide caps apply.
+		expect((await getRateLimitedProviderKeyIds(keys)).size).toBe(0);
+	});
+
+	it("caps a key for every model when a key-wide window is full", async () => {
+		vi.mocked(redis.zcard).mockImplementation(async (key) =>
+			key === "rate_limit:provider_key:rpm:key-1" ? 100 : 0,
+		);
+
+		const limited = await getRateLimitedProviderKeyIds(
+			[{ id: "key-1", ...imageCapped, maxRpm: 100 }],
+			undefined,
+			"gpt-5.2",
+		);
+
+		expect(limited.has("key-1")).toBe(true);
+	});
+
+	it("adds model-capped keys to a key-wide result without re-reading key-wide windows", async () => {
+		vi.mocked(redis.zcard).mockResolvedValue(12);
+		const keys = [
+			{ id: "key-wide", ...uncapped, maxRpm: 1 },
+			{ id: "key-model", ...imageCapped, maxRpm: 1000 },
+			{ id: "key-free", ...uncapped },
+		];
+
+		const limited = await withModelRateLimitedProviderKeyIds(
+			new Set(["key-wide"]),
+			keys,
+			"gpt-image-2",
+		);
+
+		expect([...limited].sort()).toEqual(["key-model", "key-wide"]);
+		expect(vi.mocked(redis.zcard).mock.calls.map(([key]) => key)).toEqual([
+			"rate_limit:provider_key_model:rpm:key-model:gpt-image-2",
+		]);
+	});
+
+	it("exempts a soft key's model caps for a pinned session", async () => {
+		vi.mocked(redis.zcard).mockResolvedValue(12);
+
+		const limited = await getRateLimitedProviderKeyIds(
+			[{ id: "key-1", ...imageCapped, rateLimitMode: "soft" }],
+			() => ({ sessionPinned: true }),
+			"gpt-image-2",
+		);
+
+		expect(limited.size).toBe(0);
+	});
+
+	it("records usage against the served model's windows too", async () => {
+		await recordProviderKeyUsage(
+			{
+				id: "key-1",
+				...uncapped,
+				maxRpd: 100,
+				modelRateLimits: { "gpt-image-2": { maxRpm: 12, maxTpd: 5000 } },
+			},
+			250,
+			"gpt-image-2",
+		);
+
+		expect(
+			vi
+				.mocked(redis.zadd)
+				.mock.calls.map(([key]) => key)
+				.sort(),
+		).toEqual([
+			"rate_limit:provider_key:rpd:key-1",
+			"rate_limit:provider_key_model:rpm:key-1:gpt-image-2",
+		]);
+		expect(redis.hincrby).toHaveBeenCalledWith(
+			"rate_limit:provider_key_model:tpd:key-1:gpt-image-2",
+			expect.any(String),
+			250,
+		);
+	});
+
+	it("does not record other models' windows", async () => {
+		await recordProviderKeyUsage(
+			{ id: "key-1", ...imageCapped },
+			250,
+			"gpt-5.2",
+		);
+
+		expect(redis.zadd).not.toHaveBeenCalled();
+		expect(redis.hincrby).not.toHaveBeenCalled();
 	});
 });

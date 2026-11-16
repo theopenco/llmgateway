@@ -74,8 +74,10 @@ request fails before reaching a provider.
 
 `none` can use a non-reasoning mapping; a reasoning mapping with declared efforts
 must explicitly accept `none`. Mappings without declared efforts retain the
-legacy reasoning-capability check. See the live [models page](https://llmgateway.io/models)
-for each deployment's supported efforts.
+legacy reasoning-capability check, but rank behind mappings that declare the
+requested effort: they serve it only when no declared mapping remains. See the
+live [models page](https://llmgateway.io/models) for each deployment's supported
+efforts.
 
 ## Global Provider Rate Limits
 
@@ -303,7 +305,7 @@ The selection reason in routing metadata will show `stable-preferred` when a req
 
 **Your Own Provider Keys (hybrid mode)**:
 
-In a project in **hybrid** mode, routing first narrows the candidates to providers you have your own [provider key](/learn/provider-keys) for, and the weighted score picks among those. LLM Gateway's own credentials are used when none of your keys can serve the requested model, as fallback when attempts on your keys fail, or when your current keyed provider's uptime is degraded and no keyed candidate is healthier — escaping the degraded provider takes priority over staying on your key. Projects in API-keys or credits mode are unaffected.
+In a project in **hybrid** mode, routing first narrows the candidates to providers you have your own [provider key](/learn/provider-keys) for, and the weighted score picks among those. LLM Gateway's own credentials are used when none of your keys can serve the requested model, as fallback when attempts on your keys fail, or when your current keyed provider's uptime is degraded and no keyed candidate is healthier — escaping the degraded provider takes priority over staying on your key. Projects in API-keys or credits mode are unaffected. In every mode, a key at one of its [rate limits](/learn/provider-keys#rate-limits), including a per-model limit for the requested model, is skipped until its window frees up, unless its limit mode or a reasoning replay lets it serve the request.
 
 [Dynamic routes](/features/dynamic-routes) can specify provider preference order.
 After eligibility checks and hybrid-mode key preference, that order controls the
@@ -554,8 +556,9 @@ Routing metadata reflects this:
 </Callout>
 
 A few regions are served by an endpoint that belongs to your own account rather
-than a shared one — Alibaba Cloud's EU (Frankfurt) region has no shared
-DashScope domain and is served by your Model Studio workspace's dedicated host.
+than a shared one — Alibaba Cloud's EU (Frankfurt), China (Hong Kong) and Japan
+(Tokyo) regions have no shared DashScope domain and are served by your Model
+Studio workspace's dedicated host.
 Such a region still works from an API key alone, via the provider's shared entry
 point, but that endpoint is rate-limited and carries no SLA. Set the workspace
 ID on the provider key (copy it from the API Host shown when you create the key)
