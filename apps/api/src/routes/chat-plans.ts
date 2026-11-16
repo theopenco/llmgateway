@@ -521,13 +521,14 @@ chatPlans.openapi(changeTier, async (c) => {
 				})
 				.where(eq(tables.organization.id, personalOrg.id));
 		} else {
-			// Downgrade: unchanged behavior. Take effect immediately with Stripe
-			// proration crediting the unused higher-tier time on the next invoice.
+			// Downgrade: takes effect immediately with no proration. The allowance
+			// is granted up front, so crediting unused time would refund credits
+			// that may already be spent; the next renewal bills the lower price.
 			await getStripe().subscriptions.update(
 				personalOrg.chatPlanStripeSubscriptionId,
 				{
 					items: [{ id: subscriptionItemId, price: newPriceId }],
-					proration_behavior: "create_prorations",
+					proration_behavior: "none",
 					payment_behavior: "allow_incomplete",
 					metadata: {
 						...subscription.metadata,
