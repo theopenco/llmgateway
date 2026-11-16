@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
+import { AgentPrompt } from "./agent-prompt";
 import {
 	COLUMN_ROLES,
 	PLATFORM_FEE_RATE,
@@ -274,6 +275,8 @@ export function SavingsAuditClient() {
 							) : null}
 						</CardContent>
 					</Card>
+
+					{loaded ? null : <AgentPrompt />}
 
 					{loaded ? (
 						<Card>
