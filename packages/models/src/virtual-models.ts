@@ -48,6 +48,28 @@ export function getRequestedModelAlias(
 		: undefined;
 }
 
+/**
+ * Human-readable name for virtual alias `alias`: the name of the longest
+ * catalogue model id it extends plus the remaining parts title-cased
+ * ("deepseek-v4.1-flash-latest" → "DeepSeek V4.1 Flash Latest"), else the
+ * whole alias title-cased ("jev-preview" → "Jev Preview").
+ */
+export function getVirtualAliasName(alias: string): string {
+	const parts = alias.split("-").filter(Boolean);
+	const titleCase = (words: string[]) =>
+		words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+	for (let length = parts.length - 1; length > 0; length--) {
+		const prefix = parts.slice(0, length).join("-");
+		const base = (models as ModelDefinition[]).find(
+			(model) => model.id === prefix,
+		);
+		if (base?.name) {
+			return `${base.name} ${titleCase(parts.slice(length))}`;
+		}
+	}
+	return titleCase(parts);
+}
+
 export function getVirtualModelTarget(id: string): ModelDefinition | undefined {
 	return (models as ModelDefinition[]).find(
 		(model) => model.aliasesAreVirtual && model.aliases?.includes(id),
