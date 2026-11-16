@@ -80,6 +80,7 @@ describe("worker", () => {
 		await db.delete(tables.organization);
 		await db.delete(tables.user);
 		await db.delete(tables.lock);
+		await db.delete(tables.dataRetentionState);
 	};
 
 	const cleanupRetentionTestData = async () => {
@@ -731,13 +732,70 @@ describe("worker", () => {
 			expect(cleanedLog?.gatewayContentFilterResponse).toBeNull();
 			// Nulling the whole column is what clears the classifier verdicts too.
 			expect(cleanedLog?.routingMetadata).toBeNull();
-			expect(cleanedLog?.dataRetentionCleanedUp).toBe(true);
+			// The legacy flag is indexed; leaving it untouched keeps updates HOT.
+			expect(cleanedLog?.dataRetentionCleanedUp).toBe(false);
+
+			const state = await db.query.dataRetentionState.findFirst();
+			expect(state?.cursorId).toBe(retentionTestIds.logId);
 
 			const recentLog = await db.query.log.findFirst({
 				where: { id: { eq: "retention-recent-log" } },
 			});
 			expect(recentLog?.routingMetadata).toEqual(expiredLog.routingMetadata);
 			expect(recentLog?.dataRetentionCleanedUp).toBe(false);
+		});
+
+		test("resumes from the stored cursor", async () => {
+			process.env.ENABLE_DATA_RETENTION_CLEANUP = "true";
+
+			const daysAgo = (days: number) =>
+				// eslint-disable-next-line no-mixed-operators
+				new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+			const expiredLog = (id: string, createdAt: Date) => ({
+				id,
+				requestId: id,
+				createdAt,
+				organizationId: "cursor-org",
+				projectId: "cursor-project",
+				apiKeyId: "cursor-key",
+				duration: 100,
+				requestedModel: "gpt-4o-mini",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 10,
+				mode: "credits" as const,
+				usedMode: "credits" as const,
+				content: "payload",
+			});
+			const contentOf = async (id: string) =>
+				(await db.query.log.findFirst({ where: { id: { eq: id } } }))?.content;
+
+			await db
+				.insert(tables.log)
+				.values([
+					expiredLog("cursor-a", daysAgo(40)),
+					expiredLog("cursor-b", daysAgo(35)),
+				]);
+
+			await cleanupExpiredLogData();
+
+			expect(await contentOf("cursor-a")).toBeNull();
+			expect(await contentOf("cursor-b")).toBeNull();
+
+			// Behind the cursor: not revisited. Ahead of it: cleaned next run.
+			await db
+				.insert(tables.log)
+				.values([
+					expiredLog("cursor-c", daysAgo(38)),
+					expiredLog("cursor-d", daysAgo(33)),
+				]);
+
+			await cleanupExpiredLogData();
+
+			expect(await contentOf("cursor-c")).toBe("payload");
+			expect(await contentOf("cursor-d")).toBeNull();
+			const state = await db.query.dataRetentionState.findFirst();
+			expect(state?.cursorId).toBe("cursor-d");
 		});
 	});
 
