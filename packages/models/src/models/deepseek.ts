@@ -1535,6 +1535,25 @@ export const deepseekModels = [
 					"reasoning_effort",
 				],
 			},
+			{
+				providerId: "deepinfra",
+				externalId: "deepseek-ai/DeepSeek-V4-Flash-Vision-Exp",
+				inputPrice: "0.44e-6",
+				// DeepInfra lists a cache-read rate but never reports cache hits
+				// for this model (cached_tokens stays 0), so caching is undeclared.
+				outputPrice: "1.32e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 262144,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
 		],
 	},
 	{
