@@ -161,6 +161,13 @@ describe("admin rate limits for airside listings", () => {
 		);
 		// The static catalogue is still offered alongside the DB listings.
 		expect(options.providers.some((p) => p.source === "catalogue")).toBe(true);
+		// Retired providers are not offered as new targets.
+		expect(options.providers.map((p) => p.id)).not.toContain(
+			"azure-ai-foundry",
+		);
+		expect(options.mappings.map((m) => m.providerId)).not.toContain(
+			"azure-ai-foundry",
+		);
 	});
 
 	test("creating and deleting a rate limit on an airside listing", async () => {

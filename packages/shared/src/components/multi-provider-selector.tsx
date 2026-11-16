@@ -12,6 +12,7 @@ import { useState, useCallback } from "react";
 
 import { cn } from "@/lib/utils";
 
+import { isRetiredProvider } from "@llmgateway/models";
 import { getProviderIcon } from "@llmgateway/shared/components";
 
 import { Badge } from "./ui/badge";
@@ -70,15 +71,13 @@ export function MultiProviderSelector({
 	const isPolicyAware = providers.some(
 		(provider) => provider.meetsPolicy !== undefined,
 	);
-	// Selected options stay visible under the filter so they can be unselected.
-	const visibleProviders =
-		isPolicyAware && compatibleOnly
-			? providers.filter(
-					(provider) =>
-						provider.meetsPolicy !== false ||
-						selectedProviders.includes(provider.id),
-				)
-			: providers;
+	// Selected options stay visible under the filters so they can be unselected.
+	const visibleProviders = providers.filter(
+		(provider) =>
+			selectedProviders.includes(provider.id) ||
+			(!isRetiredProvider(provider.id) &&
+				!(isPolicyAware && compatibleOnly && provider.meetsPolicy === false)),
+	);
 
 	const handleProviderToggle = useCallback(
 		(providerId: string) => {

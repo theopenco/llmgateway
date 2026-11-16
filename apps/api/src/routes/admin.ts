@@ -167,6 +167,7 @@ import {
 import { logger } from "@llmgateway/logger";
 import {
 	expandAllProviderRegions,
+	isRetiredProvider,
 	models,
 	providers,
 } from "@llmgateway/models";
@@ -5290,7 +5291,7 @@ async function getProviderModelOptions(): Promise<{
 	for (const model of models) {
 		for (const mapping of model.providers) {
 			const provider = providers.find((p) => p.id === mapping.providerId);
-			if (provider) {
+			if (provider && !isRetiredProvider(provider.id)) {
 				mappings.set(`${mapping.providerId}:${model.id}`, {
 					providerId: mapping.providerId,
 					providerName: provider.name,
@@ -5312,10 +5313,12 @@ async function getProviderModelOptions(): Promise<{
 		string,
 		{ id: string; name: string; source: CatalogueSource }
 	>(
-		providers.map((p) => [
-			p.id,
-			{ id: p.id, name: p.name, source: "catalogue" as const },
-		]),
+		providers
+			.filter((p) => !isRetiredProvider(p.id))
+			.map((p) => [
+				p.id,
+				{ id: p.id, name: p.name, source: "catalogue" as const },
+			]),
 	);
 
 	for (const carrier of customProviders) {
