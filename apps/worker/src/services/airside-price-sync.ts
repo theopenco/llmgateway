@@ -4,13 +4,18 @@ import { getStopSignal } from "@/shutdown.js";
 
 import {
 	autoApprovedFilingFields,
+	getOpenAiV1Prefix,
+	getProviderDefaultBaseUrl,
 	readProviderKey,
 	updateAirsideMappingPrices,
 } from "@llmgateway/actions";
 import { and, cdb, db, desc, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { getProviderEnvVar } from "@llmgateway/models";
 import { isProviderUrlGuardEnabled } from "@llmgateway/shared";
 import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
+
+import type { ProviderId } from "@llmgateway/models";
 
 type ClaimRow = typeof tables.providerClaim.$inferSelect;
 type DraftModelRow = typeof tables.providerDraftModel.$inferSelect;
@@ -167,39 +172,89 @@ async function readCappedJson(response: Response): Promise<unknown> {
 	return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
+/** First of a provider's comma-separated environment credentials. */
+function environmentToken(providerId: string): string | undefined {
+	const variable = getProviderEnvVar(providerId);
+	const value = variable ? process.env[variable]?.trim() : undefined;
+	// JSON credentials (service accounts) cannot authenticate a bearer call.
+	if (!value || value.startsWith("{")) {
+		return undefined;
+	}
+	return value.split(",")[0]?.trim() || undefined;
+}
+
+function managedKey(providerId: string, id?: string) {
+	return db.query.providerKey.findFirst({
+		where: {
+			...(id ? { id: { eq: id } } : {}),
+			provider: { eq: providerId },
+			managed: { eq: true },
+			organizationId: { isNull: true },
+			status: { eq: "active" },
+		},
+		orderBy: { sortOrder: "asc", createdAt: "asc", id: "asc" },
+	});
+}
+
+/**
+ * Where a carrier's models list lives and what authenticates the read. A
+ * carrier serving on its own credential is read on its registered endpoint
+ * with that key. A carrier claiming a catalogue provider we serve ourselves
+ * is read on the provider's own API with the platform credential — which
+ * never goes to a carrier-supplied URL.
+ */
+export async function resolveModelsEndpoint(
+	claim: ClaimRow,
+): Promise<{ url: string; token?: string } | null> {
+	const providerId = claim.providerId as ProviderId;
+	const defaultBaseUrl = getProviderDefaultBaseUrl(providerId);
+	let baseUrl: string | null | undefined;
+	let token: string | undefined;
+	if (claim.kind !== "catalogue" || claim.providerKeyId) {
+		const key = claim.providerKeyId
+			? await managedKey(claim.providerId, claim.providerKeyId)
+			: undefined;
+		baseUrl = claim.customBaseUrl ?? key?.baseUrl ?? defaultBaseUrl;
+		token = key ? readProviderKey(key) : undefined;
+	} else {
+		const key = await managedKey(claim.providerId);
+		baseUrl = key?.baseUrl ?? defaultBaseUrl;
+		token = key ? readProviderKey(key) : environmentToken(claim.providerId);
+	}
+	if (!baseUrl) {
+		return null;
+	}
+	const root = baseUrl.replace(/\/+$/, "");
+	return {
+		url: /\/v\d+$/.test(root)
+			? `${root}/models`
+			: `${root}${getOpenAiV1Prefix(providerId)}/models`,
+		token,
+	};
+}
+
 async function fetchPublishedPrices(
 	claim: ClaimRow,
 	fetchModels: CarrierModelsFetch,
 ): Promise<Map<string, PublishedPrices> | null> {
-	const key = claim.providerKeyId
-		? await db.query.providerKey.findFirst({
-				where: {
-					id: { eq: claim.providerKeyId },
-					provider: { eq: claim.providerId },
-					managed: { eq: true },
-					organizationId: { isNull: true },
-					status: { eq: "active" },
-				},
-			})
-		: undefined;
-	const baseUrl = claim.customBaseUrl ?? key?.baseUrl;
-	if (!baseUrl) {
+	const endpoint = await resolveModelsEndpoint(claim);
+	if (!endpoint) {
+		logger.warn("Airside price sync has no endpoint for a carrier", {
+			providerId: claim.providerId,
+		});
 		return null;
 	}
-	const response = await fetchModels(
-		`${baseUrl.replace(/\/+$/, "")}/v1/models`,
-		{
-			method: "GET",
-			headers: {
-				Accept: "application/json",
-				...(key ? { Authorization: `Bearer ${readProviderKey(key)}` } : {}),
-			},
-			signal: AbortSignal.any([
-				getStopSignal(),
-				AbortSignal.timeout(FETCH_TIMEOUT_MS),
-			]),
+	const response = await fetchModels(endpoint.url, {
+		method: "GET",
+		headers: {
+			Accept: "application/json",
+			...(endpoint.token ? { Authorization: `Bearer ${endpoint.token}` } : {}),
 		},
-	);
+		signal: AbortSignal.any([
+			getStopSignal(),
+			AbortSignal.timeout(FETCH_TIMEOUT_MS),
+		]),
+	});
 	if (!response.ok) {
 		await response.body?.cancel();
 		throw new Error(`The models list responded ${response.status}.`);

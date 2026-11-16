@@ -166,7 +166,7 @@ A filing covers input, output, optional cached-input, and optional per-request p
 The LLM Gateway team can approve a carrier for **automatic fare changes**. For an approved carrier:
 
 - Price **update** filings and fare changes under **Fares** take effect as soon as they are filed. Initial filings and metadata changes still go through review.
-- About once an hour, LLM Gateway reads the carrier's own `GET /v1/models` and applies any price that differs from the live one.
+- About once an hour, LLM Gateway reads the carrier's `GET /v1/models` and applies any price that differs from the live one. Registered carriers are read on their registered endpoint; carriers that claimed a catalogue provider are read on that provider's API.
 
 Publish prices per model in a `pricing` object, as decimal strings in USD per token:
 
@@ -186,7 +186,7 @@ Publish prices per model in a `pricing` object, as decimal strings in USD per to
 }
 ```
 
-`id` is the model id your API expects. `prompt` and `completion` are required; `input_cache_read` and `request` (USD per request) are optional and keep their current value when omitted. Regional fares are not read from the endpoint and stay as last filed. A model with a filing awaiting review is skipped until that filing is decided. The request is sent with your provider key when one is on file.
+`id` is the model id your API expects. `prompt` and `completion` are required; `input_cache_read` and `request` (USD per request) are optional and keep their current value when omitted. Regional fares are not read from the endpoint and stay as last filed. A model with a filing awaiting review is skipped until that filing is decided. The request is authenticated with the credential LLM Gateway serves your traffic with.
 
 Every automatic change is recorded as an approved filing under **Filings**, next to the reviewed ones.
 

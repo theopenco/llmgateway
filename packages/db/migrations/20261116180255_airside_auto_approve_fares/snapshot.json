@@ -2,7 +2,7 @@
   "type": "diff",
   "version": "9",
   "dialect": "postgres",
-  "id": "2938f00d-8a5d-4b7d-b8b8-eb662dbfb1a7",
+  "id": "89a31394-baee-427d-84f7-ec03defa41ca",
   "prevIds": [
     "1662bcf1-d4e2-4214-8080-de68f495547b"
   ],
@@ -60,24 +60,6 @@
         "n|tbl|public.provider_routing_filing",
         "n|sch|public"
       ]
-    },
-    {
-      "statementType": "drop_column",
-      "statementTarget": [
-        "column",
-        "public",
-        "crm_integration",
-        "external_id"
-      ],
-      "writes": [
-        "s|col|public.crm_integration.external_id",
-        "n|col|public.crm_integration.external_id",
-        "e|col|public.crm_integration.external_id"
-      ],
-      "reads": [
-        "n|tbl|public.crm_integration",
-        "n|sch|public"
-      ]
     }
   ],
   "deltas": [
@@ -128,10 +110,6 @@
         "identity": null,
         "entityType": "columns"
       }
-    },
-    {
-      "op": "drop",
-      "key": "columns\u0000[\"public\",\"crm_integration\",\"external_id\"]"
     }
   ]
 }
