@@ -1184,7 +1184,6 @@ export const googleModels = [
 				providerId: "google-ai-studio",
 				externalId: "gemini-3.6-flash",
 				serviceTiers: ["flex", "priority"],
-				// Standard pricing from 2027-01-01 (introductory $0.75/$3.75 ended 2026-12-31).
 				inputPrice: "1.5e-6",
 				outputPrice: "7.5e-6",
 				cachedInputPrice: "0.15e-6",
@@ -1301,7 +1300,6 @@ export const googleModels = [
 				deactivatedAt: new Date("2027-01-28"),
 				serviceTiers: ["flex", "priority"],
 				serviceTierRegions: ["global"],
-				// Standard pricing from 2027-01-01 (introductory $0.75/$3.75 ended 2026-12-31).
 				inputPrice: "1.5e-6",
 				outputPrice: "7.5e-6",
 				cachedInputPrice: "0.15e-6",
