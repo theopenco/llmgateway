@@ -970,11 +970,16 @@ export async function calculateCosts(
 		: new Decimal(0);
 	const requestCost = requestPrice.times(discountMultiplier);
 
-	// Calculate web search cost
+	// Calculate web search cost. A discount can exclude it (e.g. a provider
+	// promo that cuts token prices but not grounding fees).
 	const webSearchPrice = new Decimal((providerInfo as any).webSearchPrice ?? 0);
+	const webSearchDiscountMultiplier =
+		effectiveDiscountResult.excludedCostTypes?.includes("web_search")
+			? new Decimal(1)
+			: discountMultiplier;
 	const webSearchCost =
 		webSearchCount && webSearchCount > 0
-			? webSearchPrice.times(webSearchCount).times(discountMultiplier)
+			? webSearchPrice.times(webSearchCount).times(webSearchDiscountMultiplier)
 			: new Decimal(0);
 
 	// Provider content filter fee, e.g. xAI's $0.05 per usage-policy rejection.
