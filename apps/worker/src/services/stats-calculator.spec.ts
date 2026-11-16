@@ -381,6 +381,7 @@ describe("stats-calculator", () => {
 					totalTokens: "320",
 					reasoningTokens: "15",
 					cachedTokens: "0",
+					cacheWriteTokens: "40",
 					unifiedFinishReason: "completed",
 					mode: "api-keys",
 					usedMode: "api-keys",
@@ -388,6 +389,7 @@ describe("stats-calculator", () => {
 					inputCost: 0.2,
 					outputCost: 0.3,
 					cachedInputCost: 0,
+					cacheWriteInputCost: 0.05,
 					createdAt: new Date(previousMinuteStart.getTime() + 30000), // 30 seconds in
 				},
 			]);
@@ -450,6 +452,9 @@ describe("stats-calculator", () => {
 			expect(claudeRecord?.totalInputCost).toBeCloseTo(0.2);
 			expect(claudeRecord?.totalOutputCost).toBeCloseTo(0.3);
 			expect(claudeRecord?.totalCachedInputCost).toBeCloseTo(0);
+			expect(claudeRecord?.totalCacheWriteTokens).toBe(40);
+			expect(claudeRecord?.totalCacheWriteInputCost).toBeCloseTo(0.05);
+			expect(gptRecord?.totalCacheWriteTokens).toBe(0);
 		});
 
 		it("stores Credits and BYOK history separately", async () => {
