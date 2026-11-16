@@ -66,10 +66,8 @@ const BUCKETS: Bucket[] = [
 ];
 
 // The per-bucket fixture above also lands in the window every query covers.
-const BASE_FIXTURE_COST = BUCKETS.reduce(
-	(sum, bucket) => sum + Math.fround(bucket.cost),
-	0,
-);
+// The double precision columns round-trip these JavaScript-number fixtures.
+const BASE_FIXTURE_COST = BUCKETS.reduce((sum, bucket) => sum + bucket.cost, 0);
 
 interface GlobalStatsResponse {
 	start: string;
@@ -795,12 +793,11 @@ describe("admin — global stats mode/kind dimensions", () => {
 		).toBe("default");
 	});
 
-	// Costs are stored in float4 columns. Summing them *as* float4 (Postgres'
-	// default for SUM(real)) runs out of significant digits well before the
-	// all-time totals this page shows, and the error depends on how the rows were
-	// grouped — so the headline stopped matching the slices underneath it. A
-	// handful of rows never showed it; the drift only appears at production
-	// magnitude, hence the bulk fixture.
+	// Double precision storage and NUMERIC accumulation keep this fixture
+	// consistent to the displayed cent across the different groupings.
+	// Under the previous float4 storage the headline stopped matching the slices
+	// underneath it. A handful of rows never showed it; the drift only appears at
+	// production magnitude, hence the bulk fixture.
 	test("large all-time sums stay exact and grouping-independent", async () => {
 		const DAYS = 700;
 		const PER_ROW_COST = 4321.1234;
@@ -844,11 +841,10 @@ describe("admin — global stats mode/kind dimensions", () => {
 		expect(byKind).toBeCloseTo(body.totals.cost, 2);
 		expect(timeseriesTotal).toBeCloseTo(body.totals.cost, 2);
 
-		// float4 rounds PER_ROW_COST on the way in, so compare against the value
-		// the column actually holds rather than the literal above.
-		const stored = Math.fround(PER_ROW_COST);
+		// Compare with the JavaScript-number fixture, not a float4-rounded
+		// stand-in. The old storage drifted by more than a cent.
 		expect(body.totals.cost).toBeCloseTo(
-			stored * DAYS * BUCKETS.length + BASE_FIXTURE_COST, // eslint-disable-line no-mixed-operators
+			PER_ROW_COST * DAYS * BUCKETS.length + BASE_FIXTURE_COST, // eslint-disable-line no-mixed-operators
 			2,
 		);
 	});
