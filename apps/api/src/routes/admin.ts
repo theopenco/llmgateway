@@ -161,6 +161,8 @@ import {
 	globalProviderKeyModelStats,
 	globalSourceStats,
 	rootModelIdSql,
+	DISCOUNT_EXCLUDABLE_COST_TYPES,
+	type DiscountExcludableCostType,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -4742,6 +4744,7 @@ const discountSchema = z.object({
 	provider: z.string().nullable(),
 	model: z.string().nullable(),
 	discountPercent: z.string(),
+	excludedCostTypes: z.array(z.enum(DISCOUNT_EXCLUDABLE_COST_TYPES)),
 	reason: z.string().nullable(),
 	expiresAt: z.string().nullable(),
 	createdAt: z.string(),
@@ -4760,6 +4763,11 @@ const createDiscountBodySchema = z.object({
 		.number()
 		.min(0, "Discount must be at least 0%")
 		.max(100, "Discount cannot exceed 100%"),
+	// Cost types billed at full price. Omitted: none on create, unchanged on update.
+	excludedCostTypes: z
+		.array(z.enum(DISCOUNT_EXCLUDABLE_COST_TYPES))
+		.transform((types) => [...new Set(types)])
+		.optional(),
 	reason: z.string().nullable().optional(),
 	expiresAt: z.string().nullable().optional(),
 });
@@ -5175,6 +5183,7 @@ function formatDiscount(d: {
 	provider: string | null;
 	model: string | null;
 	discountPercent: string | null;
+	excludedCostTypes: DiscountExcludableCostType[];
 	reason: string | null;
 	expiresAt: Date | null;
 	createdAt: Date;
@@ -5186,6 +5195,7 @@ function formatDiscount(d: {
 		provider: d.provider,
 		model: d.model,
 		discountPercent: String(d.discountPercent),
+		excludedCostTypes: d.excludedCostTypes,
 		reason: d.reason,
 		expiresAt: d.expiresAt?.toISOString() ?? null,
 		createdAt: d.createdAt.toISOString(),
@@ -5489,6 +5499,7 @@ admin.openapi(createGlobalDiscount, async (c) => {
 			provider,
 			model,
 			discountPercent: discountDecimal,
+			excludedCostTypes: body.excludedCostTypes ?? [],
 			reason: body.reason ?? null,
 			expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
 		})
@@ -5590,6 +5601,7 @@ async function updateDiscount(
 				provider,
 				model,
 				discountPercent: new Decimal(body.discountPercent).div(100).toFixed(4),
+				excludedCostTypes: body.excludedCostTypes ?? before.excludedCostTypes,
 				reason: body.reason ?? null,
 				expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
 			})
@@ -5774,6 +5786,7 @@ admin.openapi(getAllOrganizationDiscounts, async (c) => {
 			provider: tables.discount.provider,
 			model: tables.discount.model,
 			discountPercent: tables.discount.discountPercent,
+			excludedCostTypes: tables.discount.excludedCostTypes,
 			reason: tables.discount.reason,
 			expiresAt: tables.discount.expiresAt,
 			createdAt: tables.discount.createdAt,
@@ -5877,6 +5890,7 @@ admin.openapi(createOrganizationDiscount, async (c) => {
 			provider,
 			model,
 			discountPercent: discountDecimal,
+			excludedCostTypes: body.excludedCostTypes ?? [],
 			reason: body.reason ?? null,
 			expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
 		})
@@ -5892,6 +5906,7 @@ admin.openapi(createOrganizationDiscount, async (c) => {
 			provider,
 			model,
 			discountPercent: body.discountPercent,
+			excludedCostTypes: created.excludedCostTypes,
 			reason: created.reason,
 			expiresAt: created.expiresAt?.toISOString() ?? null,
 			source: "admin",
@@ -5931,6 +5946,7 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 			discountPercent: new Decimal(deleted.discountPercent ?? 0)
 				.times(100)
 				.toNumber(),
+			excludedCostTypes: deleted.excludedCostTypes,
 			source: "admin",
 		},
 	});

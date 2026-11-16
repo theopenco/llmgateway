@@ -17,6 +17,7 @@ import { createRoute } from "@/utils/create-route.js";
 
 import {
 	getEffectiveProviders,
+	DISCOUNT_EXCLUDABLE_COST_TYPES,
 	and,
 	avgEffectiveTtftSql,
 	db,
@@ -172,6 +173,8 @@ const modelProviderMappingSchema = z.object({
 	supportedVoices: z.array(z.string()).nullable(),
 	batchEndpoints: z.array(z.enum(BATCH_ENDPOINTS)).nullable(),
 	discount: z.string().nullable(),
+	/** Cost types the discount leaves at full price (e.g. "web_search"). */
+	discountExcludedCostTypes: z.array(z.enum(DISCOUNT_EXCLUDABLE_COST_TYPES)),
 	stability: z.enum(["stable", "beta", "unstable", "experimental"]).nullable(),
 	supportedParameters: z.array(z.string()).nullable(),
 	supportedVideoSizes: z.array(z.string()).nullable(),
@@ -291,13 +294,14 @@ internalModels.openapi(getModelsRoute, async (c) => {
 					?.providers.find(
 						(provider) => provider.providerId === mapping.providerId,
 					) ?? null;
+			const publicDiscount =
+				mapping.deactivatedAt && mapping.deactivatedAt <= now
+					? null
+					: getPublicDiscount(mapping.providerId, model.id);
 			return {
 				...mapping,
-				discount:
-					mapping.deactivatedAt && mapping.deactivatedAt <= now
-						? null
-						: (getPublicDiscount(mapping.providerId, model.id)
-								?.discountPercent ?? null),
+				discount: publicDiscount?.discountPercent ?? null,
+				discountExcludedCostTypes: publicDiscount?.excludedCostTypes ?? [],
 				quantization:
 					mapping.source === "airside"
 						? mapping.quantization

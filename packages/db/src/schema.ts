@@ -5483,6 +5483,11 @@ export const dynamicRouteVersion = snakeCase.table(
 	],
 );
 
+/** Flat fees a discount can be told to leave at full price; tokens are always discounted. */
+export const DISCOUNT_EXCLUDABLE_COST_TYPES = ["web_search"] as const;
+export type DiscountExcludableCostType =
+	(typeof DISCOUNT_EXCLUDABLE_COST_TYPES)[number];
+
 // Discount - Admin-configurable discounts for providers/models
 // Can be global (organizationId = null) or org-specific
 export const discount = snakeCase.table(
@@ -5505,6 +5510,12 @@ export const discount = snakeCase.table(
 		model: text(),
 		// Discount value (0-1, where 0.3 = 30% off, user pays 70%)
 		discountPercent: decimal().notNull(),
+		// Cost types billed at full price; empty = discount applies to everything
+		excludedCostTypes: text()
+			.$type<DiscountExcludableCostType>()
+			.array()
+			.notNull()
+			.default([]),
 		// Optional metadata
 		reason: text(),
 		expiresAt: timestamp(),
