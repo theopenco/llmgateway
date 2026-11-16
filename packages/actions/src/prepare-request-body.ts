@@ -2729,11 +2729,16 @@ export async function prepareRequestBody(
 	// every other host gets a single space. Any host of DeepSeek V4 can enforce
 	// the constraint, including Airside carriers (e.g. Luminal) that reach this
 	// function as the "openai" transport, so match V4 by the canonical model id.
+	// Reflection's Beam chat template is stricter still: it rejects every
+	// earlier assistant turn without non-empty `reasoning_content`, tool call
+	// or not, so it gets the backfill on all assistant turns.
 	const isDeepseekV4 = usedInternalModel.startsWith("deepseek-v4");
+	const isReflectionBeam = usedInternalModel.startsWith("beam-");
 	if (
 		usedProvider === "deepseek" ||
 		usedProvider === "moonshot" ||
-		isDeepseekV4
+		isDeepseekV4 ||
+		isReflectionBeam
 	) {
 		const fallback = usedProvider === "deepseek" ? "" : " ";
 		processedMessages = processedMessages.map((m) => {
@@ -2743,13 +2748,17 @@ export async function prepareRequestBody(
 			// Never send both fields: Runware treats `reasoning` as an alias of
 			// `reasoning_content` and rejects a message carrying both.
 			const { reasoning, ...rest } = m;
-			if (m.reasoning_content !== undefined) {
+			if (
+				m.reasoning_content !== undefined &&
+				!(isReflectionBeam && !m.reasoning_content)
+			) {
 				return reasoning === undefined ? m : rest;
 			}
 			if (
-				!m.tool_calls ||
-				!Array.isArray(m.tool_calls) ||
-				m.tool_calls.length === 0
+				!isReflectionBeam &&
+				(!m.tool_calls ||
+					!Array.isArray(m.tool_calls) ||
+					m.tool_calls.length === 0)
 			) {
 				return m;
 			}
@@ -2760,6 +2769,7 @@ export async function prepareRequestBody(
 	if (
 		(usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") ||
 		(usedProvider === "baidu" && usedInternalModel === "kimi-k3") ||
+		(usedProvider === "sakana" && usedInternalModel === "sakana-namazu") ||
 		usedProvider === "runpod" ||
 		(usedProvider === "tencent" &&
 			["kimi-k2.8-preview", "glm-5.3-flash", "glm-5.3-flashx"].includes(

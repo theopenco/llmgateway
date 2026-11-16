@@ -29,6 +29,7 @@ interface ContentFilterProvider {
 	name: string;
 	color: string | null;
 	enabled: boolean;
+	enforced: boolean;
 }
 
 type Classifier = ContentFilterSettingsInput["classifier"];
@@ -51,6 +52,7 @@ interface ContentFilterSettingsFormProps {
 		enabled: boolean;
 		sampleRatePercent: number;
 		enforce: boolean;
+		enforceSampleRatePercent: number;
 		enforceEnterprise: boolean;
 		classifier: Classifier;
 		internalScope: InternalScope;
@@ -81,6 +83,13 @@ export function ContentFilterSettingsForm({
 	const [providerIds, setProviderIds] = useState<string[]>(() =>
 		settings.providers.filter((p) => p.enabled).map((p) => p.id),
 	);
+	const [enforceProviderIds, setEnforceProviderIds] = useState<string[]>(() =>
+		settings.providers.filter((p) => p.enforced).map((p) => p.id),
+	);
+	const [enforceSampleRate, setEnforceSampleRate] = useState(
+		String(settings.enforceSampleRatePercent),
+	);
+	const anyEnforced = enforce || enforceProviderIds.length > 0;
 	const allSelected =
 		settings.providers.length > 0 &&
 		providerIds.length >= settings.providers.length;
@@ -110,13 +119,34 @@ export function ContentFilterSettingsForm({
 			setValidationError("Sample rate must be between 0 and 100.");
 			return;
 		}
-		const savedEnforceEnterprise = enforce && enforceEnterprise;
+		const editedEnforceRate = Number(enforceSampleRate);
+		const enforceRateValid =
+			enforceSampleRate.trim() !== "" &&
+			Number.isFinite(editedEnforceRate) &&
+			editedEnforceRate >= 0 &&
+			editedEnforceRate <= 100;
+		// The field is disabled while global blocking is on, so an invalid edit
+		// keeps the stored value instead of failing validation.
+		if (!enforceRateValid && !enforce) {
+			mutation.reset();
+			setValidationError("Blocking sample rate must be between 0 and 100.");
+			return;
+		}
+		const enforceRate = enforceRateValid
+			? editedEnforceRate
+			: settings.enforceSampleRatePercent;
+		if (!enforceRateValid) {
+			setEnforceSampleRate(String(enforceRate));
+		}
+		const savedEnforceEnterprise = anyEnforced && enforceEnterprise;
 		mutation.mutate(
 			{
 				body: {
 					enabled,
 					sampleRatePercent: rate,
 					enforce,
+					enforceProviderIds,
+					enforceSampleRatePercent: enforceRate,
 					enforceEnterprise: savedEnforceEnterprise,
 					classifier,
 					internalScope,
@@ -175,7 +205,9 @@ export function ContentFilterSettingsForm({
 				/>
 				<p className="text-xs text-muted-foreground">
 					Share of eligible requests sent to the moderation API. 100 moderates
-					every request on an enabled provider; 0 disables moderation.
+					every request on an enabled provider; 0 disables moderation, except
+					the blocking share of blocking providers while blocking is off for
+					everyone.
 				</p>
 			</div>
 
@@ -206,8 +238,8 @@ export function ContentFilterSettingsForm({
 			<div className="flex items-center gap-3">
 				<Switch
 					id="content-filter-enforce-enterprise"
-					checked={enforce && enforceEnterprise}
-					disabled={pending || readOnly || !enforce}
+					checked={anyEnforced && enforceEnterprise}
+					disabled={pending || readOnly || !anyEnforced}
 					onCheckedChange={(checked) => {
 						setSaved(false);
 						setEnforceEnterprise(checked);
@@ -359,6 +391,63 @@ export function ContentFilterSettingsForm({
 						placeholder="Search and select providers..."
 					/>
 				)}
+			</div>
+
+			<div className="space-y-2">
+				<p className="text-sm font-medium">Blocking providers</p>
+				<p className="text-xs text-muted-foreground">
+					A share of requests routed to these providers, set by the blocking
+					sample rate, is checked before the provider call and blocked on a
+					violation, even while blocking is off for everyone else. The rest are
+					monitored log-only at the sample rate above. These providers do not
+					need to be in the provider list. The enterprise and log-only
+					organization exemptions still apply.
+				</p>
+				{readOnly ? (
+					<div className="flex flex-wrap gap-2">
+						{settings.providers
+							.filter((p) => p.enforced)
+							.map((p) => (
+								<Badge key={p.id} variant="secondary">
+									{p.name}
+								</Badge>
+							))}
+					</div>
+				) : (
+					<MultiProviderSelector
+						providers={settings.providers}
+						selectedProviders={enforceProviderIds}
+						onProvidersChange={(next) => {
+							setSaved(false);
+							setEnforceProviderIds(next);
+						}}
+						placeholder="Search and select blocking providers..."
+					/>
+				)}
+			</div>
+
+			<div className="space-y-2">
+				<Label htmlFor="content-filter-enforce-sample-rate">
+					Blocking sample rate (%)
+				</Label>
+				<Input
+					id="content-filter-enforce-sample-rate"
+					type="number"
+					min={0}
+					max={100}
+					step="any"
+					className="w-32"
+					value={enforceSampleRate}
+					disabled={pending || readOnly || enforce}
+					onChange={(event) => {
+						setSaved(false);
+						setEnforceSampleRate(event.target.value);
+					}}
+				/>
+				<p className="text-xs text-muted-foreground">
+					Share of a blocking provider&apos;s requests checked in blocking mode.
+					Ignored while blocking is on for everyone.
+				</p>
 			</div>
 
 			<div className="flex items-center gap-3">

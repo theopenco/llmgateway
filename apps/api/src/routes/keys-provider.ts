@@ -55,6 +55,7 @@ import {
 	isStealthProvider,
 	providers,
 	regionEndpointRequiresWorkspaceId,
+	isRetiredProvider,
 } from "@llmgateway/models";
 import {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
@@ -142,8 +143,6 @@ export const providerKeySchema = z.object({
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
 			azure_validation_model: z.string().optional(),
 			azure_deployment_name: z.string().optional(),
-			azure_ai_foundry_resource: z.string().optional(),
-			azure_ai_foundry_api_version: z.string().optional(),
 			azure_anthropic_resource: z.string().optional(),
 			alibaba_region: z
 				.enum([
@@ -503,8 +502,6 @@ const createProviderKeySchema = z.object({
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
 			azure_validation_model: azurePathSegmentSchema.optional(),
 			azure_deployment_name: azurePathSegmentSchema.optional(),
-			azure_ai_foundry_resource: azureResourceSchema.optional(),
-			azure_ai_foundry_api_version: azurePathSegmentSchema.optional(),
 			azure_anthropic_resource: azureResourceSchema.optional(),
 			alibaba_region: z
 				.enum([
@@ -676,7 +673,8 @@ keysProvider.openapi(create, async (c) => {
 
 	if (
 		provider !== "custom" &&
-		!(await getEffectiveProviders()).some((entry) => entry.id === provider)
+		(isRetiredProvider(provider) ||
+			!(await getEffectiveProviders()).some((entry) => entry.id === provider))
 	) {
 		throw new HTTPException(400, { message: "Invalid or inactive provider." });
 	}
@@ -1318,6 +1316,12 @@ keysProvider.openapi(updateStatus, async (c) => {
 	// just get it re-deactivated by the worker on its next attributed batch —
 	// reject it so the user sees why instead of watching it flip back.
 	if (status === "active") {
+		if (isRetiredProvider(providerKey.provider)) {
+			throw new HTTPException(400, {
+				message:
+					"This provider is retired. Configure a replacement provider key.",
+			});
+		}
 		const effectiveLimit =
 			usageLimit !== undefined ? usageLimit : providerKey.usageLimit;
 		if (

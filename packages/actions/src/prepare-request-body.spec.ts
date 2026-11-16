@@ -3060,13 +3060,13 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 	);
 
 	test("strips none for an OpenAI-compatible mapping that does not declare it", async () => {
-		// grok-4-3 via azure-ai-foundry speaks a non-allowlisted provider and
+		// grok-4-1-fast-reasoning via xai speaks a non-allowlisted provider and
 		// its catalog entry omits `none` from reasoningEfforts. The mapping
 		// must be the authority: with `none` undeclared, the value is
 		// normalized away instead of forwarded to a provider that may 4xx.
 		const requestBody = await prepare({
-			provider: "azure-ai-foundry",
-			model: "grok-4-3",
+			provider: "xai",
+			model: "grok-4-1-fast-reasoning",
 		});
 		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
@@ -3226,8 +3226,8 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 		// xAI mappings that declare reasoning: true but previously omitted
 		// reasoning_effort from supportedParameters, silently dropping any
 		// effort value before the request was built (#3436, #3403).
-		["azure-ai-foundry", "grok-4-3", "medium"],
-		["azure-ai-foundry", "grok-4-1-fast-reasoning", "high"],
+		["azure", "grok-4-3", "medium"],
+		["azure", "grok-4-1-fast-reasoning", "high"],
 		["xai", "grok-4", "high"],
 	];
 
@@ -8021,41 +8021,66 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				expect(requestBody.messages[3].reasoning).toBe(reasoningLeft);
 			},
 		);
-	});
 
-	describe("azure-ai-foundry", () => {
-		test("keeps Grok 4.3 as Azure Foundry chat completions", async () => {
+		test("backfills reasoning_content on every assistant turn for Reflection Beam", async () => {
+			// Beam's chat template rejects any earlier assistant turn without a
+			// non-empty reasoning_content, tool call or not (verified 2026-11-16).
 			const requestBody = (await prepareRequestBody(
-				"azure-ai-foundry",
-				"grok-4-3",
+				"together-ai",
+				"beam-1.0-501b-a23b",
 				null,
-				"grok-4.3",
-				[{ role: "user", content: "Hello!" }],
-				true,
-				0.2,
-				8192,
-				0.9,
+				"reflection/Beam-1.0-501B-A23B",
+				[
+					{ role: "user", content: "Hi" },
+					{ role: "assistant", content: "Hello!" },
+					{ role: "user", content: "Weather in Paris?" },
+					{
+						role: "assistant",
+						content: "",
+						reasoning: "Look it up.",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: '{"city":"Paris"}',
+								},
+							},
+						],
+					},
+					{ role: "tool", tool_call_id: "call_1", content: "sunny" },
+					{ role: "assistant", content: "Sunny.", reasoning_content: "" },
+					{ role: "user", content: "Thanks!" },
+				],
+				false,
 				undefined,
 				undefined,
 				undefined,
 				undefined,
 				undefined,
-				"medium",
-				true,
-			)) as unknown as Record<string, unknown>;
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
 
-			expect(requestBody.model).toBe("grok-4.3");
-			expect(requestBody.messages).toEqual([
-				{ role: "user", content: "Hello!" },
-			]);
-			expect(requestBody.stream).toBe(true);
-			expect(requestBody.stream_options).toEqual({ include_usage: true });
-			expect(requestBody.temperature).toBe(0.2);
-			expect(requestBody.max_tokens).toBe(8192);
-			expect(requestBody.max_completion_tokens).toBeUndefined();
-			expect(requestBody.top_p).toBe(0.9);
-			expect(requestBody.reasoning_effort).toBe("medium");
-			expect(requestBody.inferenceConfig).toBeUndefined();
+			expect(
+				[1, 3, 5].map((i) => requestBody.messages[i].reasoning_content),
+			).toEqual([" ", "Look it up.", " "]);
+			expect(requestBody.messages[3].reasoning).toBeUndefined();
+			expect(requestBody.messages[0].reasoning_content).toBeUndefined();
 		});
 	});
 
@@ -10635,40 +10660,46 @@ describe("prepareRequestBody - alibaba forced tool use", () => {
 	);
 });
 
-describe("prepareRequestBody - Baidu Kimi K3 empty text parts", () => {
-	test("drops empty text parts", async () => {
-		const requestBody = (await prepareRequestBody(
-			"baidu",
-			"kimi-k3",
-			null,
-			"qianfan-vl-v1",
-			[
-				{
-					role: "user",
-					content: [
-						{ type: "text", text: "describe this" },
-						{ type: "text", text: "" },
-					],
-				},
-			],
-			false,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			false,
-		)) as { messages: { content: unknown }[] };
+describe("prepareRequestBody - empty text parts", () => {
+	test.each([
+		["baidu", "kimi-k3", "qianfan-vl-v1"],
+		["sakana", "sakana-namazu", "sakana-namazu-v1.0"],
+	] as const)(
+		"drops empty text parts for %s/%s",
+		async (provider, model, externalId) => {
+			const requestBody = (await prepareRequestBody(
+				provider,
+				model,
+				null,
+				externalId,
+				[
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "describe this" },
+							{ type: "text", text: "" },
+						],
+					},
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as { messages: { content: unknown }[] };
 
-		expect(requestBody.messages[0].content).toEqual([
-			{ type: "text", text: "describe this" },
-		]);
-	});
+			expect(requestBody.messages[0].content).toEqual([
+				{ type: "text", text: "describe this" },
+			]);
+		},
+	);
 });
 
 describe("prepareRequestBody - fal image generation", () => {

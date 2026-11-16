@@ -25,6 +25,7 @@ import { openaiModels } from "./models/openai.js";
 import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { recraftModels } from "./models/recraft.js";
+import { reflectionModels } from "./models/reflection.js";
 import { sakanaModels } from "./models/sakana.js";
 import { stepfunModels } from "./models/stepfun.js";
 import { tencentModels } from "./models/tencent.js";
@@ -1117,4 +1118,5 @@ export const models = [
 	...thinkingmachinesModels,
 	...stepfunModels,
 	...ibmModels,
+	...reflectionModels,
 ] as const satisfies ModelDefinition[];

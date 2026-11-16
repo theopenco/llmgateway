@@ -122,6 +122,96 @@ describe("resolveTieredContentFilterPlan", () => {
 		).toMatchObject({ enforce: false, exemptReason: "org_log_only" });
 	});
 
+	test("blocks on enforced providers while the rest stay log-only", async () => {
+		const perProvider = {
+			...enabledSettings,
+			providerIds: ["openai", "anthropic"],
+			enforceProviderIds: ["openai"],
+		};
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", perProvider),
+		).toMatchObject({ enforce: true });
+		expect(
+			await resolveTieredContentFilterPlan(org(), "anthropic", perProvider),
+		).toMatchObject({ enforce: false, exemptReason: "global_log_only" });
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", {
+				...enabledSettings,
+				providerIds: [],
+				enforceProviderIds: ["openai"],
+			}),
+		).toMatchObject({ enforce: true });
+		expect(
+			await resolveTieredContentFilterPlan(
+				org({ plan: "enterprise" }),
+				"openai",
+				perProvider,
+			),
+		).toMatchObject({ enforce: false, exemptReason: "enterprise" });
+		expect(
+			await resolveTieredContentFilterPlan(
+				org({ contentFilterLogOnly: true }),
+				"openai",
+				perProvider,
+			),
+		).toMatchObject({ enforce: false, exemptReason: "org_log_only" });
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", {
+				...perProvider,
+				enabled: false,
+			}),
+		).toBeNull();
+		// Settings cached by the previous release lack the field.
+		const { enforceProviderIds: _omitted, ...legacy } = perProvider;
+		expect(
+			await resolveTieredContentFilterPlan(
+				org(),
+				"openai",
+				legacy as typeof perProvider,
+			),
+		).toMatchObject({ enforce: false, exemptReason: "global_log_only" });
+	});
+
+	test("splits a blocking provider between blocking and monitoring", async () => {
+		const split = {
+			...enabledSettings,
+			enforceProviderIds: ["openai"],
+			enforceSampleRatePercent: 10,
+		};
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", split, () => 0.05),
+		).toMatchObject({ enforce: true });
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", split, () => 0.5),
+		).toMatchObject({ enforce: false, exemptReason: "global_log_only" });
+		// Missing the blocking share falls back to the general rate.
+		expect(
+			await resolveTieredContentFilterPlan(
+				org(),
+				"openai",
+				{ ...split, sampleRatePercent: 90 },
+				() => 0.95,
+			),
+		).toBeNull();
+		// The blocking share is checked even when the general rate skips it.
+		expect(
+			await resolveTieredContentFilterPlan(
+				org(),
+				"openai",
+				{ ...split, sampleRatePercent: 0 },
+				() => 0.05,
+			),
+		).toMatchObject({ enforce: true });
+		expect(
+			await resolveTieredContentFilterPlan(
+				org(),
+				"openai",
+				{ ...split, enforceSampleRatePercent: 0 },
+				() => 0,
+			),
+		).toMatchObject({ enforce: false, exemptReason: "global_log_only" });
+	});
+
 	test("honours the content filter pin and the trust tier pin", async () => {
 		expect(
 			await resolveTieredContentFilterPlan(

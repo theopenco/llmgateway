@@ -128,13 +128,23 @@ describe("runContentFilterClassifier", () => {
 		expect(checked.model).toBe("jev-1.13.0");
 	});
 
-	it("times the text check and the image delegation together", async () => {
+	it("runs the text check and the image delegation in parallel", async () => {
+		const events: string[] = [];
+		let releaseText!: () => void;
+		const textGate = new Promise<void>((resolve) => {
+			releaseText = resolve;
+		});
 		checkJev.mockImplementation(async () => {
-			await sleep(40);
+			events.push("text:start");
+			// Sequential execution would never start the image check, so cap the wait.
+			await Promise.race([textGate, sleep(1_000)]);
+			events.push("text:end");
 			return result(false, { violence: 0.1 }, "jev-1.13.0");
 		});
 		checkOpenAI.mockImplementation(async () => {
-			await sleep(40);
+			events.push("image:start");
+			releaseText();
+			events.push("image:end");
 			return result(false, { violence: 0.1 }, "omni-moderation-latest");
 		});
 
@@ -146,7 +156,13 @@ describe("runContentFilterClassifier", () => {
 			{ imagesAllowed: true },
 		);
 
-		expect(checked.durationMs).toBeGreaterThanOrEqual(75);
+		expect(events.indexOf("image:start")).toBeLessThan(
+			events.indexOf("text:end"),
+		);
+		expect(events.indexOf("text:start")).toBeLessThan(
+			events.indexOf("image:end"),
+		);
+		expect(checked.results).toHaveLength(2);
 	});
 
 	it("times the text check and the image delegation separately", async () => {

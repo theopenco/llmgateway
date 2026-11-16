@@ -120,9 +120,11 @@ export {
 } from "./model-categories.js";
 
 export {
+	getAppVersion,
 	HealthChecker,
 	type HealthCheckResult,
 	type HealthCheckOptions,
+	type ReadinessGateOptions,
 	type HealthCheckDependencies,
 	type HealthResponse,
 } from "./health-check.js";
@@ -266,6 +268,14 @@ export {
 	modelErrorRateAlertsSettingsSchema,
 	parseModelErrorRateAlertsSettings,
 } from "./model-error-rate-alerts.js";
+
+export {
+	FAILING_CREDENTIAL_ERROR_RATE,
+	FAILING_CREDENTIAL_MIN_REQUESTS,
+	FAILING_CREDENTIAL_WINDOW_HOURS,
+	failingCredentialWindowStart,
+	getFailingCredentialRate,
+} from "./failing-credentials.js";
 
 export {
 	deriveStabilityMetrics,

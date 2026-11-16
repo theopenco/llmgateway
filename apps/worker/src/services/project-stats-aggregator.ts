@@ -184,6 +184,8 @@ export function getBaseAggregationFields() {
 		requestCost: sumLogMoney(log.requestCost, "requestCost"),
 		webSearchCost: sumLogMoney(log.webSearchCost, "webSearchCost"),
 		dataStorageCost: sumLogMoney(log.dataStorageCost, "dataStorageCost"),
+		// Slightly overstated when a discount excludes web search: the
+		// full-price search fee in `cost` is grossed up too.
 		discountSavings: sql<number>`coalesce(
 			sum(
 				case

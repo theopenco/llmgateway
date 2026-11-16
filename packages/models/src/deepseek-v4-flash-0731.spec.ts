@@ -109,7 +109,6 @@ describe("DeepSeek V4 Flash July snapshot migration", () => {
 			["deepseek", "2026-09-10"],
 			["fireworks", "2026-10-19"],
 			["together-ai", "2026-10-22"],
-			["ranoai", "2026-11-17"],
 			["canopywave", "2026-11-17"],
 		] as const) {
 			expect(

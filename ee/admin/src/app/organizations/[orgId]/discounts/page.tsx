@@ -169,8 +169,18 @@ export default async function OrganizationDiscountsPage({
 										)}
 									</TableCell>
 									<TableCell>
-										<span className="font-medium text-green-600">
-											{formatDiscount(discount.discountPercent)} off
+										<span className="flex flex-wrap items-center gap-2">
+											<span className="font-medium text-green-600">
+												{formatDiscount(discount.discountPercent)} off
+											</span>
+											{discount.excludedCostTypes.includes("web_search") && (
+												<Badge
+													variant="outline"
+													className="text-muted-foreground"
+												>
+													excl. web search
+												</Badge>
+											)}
 										</span>
 									</TableCell>
 									<TableCell className="max-w-[200px] truncate text-muted-foreground">

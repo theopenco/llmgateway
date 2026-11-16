@@ -63,11 +63,8 @@ export interface ResolvedRoutingConfig {
 
 export function buildProviderPriorityDefaults(): ProviderPriorityOverrides {
 	const result: ProviderPriorityOverrides = {};
-	for (const provider of providers as ReadonlyArray<{
-		id: string;
-		priority?: number;
-	}>) {
-		result[provider.id] = provider.priority ?? 1;
+	for (const provider of providers) {
+		result[provider.id] = 1;
 	}
 	return result;
 }

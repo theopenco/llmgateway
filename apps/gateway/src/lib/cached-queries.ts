@@ -277,6 +277,7 @@ export async function findApiKeyByToken(
 						inArray(apiKeyTable.tokenHash, tokenHashes),
 						ne(apiKeyTable.keyType, "end_user_customer"),
 						ne(apiKeyTable.keyType, "platform_secret"),
+						ne(apiKeyTable.keyType, "platform_publishable"),
 					),
 				)
 				.limit(1);
@@ -284,7 +285,8 @@ export async function findApiKeyByToken(
 		},
 	);
 
-	if (key) {
+	// Re-check after the cache: a stale mirror entry can predate the filter.
+	if (key && key.keyType !== "platform_publishable") {
 		return key;
 	}
 
