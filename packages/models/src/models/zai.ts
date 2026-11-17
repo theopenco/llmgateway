@@ -534,6 +534,44 @@ export const zaiModels = [
 		],
 	},
 	{
+		id: "glm-5.3-prime",
+		name: "GLM-5.3 Prime",
+		description:
+			"High-speed variant of Zhipu GLM-5.3 with the same capabilities and 1.5-2x the output throughput, with a 1M context window.",
+		family: "zai",
+		releasedAt: new Date("2026-09-23"),
+		providers: [
+			{
+				providerId: "alibaba",
+				externalId: "glm-5.3-prime",
+				inputPrice: "2.8e-6",
+				cachedInputPrice: "0.56e-6",
+				outputPrice: "8.8e-6",
+				regions: [
+					{ id: "singapore" },
+					{
+						id: "cn-beijing",
+						inputPrice: "2.2e-6",
+						outputPrice: "7.702e-6",
+						cachedInputPrice: "0.55e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				maxTemperature: 1,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["low", "high", "max"],
+				vision: false,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				supportsDeveloperRole: false,
+			},
+		],
+	},
+	{
 		id: "glm-5.2",
 		name: "GLM-5.2",
 		description:
