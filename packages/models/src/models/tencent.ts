@@ -225,6 +225,41 @@ export const tencentModels = [
 		],
 	},
 	{
+		id: "hy4-flash",
+		name: "Hy4 Flash",
+		description:
+			"Tencent's fast, low-cost Hy4 tier: a 224B-parameter MoE with 12B active parameters, multimodal input and a 1M context window, built for high-volume coding, agentic and everyday workloads.",
+		family: "tencent",
+		releasedAt: new Date("2026-11-16"),
+		providers: [
+			{
+				providerId: "tencent",
+				externalId: "hy4-flash",
+				inputPrice: "0.07e-6",
+				cachedInputPrice: "0.003e-6",
+				outputPrice: "0.281e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 65536,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
 		id: "hy-image-v3.5-preview",
 		name: "Hy Image 3.5 Preview",
 		description:
