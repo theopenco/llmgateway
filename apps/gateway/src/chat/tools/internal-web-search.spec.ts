@@ -12,6 +12,15 @@ import {
 	type InternalWebSearch,
 } from "./internal-web-search.js";
 
+const credential = vi.hoisted(() => ({
+	has: vi.fn().mockResolvedValue(false),
+	resolve: vi.fn(),
+}));
+vi.mock("./content-filter-credential.js", () => ({
+	hasContentFilterCredential: credential.has,
+	resolveContentFilterCredential: credential.resolve,
+}));
+
 const search: InternalWebSearch = {
 	engine: "exa",
 	query: "q",
@@ -324,6 +333,46 @@ describe("runInternalWebSearch", () => {
 			runInternalWebSearch("exa", "q", { type: "web_search" }, "req"),
 		).resolves.toBeNull();
 		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	test("falls back to the Perplexity platform credential", async () => {
+		vi.stubEnv("PERPLEXITY_SEARCH_API_KEY", "");
+		credential.has.mockResolvedValueOnce(true);
+		credential.resolve.mockResolvedValueOnce({
+			providerToken: "platform",
+			url: "https://proxy.example.com/search",
+		});
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(new Response(JSON.stringify({ results: [] })));
+		vi.stubGlobal("fetch", fetchMock);
+
+		await runInternalWebSearch(
+			"perplexity",
+			"q",
+			{ type: "web_search" },
+			"req",
+		);
+
+		expect(credential.has).toHaveBeenCalledWith("perplexity");
+		expect(credential.resolve.mock.calls[0][1]).toBe("/search");
+		expect(fetchMock.mock.calls[0][0]).toBe("https://proxy.example.com/search");
+		expect(fetchMock.mock.calls[0][1].headers.authorization).toBe(
+			"Bearer platform",
+		);
+	});
+
+	test("returns null when the platform credential is unavailable", async () => {
+		vi.stubEnv("PERPLEXITY_SEARCH_API_KEY", "");
+		credential.has.mockResolvedValueOnce(true);
+		credential.resolve.mockRejectedValueOnce(new Error("none left"));
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(
+			runInternalWebSearch("perplexity", "q", { type: "web_search" }, "req"),
+		).resolves.toBeNull();
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	test("returns null without an API key", async () => {

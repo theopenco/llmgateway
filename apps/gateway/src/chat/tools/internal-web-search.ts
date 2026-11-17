@@ -2,11 +2,17 @@ import { Decimal } from "decimal.js";
 
 import { logger, toError } from "@llmgateway/logger";
 
+import {
+	hasContentFilterCredential,
+	resolveContentFilterCredential,
+} from "./content-filter-credential.js";
+
 import type { Annotation } from "./types.js";
 import type {
 	BaseMessage,
 	MessageContent,
 	GatewayWebSearchEngine,
+	ProviderId,
 	WebSearchTool,
 	WebSearchType,
 } from "@llmgateway/models";
@@ -103,6 +109,13 @@ interface SearchLimits {
 interface EngineAdapter {
 	/** Env var holding the platform credential for this engine. */
 	apiKeyEnv: string;
+	/**
+	 * Provider whose platform credential also authorizes this engine, used
+	 * when `apiKeyEnv` is unset.
+	 */
+	platformProvider?: ProviderId;
+	/** Path appended to the platform credential's base URL. */
+	platformPath?: string;
 	buildRequest: (
 		apiKey: string,
 		query: string,
@@ -225,6 +238,9 @@ const ENGINE_ADAPTERS: Record<GatewayWebSearchEngine, EngineAdapter> = {
 	},
 	perplexity: {
 		apiKeyEnv: "PERPLEXITY_SEARCH_API_KEY",
+		// The Search API takes the same key as Perplexity's chat models.
+		platformProvider: "perplexity",
+		platformPath: "/search",
 		buildRequest: (apiKey, query, tool, limits) => {
 			const domainFilter = tool.allowed_domains?.length
 				? tool.allowed_domains
@@ -261,6 +277,33 @@ const ENGINE_ADAPTERS: Record<GatewayWebSearchEngine, EngineAdapter> = {
 	},
 };
 
+/**
+ * The engine's own env var wins; otherwise the platform credential of the
+ * provider sharing its key (managed credential, else its `LLM_*` env var).
+ */
+async function resolveEngineCredential(
+	adapter: EngineAdapter,
+	requestId: string,
+): Promise<{ apiKey: string; url?: string } | undefined> {
+	const fromEnv = process.env[adapter.apiKeyEnv];
+	if (fromEnv) {
+		return { apiKey: fromEnv };
+	}
+	const provider = adapter.platformProvider;
+	if (!provider || !(await hasContentFilterCredential(provider))) {
+		return undefined;
+	}
+	// A platform credential goes to its own base URL, which may be a proxy.
+	const credential = await resolveContentFilterCredential(
+		provider,
+		adapter.platformPath ?? "",
+		`web-search:${requestId}`,
+	);
+	return credential.providerToken
+		? { apiKey: credential.providerToken, url: credential.url }
+		: undefined;
+}
+
 export async function runInternalWebSearch(
 	engine: GatewayWebSearchEngine,
 	query: string,
@@ -268,17 +311,31 @@ export async function runInternalWebSearch(
 	requestId: string,
 ): Promise<InternalWebSearch | null> {
 	const adapter = ENGINE_ADAPTERS[engine];
-	const apiKey = process.env[adapter.apiKeyEnv];
-	if (!apiKey) {
+	let credential: { apiKey: string; url?: string } | undefined;
+	try {
+		credential = await resolveEngineCredential(adapter, requestId);
+	} catch (error) {
+		logger.error("Internal web search skipped: credential unavailable", {
+			requestId,
+			engine,
+			error: toError(error).message,
+		});
+		return null;
+	}
+	if (!credential) {
 		logger.error("Internal web search skipped: API key is not set", {
 			requestId,
 			engine,
 			env: adapter.apiKeyEnv,
+			...(adapter.platformProvider && {
+				platformProvider: adapter.platformProvider,
+			}),
 		});
 		return null;
 	}
 	const limits = CONTEXT_SIZE_LIMITS[tool.search_context_size ?? "medium"];
-	const request = adapter.buildRequest(apiKey, query, tool, limits);
+	const built = adapter.buildRequest(credential.apiKey, query, tool, limits);
+	const request = credential.url ? { ...built, url: credential.url } : built;
 
 	// One deadline covers the retry, so a slow engine delays the request by
 	// at most SEARCH_TIMEOUT_MS.
