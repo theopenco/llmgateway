@@ -340,7 +340,7 @@ describe("runInternalWebSearch", () => {
 		credential.has.mockResolvedValueOnce(true);
 		credential.resolve.mockResolvedValueOnce({
 			providerToken: "platform",
-			url: "",
+			url: "https://proxy.example.com/search",
 		});
 		const fetchMock = vi
 			.fn()
@@ -355,6 +355,8 @@ describe("runInternalWebSearch", () => {
 		);
 
 		expect(credential.has).toHaveBeenCalledWith("perplexity");
+		expect(credential.resolve.mock.calls[0][1]).toBe("/search");
+		expect(fetchMock.mock.calls[0][0]).toBe("https://proxy.example.com/search");
 		expect(fetchMock.mock.calls[0][1].headers.authorization).toBe(
 			"Bearer platform",
 		);
