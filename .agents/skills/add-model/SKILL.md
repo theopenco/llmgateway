@@ -243,23 +243,28 @@ quota.
 
 ## Alibaba regions and workspaces
 
-Alibaba credentials are per region: `LLM_ALIBABA_API_KEY__<REGION>` and
-`LLM_ALIBABA_WORKSPACE_ID__<REGION>` (`SINGAPORE`, `EU_FRANKFURT`,
-`US_VIRGINIA`, `CN_BEIJING`), resolved by `getRegionSpecificEnvValue` and
-`getRegionScopedProviderEnvValue`. The unsuffixed variables are only a
-fallback. A key works only against its own region's host, so a 401 on every
-Alibaba model, existing ones included, means a wrong or missing regional key,
-not a broken mapping.
+Alibaba keys are region-scoped (`regionConfig` in `providers.ts` leaves
+`sharedCredentialAcrossRegions` unset). A key works only against its own
+region's host, so a 401 on every Alibaba model, existing ones included, means a
+wrong or missing regional key, not a broken mapping.
 
-- A mapping without `:region` runs in the default region (`singapore`). Put
-  each region the model is listed for on Model Studio's pricing page in the
-  mapping's `regions` array with that region's prices; models are often
-  region-limited, so don't claim a region without checking.
-- Frankfurt is served only by the workspace-dedicated host
-  `https://<workspaceId>.eu-central-1.maas.aliyuncs.com`, so set
-  `LLM_ALIBABA_WORKSPACE_ID__EU_FRANKFURT` with its key. Without it the gateway
-  falls back to the trial host (1000 RPM, no SLA), which is not a valid test of
-  the mapping. The other regions use their shared DashScope hosts.
+- Keys: `LLM_ALIBABA_API_KEY` covers only the default region (`singapore`).
+  Every other region needs its own `LLM_ALIBABA_API_KEY__<REGION>` (suffix from
+  `getRegionEnvVarSuffix`, e.g. `EU_FRANKFURT`, `US_VIRGINIA`, `CN_BEIJING`,
+  `CN_HONGKONG`, `AP_TOKYO`); without it routing treats the region as
+  unavailable.
+- Routing: `pinDefaultRegion` is unset, so a request without `:region` goes to
+  the cheapest region the mapping lists that has a key, not always to
+  Singapore. Put each region the model is listed for on Model Studio's pricing
+  page in the mapping's `regions` array with that region's prices; models are
+  often region-limited, so don't claim a region without checking.
+- Workspaces: Singapore, US Virginia and Beijing use shared DashScope hosts.
+  Frankfurt, Hong Kong and Tokyo are served only by a workspace-dedicated
+  `https://<workspaceId>.<region>.maas.aliyuncs.com` host. The workspace id
+  comes from the key's provider options, else
+  `LLM_ALIBABA_WORKSPACE_ID__<REGION>`, else `LLM_ALIBABA_WORKSPACE_ID`. When
+  none resolves, the gateway uses that region's trial host (1000 RPM, no SLA),
+  which is not a valid test of the mapping.
 - Test every region separately: `TEST_MODELS="alibaba/<model>:<region>"`.
 
 ## 7. Verify
