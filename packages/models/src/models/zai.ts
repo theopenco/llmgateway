@@ -551,9 +551,9 @@ export const zaiModels = [
 					{ id: "singapore" },
 					{
 						id: "cn-beijing",
-						inputPrice: "2.262e-6",
-						outputPrice: "7.914e-6",
-						cachedInputPrice: "0.5655e-6",
+						inputPrice: "2.2e-6",
+						outputPrice: "7.702e-6",
+						cachedInputPrice: "0.55e-6",
 					},
 				],
 				requestPrice: "0",
