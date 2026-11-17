@@ -668,13 +668,17 @@ export async function checkGuardrails(
 		checkCustomRule(rule, segments, violations, redactions, questions);
 	}
 
-	const classifier = await runClassifier(
-		input,
-		config.classifierModel,
-		applyRedactions(input.messages, redactions),
-		questions,
-		violations,
-	);
+	// A pattern block already decides the request; skip the paid check.
+	const alreadyBlocked = violations.some((v) => v.action === "block");
+	const classifier = alreadyBlocked
+		? undefined
+		: await runClassifier(
+				input,
+				config.classifierModel,
+				applyRedactions(input.messages, redactions),
+				questions,
+				violations,
+			);
 
 	return {
 		passed: violations.length === 0,
