@@ -17,6 +17,7 @@ describe("parseContentFilterSettings", () => {
 			enforceSampleRatePercent: 100,
 			enforceEnterprise: false,
 			classifier: "openai",
+			shadowClassifiers: [],
 			internalScope: "full",
 			moderateImages: true,
 		});
@@ -42,6 +43,7 @@ describe("parseContentFilterSettings", () => {
 			enforceSampleRatePercent: 100,
 			enforceEnterprise: false,
 			classifier: "openai",
+			shadowClassifiers: [],
 			internalScope: "full",
 			moderateImages: true,
 		});
@@ -64,6 +66,14 @@ describe("parseContentFilterSettings", () => {
 				JSON.stringify({ classifier: "jev", shadowClassifier: "openai" }),
 			),
 		).toEqual({ ...DEFAULT_CONTENT_FILTER_SETTINGS, classifier: "jev" });
+	});
+
+	test("reads the shadow classifiers", () => {
+		expect(
+			parseContentFilterSettings(
+				JSON.stringify({ shadowClassifiers: ["internal", "jev"] }),
+			),
+		).toMatchObject({ shadowClassifiers: ["internal", "jev"] });
 	});
 
 	test("falls back to defaults on out-of-range values", () => {

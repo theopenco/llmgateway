@@ -33,7 +33,8 @@ type ContentFilterErrorStatsInsert =
 /**
  * Roll up one hour of failed moderation calls from
  * log.gatewayContentFilterEvaluation.moderationErrors into
- * contentFilterHourlyErrorStats. Scans a single hour of `log`, bounded by
+ * contentFilterHourlyErrorStats, shadow classifiers' errors under their own
+ * classifier. Scans a single hour of `log`, bounded by
  * created_at like the sibling content filter rollup. Provider retries copy the
  * evaluation onto every attempt, so each request's errors are counted once.
  */
@@ -54,13 +55,15 @@ export async function calculateContentFilterErrorStatsForHour(
 				${log.organizationId} as organization_id,
 				${log.projectId} as project_id,
 				${log.createdAt} as created_at,
-				coalesce(${log.gatewayContentFilterEvaluation} ->> 'classifier', 'openai') as classifier,
-				${log.gatewayContentFilterEvaluation} -> 'moderationErrors' as errors
+				${log.gatewayContentFilterEvaluation} as evaluation
 			from ${log}
 			where ${log.createdAt} >= ${startUtc}::timestamp
 				and ${log.createdAt} < ${startUtc}::timestamp + interval '1 hour'
 				and ${log.gatewayContentFilterEvaluation} is not null
-				and jsonb_typeof(${log.gatewayContentFilterEvaluation} -> 'moderationErrors') = 'array'
+				and (
+					jsonb_typeof(${log.gatewayContentFilterEvaluation} -> 'moderationErrors') = 'array'
+					or jsonb_typeof(${log.gatewayContentFilterEvaluation} -> 'shadows') = 'array'
+				)
 			order by ${log.requestId}, ${log.organizationId}, ${log.projectId}, ${log.createdAt} desc
 		),
 		errors as (
@@ -69,15 +72,32 @@ export async function calculateContentFilterErrorStatsForHour(
 				project_id,
 				request_id,
 				created_at,
-				classifier,
-				coalesce(error ->> 'source', classifier) as source,
+				verdict.classifier,
+				coalesce(error ->> 'source', verdict.classifier) as source,
 				coalesce(error ->> 'kind', 'unexpected') as kind,
 				coalesce(error ->> 'inputType', '') as input_type,
 				coalesce((error ->> 'status')::int, 0) as status,
 				coalesce(error ->> 'code', '') as code,
 				coalesce(error ->> 'message', '') as message
 			from evaluations
-			cross join lateral jsonb_array_elements(errors) as error
+			-- The deciding classifier's errors, then each shadow classifier's.
+			cross join lateral (
+				select
+					coalesce(evaluation ->> 'classifier', 'openai') as classifier,
+					evaluation -> 'moderationErrors' as errors
+				union all
+				select shadow ->> 'classifier', shadow -> 'moderationErrors'
+				from jsonb_array_elements(
+					case
+						when jsonb_typeof(evaluation -> 'shadows') = 'array' then evaluation -> 'shadows'
+						else '[]'::jsonb
+					end
+				) as shadow
+				where shadow ->> 'classifier' is not null
+			) as verdict
+			cross join lateral jsonb_array_elements(
+				case when jsonb_typeof(verdict.errors) = 'array' then verdict.errors else '[]'::jsonb end
+			) as error
 		)
 		select
 			organization_id,

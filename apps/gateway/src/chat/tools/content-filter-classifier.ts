@@ -1,6 +1,6 @@
 import { isProviderIdCompliant } from "@/lib/compliance.js";
 
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 
 import {
 	checkInternalContentFilter,
@@ -18,6 +18,7 @@ import {
 	type OpenAIContentFilterCheckResult,
 } from "./openai-content-filter.js";
 import {
+	buildContentFilterShadowVerdict,
 	buildGatewayContentFilterEvaluation,
 	evaluateTieredContentFilter,
 	type TieredContentFilterPlan,
@@ -104,6 +105,34 @@ export async function hasClassifierCredential(
 		case "openai":
 			return await hasOpenAIContentFilterCredential();
 	}
+}
+
+/** Whether the organization's policy allows a classifier and it is configured. */
+async function isClassifierAvailable(
+	classifier: ContentFilterClassifier,
+	options: {
+		classifierAllowed: (classifier: ContentFilterClassifier) => boolean;
+	},
+): Promise<boolean> {
+	return (
+		options.classifierAllowed(classifier) &&
+		(await hasClassifierCredential(classifier))
+	);
+}
+
+/**
+ * Whether the plan's deciding classifier can produce a verdict. Without one
+ * there is no evaluation to attach shadow verdicts to.
+ */
+export async function isDecidingClassifierAvailable(options: {
+	plan: TieredContentFilterPlan;
+	classifierAllowed: (classifier: ContentFilterClassifier) => boolean;
+	existing?: ContentFilterCheckResult | null;
+}): Promise<boolean> {
+	return (
+		options.existing?.classifier === options.plan.classifier ||
+		(await isClassifierAvailable(options.plan.classifier, options))
+	);
 }
 
 interface ContentFilterRunOptions {
@@ -245,20 +274,14 @@ export async function evaluateContentFilterWithClassifiers(options: {
 	classifierAllowed: (classifier: ContentFilterClassifier) => boolean;
 	/** Result already computed for this request, reused when its classifier matches. */
 	existing?: ContentFilterCheckResult | null;
-}): Promise<{
-	evaluation: GatewayContentFilterEvaluation;
-	results: ContentFilterCheckResult[];
-} | null> {
+}): Promise<ContentFilterOutcome | null> {
 	const { plan, messages, context, signal, existing } = options;
 
 	let result: ContentFilterCheckResult;
 	if (existing?.classifier === plan.classifier) {
 		result = existing;
 	} else {
-		if (
-			!options.classifierAllowed(plan.classifier) ||
-			!(await hasClassifierCredential(plan.classifier))
-		) {
+		if (!(await isClassifierAvailable(plan.classifier, options))) {
 			return null;
 		}
 		result = await runContentFilterClassifier(
@@ -289,6 +312,97 @@ export async function evaluateContentFilterWithClassifiers(options: {
 		results: [result],
 	};
 }
+
+interface ContentFilterOutcome {
+	evaluation: GatewayContentFilterEvaluation;
+	results: ContentFilterCheckResult[];
+}
+
+/**
+ * Run the plan's shadow classifiers over the request, in parallel and detached
+ * from the client's signal. Each runs as it would if it decided (same scope,
+ * same image delegation), so a classifier's flag rate stays comparable across
+ * setups. A shadow that cannot run for this organization, or fails, is left
+ * out; it never affects the request.
+ */
+export async function runShadowContentFilters(
+	options: Omit<
+		Parameters<typeof evaluateContentFilterWithClassifiers>[0],
+		"signal"
+	>,
+): Promise<ContentFilterCheckResult[]> {
+	const { plan, messages, context, existing } = options;
+	const settled = await Promise.allSettled(
+		plan.shadowClassifiers.map(async (classifier) => {
+			if (existing?.classifier === classifier) {
+				return existing;
+			}
+			if (!(await isClassifierAvailable(classifier, options))) {
+				return null;
+			}
+			return await runContentFilterClassifier(
+				classifier,
+				messages,
+				context,
+				undefined,
+				{
+					imagesAllowed: options.imagesAllowed && plan.moderateImages,
+					internalScope: plan.internalScope,
+				},
+			);
+		}),
+	);
+	const results: ContentFilterCheckResult[] = [];
+	for (const [index, outcome] of settled.entries()) {
+		if (outcome.status === "rejected") {
+			logger.warn("Shadow content filter failed", {
+				requestId: context.requestId,
+				organizationId: context.organizationId,
+				classifier: plan.shadowClassifiers[index],
+				error: toError(outcome.reason),
+			});
+		} else if (outcome.value) {
+			results.push(outcome.value);
+		}
+	}
+	return results;
+}
+
+/** Attach shadow verdicts, and their raw responses, to the deciding outcome. */
+export function withShadowVerdicts(
+	plan: TieredContentFilterPlan,
+	outcome: ContentFilterOutcome,
+	shadows: ContentFilterCheckResult[],
+): ContentFilterOutcome {
+	if (shadows.length === 0) {
+		return outcome;
+	}
+	return {
+		evaluation: {
+			...outcome.evaluation,
+			shadows: shadows.map((result) =>
+				buildContentFilterShadowVerdict(
+					plan,
+					result.classifier,
+					evaluateTieredContentFilter(result.results, plan.level),
+					moderationFailed(result),
+					result.durationMs,
+					{
+						classifierDurationMs: result.classifierDurationMs,
+						classifierRequests: result.classifierRequests,
+						imageDurationMs: result.imageDurationMs,
+						moderationErrors: result.errors,
+					},
+				),
+			),
+		},
+		results: [
+			...outcome.results,
+			...shadows.filter((result) => !outcome.results.includes(result)),
+		],
+	};
+}
+
 async function runTextCheck(
 	classifier: Exclude<ContentFilterClassifier, "openai">,
 	messages: BaseMessage[],

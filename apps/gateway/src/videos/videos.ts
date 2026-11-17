@@ -5232,6 +5232,9 @@ async function insertVideoClientErrorLog(options: {
 	statusCode: number;
 	message: string;
 	startedAt: number;
+	// When the client got its response; defaults to now. Set it when the log is
+	// written after background work, so that work stays out of the duration.
+	endedAt?: number;
 	// A gateway decision made before any provider attempt, e.g. a content
 	// filter block: overrides the client_error classification and keeps the
 	// routing metadata as routed instead of recording a failed attempt.
@@ -5252,7 +5255,7 @@ async function insertVideoClientErrorLog(options: {
 		apiKeyId: options.apiKey.id,
 		endUserSessionId: options.apiKey.endUserSession?.id ?? null,
 		endCustomerWalletId: options.apiKey.endCustomerWalletId ?? null,
-		duration: Math.max(0, Date.now() - options.startedAt),
+		duration: Math.max(0, (options.endedAt ?? Date.now()) - options.startedAt),
 		timeToFirstToken: null,
 		timeToFirstReasoningToken: null,
 		requestedModel: getFormattedRequestedVideoModel(
@@ -5613,33 +5616,55 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		contentFilterEvaluation = started.outcome?.evaluation ?? null;
 		pendingContentFilterEvaluation =
 			started.pending?.then((outcome) => {
-				contentFilterEvaluation = outcome?.evaluation ?? null;
+				contentFilterEvaluation =
+					outcome?.evaluation ?? contentFilterEvaluation;
 				return contentFilterEvaluation;
 			}) ?? null;
 	}
 	if (contentFilterEvaluation?.action === "blocked") {
-		await insertVideoClientErrorLog({
-			request,
-			requestId,
-			apiKey,
-			project,
-			organization,
-			normalizedModel,
-			requestedProvider,
-			providerContext: selectedProviderContext,
-			upstreamModelName: selectedUpstreamModelName,
-			routingMetadata: enrichedRoutingMetadata,
-			statusCode: 403,
-			message: GATEWAY_CONTENT_FILTER_MESSAGE,
-			startedAt,
-			outcome: {
-				finishReason: "llmgateway_content_filter",
-				unifiedFinishReason: UnifiedFinishReason.CONTENT_FILTER,
-				hasError: false,
-				internalContentFilter: true,
-				gatewayContentFilterEvaluation: contentFilterEvaluation,
-			},
-		});
+		const endedAt = Date.now();
+		const logBlocked = async (
+			evaluation: GatewayContentFilterEvaluation | null,
+		) =>
+			await insertVideoClientErrorLog({
+				request,
+				requestId,
+				apiKey,
+				project,
+				organization,
+				normalizedModel,
+				requestedProvider,
+				providerContext: selectedProviderContext,
+				upstreamModelName: selectedUpstreamModelName,
+				routingMetadata: enrichedRoutingMetadata,
+				statusCode: 403,
+				message: GATEWAY_CONTENT_FILTER_MESSAGE,
+				startedAt,
+				endedAt,
+				outcome: {
+					finishReason: "llmgateway_content_filter",
+					unifiedFinishReason: UnifiedFinishReason.CONTENT_FILTER,
+					hasError: false,
+					internalContentFilter: true,
+					gatewayContentFilterEvaluation: evaluation,
+				},
+			});
+		if (pendingContentFilterEvaluation) {
+			// Shadow verdicts are still running: log once they settle, without
+			// holding the 403 for them.
+			void trackPendingWork(
+				pendingContentFilterEvaluation
+					.then(logBlocked)
+					.catch((error: unknown) => {
+						logger.error("Failed to insert blocked video log", {
+							requestId,
+							error: toError(error),
+						});
+					}),
+			);
+		} else {
+			await logBlocked(contentFilterEvaluation);
+		}
 		throw new HTTPException(403, { message: GATEWAY_CONTENT_FILTER_MESSAGE });
 	}
 
@@ -6154,13 +6179,14 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		// counters' overall best-effort semantics.
 		await recordSpend(organization.id, reservedSpendUsd);
 
-		// A background evaluation that settled after the insert is merged into the
-		// job row, where the worker reads it at finalization.
-		if (pendingContentFilterEvaluation && !storedContentFilterEvaluation) {
+		// A background evaluation (or shadow verdicts behind an inline one) that
+		// settled after the insert is merged into the job row, where the worker
+		// reads it at finalization.
+		if (pendingContentFilterEvaluation) {
 			void trackPendingWork(
 				pendingContentFilterEvaluation
 					.then(async (evaluation) => {
-						if (!evaluation) {
+						if (!evaluation || evaluation === storedContentFilterEvaluation) {
 							return;
 						}
 						await db

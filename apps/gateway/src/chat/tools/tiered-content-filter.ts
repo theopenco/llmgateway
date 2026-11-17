@@ -5,6 +5,7 @@ import { randomFloat } from "@llmgateway/shared/random";
 
 import type { OpenAIModerationResult } from "./openai-content-filter.js";
 import type {
+	ContentFilterShadowVerdict,
 	GatewayContentFilterEvaluation,
 	InferSelectModel,
 	tables,
@@ -37,6 +38,8 @@ export interface TieredContentFilterPlan {
 	exemptReason?: GatewayContentFilterEvaluation["exemptReason"];
 	/** Classifier whose scores decide the outcome. */
 	classifier: ContentFilterClassifier;
+	/** Classifiers that also score the request in the background, never blocking. */
+	shadowClassifiers: ContentFilterClassifier[];
 	/** What the internal classifier reads; ignored by the others. */
 	internalScope: ContentFilterInternalScope;
 	/** Whether a text-only classifier delegates image parts to OpenAI. */
@@ -177,6 +180,10 @@ export async function resolveTieredContentFilterPlan(
 		enforce: exemptReason === undefined,
 		...(exemptReason ? { exemptReason } : {}),
 		classifier: settings.classifier,
+		// Optional: settings cached by the previous release lack this field.
+		shadowClassifiers: [...new Set(settings.shadowClassifiers ?? [])].filter(
+			(classifier) => classifier !== settings.classifier,
+		),
 		internalScope: settings.internalScope,
 		moderateImages: settings.moderateImages,
 	};
@@ -225,18 +232,67 @@ export function evaluateTieredContentFilter(
 	};
 }
 
+type ContentFilterRunBreakdown = Pick<
+	GatewayContentFilterEvaluation,
+	| "classifierDurationMs"
+	| "classifierRequests"
+	| "imageDurationMs"
+	| "moderationErrors"
+>;
+
+function breakdownFields(breakdown: ContentFilterRunBreakdown) {
+	return {
+		...(breakdown.classifierDurationMs !== undefined
+			? { classifierDurationMs: breakdown.classifierDurationMs }
+			: {}),
+		...(breakdown.classifierRequests !== undefined
+			? { classifierRequests: breakdown.classifierRequests }
+			: {}),
+		...(breakdown.imageDurationMs !== undefined
+			? { imageDurationMs: breakdown.imageDurationMs }
+			: {}),
+		...(breakdown.moderationErrors && breakdown.moderationErrors.length > 0
+			? {
+					moderationErrors: breakdown.moderationErrors.slice(
+						0,
+						MAX_STORED_MODERATION_ERRORS,
+					),
+				}
+			: {}),
+	};
+}
+
+/**
+ * A shadow classifier's verdict, scored at the plan's level exactly as if it
+ * had decided, so its flag rate compares with any run of the same classifier.
+ */
+export function buildContentFilterShadowVerdict(
+	plan: TieredContentFilterPlan,
+	classifier: ContentFilterClassifier,
+	evaluation: TieredContentFilterEvaluation,
+	moderationFailed: boolean,
+	durationMs: number,
+	breakdown: ContentFilterRunBreakdown = {},
+): ContentFilterShadowVerdict {
+	return {
+		classifier,
+		violation: evaluation.violation,
+		flagged: evaluation.flagged,
+		matchedCategories: evaluation.matchedCategories,
+		categoryScores: evaluation.categoryScores,
+		moderationFailed,
+		durationMs,
+		...breakdownFields(breakdown),
+		...(classifier === "internal" ? { internalScope: plan.internalScope } : {}),
+	};
+}
+
 export function buildGatewayContentFilterEvaluation(
 	plan: TieredContentFilterPlan,
 	evaluation: TieredContentFilterEvaluation,
 	moderationFailed: boolean,
 	durationMs: number,
-	breakdown: Pick<
-		GatewayContentFilterEvaluation,
-		| "classifierDurationMs"
-		| "classifierRequests"
-		| "imageDurationMs"
-		| "moderationErrors"
-	> = {},
+	breakdown: ContentFilterRunBreakdown = {},
 ): GatewayContentFilterEvaluation {
 	const blocked = plan.enforce && evaluation.violation;
 	return {
@@ -255,23 +311,7 @@ export function buildGatewayContentFilterEvaluation(
 		categoryScores: evaluation.categoryScores,
 		moderationFailed,
 		durationMs,
-		...(breakdown.classifierDurationMs !== undefined
-			? { classifierDurationMs: breakdown.classifierDurationMs }
-			: {}),
-		...(breakdown.classifierRequests !== undefined
-			? { classifierRequests: breakdown.classifierRequests }
-			: {}),
-		...(breakdown.imageDurationMs !== undefined
-			? { imageDurationMs: breakdown.imageDurationMs }
-			: {}),
-		...(breakdown.moderationErrors && breakdown.moderationErrors.length > 0
-			? {
-					moderationErrors: breakdown.moderationErrors.slice(
-						0,
-						MAX_STORED_MODERATION_ERRORS,
-					),
-				}
-			: {}),
+		...breakdownFields(breakdown),
 		...(plan.classifier === "internal"
 			? { internalScope: plan.internalScope }
 			: {}),

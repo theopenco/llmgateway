@@ -4,6 +4,8 @@ import {
 	evaluateContentFilterWithClassifiers,
 	isContentFilterClassifierCompliant,
 	runContentFilterClassifier,
+	runShadowContentFilters,
+	withShadowVerdicts,
 } from "./content-filter-classifier.js";
 
 import type * as OpenAIContentFilter from "./openai-content-filter.js";
@@ -77,6 +79,7 @@ const PLAN: TieredContentFilterPlan = {
 	level: "strict",
 	enforce: true,
 	classifier: "jev",
+	shadowClassifiers: [],
 	internalScope: "full",
 	moderateImages: true,
 };
@@ -534,5 +537,132 @@ describe("evaluateContentFilterWithClassifiers", () => {
 			}),
 		).toBeNull();
 		expect(checkJev).not.toHaveBeenCalled();
+	});
+});
+
+describe("shadow classifiers", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		hasOpenAICredential.mockResolvedValue(true);
+		hasJevCredential.mockResolvedValue(true);
+	});
+
+	const SHADOW_PLAN: TieredContentFilterPlan = {
+		...PLAN,
+		classifier: "jev",
+		shadowClassifiers: ["openai", "internal"],
+		internalScope: "latest_turn",
+	};
+
+	it("runs every shadow detached from the request, with the plan's scope", async () => {
+		checkOpenAI.mockResolvedValue(
+			result(true, { violence: 0.95 }, "omni-moderation-latest"),
+		);
+		checkInternal.mockResolvedValue(
+			result(false, { violence: 0 }, "internal-classifier"),
+		);
+
+		const shadows = await runShadowContentFilters({
+			plan: SHADOW_PLAN,
+			messages: TEXT_MESSAGES,
+			context: CONTEXT,
+			imagesAllowed: true,
+			classifierAllowed: () => true,
+		});
+
+		expect(shadows.map((shadow) => shadow.classifier)).toEqual([
+			"openai",
+			"internal",
+		]);
+		expect(checkOpenAI).toHaveBeenCalledWith(TEXT_MESSAGES, CONTEXT, undefined);
+		expect(checkInternal).toHaveBeenCalledWith(
+			TEXT_MESSAGES,
+			CONTEXT,
+			undefined,
+			"latest_turn",
+		);
+		expect(checkJev).not.toHaveBeenCalled();
+	});
+
+	it("skips a shadow the compliance policy excludes and survives a failing one", async () => {
+		checkInternal.mockRejectedValue(new Error("boom"));
+
+		const shadows = await runShadowContentFilters({
+			plan: SHADOW_PLAN,
+			messages: TEXT_MESSAGES,
+			context: CONTEXT,
+			imagesAllowed: true,
+			classifierAllowed: (classifier) => classifier !== "openai",
+		});
+
+		expect(shadows).toEqual([]);
+		expect(checkOpenAI).not.toHaveBeenCalled();
+	});
+
+	it("reuses a result already scored by a shadow's classifier", async () => {
+		checkInternal.mockResolvedValue(
+			result(false, { violence: 0 }, "internal-classifier"),
+		);
+		const existing = {
+			...result(false, { violence: 0.1 }, "omni-moderation-latest"),
+			classifier: "openai" as const,
+			durationMs: 30,
+		};
+
+		const shadows = await runShadowContentFilters({
+			plan: SHADOW_PLAN,
+			messages: TEXT_MESSAGES,
+			context: CONTEXT,
+			imagesAllowed: true,
+			classifierAllowed: () => true,
+			existing,
+		});
+
+		expect(shadows[0]).toBe(existing);
+		expect(checkOpenAI).not.toHaveBeenCalled();
+	});
+
+	it("attaches shadow verdicts without changing the deciding action", async () => {
+		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
+		checkOpenAI.mockResolvedValue(
+			result(true, { violence: 0.95 }, "omni-moderation-latest"),
+		);
+		checkInternal.mockResolvedValue(
+			result(false, { violence: 0 }, "internal-classifier"),
+		);
+		const input = {
+			plan: SHADOW_PLAN,
+			messages: TEXT_MESSAGES,
+			context: CONTEXT,
+			imagesAllowed: true,
+			classifierAllowed: () => true,
+		};
+
+		const deciding = await evaluateContentFilterWithClassifiers(input);
+		const shadows = await runShadowContentFilters(input);
+		if (!deciding) {
+			throw new Error("expected a deciding outcome");
+		}
+		const combined = withShadowVerdicts(SHADOW_PLAN, deciding, shadows);
+
+		expect(combined.evaluation).toMatchObject({
+			classifier: "jev",
+			action: "passed",
+			violation: false,
+			shadows: [
+				{
+					classifier: "openai",
+					violation: true,
+					matchedCategories: ["violence"],
+				},
+				{
+					classifier: "internal",
+					violation: false,
+					internalScope: "latest_turn",
+				},
+			],
+		});
+		expect(combined.results).toHaveLength(3);
+		expect(withShadowVerdicts(SHADOW_PLAN, deciding, [])).toBe(deciding);
 	});
 });
