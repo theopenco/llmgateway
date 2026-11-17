@@ -16,7 +16,6 @@ import {
 	getVariantEnvVarNameFor,
 	resolveVertexTokenType,
 	REGION_WORKSPACE_ID_PLACEHOLDER,
-	isRetiredProvider,
 } from "@llmgateway/models";
 import {
 	isProviderHostnameLabel,
@@ -407,11 +406,6 @@ export function getProviderEndpoint(
 	variant?: EnvVarVariant,
 	apiFormat?: RequestApiFormat,
 ): string {
-	if (isRetiredProvider(provider)) {
-		throw new Error(
-			`Provider ${provider} is retired. Configure a replacement provider.`,
-		);
-	}
 	let externalId = model;
 	let providerMapping: ProviderModelMapping | undefined;
 	if (model && model !== "custom") {

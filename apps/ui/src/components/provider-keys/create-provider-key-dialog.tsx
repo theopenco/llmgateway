@@ -32,7 +32,6 @@ import {
 	regionEndpointRequiresWorkspaceId,
 	regionEndpointUsesWorkspaceId,
 	type ProviderDefinition,
-	isRetiredProvider,
 } from "@llmgateway/models";
 import {
 	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
@@ -156,9 +155,7 @@ export function CreateProviderKeyDialog({
 	const availableProviders = providerChoices
 		.filter(
 			(provider) =>
-				provider.id !== "llmgateway" &&
-				!isStealthProvider(provider) &&
-				!isRetiredProvider(provider.id),
+				provider.id !== "llmgateway" && !isStealthProvider(provider),
 		)
 		.map((provider) =>
 			provider.id === "custom" && !isEnterprise

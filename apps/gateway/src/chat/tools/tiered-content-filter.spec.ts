@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { DEFAULT_CONTENT_FILTER_SETTINGS } from "@llmgateway/shared";
 
 import {
+	buildContentFilterShadowVerdict,
 	buildGatewayContentFilterEvaluation,
 	evaluateTieredContentFilter,
 	getLenientContentFilterScoreThreshold,
@@ -41,6 +42,22 @@ const enabledSettings = {
 };
 
 describe("resolveTieredContentFilterPlan", () => {
+	test("carries the shadow classifiers without the deciding one or duplicates", async () => {
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", {
+				...enabledSettings,
+				classifier: "internal",
+				shadowClassifiers: ["openai", "internal", "openai", "jev"],
+			}),
+		).toMatchObject({
+			classifier: "internal",
+			shadowClassifiers: ["openai", "jev"],
+		});
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", enabledSettings),
+		).toMatchObject({ shadowClassifiers: [] });
+	});
+
 	test("skips when disabled, when the provider is not enabled, or when not sampled", async () => {
 		expect(
 			await resolveTieredContentFilterPlan(org(), "openai", {
@@ -89,6 +106,7 @@ describe("resolveTieredContentFilterPlan", () => {
 			enforce: false,
 			exemptReason: "global_log_only",
 			classifier: "openai",
+			shadowClassifiers: [],
 			internalScope: "full",
 			moderateImages: true,
 		});
@@ -338,6 +356,7 @@ describe("buildGatewayContentFilterEvaluation", () => {
 		level: "strict" as const,
 		enforce: true,
 		classifier: "openai" as const,
+		shadowClassifiers: [],
 		internalScope: "full" as const,
 		moderateImages: true,
 	};
@@ -401,5 +420,31 @@ describe("buildGatewayContentFilterEvaluation", () => {
 				10,
 			),
 		).toMatchObject({ action: "passed", moderationFailed: true });
+	});
+
+	test("builds a shadow verdict that never carries an action", () => {
+		const verdict = buildContentFilterShadowVerdict(
+			{ ...plan, internalScope: "latest_turn" },
+			"internal",
+			violation,
+			false,
+			12,
+			{ classifierDurationMs: 11, classifierRequests: 1 },
+		);
+		expect(verdict).toEqual({
+			classifier: "internal",
+			violation: true,
+			flagged: true,
+			matchedCategories: ["violence"],
+			categoryScores: { violence: 0.9 },
+			moderationFailed: false,
+			durationMs: 12,
+			classifierDurationMs: 11,
+			classifierRequests: 1,
+			internalScope: "latest_turn",
+		});
+		expect(
+			buildContentFilterShadowVerdict(plan, "openai", violation, false, 3),
+		).not.toHaveProperty("internalScope");
 	});
 });

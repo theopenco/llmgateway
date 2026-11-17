@@ -53,6 +53,21 @@ export const contentFilterModerationErrorSchema = z.object({
 	message: z.string(),
 });
 
+export const contentFilterShadowVerdictSchema = z.object({
+	classifier: contentFilterClassifierSchema,
+	violation: z.boolean(),
+	flagged: z.boolean(),
+	matchedCategories: z.array(z.string()),
+	categoryScores: z.record(z.string(), z.number()),
+	moderationFailed: z.boolean(),
+	durationMs: z.number().nonnegative(),
+	classifierDurationMs: z.number().nonnegative().optional(),
+	classifierRequests: z.number().int().nonnegative().optional(),
+	imageDurationMs: z.number().nonnegative().optional(),
+	internalScope: z.enum(["full", "latest_turn"]).optional(),
+	moderationErrors: z.array(contentFilterModerationErrorSchema).optional(),
+});
+
 export const gatewayContentFilterEvaluationSchema = z.object({
 	sampled: z.literal(true),
 	provider: z.string(),
@@ -89,8 +104,10 @@ export const gatewayContentFilterEvaluationSchema = z.object({
 	// Moderation calls that failed during the check, at most a handful; why
 	// `moderationFailed` is set. Absent on older evaluations and on clean checks.
 	moderationErrors: z.array(contentFilterModerationErrorSchema).optional(),
-	// Legacy: verdict of the removed shadow classifier, present only on older
-	// evaluations. It never changed `action`.
+	// Verdicts of the shadow classifiers that scored the same request in the
+	// background, one per classifier. They never change `action`.
+	shadows: z.array(contentFilterShadowVerdictSchema).optional(),
+	// Legacy: verdict of the single shadow classifier of older evaluations.
 	shadow: z
 		.object({
 			classifier: contentFilterClassifierSchema,
@@ -118,6 +135,9 @@ export type ContentFilterModerationError = z.infer<
 export type ModerationApiPayload = z.infer<typeof moderationApiPayloadSchema>;
 export type GatewayContentFilterResponse = z.infer<
 	typeof gatewayContentFilterResponseSchema
+>;
+export type ContentFilterShadowVerdict = z.infer<
+	typeof contentFilterShadowVerdictSchema
 >;
 export type GatewayContentFilterEvaluation = z.infer<
 	typeof gatewayContentFilterEvaluationSchema

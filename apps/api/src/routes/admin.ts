@@ -6525,6 +6525,7 @@ const contentFilterSettingsResponseSchema = z
 		enforceSampleRatePercent: z.number(),
 		enforceEnterprise: z.boolean(),
 		classifier: z.enum(CONTENT_FILTER_CLASSIFIERS),
+		shadowClassifiers: z.array(z.enum(CONTENT_FILTER_CLASSIFIERS)),
 		internalScope: z.enum(CONTENT_FILTER_INTERNAL_SCOPES),
 		moderateImages: z.boolean(),
 		providers: z.array(
@@ -6585,6 +6586,7 @@ admin.openapi(getContentFilterSettingsRoute, async (c) => {
 		enforceSampleRatePercent: settings.enforceSampleRatePercent,
 		enforceEnterprise: settings.enforceEnterprise,
 		classifier: settings.classifier,
+		shadowClassifiers: settings.shadowClassifiers,
 		internalScope: settings.internalScope,
 		moderateImages: settings.moderateImages,
 		providers: listContentFilterProviders(settings),
@@ -6600,6 +6602,7 @@ admin.openapi(updateContentFilterSettingsRoute, async (c) => {
 		enforceSampleRatePercent: settings.enforceSampleRatePercent,
 		enforceEnterprise: settings.enforceEnterprise,
 		classifier: settings.classifier,
+		shadowClassifiers: settings.shadowClassifiers,
 		internalScope: settings.internalScope,
 		moderateImages: settings.moderateImages,
 		providers: listContentFilterProviders(settings),
