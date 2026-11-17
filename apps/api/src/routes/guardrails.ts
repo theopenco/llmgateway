@@ -18,8 +18,14 @@ import {
 	customRuleTypes,
 	defaultSystemRulesConfig,
 	defaultAllowedFileTypes,
+	piiEntities,
+	withDefaultSystemRules,
 } from "@llmgateway/db";
-import { checkGuardrails } from "@llmgateway/guardrails";
+import {
+	checkGuardrails,
+	presetTopics,
+	systemRuleCatalog,
+} from "@llmgateway/guardrails";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import {
 	canManageProject,
@@ -31,6 +37,7 @@ import type {
 	SystemRulesConfig,
 	GuardrailAction,
 	CustomRuleConfig,
+	CustomRuleType,
 } from "@llmgateway/db";
 
 export const guardrails = new OpenAPIHono<ServerTypes>();
@@ -118,8 +125,15 @@ async function requireProjectScope(
 	return { organizationId: project.organizationId, projectId };
 }
 
-function findScopedConfig(scope: GuardrailScopeContext) {
-	return db.query.guardrailConfig.findFirst({
+/** Stored configs predate later rules; fill them with defaults on read. */
+function normalizeConfig<T extends { systemRules: SystemRulesConfig | null }>(
+	config: T,
+): T & { systemRules: SystemRulesConfig } {
+	return { ...config, systemRules: withDefaultSystemRules(config.systemRules) };
+}
+
+async function findScopedConfig(scope: GuardrailScopeContext) {
+	const config = await db.query.guardrailConfig.findFirst({
 		where: scope.projectId
 			? { projectId: { eq: scope.projectId } }
 			: {
@@ -127,6 +141,46 @@ function findScopedConfig(scope: GuardrailScopeContext) {
 					projectId: { isNull: true },
 				},
 	});
+	return config ? normalizeConfig(config) : undefined;
+}
+
+const REDACTABLE_SYSTEM_RULES = new Set(
+	systemRuleCatalog.filter((rule) => rule.redactable).map((rule) => rule.id),
+);
+const REDACTABLE_RULE_TYPES = new Set<CustomRuleType>([
+	"blocked_terms",
+	"custom_regex",
+	"sensitive_data",
+]);
+
+function assertSystemRulesSupported(systemRules: SystemRulesConfig) {
+	for (const [key, rule] of Object.entries(systemRules)) {
+		if (
+			rule.action === "redact" &&
+			!REDACTABLE_SYSTEM_RULES.has(`system:${key as keyof SystemRulesConfig}`)
+		) {
+			throw new HTTPException(400, {
+				message: `Rule ${key} cannot redact; use block or warn`,
+			});
+		}
+	}
+}
+
+function assertCustomRuleSupported(
+	type: CustomRuleType,
+	config: CustomRuleConfig,
+	action: GuardrailAction,
+) {
+	if (config.type !== type) {
+		throw new HTTPException(400, {
+			message: `Rule config type ${config.type} does not match rule type ${type}`,
+		});
+	}
+	if (action === "redact" && !REDACTABLE_RULE_TYPES.has(type)) {
+		throw new HTTPException(400, {
+			message: `${type} rules cannot redact; use block or warn`,
+		});
+	}
 }
 
 function findScopedRules(scope: GuardrailScopeContext) {
@@ -142,9 +196,28 @@ function findScopedRules(scope: GuardrailScopeContext) {
 }
 
 // Schemas
+const thresholdSchema = z
+	.number()
+	.gt(0)
+	.lt(1)
+	.describe(
+		"Classifier score (0–1) above which the rule matches. Defaults to 0.8.",
+	);
+
 const systemRuleConfigSchema = z.object({
 	enabled: z.boolean(),
 	action: z.enum(["block", "redact", "warn", "allow"]),
+	classifier: z
+		.boolean()
+		.optional()
+		.describe(
+			"Prompt injection and jailbreak: also score with the ML classifier, billed as a separate decision request.",
+		),
+	threshold: thresholdSchema.optional(),
+	entities: z
+		.array(z.enum(piiEntities))
+		.optional()
+		.describe("PII detection: entities to detect. Unset detects all."),
 });
 
 const systemRulesConfigSchema = z.object({
@@ -154,6 +227,7 @@ const systemRulesConfigSchema = z.object({
 	secrets: systemRuleConfigSchema,
 	file_types: systemRuleConfigSchema,
 	document_leakage: systemRuleConfigSchema,
+	harmful_content: systemRuleConfigSchema,
 });
 
 const guardrailConfigSchema = z.object({
@@ -165,7 +239,10 @@ const guardrailConfigSchema = z.object({
 	systemRules: systemRulesConfigSchema.nullable(),
 	maxFileSizeMb: z.number(),
 	allowedFileTypes: z.array(z.string()),
-	piiAction: z.enum(["block", "redact", "warn", "allow"]).nullable(),
+	piiAction: z
+		.enum(["block", "redact", "warn", "allow"])
+		.nullable()
+		.describe("Deprecated: mirrors systemRules.pii_detection.action."),
 	createdAt: z.date(),
 	updatedAt: z.date(),
 });
@@ -185,13 +262,45 @@ const customRegexConfigSchema = z.object({
 const topicRestrictionConfigSchema = z.object({
 	type: z.literal("topic_restriction"),
 	blockedTopics: z.array(z.string()),
-	allowedTopics: z.array(z.string()).optional(),
+	allowedTopics: z
+		.array(z.string())
+		.optional()
+		.describe(
+			"Classifier mode only: anything outside these topics is a violation.",
+		),
+	classifier: z
+		.boolean()
+		.optional()
+		.describe(
+			"Judge topics with the ML classifier instead of keyword lists. Billed as a separate decision request.",
+		),
+	threshold: thresholdSchema.optional(),
 });
 
-const customRuleConfigSchema = z.union([
+const sensitiveDataConfigSchema = z.object({
+	type: z.literal("sensitive_data"),
+	entities: z.array(z.enum(piiEntities)).min(1),
+});
+
+const classifierConfigSchema = z.object({
+	type: z.literal("classifier"),
+	instructions: z
+		.string()
+		.trim()
+		.min(1)
+		.max(2000)
+		.describe(
+			'What the rule detects, as a statement the classifier scores, e.g. "The text asks for legal advice."',
+		),
+	threshold: thresholdSchema.optional(),
+});
+
+const customRuleConfigSchema = z.discriminatedUnion("type", [
 	blockedTermsConfigSchema,
 	customRegexConfigSchema,
 	topicRestrictionConfigSchema,
+	sensitiveDataConfigSchema,
+	classifierConfigSchema,
 ]);
 
 const guardrailRuleSchema = z.object({
@@ -329,10 +438,23 @@ guardrails.openapi(
 
 const updateConfigBodySchema = z.object({
 	enabled: z.boolean().optional(),
-	systemRules: systemRulesConfigSchema.optional(),
-	maxFileSizeMb: z.number().optional(),
-	allowedFileTypes: z.array(z.string()).optional(),
-	piiAction: z.enum(["block", "redact", "warn", "allow"]).optional(),
+	systemRules: systemRulesConfigSchema
+		.partial()
+		.optional()
+		.describe("Rules to change; omitted rules keep their current settings."),
+	maxFileSizeMb: z.number().int().min(1).max(100).optional(),
+	allowedFileTypes: z
+		.array(z.string().trim().min(1))
+		.optional()
+		.describe(
+			"MIME types (image/png, image/*) or extensions (pdf). Empty allows every type.",
+		),
+	piiAction: z
+		.enum(["block", "redact", "warn", "allow"])
+		.optional()
+		.describe(
+			"Deprecated: sets systemRules.pii_detection.action when systemRules does not.",
+		),
 });
 
 // `inheritOrganization` only exists on project rows: while true the project
@@ -347,6 +469,20 @@ async function upsertScopedConfig(
 ) {
 	const existing = await findScopedConfig(scope);
 
+	const systemRules = withDefaultSystemRules({
+		...(existing?.systemRules ?? defaultSystemRulesConfig),
+		...(body.systemRules as Partial<SystemRulesConfig> | undefined),
+	});
+	if (body.piiAction && !body.systemRules?.pii_detection) {
+		systemRules.pii_detection = {
+			...systemRules.pii_detection,
+			action: body.piiAction,
+		};
+	}
+	assertSystemRulesSupported(systemRules);
+	// Kept in sync for readers of the deprecated column.
+	const piiAction = systemRules.pii_detection.action;
+
 	if (existing) {
 		const [updated] = await db
 			.update(tables.guardrailConfig)
@@ -354,15 +490,14 @@ async function upsertScopedConfig(
 				inheritOrganization:
 					body.inheritOrganization ?? existing.inheritOrganization,
 				enabled: body.enabled ?? existing.enabled,
-				systemRules:
-					(body.systemRules as SystemRulesConfig) ?? existing.systemRules,
+				systemRules,
 				maxFileSizeMb: body.maxFileSizeMb ?? existing.maxFileSizeMb,
 				allowedFileTypes: body.allowedFileTypes ?? existing.allowedFileTypes,
-				piiAction: (body.piiAction as GuardrailAction) ?? existing.piiAction,
+				piiAction,
 			})
 			.where(eq(tables.guardrailConfig.id, existing.id))
 			.returning();
-		return updated;
+		return normalizeConfig(updated);
 	}
 
 	const [created] = await db
@@ -372,15 +507,14 @@ async function upsertScopedConfig(
 			projectId: scope.projectId,
 			inheritOrganization: body.inheritOrganization ?? true,
 			enabled: body.enabled ?? true,
-			systemRules:
-				(body.systemRules as SystemRulesConfig) ?? defaultSystemRulesConfig,
+			systemRules,
 			maxFileSizeMb: body.maxFileSizeMb ?? 10,
 			allowedFileTypes: body.allowedFileTypes ?? defaultAllowedFileTypes,
-			piiAction: (body.piiAction as GuardrailAction) ?? "redact",
+			piiAction,
 		})
 		.returning();
 
-	return created;
+	return normalizeConfig(created);
 }
 
 const guardrailConfigDefaults = {
@@ -405,7 +539,7 @@ async function resetScopedConfig(scope: GuardrailScopeContext) {
 			.set(guardrailConfigDefaults)
 			.where(eq(tables.guardrailConfig.id, existing.id))
 			.returning();
-		return updated;
+		return normalizeConfig(updated);
 	}
 
 	const [created] = await db
@@ -417,7 +551,7 @@ async function resetScopedConfig(scope: GuardrailScopeContext) {
 		})
 		.returning();
 
-	return created;
+	return normalizeConfig(created);
 }
 
 // PUT /guardrails/config/:organizationId - Update or create config
@@ -708,6 +842,12 @@ async function createScopedRule(
 	scope: GuardrailScopeContext,
 	body: z.infer<typeof createRuleBodySchema>,
 ) {
+	assertCustomRuleSupported(
+		body.type,
+		body.config as CustomRuleConfig,
+		(body.action as GuardrailAction) ?? "block",
+	);
+
 	const [created] = await db
 		.insert(tables.guardrailRule)
 		.values({
@@ -841,6 +981,11 @@ async function updateScopedRule(
 	body: z.infer<typeof updateRuleBodySchema>,
 ) {
 	const existing = await findScopedRule(scope, ruleId);
+	assertCustomRuleSupported(
+		existing.type,
+		(body.config as CustomRuleConfig) ?? existing.config,
+		(body.action as GuardrailAction) ?? existing.action,
+	);
 
 	const [updated] = await db
 		.update(tables.guardrailRule)
@@ -1285,6 +1430,16 @@ const testContent = createRoute({
 							}),
 						),
 						rulesChecked: z.number(),
+						classifier: z
+							.object({
+								questions: z.number(),
+								skipped: z.boolean().optional(),
+								error: z.string().optional(),
+							})
+							.optional()
+							.describe(
+								"Classifier-backed rules. The dashboard test skips them (skipped: true); they run on gateway requests.",
+							),
 					}),
 				},
 			},
@@ -1314,6 +1469,7 @@ guardrails.openapi(testContent, async (c) => {
 		blocked: result.blocked,
 		violations: result.violations,
 		rulesChecked: result.rulesChecked,
+		classifier: result.classifier,
 	});
 });
 
@@ -1353,6 +1509,16 @@ const testProjectContent = createRoute({
 							}),
 						),
 						rulesChecked: z.number(),
+						classifier: z
+							.object({
+								questions: z.number(),
+								skipped: z.boolean().optional(),
+								error: z.string().optional(),
+							})
+							.optional()
+							.describe(
+								"Classifier-backed rules. The dashboard test skips them (skipped: true); they run on gateway requests.",
+							),
 					}),
 				},
 			},
@@ -1383,6 +1549,7 @@ guardrails.openapi(testProjectContent, async (c) => {
 		blocked: result.blocked,
 		violations: result.violations,
 		rulesChecked: result.rulesChecked,
+		classifier: result.classifier,
 	});
 });
 
@@ -1402,8 +1569,16 @@ const listSystemRules = createRoute({
 								category: z.string(),
 								defaultEnabled: z.boolean(),
 								defaultAction: z.enum(["block", "redact", "warn", "allow"]),
+								redactable: z.boolean(),
+								detection: z.enum([
+									"pattern",
+									"pattern+classifier",
+									"classifier",
+								]),
 							}),
 						),
+						piiEntities: z.array(z.enum(piiEntities)),
+						presetTopics: z.array(z.string()),
 					}),
 				},
 			},
@@ -1418,51 +1593,9 @@ guardrails.openapi(listSystemRules, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
-	// Return the system rules info
-	const rules = [
-		{
-			id: "system:prompt_injection",
-			name: "Prompt Injection Detection",
-			category: "injection",
-			defaultEnabled: true,
-			defaultAction: "block" as const,
-		},
-		{
-			id: "system:jailbreak",
-			name: "Jailbreak Prevention",
-			category: "jailbreak",
-			defaultEnabled: true,
-			defaultAction: "block" as const,
-		},
-		{
-			id: "system:pii_detection",
-			name: "PII Detection",
-			category: "pii",
-			defaultEnabled: true,
-			defaultAction: "redact" as const,
-		},
-		{
-			id: "system:secrets",
-			name: "Secrets Detection",
-			category: "secrets",
-			defaultEnabled: true,
-			defaultAction: "block" as const,
-		},
-		{
-			id: "system:file_types",
-			name: "File Type Restrictions",
-			category: "files",
-			defaultEnabled: true,
-			defaultAction: "block" as const,
-		},
-		{
-			id: "system:document_leakage",
-			name: "Document Leakage Prevention",
-			category: "document_leakage",
-			defaultEnabled: false,
-			defaultAction: "warn" as const,
-		},
-	];
-
-	return c.json({ rules });
+	return c.json({
+		rules: systemRuleCatalog,
+		piiEntities: [...piiEntities],
+		presetTopics,
+	});
 });

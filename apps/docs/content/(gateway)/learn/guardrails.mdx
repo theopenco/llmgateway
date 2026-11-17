@@ -36,7 +36,7 @@ The organization page names any projects that override it ("The settings below a
 
 ## System Rules
 
-Six built-in rules with individual enable/disable toggles:
+Seven built-in rules with individual enable/disable toggles:
 
 | Rule                            | Description                                                          |
 | ------------------------------- | -------------------------------------------------------------------- |
@@ -44,13 +44,16 @@ Six built-in rules with individual enable/disable toggles:
 | **Jailbreak Prevention**        | Identifies attempts to bypass safety measures                        |
 | **PII Detection**               | Identifies personal information like emails, phone numbers, and SSNs |
 | **Secrets Detection**           | Detects API keys, passwords, and credentials                         |
-| **File Type Restrictions**      | Controls which file types can be uploaded                            |
-| **Document Leakage Prevention** | Detects attempts to extract confidential documents                   |
+| **File Restrictions**           | Enforces allowed file types and size on attachments                  |
+| **Document Leakage Prevention** | Flags confidentiality markers such as "internal use only"            |
+| **Harmful Content**             | Scores harmful content with the ML classifier                        |
+
+Prompt injection and jailbreak can also use the ML classifier; PII detection lets you pick which entities to detect. ML checks are billed as one extra decision request per chat request.
 
 Each rule has an action dropdown to configure the response:
 
 - **Block** — Reject the request entirely
-- **Redact** — Remove or mask sensitive content, then continue
+- **Redact** — Mask sensitive content, then continue (PII and secrets only)
 - **Warn** — Log the violation but allow the request
 
 ## File Restrictions
@@ -58,15 +61,17 @@ Each rule has an action dropdown to configure the response:
 Configure file upload limits:
 
 - **Max file size** — Set the maximum file size in MB
-- **Allowed file types** — Add or remove permitted MIME types
+- **Allowed file types** — MIME types (`image/png`, `image/*`) or extensions (`pdf`); leave empty to allow every type
 
 ## Custom Rules
 
-Create organization-specific rules by clicking **Add Rule**:
+Create organization-specific rules by clicking **Add Rule**, or start from a template such as **Block email addresses**:
 
+- **Sensitive Data** — Detect selected entities, such as email addresses
 - **Blocked Terms** — Block specific words or phrases
 - **Custom Regex** — Match patterns with regular expressions
-- **Topic Restriction** — Restrict content related to specific topics
+- **Topic Restriction** — Restrict topics by keyword, or by meaning with the ML classifier
+- **ML Classifier** — Describe in plain language what to detect
 
 Each custom rule can be individually enabled/disabled or deleted.
 

@@ -33,6 +33,7 @@ const SYSTEM_RULE_LABELS: { key: keyof SystemRules; name: string }[] = [
 	{ key: "secrets", name: "Secrets" },
 	{ key: "file_types", name: "File types" },
 	{ key: "document_leakage", name: "Document leakage" },
+	{ key: "harmful_content", name: "Harmful content" },
 ];
 
 function formatDateTime(dateString: string) {
@@ -69,7 +70,11 @@ function ruleConfigSummary(rule: CustomRule): string {
 		case "custom_regex":
 			return config.pattern;
 		case "topic_restriction":
-			return `blocked topics: ${config.blockedTopics.join(", ")}${config.allowedTopics?.length ? `; allowed: ${config.allowedTopics.join(", ")}` : ""}`;
+			return `${config.classifier ? "classifier, " : ""}blocked topics: ${config.blockedTopics.join(", ")}${config.allowedTopics?.length ? `; allowed: ${config.allowedTopics.join(", ")}` : ""}`;
+		case "sensitive_data":
+			return `entities: ${config.entities.join(", ")}`;
+		case "classifier":
+			return config.instructions;
 	}
 }
 

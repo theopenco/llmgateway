@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, Plus, Save, Trash2, X } from "lucide-react";
+import { Building2, Plus, Save, Sparkles, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -27,6 +27,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import { Checkbox } from "@/lib/components/checkbox";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import {
@@ -37,6 +38,7 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { Switch } from "@/lib/components/switch";
+import { Textarea } from "@/lib/components/textarea";
 import { useApi } from "@/lib/fetch-client";
 
 import {
@@ -51,53 +53,316 @@ import type {
 } from "@/hooks/useGuardrails";
 
 type SystemRulesConfig = NonNullable<GuardrailConfig["systemRules"]>;
+type SystemRuleKey = keyof SystemRulesConfig;
 type SystemRuleConfig = SystemRulesConfig["prompt_injection"];
 type GuardrailAction = SystemRuleConfig["action"];
+type PiiEntity = NonNullable<SystemRuleConfig["entities"]>[number];
 type CustomRuleType = GuardrailRule["type"];
+type CustomRuleConfig = GuardrailRule["config"];
 
-const SYSTEM_RULES = [
+const SYSTEM_RULES: {
+	id: SystemRuleKey;
+	name: string;
+	description: string;
+	redactable: boolean;
+	/** "optional" offers the ML classifier on top of patterns. */
+	classifier: "none" | "optional" | "always";
+}[] = [
 	{
 		id: "prompt_injection",
 		name: "Prompt Injection Detection",
 		description:
-			"Detect attempts to override system instructions or inject malicious prompts",
+			"Detect attempts to override or extract instructions. System prompts are not scanned.",
+		redactable: false,
+		classifier: "optional",
 	},
 	{
 		id: "jailbreak",
 		name: "Jailbreak Prevention",
-		description: "Block attempts to bypass AI safety measures",
+		description:
+			"Detect attempts to bypass AI safety measures. System prompts are not scanned.",
+		redactable: false,
+		classifier: "optional",
 	},
 	{
 		id: "pii_detection",
 		name: "PII Detection",
-		description:
-			"Detect and optionally redact personally identifiable information",
+		description: "Detect and optionally redact personal data",
+		redactable: true,
+		classifier: "none",
 	},
 	{
 		id: "secrets",
 		name: "Secrets Detection",
-		description: "Detect API keys, passwords, and other credentials",
+		description: "Detect API keys, tokens, private keys and passwords",
+		redactable: true,
+		classifier: "none",
 	},
 	{
 		id: "file_types",
-		name: "File Type Restrictions",
-		description: "Restrict uploads to allowed file types",
+		name: "File Restrictions",
+		description: "Enforce the allowed file types and size below",
+		redactable: false,
+		classifier: "none",
 	},
 	{
 		id: "document_leakage",
 		name: "Document Leakage Prevention",
-		description: "Prevent exposure of confidential document content",
+		description: "Flag confidentiality markers such as “internal use only”",
+		redactable: false,
+		classifier: "none",
 	},
-] as const;
+	{
+		id: "harmful_content",
+		name: "Harmful Content",
+		description:
+			"Score harassment, hate, violence, self-harm, sexual and illicit content with the ML classifier",
+		redactable: false,
+		classifier: "always",
+	},
+];
+
+const PII_ENTITIES: { id: PiiEntity; label: string }[] = [
+	{ id: "email", label: "Email" },
+	{ id: "phone", label: "Phone" },
+	{ id: "credit_card", label: "Credit card" },
+	{ id: "iban", label: "IBAN" },
+	{ id: "ssn", label: "SSN" },
+	{ id: "ip_address", label: "IP address" },
+	{ id: "passport", label: "Passport" },
+	{ id: "drivers_license", label: "Driver's license" },
+];
+
+const REDACTABLE_RULE_TYPES: CustomRuleType[] = [
+	"blocked_terms",
+	"custom_regex",
+	"sensitive_data",
+];
+
+const RULE_TYPE_LABELS: Record<CustomRuleType, string> = {
+	blocked_terms: "Blocked terms",
+	custom_regex: "Custom regex",
+	topic_restriction: "Topic restriction",
+	sensitive_data: "Sensitive data",
+	classifier: "ML classifier",
+};
 
 const DEFAULT_SYSTEM_RULES: SystemRulesConfig = {
-	prompt_injection: { enabled: true, action: "block" },
-	jailbreak: { enabled: true, action: "block" },
+	prompt_injection: { enabled: true, action: "block", classifier: false },
+	jailbreak: { enabled: true, action: "block", classifier: false },
 	pii_detection: { enabled: true, action: "redact" },
 	secrets: { enabled: true, action: "block" },
 	file_types: { enabled: true, action: "block" },
 	document_leakage: { enabled: false, action: "warn" },
+	harmful_content: { enabled: false, action: "block", classifier: true },
 };
+
+const DEFAULT_ALLOWED_FILE_TYPES = [
+	"image/jpeg",
+	"image/png",
+	"image/gif",
+	"image/webp",
+];
+
+interface NewRuleDraft {
+	name: string;
+	type: CustomRuleType;
+	action: GuardrailAction;
+	terms: string;
+	pattern: string;
+	topics: string;
+	allowedTopics: string;
+	topicClassifier: boolean;
+	entities: PiiEntity[];
+	instructions: string;
+}
+
+const EMPTY_RULE: NewRuleDraft = {
+	name: "",
+	type: "blocked_terms",
+	action: "block",
+	terms: "",
+	pattern: "",
+	topics: "",
+	allowedTopics: "",
+	topicClassifier: false,
+	entities: [],
+	instructions: "",
+};
+
+/** Starting points for common company policies. */
+const RULE_TEMPLATES: { label: string; rule: Partial<NewRuleDraft> }[] = [
+	{
+		label: "Block email addresses",
+		rule: {
+			name: "Block email addresses",
+			type: "sensitive_data",
+			entities: ["email"],
+			action: "block",
+		},
+	},
+	{
+		label: "Redact payment data",
+		rule: {
+			name: "Redact payment data",
+			type: "sensitive_data",
+			entities: ["credit_card", "iban"],
+			action: "redact",
+		},
+	},
+	{
+		label: "Block competitor mentions",
+		rule: {
+			name: "Block competitor mentions",
+			type: "blocked_terms",
+			terms: "",
+			action: "block",
+		},
+	},
+	{
+		label: "No legal advice",
+		rule: {
+			name: "No legal advice",
+			type: "classifier",
+			instructions:
+				"The text asks for legal advice about the user's own situation.",
+			action: "block",
+		},
+	},
+	{
+		label: "Stay on topic",
+		rule: {
+			name: "Stay on topic",
+			type: "topic_restriction",
+			topicClassifier: true,
+			allowedTopics: "our product\nbilling\naccount support",
+			action: "block",
+		},
+	},
+];
+
+const splitLines = (value: string) =>
+	value
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean);
+
+function buildRuleConfig(rule: NewRuleDraft): CustomRuleConfig {
+	switch (rule.type) {
+		case "blocked_terms":
+			return {
+				type: "blocked_terms",
+				terms: splitLines(rule.terms),
+				matchType: "contains",
+				caseSensitive: false,
+			};
+		case "custom_regex":
+			return { type: "custom_regex", pattern: rule.pattern };
+		case "sensitive_data":
+			return { type: "sensitive_data", entities: rule.entities };
+		case "classifier":
+			return { type: "classifier", instructions: rule.instructions.trim() };
+		case "topic_restriction":
+			return {
+				type: "topic_restriction",
+				blockedTopics: splitLines(rule.topics),
+				classifier: rule.topicClassifier,
+				...(rule.topicClassifier && splitLines(rule.allowedTopics).length > 0
+					? { allowedTopics: splitLines(rule.allowedTopics) }
+					: {}),
+			};
+	}
+}
+
+function isRuleComplete(rule: NewRuleDraft): boolean {
+	if (!rule.name.trim()) {
+		return false;
+	}
+	switch (rule.type) {
+		case "blocked_terms":
+			return splitLines(rule.terms).length > 0;
+		case "custom_regex":
+			return rule.pattern.trim().length > 0;
+		case "sensitive_data":
+			return rule.entities.length > 0;
+		case "classifier":
+			return rule.instructions.trim().length > 0;
+		case "topic_restriction":
+			return (
+				splitLines(rule.topics).length > 0 ||
+				(rule.topicClassifier && splitLines(rule.allowedTopics).length > 0)
+			);
+	}
+}
+
+function usesClassifier(config: CustomRuleConfig): boolean {
+	return (
+		config.type === "classifier" ||
+		(config.type === "topic_restriction" && config.classifier === true)
+	);
+}
+
+function ruleSummary(config: CustomRuleConfig): string {
+	switch (config.type) {
+		case "blocked_terms":
+			return `${config.terms.length} term${config.terms.length === 1 ? "" : "s"}`;
+		case "custom_regex":
+			return config.pattern;
+		case "sensitive_data":
+			return config.entities
+				.map((id) => PII_ENTITIES.find((e) => e.id === id)?.label ?? id)
+				.join(", ");
+		case "classifier":
+			return config.instructions;
+		case "topic_restriction":
+			return [
+				config.blockedTopics.length > 0
+					? `blocked: ${config.blockedTopics.join(", ")}`
+					: null,
+				config.allowedTopics?.length
+					? `allowed only: ${config.allowedTopics.join(", ")}`
+					: null,
+			]
+				.filter(Boolean)
+				.join("; ");
+	}
+}
+
+function EntityPicker({
+	value,
+	onChange,
+	disabled,
+}: {
+	value: PiiEntity[] | undefined;
+	onChange: (entities: PiiEntity[]) => void;
+	disabled?: boolean;
+}) {
+	// Unset means every entity.
+	const selected = value ?? PII_ENTITIES.map((entity) => entity.id);
+	return (
+		<div className="flex flex-wrap gap-x-4 gap-y-2">
+			{PII_ENTITIES.map((entity) => (
+				<label
+					key={entity.id}
+					className="flex items-center gap-2 text-sm cursor-pointer"
+				>
+					<Checkbox
+						checked={selected.includes(entity.id)}
+						disabled={disabled}
+						onCheckedChange={(checked) =>
+							onChange(
+								checked
+									? [...selected, entity.id]
+									: selected.filter((id) => id !== entity.id),
+							)
+						}
+					/>
+					{entity.label}
+				</label>
+			))}
+		</div>
+	);
+}
 
 interface DraftConfig {
 	inheritOrganization: boolean;
@@ -105,7 +370,6 @@ interface DraftConfig {
 	systemRules: SystemRulesConfig;
 	maxFileSizeMb: number;
 	allowedFileTypes: string[];
-	piiAction: GuardrailAction;
 }
 
 const DEFAULT_DRAFT: DraftConfig = {
@@ -113,8 +377,7 @@ const DEFAULT_DRAFT: DraftConfig = {
 	enabled: false,
 	systemRules: DEFAULT_SYSTEM_RULES,
 	maxFileSizeMb: 10,
-	allowedFileTypes: ["pdf", "txt", "md", "csv", "json", "xml"],
-	piiAction: "redact",
+	allowedFileTypes: DEFAULT_ALLOWED_FILE_TYPES,
 };
 
 function toDraft(config: GuardrailConfig | null): DraftConfig {
@@ -125,10 +388,9 @@ function toDraft(config: GuardrailConfig | null): DraftConfig {
 	return {
 		inheritOrganization: config.inheritOrganization,
 		enabled: config.enabled,
-		systemRules: config.systemRules ?? DEFAULT_SYSTEM_RULES,
+		systemRules: { ...DEFAULT_SYSTEM_RULES, ...config.systemRules },
 		maxFileSizeMb: config.maxFileSizeMb,
 		allowedFileTypes: config.allowedFileTypes,
-		piiAction: config.piiAction ?? "redact",
 	};
 }
 
@@ -282,14 +544,7 @@ function GuardrailsForm({
 	const [success, setSuccess] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [showAddRule, setShowAddRule] = useState(false);
-	const [newRule, setNewRule] = useState({
-		name: "",
-		type: "blocked_terms" as CustomRuleType,
-		action: "block" as GuardrailAction,
-		terms: "",
-		pattern: "",
-		topics: "",
-	});
+	const [newRule, setNewRule] = useState<NewRuleDraft>(EMPTY_RULE);
 
 	const saveMutation = useSaveGuardrailConfig(scope);
 	const createRuleMutation = useCreateGuardrailRule(scope);
@@ -350,7 +605,6 @@ function GuardrailsForm({
 							systemRules: draft.systemRules,
 							maxFileSizeMb: draft.maxFileSizeMb,
 							allowedFileTypes: draft.allowedFileTypes,
-							piiAction: draft.piiAction,
 						},
 			);
 			setSuccess("Configuration saved successfully");
@@ -361,55 +615,41 @@ function GuardrailsForm({
 	};
 
 	const updateSystemRule = (
-		ruleId: keyof SystemRulesConfig,
-		field: keyof SystemRuleConfig,
-		value: boolean | string,
+		ruleId: SystemRuleKey,
+		patch: Partial<SystemRuleConfig>,
 	) => {
 		setDraft({
 			...draft,
 			systemRules: {
 				...draft.systemRules,
-				[ruleId]: { ...draft.systemRules[ruleId], [field]: value },
+				[ruleId]: { ...draft.systemRules[ruleId], ...patch },
 			},
 		});
 	};
 
+	const usesBilledClassifier =
+		SYSTEM_RULES.some(
+			(rule) =>
+				shown.systemRules[rule.id]?.enabled &&
+				(rule.classifier === "always" ||
+					(rule.classifier === "optional" &&
+						shown.systemRules[rule.id]?.classifier)),
+		) || shownRules.some((rule) => rule.enabled && usesClassifier(rule.config));
+
 	const addCustomRule = async () => {
 		setError(null);
 
-		const ruleConfig =
-			newRule.type === "blocked_terms"
-				? {
-						type: "blocked_terms" as const,
-						terms: newRule.terms.split("\n").filter((t) => t.trim()),
-						matchType: "contains" as const,
-						caseSensitive: false,
-					}
-				: newRule.type === "custom_regex"
-					? { type: "custom_regex" as const, pattern: newRule.pattern }
-					: {
-							type: "topic_restriction" as const,
-							blockedTopics: newRule.topics.split("\n").filter((t) => t.trim()),
-						};
-
 		try {
 			await createRuleMutation.mutateAsync({
-				name: newRule.name,
+				name: newRule.name.trim(),
 				type: newRule.type,
 				action: newRule.action,
-				config: ruleConfig,
+				config: buildRuleConfig(newRule),
 				enabled: true,
 				priority: rules.length + 1,
 			});
 			setShowAddRule(false);
-			setNewRule({
-				name: "",
-				type: "blocked_terms",
-				action: "block",
-				terms: "",
-				pattern: "",
-				topics: "",
-			});
+			setNewRule(EMPTY_RULE);
 		} catch {
 			setError("Failed to add rule");
 		}
@@ -561,57 +801,103 @@ function GuardrailsForm({
 					<CardHeader>
 						<CardTitle>System Rules</CardTitle>
 						<CardDescription>
-							Built-in security rules powered by pattern matching
+							Built-in rules. Pattern rules run in-process at no cost; rules
+							marked ML also score requests with the Jev classifier.
 						</CardDescription>
 					</CardHeader>
 					<CardContent className="space-y-4">
 						{SYSTEM_RULES.map((rule) => {
 							const ruleConfig = shown.systemRules[rule.id];
+							const enabled = ruleConfig?.enabled ?? false;
 							return (
-								<div
-									key={rule.id}
-									className="flex items-center justify-between p-4 border rounded-lg"
-								>
-									<div className="flex items-center gap-4">
-										<Switch
-											checked={ruleConfig?.enabled ?? false}
-											disabled={!editable}
-											onCheckedChange={(enabled) =>
-												updateSystemRule(rule.id, "enabled", enabled)
-											}
-										/>
-										<div>
-											<div className="font-medium">{rule.name}</div>
-											<div className="text-sm text-muted-foreground">
-												{rule.description}
+								<div key={rule.id} className="p-4 border rounded-lg space-y-3">
+									<div className="flex items-center justify-between gap-4">
+										<div className="flex items-center gap-4">
+											<Switch
+												checked={enabled}
+												disabled={!editable}
+												onCheckedChange={(value) =>
+													updateSystemRule(rule.id, { enabled: value })
+												}
+											/>
+											<div>
+												<div className="flex items-center gap-2 font-medium">
+													{rule.name}
+													{rule.classifier === "always" && (
+														<Badge variant="outline" className="text-xs">
+															<Sparkles className="h-3 w-3 mr-1" />
+															ML
+														</Badge>
+													)}
+												</div>
+												<div className="text-sm text-muted-foreground">
+													{rule.description}
+												</div>
 											</div>
 										</div>
+										{enabled && (
+											<Select
+												value={
+													ruleConfig.action === "allow"
+														? "warn"
+														: ruleConfig.action
+												}
+												disabled={!editable}
+												onValueChange={(value) =>
+													updateSystemRule(rule.id, {
+														action: value as GuardrailAction,
+													})
+												}
+											>
+												<SelectTrigger className="w-36">
+													<SelectValue />
+												</SelectTrigger>
+												<SelectContent>
+													<SelectItem value="block">Block</SelectItem>
+													{rule.redactable && (
+														<SelectItem value="redact">Redact</SelectItem>
+													)}
+													<SelectItem value="warn">Warn (log only)</SelectItem>
+												</SelectContent>
+											</Select>
+										)}
 									</div>
-									{ruleConfig?.enabled && (
-										<Select
-											value={ruleConfig.action}
-											disabled={!editable}
-											onValueChange={(value) =>
-												updateSystemRule(rule.id, "action", value)
-											}
-										>
-											<SelectTrigger className="w-32">
-												<SelectValue />
-											</SelectTrigger>
-											<SelectContent>
-												<SelectItem value="block">Block</SelectItem>
-												{(rule.id === "pii_detection" ||
-													rule.id === "secrets") && (
-													<SelectItem value="redact">Redact</SelectItem>
-												)}
-												<SelectItem value="warn">Warn</SelectItem>
-												<SelectItem value="allow">Allow</SelectItem>
-											</SelectContent>
-										</Select>
+									{enabled && rule.classifier === "optional" && (
+										<label className="flex items-center gap-2 pl-14 text-sm cursor-pointer">
+											<Switch
+												checked={ruleConfig.classifier === true}
+												disabled={!editable}
+												onCheckedChange={(value) =>
+													updateSystemRule(rule.id, { classifier: value })
+												}
+											/>
+											<Sparkles className="h-3.5 w-3.5" />
+											Also score with the ML classifier (catches paraphrased and
+											non-English attempts)
+										</label>
+									)}
+									{enabled && rule.id === "pii_detection" && (
+										<div className="pl-14">
+											<EntityPicker
+												value={ruleConfig.entities}
+												disabled={!editable}
+												onChange={(entities) =>
+													updateSystemRule(rule.id, { entities })
+												}
+											/>
+										</div>
 									)}
 								</div>
 							);
 						})}
+						{usesBilledClassifier && (
+							<p className="text-sm text-muted-foreground">
+								ML checks run as one extra Jev request per chat request, billed
+								to your organization and listed in your activity logs. If that
+								request fails, ML rules are skipped and pattern rules still
+								apply.
+							</p>
+						)}
 					</CardContent>
 				</Card>
 
@@ -619,7 +905,9 @@ function GuardrailsForm({
 					<CardHeader>
 						<CardTitle>File Restrictions</CardTitle>
 						<CardDescription>
-							Configure allowed file types and size limits
+							Applies to images, audio and files attached to messages. Use MIME
+							types (image/png, image/*) or extensions (pdf). Leave the list
+							empty to allow every type.
 						</CardDescription>
 					</CardHeader>
 					<CardContent className="space-y-4">
@@ -664,7 +952,7 @@ function GuardrailsForm({
 							</div>
 							<div className="flex gap-2">
 								<Input
-									placeholder="Add file type (e.g., pdf)"
+									placeholder="Add type (e.g., application/pdf)"
 									id="newFileType"
 									className="w-48"
 									disabled={!editable}
@@ -726,7 +1014,21 @@ function GuardrailsForm({
 										<X className="h-4 w-4" />
 									</Button>
 								</div>
-								<div className="grid gap-4 md:grid-cols-2">
+								<div className="flex flex-wrap gap-2">
+									{RULE_TEMPLATES.map((template) => (
+										<Button
+											key={template.label}
+											variant="outline"
+											size="sm"
+											onClick={() =>
+												setNewRule({ ...EMPTY_RULE, ...template.rule })
+											}
+										>
+											{template.label}
+										</Button>
+									))}
+								</div>
+								<div className="grid gap-4 md:grid-cols-3">
 									<div className="space-y-2">
 										<Label>Rule Name</Label>
 										<Input
@@ -747,7 +1049,7 @@ function GuardrailsForm({
 													...newRule,
 													type,
 													action:
-														type === "topic_restriction" &&
+														!REDACTABLE_RULE_TYPES.includes(type) &&
 														newRule.action === "redact"
 															? "block"
 															: newRule.action,
@@ -758,54 +1060,50 @@ function GuardrailsForm({
 												<SelectValue />
 											</SelectTrigger>
 											<SelectContent>
-												<SelectItem value="blocked_terms">
-													Blocked Terms
-												</SelectItem>
-												<SelectItem value="custom_regex">
-													Custom Regex
-												</SelectItem>
-												<SelectItem value="topic_restriction">
-													Topic Restriction
-												</SelectItem>
+												{(
+													Object.keys(RULE_TYPE_LABELS) as CustomRuleType[]
+												).map((type) => (
+													<SelectItem key={type} value={type}>
+														{RULE_TYPE_LABELS[type]}
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+									</div>
+									<div className="space-y-2">
+										<Label>Action</Label>
+										<Select
+											value={newRule.action}
+											onValueChange={(value) =>
+												setNewRule({
+													...newRule,
+													action: value as GuardrailAction,
+												})
+											}
+										>
+											<SelectTrigger>
+												<SelectValue />
+											</SelectTrigger>
+											<SelectContent>
+												<SelectItem value="block">Block</SelectItem>
+												{REDACTABLE_RULE_TYPES.includes(newRule.type) && (
+													<SelectItem value="redact">Redact</SelectItem>
+												)}
+												<SelectItem value="warn">Warn (log only)</SelectItem>
 											</SelectContent>
 										</Select>
 									</div>
 								</div>
-								<div className="space-y-2">
-									<Label>Action</Label>
-									<Select
-										value={newRule.action}
-										onValueChange={(value) =>
-											setNewRule({
-												...newRule,
-												action: value as GuardrailAction,
-											})
-										}
-									>
-										<SelectTrigger className="w-48">
-											<SelectValue />
-										</SelectTrigger>
-										<SelectContent>
-											<SelectItem value="block">Block</SelectItem>
-											{(newRule.type === "blocked_terms" ||
-												newRule.type === "custom_regex") && (
-												<SelectItem value="redact">Redact</SelectItem>
-											)}
-											<SelectItem value="warn">Warn</SelectItem>
-											<SelectItem value="allow">Allow (Log Only)</SelectItem>
-										</SelectContent>
-									</Select>
-								</div>
 								{newRule.type === "blocked_terms" && (
 									<div className="space-y-2">
 										<Label>Blocked Terms (one per line)</Label>
-										<textarea
+										<Textarea
 											value={newRule.terms}
 											onChange={(e) =>
 												setNewRule({ ...newRule, terms: e.target.value })
 											}
-											className="w-full h-24 px-3 py-2 text-sm border rounded-md resize-none"
-											placeholder="competitor&#10;secret project&#10;confidential"
+											className="h-24 resize-none"
+											placeholder={"competitor\nsecret project\nconfidential"}
 										/>
 									</div>
 								)}
@@ -817,21 +1115,83 @@ function GuardrailsForm({
 											onChange={(e) =>
 												setNewRule({ ...newRule, pattern: e.target.value })
 											}
-											placeholder="e.g., \\b\\d{3}-\\d{2}-\\d{4}\\b"
+											placeholder={"e.g., \\bORD-\\d{8}\\b"}
 										/>
 									</div>
 								)}
-								{newRule.type === "topic_restriction" && (
+								{newRule.type === "sensitive_data" && (
 									<div className="space-y-2">
-										<Label>Restricted Topics (one per line)</Label>
-										<textarea
-											value={newRule.topics}
-											onChange={(e) =>
-												setNewRule({ ...newRule, topics: e.target.value })
+										<Label>Detect</Label>
+										<EntityPicker
+											value={newRule.entities}
+											onChange={(entities) =>
+												setNewRule({ ...newRule, entities })
 											}
-											className="w-full h-24 px-3 py-2 text-sm border rounded-md resize-none"
-											placeholder="politics&#10;religion&#10;violence"
 										/>
+									</div>
+								)}
+								{newRule.type === "classifier" && (
+									<div className="space-y-2">
+										<Label>What should this rule detect?</Label>
+										<Textarea
+											value={newRule.instructions}
+											onChange={(e) =>
+												setNewRule({
+													...newRule,
+													instructions: e.target.value,
+												})
+											}
+											className="h-24 resize-none"
+											placeholder="The text asks for legal advice about the user's own situation."
+										/>
+										<p className="text-sm text-muted-foreground">
+											Scored by the Jev classifier on every request, billed as a
+											separate decision request.
+										</p>
+									</div>
+								)}
+								{newRule.type === "topic_restriction" && (
+									<div className="space-y-4">
+										<label className="flex items-center gap-2 text-sm cursor-pointer">
+											<Switch
+												checked={newRule.topicClassifier}
+												onCheckedChange={(topicClassifier) =>
+													setNewRule({ ...newRule, topicClassifier })
+												}
+											/>
+											<Sparkles className="h-3.5 w-3.5" />
+											Judge topics with the ML classifier (billed) instead of
+											keyword lists
+										</label>
+										<div className="grid gap-4 md:grid-cols-2">
+											<div className="space-y-2">
+												<Label>Restricted Topics (one per line)</Label>
+												<Textarea
+													value={newRule.topics}
+													onChange={(e) =>
+														setNewRule({ ...newRule, topics: e.target.value })
+													}
+													className="h-24 resize-none"
+													placeholder={"politics\nreligion\nmedical_advice"}
+												/>
+											</div>
+											{newRule.topicClassifier && (
+												<div className="space-y-2">
+													<Label>Only allow these topics (optional)</Label>
+													<Textarea
+														value={newRule.allowedTopics}
+														onChange={(e) =>
+															setNewRule({
+																...newRule,
+																allowedTopics: e.target.value,
+															})
+														}
+														className="h-24 resize-none"
+														placeholder={"our product\nbilling"}
+													/>
+												</div>
+											)}
+										</div>
 									</div>
 								)}
 								<div className="flex justify-end gap-2">
@@ -841,7 +1201,12 @@ function GuardrailsForm({
 									>
 										Cancel
 									</Button>
-									<Button onClick={addCustomRule} disabled={!newRule.name}>
+									<Button
+										onClick={addCustomRule}
+										disabled={
+											!isRuleComplete(newRule) || createRuleMutation.isPending
+										}
+									>
 										Add Rule
 									</Button>
 								</div>
@@ -881,11 +1246,15 @@ function GuardrailsForm({
 										<div className="flex items-center gap-2">
 											<span className="font-medium">{rule.name}</span>
 											<Badge variant="outline" className="text-xs">
-												{rule.type.replace("_", " ")}
+												{usesClassifier(rule.config) && (
+													<Sparkles className="h-3 w-3 mr-1" />
+												)}
+												{RULE_TYPE_LABELS[rule.type]}
 											</Badge>
 										</div>
-										<div className="text-sm text-muted-foreground">
-											Action: {rule.action}
+										<div className="text-sm text-muted-foreground line-clamp-1">
+											{rule.action === "allow" ? "warn" : rule.action} ·{" "}
+											{ruleSummary(rule.config)}
 										</div>
 									</div>
 								</div>

@@ -94,3 +94,20 @@ describe("piiRule.check", () => {
 		expect(result.matches.join(" ")).not.toContain("bob@example.com");
 	});
 });
+
+describe("PII entities", () => {
+	it("detects IBANs that pass the checksum", () => {
+		expect(detectPii("IBAN DE89 3704 0044 0532 0130 00").patterns).toEqual([
+			"IBAN",
+		]);
+		expect(detectPii("ref DE00 3704 0044 0532 0130 00").patterns).toEqual([]);
+	});
+
+	it("restricts detection to the selected entities", () => {
+		const text = "mail bob@example.com or call 555-123-4567";
+		expect(detectPii(text, ["email"]).patterns).toEqual(["Email"]);
+		expect(redactPii(text, ["phone"]).redacted).toBe(
+			"mail bob@example.com or call [PHONE_REDACTED]",
+		);
+	});
+});

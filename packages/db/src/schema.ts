@@ -5191,9 +5191,36 @@ export const platformAuditLog = snakeCase.table(
 
 export type GuardrailAction = "block" | "redact" | "warn" | "allow";
 
+/** Entities the deterministic sensitive-data detectors recognise. */
+export const piiEntities = [
+	"email",
+	"phone",
+	"credit_card",
+	"iban",
+	"ssn",
+	"ip_address",
+	"passport",
+	"drivers_license",
+] as const;
+
+export type PiiEntity = (typeof piiEntities)[number];
+
+/** Score above which a classifier answer counts as a match. */
+export const defaultGuardrailClassifierThreshold = 0.8;
+
 export interface SystemRuleConfig {
 	enabled: boolean;
 	action: GuardrailAction;
+	/**
+	 * Also score the request with the ML classifier (Jev). Billed to the
+	 * organization as a separate decision request. Used by the injection and
+	 * jailbreak rules; harmful content always uses the classifier.
+	 */
+	classifier?: boolean;
+	/** Classifier score threshold, 0–1. */
+	threshold?: number;
+	/** PII rule only: entities to detect. Unset means all. */
+	entities?: PiiEntity[];
 }
 
 export interface SystemRulesConfig {
@@ -5203,17 +5230,38 @@ export interface SystemRulesConfig {
 	secrets: SystemRuleConfig;
 	file_types: SystemRuleConfig;
 	document_leakage: SystemRuleConfig;
+	harmful_content: SystemRuleConfig;
 }
 
 export const defaultSystemRulesConfig: SystemRulesConfig = {
-	prompt_injection: { enabled: true, action: "block" },
-	jailbreak: { enabled: true, action: "block" },
+	prompt_injection: { enabled: true, action: "block", classifier: false },
+	jailbreak: { enabled: true, action: "block", classifier: false },
 	pii_detection: { enabled: true, action: "redact" },
 	secrets: { enabled: true, action: "block" },
 	file_types: { enabled: true, action: "block" },
 	document_leakage: { enabled: false, action: "warn" },
+	harmful_content: { enabled: false, action: "block", classifier: true },
 };
 
+/**
+ * Stored configs predate later rules, so missing rules take their defaults.
+ */
+export function withDefaultSystemRules(
+	systemRules: Partial<SystemRulesConfig> | null | undefined,
+): SystemRulesConfig {
+	const merged = { ...defaultSystemRulesConfig };
+	for (const key of Object.keys(merged) as (keyof SystemRulesConfig)[]) {
+		const stored = systemRules?.[key];
+		if (stored) {
+			merged[key] = { ...defaultSystemRulesConfig[key], ...stored };
+		}
+	}
+	return merged;
+}
+
+/**
+ * MIME types (`image/png`, `image/*`) or file extensions (`pdf`).
+ */
 export const defaultAllowedFileTypes = [
 	"image/jpeg",
 	"image/png",
@@ -5229,6 +5277,8 @@ export const customRuleTypes = [
 	"blocked_terms",
 	"custom_regex",
 	"topic_restriction",
+	"sensitive_data",
+	"classifier",
 ] as const;
 
 export type CustomRuleType = (typeof customRuleTypes)[number];
@@ -5248,11 +5298,33 @@ export interface CustomRegexRuleConfig {
 export interface TopicRestrictionRuleConfig {
 	type: "topic_restriction";
 	blockedTopics: string[];
+	/** Classifier only: anything outside these topics is a violation. */
 	allowedTopics?: string[];
+	/** Judge topics with the ML classifier instead of keyword lists. */
+	classifier?: boolean;
+	threshold?: number;
+}
+
+/** Deterministic detection of selected entities, e.g. email addresses. */
+export interface SensitiveDataRuleConfig {
+	type: "sensitive_data";
+	entities: PiiEntity[];
+}
+
+/** A yes/no question answered by the ML classifier (Jev). */
+export interface ClassifierRuleConfig {
+	type: "classifier";
+	/** What to detect, e.g. "The text asks for legal advice." */
+	instructions: string;
+	threshold?: number;
 }
 
 export type CustomRuleConfig =
-	BlockedTermsRuleConfig | CustomRegexRuleConfig | TopicRestrictionRuleConfig;
+	| BlockedTermsRuleConfig
+	| CustomRegexRuleConfig
+	| TopicRestrictionRuleConfig
+	| SensitiveDataRuleConfig
+	| ClassifierRuleConfig;
 
 // Guardrails are configured per organization (`project_id IS NULL`) and,
 // optionally, per project. A project row with `inherit_organization: false`

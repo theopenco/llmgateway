@@ -19,6 +19,8 @@ import {
 	gte,
 	sql,
 	tables,
+	piiEntities,
+	withDefaultSystemRules,
 } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
@@ -1041,6 +1043,9 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 const guardrailSystemRuleSchema = z.object({
 	enabled: z.boolean(),
 	action: z.enum(["block", "redact", "warn", "allow"]),
+	classifier: z.boolean().optional(),
+	threshold: z.number().optional(),
+	entities: z.array(z.enum(piiEntities)).optional(),
 });
 
 const guardrailSystemRulesSchema = z.object({
@@ -1050,6 +1055,7 @@ const guardrailSystemRulesSchema = z.object({
 	secrets: guardrailSystemRuleSchema,
 	file_types: guardrailSystemRuleSchema,
 	document_leakage: guardrailSystemRuleSchema,
+	harmful_content: guardrailSystemRuleSchema,
 });
 
 const guardrailCustomRuleConfigSchema = z.union([
@@ -1067,6 +1073,17 @@ const guardrailCustomRuleConfigSchema = z.union([
 		type: z.literal("topic_restriction"),
 		blockedTopics: z.array(z.string()),
 		allowedTopics: z.array(z.string()).optional(),
+		classifier: z.boolean().optional(),
+		threshold: z.number().optional(),
+	}),
+	z.object({
+		type: z.literal("sensitive_data"),
+		entities: z.array(z.enum(piiEntities)),
+	}),
+	z.object({
+		type: z.literal("classifier"),
+		instructions: z.string(),
+		threshold: z.number().optional(),
 	}),
 ]);
 
@@ -1193,7 +1210,7 @@ adminOrgDetails.openapi(getOrganizationGuardrails, async (c) => {
 			? {
 					id: config.id,
 					enabled: config.enabled,
-					systemRules: config.systemRules ?? null,
+					systemRules: withDefaultSystemRules(config.systemRules),
 					maxFileSizeMb: config.maxFileSizeMb,
 					allowedFileTypes: config.allowedFileTypes,
 					piiAction: config.piiAction,

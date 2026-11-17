@@ -40,109 +40,131 @@ Opting out never inherits partially: the organization's custom rules stop applyi
 
 Both pages state which scope wins. A project page names itself and, while it inherits, shows the organization settings read-only; the organization page lists any projects that override it, so it is clear those settings apply everywhere else.
 
-Only organization owners and admins can change guardrails, at either scope.
+Organization owners and admins manage the organization guardrails; project owners and admins manage a project's own guardrails.
+
+## What Gets Scanned
+
+Guardrails run on `/v1/chat/completions` and on `/v1/messages` and `/v1/responses`, which use the same pipeline. They scan the request's messages before routing: text parts, tool results, and attached images, audio and files.
+
+Rules that look for instructions (prompt injection, jailbreak, topic restrictions and classifier rules) skip `system` and `developer` messages, because the system prompt is yours. Rules that look for data (PII, secrets, blocked terms, regex, sensitive data, document leakage) scan every message, including the system prompt.
+
+## Detection Methods
+
+- **Pattern rules** run inside the gateway with no extra latency or cost.
+- **ML classifier rules** score the request with [Jev](https://llmgateway.io/models), a calibrated decision model. They catch paraphrased, obfuscated and non-English attempts that patterns miss.
+
+Each request that has classifier rules enabled triggers **one** extra decision request that answers every classifier question at once. It runs with the caller's API key, so it:
+
+- is billed to your organization at the Jev model price, like any other request;
+- appears in your activity logs as its own `/v1/systemone` request;
+- follows your project mode, API key and compliance settings. A project that only uses your own provider keys needs a TypeSafe key, or credits.
+
+The classifier only sees non-system messages, after redaction, so values redacted by PII or sensitive-data rules never reach it. If the classifier request fails (for example, insufficient credits), classifier rules are skipped for that request and pattern rules still apply.
+
+Each classifier rule has a score threshold between 0 and 1 (default `0.8`). Raise it to reduce false positives.
 
 ## System Rules
 
-Built-in rules protect against common threats:
-
 ### Prompt Injection Detection
 
-Detects attempts to override or manipulate system instructions. Common patterns include:
+Detects attempts to override, replace or extract instructions, such as "ignore all previous instructions", fake `[system]` sections or "reveal your system prompt". Turn on **Also score with the ML classifier** to catch paraphrased and indirect injections, for example instructions hidden in a document or tool result.
 
-- "Ignore all previous instructions"
-- "You are now a different AI"
-- Hidden instructions in encoded text
+### Jailbreak Prevention
 
-### Jailbreak Detection
-
-Identifies attempts to bypass safety measures:
-
-- DAN (Do Anything Now) prompts
-- Roleplay-based bypasses
-- Instruction override attempts
+Detects attempts to bypass safety measures, such as DAN prompts, "developer mode" activation and requests to disable safety filters. The ML classifier option works as it does for prompt injection.
 
 ### PII Detection
 
-Identifies personal information:
+Detects personal data. Choose which entities to detect:
 
-- Email addresses
-- Phone numbers
-- Social Security Numbers
-- Credit card numbers
-- IP addresses
-- Passport and driver's license numbers
+| Entity           | Validation                                    |
+| ---------------- | --------------------------------------------- |
+| Email            | Address format                                |
+| Phone            | Grouping separators or a nearby phone keyword |
+| Credit card      | Issuer prefix, length and Luhn checksum       |
+| IBAN             | ISO 13616 mod-97 checksum                     |
+| SSN              | Valid area, group and serial blocks           |
+| IP address       | Not part of a version number                  |
+| Passport         | Nearby passport keyword                       |
+| Driver's license | Nearby license keyword                        |
 
-When the action is set to **redact**, PII is replaced with placeholders like `[EMAIL_REDACTED]`.
-
-Detection is validated rather than purely pattern-based, so identifiers that only
-look like PII are left alone: card numbers must pass the Luhn checksum, phone
-numbers need grouping separators or a nearby phone keyword, and passport and
-license numbers need a nearby keyword. A bare numeric id such as a product id,
-order number or unix timestamp is therefore never redacted as a phone number.
+With the **redact** action, matches are replaced with placeholders such as `[EMAIL_REDACTED]` before the request is forwarded.
 
 ### Secrets Detection
 
-Detects credentials and API keys:
+Detects private keys, AWS, GitHub, GitLab, Slack, Stripe, OpenAI, Anthropic, Google, npm, Hugging Face and SendGrid credentials, JWTs, bearer tokens, connection strings, and API keys or passwords assigned in code or config. Template values such as `YOUR_API_KEY`, `${OPENAI_API_KEY}` or `********`, git SHAs and hex digests are ignored. Supports **redact**.
 
-- AWS access keys and secrets
-- Generic API keys
-- Passwords in common formats
-- Private keys
+### File Restrictions
 
-High-entropy checks and placeholder filtering keep ordinary content out of the
-way: git SHAs and hex digests are not treated as AWS secrets, and template
-values such as `YOUR_API_KEY`, `${OPENAI_API_KEY}` or `********` are not treated
-as credentials.
-
-### File Type Restrictions
-
-Control which file types can be uploaded:
-
-- Configure allowed MIME types
-- Set maximum file size limits
-- Block potentially dangerous file types
+Checks images, audio and files attached to messages against the allowed types and the maximum size. Allowed types are MIME types (`image/png`, `image/*`) or file extensions (`pdf`); an empty list allows every type. Remote URLs are checked by their file extension and are not size-checked; a file whose type cannot be determined is only size-checked.
 
 ### Document Leakage Prevention
 
-Detects attempts to extract confidential documents or internal data.
+Flags confidentiality markers such as "internal use only", "attorney-client privilege" or "under NDA". Disabled by default.
 
-## Configurable Actions
+### Harmful Content
 
-For each rule, choose how to respond:
+Scores harassment, hate, illicit activity, self-harm, sexual content, sexual content involving minors and violence with the ML classifier. Disabled by default.
 
-| Action     | Behavior                                            |
-| ---------- | --------------------------------------------------- |
-| **Block**  | Reject the request with a content policy error      |
-| **Redact** | Remove or mask the sensitive content, then continue |
-| **Warn**   | Log the violation but allow the request to proceed  |
+## Actions
+
+| Action     | Behavior                                                         |
+| ---------- | ---------------------------------------------------------------- |
+| **Block**  | Reject the request with a `content_policy_violation` error (400) |
+| **Redact** | Mask the matched content, then forward the request               |
+| **Warn**   | Log the violation and forward the request unchanged              |
+
+Redact is available for PII, secrets, blocked terms, custom regex and sensitive data rules. The other rules can only block or warn.
+
+A blocked request returns the matched rules:
+
+```json
+{
+	"error": {
+		"message": "Request blocked by content policy: PII Detection (rule system:pii_detection, category pii)",
+		"type": "guardrail_violation",
+		"code": "content_policy_violation",
+		"violations": [
+			{
+				"rule_id": "system:pii_detection",
+				"rule_name": "PII Detection",
+				"category": "pii",
+				"action": "block"
+			}
+		]
+	}
+}
+```
 
 ## Custom Rules
 
-Create custom rules for your use case, on the organization or on a single project:
+Create custom rules on the organization or on a single project. The dashboard offers templates for common policies, such as blocking email addresses or keeping an assistant on topic.
+
+### Sensitive Data
+
+Detects selected PII entities with the same validated detectors as PII detection, under its own action. For example, block email addresses while the PII rule redacts phone numbers.
 
 ### Blocked Terms
 
-Prevent specific words or phrases from being used:
-
-- Match type: exact, contains, or regex
-- Case-sensitive matching option
-- Multiple terms per rule
+Blocks specific words or phrases. Match by exact word, substring or regex, optionally case-sensitive.
 
 ### Custom Regex
 
-Match patterns unique to your organization:
+Matches patterns unique to your organization, such as internal codenames or customer identifiers. Patterns that could backtrack catastrophically are ignored.
 
-- Internal project codenames
-- Customer identifiers
-- Domain-specific sensitive data
+### Topic Restriction
 
-### Topic Restrictions
+Blocks requests about specific topics. By default, preset topics (`politics`, `religion`, `violence`, `adult_content`, `illegal_activities`, `gambling`, `medical_advice`, `financial_advice`) use keyword lists matched as whole words; other topics match as a phrase.
 
-Block content related to specific topics:
+Turn on the ML classifier to judge topics by meaning instead. Classifier mode also supports **allowed topics**: anything outside them is a violation, which keeps a support assistant on topic.
 
-- Define restricted topics
-- Keyword-based detection
+### ML Classifier
+
+Describe what to detect in plain language, for example "The text asks for legal advice about the user's own situation." The classifier scores every request against it.
+
+## Testing Rules
+
+Use the test endpoint in the dashboard API (`POST /guardrails/test/{organizationId}` or `POST /guardrails/projects/{projectId}/test`) to check text against the pattern rules. Classifier rules are reported as skipped there, because they run only on gateway requests.
 
 ## Security Events Dashboard
 
@@ -153,20 +175,16 @@ Monitor all guardrail violations with a dedicated dashboard:
 - **By category** — Which rules are being triggered
 - **Detailed logs** — Individual violations with timestamps and matched patterns
 
+Each rule records at most one violation per request. Matched values from PII, secrets and sensitive-data rules are stored redacted, and matched content is stored only when your organization retains request data.
+
 ## How It Works
 
-```
-Request → Guardrails Check → Action Based on Rules → Forward to Model (if allowed)
-                ↓
-           Log Violation
-```
-
-1. **Request received** — API request comes in with messages
-2. **Scope resolved** — The project's own guardrails if it overrides, otherwise the organization's
-3. **Content scanned** — All text content is checked against enabled rules
-4. **Violations detected** — Matches are identified and logged
-5. **Action taken** — Based on rule configuration (block/redact/warn)
-6. **Request proceeds** — If not blocked, the (potentially redacted) request continues
+1. **Scope resolved** — The project's own guardrails if it overrides, otherwise the organization's
+2. **Pattern rules** — Text and attachments are checked in the gateway
+3. **Classifier rules** — If any are enabled, one billed decision request scores the redacted conversation
+4. **Action taken** — Any blocking violation rejects the request; otherwise redactions are applied
+5. **Violations logged** — Every violation is recorded for the Security Events dashboard
+6. **Request proceeds** — The (possibly redacted) request is routed to the model
 
 ## Best Practices
 

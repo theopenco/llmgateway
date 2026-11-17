@@ -1,3 +1,5 @@
+import { escapeRegex } from "@/rules/safe-regex.js";
+
 import type {
 	TopicRestrictionRuleConfig,
 	GuardrailAction,
@@ -9,19 +11,21 @@ export interface TopicResult {
 	action: GuardrailAction;
 }
 
-// Simple keyword-based topic detection
-// For production, this could be extended with ML classifiers
+/**
+ * Keyword fallback for the preset topics. Matched as whole words (plus common
+ * inflections), so "skill" is not violence and "better" is not gambling. The
+ * classifier mode is the accurate option; keywords are a cheap approximation.
+ */
 const TOPIC_KEYWORDS: Record<string, string[]> = {
 	politics: [
 		"election",
 		"vote",
 		"democrat",
 		"republican",
-		"liberal",
-		"conservative",
 		"politician",
 		"congress",
 		"senate",
+		"parliament",
 		"government policy",
 	],
 	religion: [
@@ -31,15 +35,13 @@ const TOPIC_KEYWORDS: Record<string, string[]> = {
 		"buddha",
 		"church",
 		"mosque",
-		"temple",
+		"synagogue",
 		"prayer",
 		"worship",
-		"spiritual",
 	],
 	violence: [
 		"kill",
 		"murder",
-		"attack",
 		"bomb",
 		"weapon",
 		"shoot",
@@ -47,39 +49,61 @@ const TOPIC_KEYWORDS: Record<string, string[]> = {
 		"assault",
 		"violent",
 	],
-	adult_content: [
-		"explicit",
-		"nsfw",
-		"adult content",
-		"sexual",
-		"pornographic",
-	],
+	adult_content: ["nsfw", "adult content", "pornographic", "porn", "erotic"],
 	illegal_activities: [
-		"hack",
-		"crack",
-		"pirate",
 		"illegal download",
 		"drug dealing",
 		"money laundering",
+		"counterfeit",
+		"hack into",
 	],
-	gambling: ["bet", "gamble", "casino", "poker", "lottery", "wager", "betting"],
+	gambling: [
+		"gamble",
+		"gambling",
+		"casino",
+		"poker",
+		"lottery",
+		"wager",
+		"betting",
+	],
 	medical_advice: [
 		"diagnosis",
+		"diagnose",
 		"prescribe",
+		"prescription",
 		"medication",
-		"treatment",
 		"medical advice",
 		"health condition",
 	],
 	financial_advice: [
-		"invest",
-		"stock",
-		"trading",
 		"financial advice",
+		"investment advice",
+		"stock tip",
+		"stocks to buy",
 		"portfolio",
 		"cryptocurrency investment",
 	],
 };
+
+export const presetTopics = Object.keys(TOPIC_KEYWORDS);
+
+const INFLECTIONS = "(?:s|es|ed|d|ing|er|ers)?";
+
+function keywordPattern(keyword: string): RegExp {
+	return new RegExp(
+		`\\b${escapeRegex(keyword.toLowerCase())}${INFLECTIONS}\\b`,
+		"i",
+	);
+}
+
+function topicKey(topic: string): string {
+	return topic.trim().toLowerCase().replace(/\s+/g, "_");
+}
+
+/** Human-readable topic for classifier questions. */
+export function topicLabel(topic: string): string {
+	return topic.trim().replace(/_/g, " ");
+}
 
 export function checkTopicRestriction(
 	content: string,
@@ -87,22 +111,18 @@ export function checkTopicRestriction(
 	action: GuardrailAction,
 ): TopicResult {
 	const matches: string[] = [];
-	const contentLower = content.toLowerCase();
 
 	for (const topic of config.blockedTopics) {
-		const keywords = TOPIC_KEYWORDS[topic.toLowerCase()];
-		if (keywords) {
-			for (const keyword of keywords) {
-				if (contentLower.includes(keyword.toLowerCase())) {
-					matches.push(`${topic}: ${keyword}`);
-					break; // One match per topic is enough
-				}
-			}
-		} else {
-			// Treat the topic itself as a keyword to search for
-			if (contentLower.includes(topic.toLowerCase())) {
-				matches.push(topic);
-			}
+		if (!topic.trim()) {
+			continue;
+		}
+		// Unknown topics are matched as a phrase.
+		const keywords = TOPIC_KEYWORDS[topicKey(topic)] ?? [topicLabel(topic)];
+		const keyword = keywords.find((candidate) =>
+			keywordPattern(candidate).test(content),
+		);
+		if (keyword) {
+			matches.push(`${topic}: ${keyword}`);
 		}
 	}
 

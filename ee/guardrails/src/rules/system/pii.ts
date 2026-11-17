@@ -2,6 +2,7 @@ import { findMatches, luhn, redactMatches } from "./detector.js";
 
 import type { Detector } from "./detector.js";
 import type { SystemRule } from "@/types.js";
+import type { PiiEntity } from "@llmgateway/db";
 
 /**
  * Builds a check for a keyword appearing on *either* side of the match, so both
@@ -61,6 +62,25 @@ function isCardNumber(value: string): boolean {
 	return brand !== undefined && luhn(digits);
 }
 
+/** ISO 13616 mod-97 check, so arbitrary alphanumeric runs are not IBANs. */
+function isIban(value: string): boolean {
+	const compact = value.replace(/ /g, "").toUpperCase();
+	if (compact.length < 15 || compact.length > 34) {
+		return false;
+	}
+	const rearranged = compact.slice(4) + compact.slice(0, 4);
+	let remainder = 0;
+	for (const char of rearranged) {
+		const code = char.charCodeAt(0);
+		const digits = code >= 65 && code <= 90 ? String(code - 55) : char;
+		for (const digit of digits) {
+			const shifted = remainder * 10;
+			remainder = (shifted + digit.charCodeAt(0) - 48) % 97;
+		}
+	}
+	return remainder === 1;
+}
+
 /**
  * Ordered by specificity: an SSN or card number must win over the looser phone
  * detector when their spans overlap.
@@ -89,6 +109,13 @@ const PII_DETECTORS: Detector[] = [
 		// Without brand and checksum validation every long digit run starting
 		// with 4 or 5 is reported as a card number.
 		validate: (value) => isCardNumber(value),
+	},
+	{
+		id: "iban",
+		label: "IBAN",
+		replacement: "[IBAN_REDACTED]",
+		pattern: /\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\b/,
+		validate: (value) => isIban(value),
 	},
 	{
 		id: "email",
@@ -136,22 +163,45 @@ const PII_DETECTORS: Detector[] = [
 	},
 ];
 
-export function detectPii(content: string): {
+/** Detector ids are finer-grained than the entities users select. */
+function entityOf(detector: Detector): PiiEntity {
+	return detector.id === "credit_card_grouped"
+		? "credit_card"
+		: (detector.id as PiiEntity);
+}
+
+function detectorsFor(entities?: readonly PiiEntity[]): Detector[] {
+	if (!entities) {
+		return PII_DETECTORS;
+	}
+	return PII_DETECTORS.filter((detector) =>
+		entities.includes(entityOf(detector)),
+	);
+}
+
+/** Pass `entities` to restrict detection; unset detects every entity. */
+export function detectPii(
+	content: string,
+	entities?: readonly PiiEntity[],
+): {
 	patterns: string[];
 	matches: string[];
 } {
-	const found = findMatches(content, PII_DETECTORS);
+	const found = findMatches(content, detectorsFor(entities));
 	return {
 		patterns: found.map((m) => m.detector.label),
 		matches: found.map((m) => m.value),
 	};
 }
 
-export function redactPii(content: string): {
+export function redactPii(
+	content: string,
+	entities?: readonly PiiEntity[],
+): {
 	redacted: string;
 	patterns: string[];
 } {
-	const found = findMatches(content, PII_DETECTORS);
+	const found = findMatches(content, detectorsFor(entities));
 	return {
 		redacted: redactMatches(content, found),
 		patterns: found.map((m) => m.detector.label),
@@ -164,18 +214,16 @@ export const piiRule: SystemRule = {
 	category: "pii",
 	defaultEnabled: true,
 	defaultAction: "redact",
+	redactable: true,
+	trustedRoles: "scan",
 	check: (content, config) => {
-		if (!config.enabled) {
-			return { passed: true, matches: [] };
-		}
-
 		// Report the detector labels, never the matched values: the engine
 		// persists these on the violation record.
-		const { patterns } = detectPii(content);
+		const { patterns } = detectPii(content, config.entities);
 
 		return {
 			passed: patterns.length === 0,
-			matches: patterns,
+			matches: [...new Set(patterns)],
 		};
 	},
 };

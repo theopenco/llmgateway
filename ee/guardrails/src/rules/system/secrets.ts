@@ -81,6 +81,48 @@ const SECRET_DETECTORS: Detector[] = [
 		pattern: /\bsk-[A-Za-z0-9]{48,}\b/,
 	},
 	{
+		id: "openai_project_key",
+		label: "OpenAI Key",
+		replacement: SECRET_REPLACEMENT,
+		pattern: /\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}/,
+	},
+	{
+		id: "anthropic_key",
+		label: "Anthropic Key",
+		replacement: SECRET_REPLACEMENT,
+		pattern: /\bsk-ant-(?:api|admin|oat)\d{2}-[A-Za-z0-9_-]{32,}/,
+	},
+	{
+		id: "google_api_key",
+		label: "Google API Key",
+		replacement: SECRET_REPLACEMENT,
+		pattern: /\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])/,
+	},
+	{
+		id: "gitlab_token",
+		label: "GitLab Token",
+		replacement: SECRET_REPLACEMENT,
+		pattern: /\bglpat-[A-Za-z0-9_-]{20,}/,
+	},
+	{
+		id: "npm_token",
+		label: "npm Token",
+		replacement: SECRET_REPLACEMENT,
+		pattern: /\bnpm_[A-Za-z0-9]{36}\b/,
+	},
+	{
+		id: "huggingface_token",
+		label: "Hugging Face Token",
+		replacement: SECRET_REPLACEMENT,
+		pattern: /\bhf_[A-Za-z0-9]{34,}\b/,
+	},
+	{
+		id: "sendgrid_key",
+		label: "SendGrid Key",
+		replacement: SECRET_REPLACEMENT,
+		pattern: /\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b/,
+	},
+	{
 		id: "jwt",
 		label: "JWT",
 		replacement: SECRET_REPLACEMENT,
@@ -162,11 +204,9 @@ export const secretsRule: SystemRule = {
 	category: "secrets",
 	defaultEnabled: true,
 	defaultAction: "block",
-	check: (content, config) => {
-		if (!config.enabled) {
-			return { passed: true, matches: [] };
-		}
-
+	redactable: true,
+	trustedRoles: "scan",
+	check: (content) => {
 		// Report the detector labels, never the matched values: the engine
 		// persists these on the violation record, and a head/tail truncation
 		// still leaks 15 characters of a 40-character key.
@@ -174,7 +214,7 @@ export const secretsRule: SystemRule = {
 
 		return {
 			passed: patterns.length === 0,
-			matches: patterns,
+			matches: [...new Set(patterns)],
 		};
 	},
 };
