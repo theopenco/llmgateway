@@ -113,6 +113,13 @@ describe("toInternalModerationResult", () => {
 		).toEqual(["minor_plus_sexual_conjunction"]);
 		expect(
 			toInternalModerationResult({
+				tags: ["child_exploitation"],
+				block: true,
+				reasons: ["signal:minor"],
+			}).rules,
+		).toEqual([]);
+		expect(
+			toInternalModerationResult({
 				tags: ["malware_cyber"],
 				block: false,
 				reasons: ["malware_operational"],

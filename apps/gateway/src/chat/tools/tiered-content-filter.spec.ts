@@ -405,6 +405,9 @@ describe("evaluateTieredContentFilter", () => {
 				"strict",
 			),
 		).toMatchObject({ violation: true, matchedGroups: [] });
+		expect(evaluateTieredContentFilter([internal([])], "strict")).toMatchObject(
+			{ violation: true, matchedGroups: [] },
+		);
 	});
 
 	test("inverted thresholds fall back to the defaults for both", () => {

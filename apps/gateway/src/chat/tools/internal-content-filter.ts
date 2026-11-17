@@ -173,7 +173,8 @@ export function toInternalModerationResult(
 		category_scores: block
 			? Object.fromEntries(scoredCategories.map((tag) => [tag, 1]))
 			: {},
-		...(block && rules.length > 0 ? { rules } : {}),
+		// Set on every block, even empty: its tags must never stand in for it.
+		...(block ? { rules } : {}),
 	};
 }
 

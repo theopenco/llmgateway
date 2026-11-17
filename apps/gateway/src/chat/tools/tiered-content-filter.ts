@@ -258,9 +258,9 @@ export function evaluateTieredContentFilter(
 			continue;
 		}
 		resultViolation = true;
-		// The internal classifier's tags all fire together on a block; its
-		// rules name what triggered it.
-		if (result.rules && result.rules.length > 0) {
+		// The internal classifier's tags all fire together on a block; only
+		// its rules name what triggered it, so a block without one has no group.
+		if (result.rules) {
 			for (const rule of result.rules) {
 				addGroup(getContentFilterRuleGroup(rule));
 			}
