@@ -1,6 +1,8 @@
-import { describe, expect, test } from "vitest";
+import { Hono } from "hono";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
+import { createGuardrailClassifier } from "@/chat/tools/guardrail-classifier.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
@@ -94,5 +96,44 @@ describe("guardrail classifier", () => {
 		const res = await request("guardrail-error", "CLASSIFIER_ERROR say hello");
 
 		expect(res.status).toBe(200);
+	});
+});
+
+describe("guardrail classifier hop", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	test("forwards the caller's API key and client IP", async () => {
+		const spy = vi
+			.spyOn(app, "request")
+			.mockResolvedValue(Response.json({ answers: { q0: { noul: 0.9 } } }));
+		const outer = new Hono();
+		let scores: Record<string, number> | undefined;
+		outer.post("/", async (c) => {
+			scores = await createGuardrailClassifier(c)({
+				text: "user: hi",
+				questions: { harmful: "The text is harmful." },
+			});
+			return c.text("ok");
+		});
+
+		await outer.request("/", {
+			method: "POST",
+			headers: {
+				Authorization: "Bearer caller-token",
+				"x-forwarded-for": "192.0.2.1",
+			},
+		});
+
+		expect(scores).toEqual({ harmful: 0.9 });
+		const [path, init] = spy.mock.calls[0]!;
+		expect(path).toBe("/v1/systemone");
+		const headers = new Headers((init as RequestInit).headers);
+		expect(headers.get("Authorization")).toBe("Bearer caller-token");
+		expect(headers.get("x-forwarded-for")).toBe("192.0.2.1");
+		const body = JSON.parse(String((init as RequestInit).body));
+		expect(body.model).toBe("jev-1.14.0");
+		expect(Object.keys(body.questions)).toEqual(["q0"]);
 	});
 });
