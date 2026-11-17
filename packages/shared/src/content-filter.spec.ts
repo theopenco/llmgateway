@@ -20,6 +20,8 @@ describe("parseContentFilterSettings", () => {
 			shadowClassifiers: [],
 			internalScope: "full",
 			moderateImages: true,
+			blockGroups: null,
+			csamScoreThreshold: 0.01,
 		});
 		expect(parseContentFilterSettings(null)).toEqual(
 			DEFAULT_CONTENT_FILTER_SETTINGS,
@@ -46,6 +48,8 @@ describe("parseContentFilterSettings", () => {
 			shadowClassifiers: [],
 			internalScope: "full",
 			moderateImages: true,
+			blockGroups: null,
+			csamScoreThreshold: 0.01,
 		});
 	});
 

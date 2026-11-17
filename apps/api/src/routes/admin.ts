@@ -179,6 +179,7 @@ import {
 	MAX_BULK_BLOCK_ORGANIZATIONS,
 	MIN_BULK_BLOCK_SEARCH_LENGTH,
 	CONTENT_FILTER_CLASSIFIERS,
+	CONTENT_FILTER_BLOCK_GROUPS,
 	CONTENT_FILTER_INTERNAL_SCOPES,
 	contentFilterSettingsSchema,
 	getOrgContentFilterTier,
@@ -6528,6 +6529,8 @@ const contentFilterSettingsResponseSchema = z
 		shadowClassifiers: z.array(z.enum(CONTENT_FILTER_CLASSIFIERS)),
 		internalScope: z.enum(CONTENT_FILTER_INTERNAL_SCOPES),
 		moderateImages: z.boolean(),
+		blockGroups: z.array(z.enum(CONTENT_FILTER_BLOCK_GROUPS)).nullable(),
+		csamScoreThreshold: z.number(),
 		providers: z.array(
 			z.object({
 				id: z.string(),
@@ -6589,6 +6592,8 @@ admin.openapi(getContentFilterSettingsRoute, async (c) => {
 		shadowClassifiers: settings.shadowClassifiers,
 		internalScope: settings.internalScope,
 		moderateImages: settings.moderateImages,
+		blockGroups: settings.blockGroups,
+		csamScoreThreshold: settings.csamScoreThreshold,
 		providers: listContentFilterProviders(settings),
 	});
 });
@@ -6605,6 +6610,8 @@ admin.openapi(updateContentFilterSettingsRoute, async (c) => {
 		shadowClassifiers: settings.shadowClassifiers,
 		internalScope: settings.internalScope,
 		moderateImages: settings.moderateImages,
+		blockGroups: settings.blockGroups,
+		csamScoreThreshold: settings.csamScoreThreshold,
 		providers: listContentFilterProviders(settings),
 	});
 });

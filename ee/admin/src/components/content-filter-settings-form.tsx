@@ -42,6 +42,16 @@ const CLASSIFIER_LABELS: Record<Classifier, string> = {
 	internal: "Internal classifier",
 };
 
+type BlockGroup = NonNullable<
+	ContentFilterSettingsInput["blockGroups"]
+>[number];
+
+const BLOCK_GROUP_LABELS: Record<BlockGroup, string> = {
+	csam: "Child safety (CSAM)",
+	sexual: "Sexual content",
+	cyber: "Cyber abuse",
+};
+
 type InternalScope = ContentFilterSettingsInput["internalScope"];
 
 const INTERNAL_SCOPE_LABELS: Record<InternalScope, string> = {
@@ -60,6 +70,8 @@ interface ContentFilterSettingsFormProps {
 		shadowClassifiers: Classifier[];
 		internalScope: InternalScope;
 		moderateImages: boolean;
+		blockGroups: BlockGroup[] | null;
+		csamScoreThreshold: number;
 		providers: ContentFilterProvider[];
 	};
 }
@@ -94,6 +106,13 @@ export function ContentFilterSettingsForm({
 		settings.internalScope,
 	);
 	const [moderateImages, setModerateImages] = useState(settings.moderateImages);
+	const [limitGroups, setLimitGroups] = useState(settings.blockGroups !== null);
+	const [blockGroups, setBlockGroups] = useState<BlockGroup[]>(
+		settings.blockGroups ?? [],
+	);
+	const [csamThreshold, setCsamThreshold] = useState(
+		String(settings.csamScoreThreshold),
+	);
 	const [providerIds, setProviderIds] = useState<string[]>(() =>
 		settings.providers.filter((p) => p.enabled).map((p) => p.id),
 	);
@@ -152,6 +171,17 @@ export function ContentFilterSettingsForm({
 		if (!enforceRateValid) {
 			setEnforceSampleRate(String(enforceRate));
 		}
+		const csamScoreThreshold = Number(csamThreshold);
+		if (
+			csamThreshold.trim() === "" ||
+			!Number.isFinite(csamScoreThreshold) ||
+			csamScoreThreshold < 0 ||
+			csamScoreThreshold > 1
+		) {
+			mutation.reset();
+			setValidationError("CSAM score threshold must be between 0 and 1.");
+			return;
+		}
 		const savedEnforceEnterprise = anyEnforced && enforceEnterprise;
 		mutation.mutate(
 			{
@@ -166,6 +196,8 @@ export function ContentFilterSettingsForm({
 					shadowClassifiers: activeShadows,
 					internalScope,
 					moderateImages,
+					blockGroups: limitGroups ? blockGroups : null,
+					csamScoreThreshold,
 					providerIds,
 				},
 			},
@@ -269,6 +301,73 @@ export function ContentFilterSettingsForm({
 						unless this is on as well.
 					</p>
 				</div>
+			</div>
+
+			<div className="space-y-3">
+				<div className="flex items-center gap-3">
+					<Switch
+						id="content-filter-limit-groups"
+						checked={limitGroups}
+						disabled={pending || readOnly}
+						onCheckedChange={(checked) => {
+							setSaved(false);
+							setLimitGroups(checked);
+						}}
+					/>
+					<div className="space-y-0.5">
+						<Label htmlFor="content-filter-limit-groups">
+							Block only selected groups
+						</Label>
+						<p className="text-xs text-muted-foreground">
+							Off blocks every violation. On blocks only violations in the
+							groups below and logs the rest. Groups cover both OpenAI
+							categories and the internal classifier&apos;s rules.
+						</p>
+					</div>
+				</div>
+				{limitGroups ? (
+					<div className="flex flex-wrap gap-4 pl-12">
+						{(Object.keys(BLOCK_GROUP_LABELS) as BlockGroup[]).map((group) => (
+							<label key={group} className="flex items-center gap-2 text-sm">
+								<Checkbox
+									checked={blockGroups.includes(group)}
+									disabled={pending || readOnly}
+									onCheckedChange={(checked) => {
+										setSaved(false);
+										setBlockGroups((current) =>
+											checked === true
+												? [...current.filter((g) => g !== group), group]
+												: current.filter((g) => g !== group),
+										);
+									}}
+								/>
+								{BLOCK_GROUP_LABELS[group]}
+							</label>
+						))}
+					</div>
+				) : null}
+			</div>
+
+			<div className="space-y-2">
+				<Label htmlFor="content-filter-csam-threshold">
+					CSAM score threshold
+				</Label>
+				<Input
+					id="content-filter-csam-threshold"
+					className="w-32"
+					inputMode="decimal"
+					value={csamThreshold}
+					disabled={pending || readOnly}
+					onChange={(event) => {
+						setSaved(false);
+						setCsamThreshold(event.target.value);
+					}}
+				/>
+				<p className="text-xs text-muted-foreground">
+					OpenAI &quot;sexual/minors&quot; score above which a request is a
+					child-safety violation at every tier, independent of the tier
+					thresholds.
+				</p>
 			</div>
 
 			<div className="space-y-2">

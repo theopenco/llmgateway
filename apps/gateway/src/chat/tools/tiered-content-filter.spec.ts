@@ -109,6 +109,8 @@ describe("resolveTieredContentFilterPlan", () => {
 			shadowClassifiers: [],
 			internalScope: "full",
 			moderateImages: true,
+			blockGroups: null,
+			csamScoreThreshold: 0.01,
 		});
 	});
 
@@ -282,6 +284,7 @@ describe("evaluateTieredContentFilter", () => {
 			violation: true,
 			flagged: true,
 			matchedCategories: [],
+			matchedGroups: [],
 			categoryScores: { violence: 0.2 },
 		});
 	});
@@ -295,6 +298,7 @@ describe("evaluateTieredContentFilter", () => {
 			violation: true,
 			flagged: false,
 			matchedCategories: ["violence", "harassment"],
+			matchedGroups: [],
 			categoryScores: { violence: 0.6, hate: 0.1, harassment: 0.55 },
 		});
 		expect(evaluateTieredContentFilter(results, "lenient")).toMatchObject({
@@ -323,8 +327,84 @@ describe("evaluateTieredContentFilter", () => {
 			violation: false,
 			flagged: false,
 			matchedCategories: [],
+			matchedGroups: [],
 			categoryScores: {},
 		});
+	});
+
+	test("sexual/minors matches csam above its own threshold at every level", () => {
+		const results: OpenAIModerationResult[] = [
+			{
+				flagged: false,
+				category_scores: { "sexual/minors": 0.02, sexual: 0.3 },
+			},
+		];
+		for (const level of ["strict", "lenient"] as const) {
+			expect(evaluateTieredContentFilter(results, level)).toMatchObject({
+				violation: true,
+				matchedCategories: ["sexual/minors"],
+				matchedGroups: ["csam"],
+			});
+		}
+		expect(evaluateTieredContentFilter(results, "lenient", 0.05)).toMatchObject(
+			{ violation: false, matchedGroups: [] },
+		);
+	});
+
+	test("groups OpenAI categories, including the ones strict flags", () => {
+		expect(
+			evaluateTieredContentFilter(
+				[
+					{
+						flagged: true,
+						categories: { sexual: true, violence: false },
+						category_scores: { sexual: 0.4, violence: 0.1 },
+					},
+				],
+				"strict",
+			),
+		).toMatchObject({ violation: true, matchedGroups: ["sexual"] });
+		expect(
+			evaluateTieredContentFilter(
+				[{ flagged: false, category_scores: { violence: 0.95 } }],
+				"lenient",
+			),
+		).toMatchObject({ violation: true, matchedGroups: [] });
+	});
+
+	test("groups internal blocks by rule, not by the tags that fire together", () => {
+		const internal = (rules: string[]): OpenAIModerationResult => ({
+			flagged: true,
+			categories: {
+				child_exploitation: true,
+				sexual_content: true,
+				malware_cyber: true,
+			},
+			category_scores: {
+				child_exploitation: 1,
+				sexual_content: 1,
+				malware_cyber: 1,
+			},
+			rules,
+		});
+		expect(
+			evaluateTieredContentFilter(
+				[internal(["malware_operational", "obfuscation_evasion"])],
+				"lenient",
+			),
+		).toMatchObject({ violation: true, matchedGroups: ["cyber"] });
+		expect(
+			evaluateTieredContentFilter(
+				[internal(["minor_plus_sexual_conjunction", "nudify_targeted"])],
+				"lenient",
+			).matchedGroups,
+		).toEqual(["csam", "sexual"]);
+		expect(
+			evaluateTieredContentFilter(
+				[internal(["jailbreak_plus_harm"])],
+				"strict",
+			),
+		).toMatchObject({ violation: true, matchedGroups: [] });
 	});
 
 	test("inverted thresholds fall back to the defaults for both", () => {
@@ -359,13 +439,43 @@ describe("buildGatewayContentFilterEvaluation", () => {
 		shadowClassifiers: [],
 		internalScope: "full" as const,
 		moderateImages: true,
+		blockGroups: null,
+		csamScoreThreshold: 0.01,
 	};
 	const violation = {
 		violation: true,
 		flagged: true,
 		matchedCategories: ["violence"],
+		matchedGroups: [],
 		categoryScores: { violence: 0.9 },
 	};
+
+	test("blocks only violations in the plan's block groups", () => {
+		const groupedPlan = { ...plan, blockGroups: ["csam" as const] };
+		expect(
+			buildGatewayContentFilterEvaluation(groupedPlan, violation, false, 5),
+		).toMatchObject({ violation: true, action: "logged", enforced: true });
+		expect(
+			buildGatewayContentFilterEvaluation(
+				groupedPlan,
+				{
+					...violation,
+					matchedCategories: ["sexual/minors"],
+					matchedGroups: ["csam"],
+				},
+				false,
+				5,
+			),
+		).toMatchObject({ action: "blocked", matchedGroups: ["csam"] });
+		expect(
+			buildGatewayContentFilterEvaluation(
+				{ ...plan, blockGroups: [] },
+				violation,
+				false,
+				5,
+			),
+		).toMatchObject({ action: "logged" });
+	});
 
 	test("records the internal classifier's input scope", () => {
 		expect(
@@ -397,6 +507,7 @@ describe("buildGatewayContentFilterEvaluation", () => {
 			enforced: true,
 			flagged: true,
 			matchedCategories: ["violence"],
+			matchedGroups: [],
 			categoryScores: { violence: 0.9 },
 			moderationFailed: false,
 			durationMs: 42,
@@ -436,6 +547,7 @@ describe("buildGatewayContentFilterEvaluation", () => {
 			violation: true,
 			flagged: true,
 			matchedCategories: ["violence"],
+			matchedGroups: [],
 			categoryScores: { violence: 0.9 },
 			moderationFailed: false,
 			durationMs: 12,
