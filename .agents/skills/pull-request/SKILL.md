@@ -63,12 +63,14 @@ top of CodeRabbit and human reviews. Rate the change yourself:
   security, billing and data isolation; tests and simplification).
 
 Brief each agent with the PR number, the intended behaviour and `REVIEW.md`,
-not your own reasoning, so it reviews with fresh context. Each one reads
-`git diff origin/main...HEAD`, fixes what it finds in the same branch, runs the
-affected tests and lint, and pushes to the same PR. Run them one after another
-on a shared branch, or in separate worktrees rebased before each push. Then
-reply to and resolve any review threads their fixes address, and wait for
-checks again.
+not your own reasoning, so it reviews with fresh context. Each one reads the
+PR's own diff (`gh pr diff <n>`; on a stacked layer, not `origin/main...HEAD`),
+fixes what it finds, runs the affected tests and lint, and pushes to the same
+PR. Run them one after another on a shared branch, or in separate worktrees
+that each `git fetch origin <branch> && git rebase origin/<branch>` right
+before `git push origin HEAD:<branch>`, never force-pushing, so no agent drops
+another's fix. Then reply to and resolve any review threads their fixes
+address, and wait for checks again.
 
 ## Creating the PR
 

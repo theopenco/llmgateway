@@ -63,7 +63,7 @@ Pick the decision model under **Classifier model** in the guardrail settings. An
 
 The classifier only sees non-system messages, after redaction, so values redacted by PII or sensitive-data rules never reach it. If the classifier request fails (for example, insufficient credits), classifier rules are skipped for that request and pattern rules still apply.
 
-Each classifier rule has a score threshold between 0 and 1 (default `0.8`), set through the API (`threshold` on the rule). Raise it to reduce false positives.
+Each classifier rule has a score threshold between 0 and 1 (default `0.8`), set through the API: `systemRules.<rule>.threshold` for system rules, `config.threshold` for custom rules. Raise it to reduce false positives.
 
 ## System Rules
 
