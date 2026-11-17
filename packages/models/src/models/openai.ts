@@ -482,7 +482,7 @@ export const openaiModels = [
 			{
 				providerId: "openai",
 				externalId: "gpt-4.1-mini",
-				deactivatedAt: new Date("2027-01-20"),
+				deactivatedAt: new Date("2027-01-14"),
 				inputPrice: "0.4e-6",
 				outputPrice: "1.6e-6",
 				cachedInputPrice: "0.1e-6",
