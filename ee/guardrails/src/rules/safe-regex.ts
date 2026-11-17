@@ -10,6 +10,14 @@ const REDOS_PATTERNS = [
 ];
 
 /**
+ * Removes escapes and character classes, which cannot form groups, so
+ * `\(\d+\){1,}` is not mistaken for a repeated group.
+ */
+function structureOf(pattern: string): string {
+	return pattern.replace(/\\./g, "x").replace(/\[(?:[^\]\\]|\\.)*\]/g, "x");
+}
+
+/**
  * Compiles a user-supplied pattern, or returns null when it is invalid or
  * could backtrack catastrophically (ReDoS).
  */
@@ -20,7 +28,9 @@ export function compileUserRegex(
 	if (!pattern || pattern.length > MAX_PATTERN_LENGTH) {
 		return null;
 	}
-	if (REDOS_PATTERNS.some((dangerous) => dangerous.test(pattern))) {
+	if (
+		REDOS_PATTERNS.some((dangerous) => dangerous.test(structureOf(pattern)))
+	) {
 		return null;
 	}
 	try {

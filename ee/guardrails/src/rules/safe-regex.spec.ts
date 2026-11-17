@@ -16,6 +16,15 @@ describe("compileUserRegex", () => {
 		}
 	});
 
+	it("ignores escaped parentheses and character classes", () => {
+		const phone = compileUserRegex(["\\(\\d+\\)", "{1,}"].join(""), "g");
+		expect(phone).toBeInstanceOf(RegExp);
+		expect("(123)".match(phone!)).toEqual(["(123)"]);
+		expect(compileUserRegex(["[(]a+[)]", "+"].join(""), "g")).toBeInstanceOf(
+			RegExp,
+		);
+	});
+
 	it("compiles ordinary patterns", () => {
 		expect(compileUserRegex("\\bORD-\\d{8}\\b", "gi")).toBeInstanceOf(RegExp);
 	});

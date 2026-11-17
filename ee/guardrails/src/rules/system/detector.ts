@@ -56,7 +56,12 @@ export function findMatches(
 		const flags = detector.pattern.flags.replace(/[gd]/g, "") + "gd";
 		const pattern = new RegExp(detector.pattern.source, flags);
 
-		for (const match of content.matchAll(pattern)) {
+		let match: RegExpExecArray | null;
+		while ((match = pattern.exec(content)) !== null) {
+			if (match[0].length === 0) {
+				pattern.lastIndex++;
+				continue;
+			}
 			const span = detector.redactGroup
 				? firstGroupSpan(match)
 				: [match.index, match.index + match[0].length];
@@ -69,9 +74,13 @@ export function findMatches(
 			if (detector.trim) {
 				const trimmed = detector.trim(value);
 				if (!trimmed) {
+					// The match may start with junk and still contain a valid value.
+					pattern.lastIndex = match.index + 1;
 					continue;
 				}
 				value = trimmed;
+				// Rescan what the trim dropped; it may hold the next value.
+				pattern.lastIndex = start + value.length;
 			}
 			const end = start + value.length;
 

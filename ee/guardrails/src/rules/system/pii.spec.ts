@@ -104,6 +104,9 @@ describe("PII entities", () => {
 		expect(redactPii("pay BE68 5390 0754 7034 EUR", ["iban"]).redacted).toBe(
 			"pay [IBAN_REDACTED] EUR",
 		);
+		expect(
+			redactPii("BE68 5390 0754 7034 BE68 5390 0754 7034", ["iban"]).redacted,
+		).toBe("[IBAN_REDACTED] [IBAN_REDACTED]");
 	});
 
 	it("restricts detection to the selected entities", () => {

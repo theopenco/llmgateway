@@ -154,10 +154,10 @@ const REDACTABLE_RULE_TYPES = new Set<CustomRuleType>([
 	"sensitive_data",
 ]);
 
-function assertSystemRulesSupported(systemRules: SystemRulesConfig) {
+function assertSystemRulesSupported(systemRules: Partial<SystemRulesConfig>) {
 	for (const [key, rule] of Object.entries(systemRules)) {
 		if (
-			rule.action === "redact" &&
+			rule?.action === "redact" &&
 			!REDACTABLE_SYSTEM_RULES.has(`system:${key as keyof SystemRulesConfig}`)
 		) {
 			throw new HTTPException(400, {
@@ -496,7 +496,11 @@ async function upsertScopedConfig(
 				action: body.piiAction,
 			};
 		}
-		assertSystemRulesSupported(systemRules);
+		// Only rules in this request: a stored legacy "redact" on a rule that
+		// cannot redact must not block unrelated edits such as disabling.
+		assertSystemRulesSupported(
+			(body.systemRules ?? {}) as Partial<SystemRulesConfig>,
+		);
 		// Kept in sync for readers of the deprecated column.
 		const piiAction = systemRules.pii_detection.action;
 
