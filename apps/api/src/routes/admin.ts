@@ -161,6 +161,8 @@ import {
 	globalProviderKeyModelStats,
 	globalSourceStats,
 	rootModelIdSql,
+	DISCOUNT_EXCLUDABLE_COST_TYPES,
+	type DiscountExcludableCostType,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -177,6 +179,7 @@ import {
 	MAX_BULK_BLOCK_ORGANIZATIONS,
 	MIN_BULK_BLOCK_SEARCH_LENGTH,
 	CONTENT_FILTER_CLASSIFIERS,
+	CONTENT_FILTER_BLOCK_GROUPS,
 	CONTENT_FILTER_INTERNAL_SCOPES,
 	contentFilterSettingsSchema,
 	getOrgContentFilterTier,
@@ -4329,6 +4332,8 @@ const logEntrySchema = z.object({
 	cacheWriteInputCost: z.number().nullable(),
 	requestCost: z.number().nullable(),
 	webSearchCost: z.number().nullable(),
+	webSearchEngine: z.string().nullable(),
+	webSearchType: z.enum(["native", "gateway"]).nullable(),
 	contentFilterCost: z.number().nullable(),
 	imageInputCost: z.number().nullable(),
 	imageOutputCost: z.number().nullable(),
@@ -4533,6 +4538,8 @@ async function fetchAdminLogs(scope: SQLWrapper, query: AdminLogQuery) {
 			cacheWriteInputCost: tables.log.cacheWriteInputCost,
 			requestCost: tables.log.requestCost,
 			webSearchCost: tables.log.webSearchCost,
+			webSearchEngine: tables.log.webSearchEngine,
+			webSearchType: tables.log.webSearchType,
 			contentFilterCost: tables.log.contentFilterCost,
 			imageInputCost: tables.log.imageInputCost,
 			imageOutputCost: tables.log.imageOutputCost,
@@ -4742,6 +4749,7 @@ const discountSchema = z.object({
 	provider: z.string().nullable(),
 	model: z.string().nullable(),
 	discountPercent: z.string(),
+	excludedCostTypes: z.array(z.enum(DISCOUNT_EXCLUDABLE_COST_TYPES)),
 	reason: z.string().nullable(),
 	expiresAt: z.string().nullable(),
 	createdAt: z.string(),
@@ -4760,6 +4768,11 @@ const createDiscountBodySchema = z.object({
 		.number()
 		.min(0, "Discount must be at least 0%")
 		.max(100, "Discount cannot exceed 100%"),
+	// Cost types billed at full price. Omitted: none on create, unchanged on update.
+	excludedCostTypes: z
+		.array(z.enum(DISCOUNT_EXCLUDABLE_COST_TYPES))
+		.transform((types) => [...new Set(types)])
+		.optional(),
 	reason: z.string().nullable().optional(),
 	expiresAt: z.string().nullable().optional(),
 });
@@ -5175,6 +5188,7 @@ function formatDiscount(d: {
 	provider: string | null;
 	model: string | null;
 	discountPercent: string | null;
+	excludedCostTypes: DiscountExcludableCostType[];
 	reason: string | null;
 	expiresAt: Date | null;
 	createdAt: Date;
@@ -5186,6 +5200,7 @@ function formatDiscount(d: {
 		provider: d.provider,
 		model: d.model,
 		discountPercent: String(d.discountPercent),
+		excludedCostTypes: d.excludedCostTypes,
 		reason: d.reason,
 		expiresAt: d.expiresAt?.toISOString() ?? null,
 		createdAt: d.createdAt.toISOString(),
@@ -5489,6 +5504,7 @@ admin.openapi(createGlobalDiscount, async (c) => {
 			provider,
 			model,
 			discountPercent: discountDecimal,
+			excludedCostTypes: body.excludedCostTypes ?? [],
 			reason: body.reason ?? null,
 			expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
 		})
@@ -5590,6 +5606,9 @@ async function updateDiscount(
 				provider,
 				model,
 				discountPercent: new Decimal(body.discountPercent).div(100).toFixed(4),
+				...(body.excludedCostTypes !== undefined && {
+					excludedCostTypes: body.excludedCostTypes,
+				}),
 				reason: body.reason ?? null,
 				expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
 			})
@@ -5774,6 +5793,7 @@ admin.openapi(getAllOrganizationDiscounts, async (c) => {
 			provider: tables.discount.provider,
 			model: tables.discount.model,
 			discountPercent: tables.discount.discountPercent,
+			excludedCostTypes: tables.discount.excludedCostTypes,
 			reason: tables.discount.reason,
 			expiresAt: tables.discount.expiresAt,
 			createdAt: tables.discount.createdAt,
@@ -5877,6 +5897,7 @@ admin.openapi(createOrganizationDiscount, async (c) => {
 			provider,
 			model,
 			discountPercent: discountDecimal,
+			excludedCostTypes: body.excludedCostTypes ?? [],
 			reason: body.reason ?? null,
 			expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
 		})
@@ -5892,6 +5913,7 @@ admin.openapi(createOrganizationDiscount, async (c) => {
 			provider,
 			model,
 			discountPercent: body.discountPercent,
+			excludedCostTypes: created.excludedCostTypes,
 			reason: created.reason,
 			expiresAt: created.expiresAt?.toISOString() ?? null,
 			source: "admin",
@@ -5931,6 +5953,7 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 			discountPercent: new Decimal(deleted.discountPercent ?? 0)
 				.times(100)
 				.toNumber(),
+			excludedCostTypes: deleted.excludedCostTypes,
 			source: "admin",
 		},
 	});
@@ -6500,16 +6523,21 @@ const contentFilterSettingsResponseSchema = z
 		enabled: z.boolean(),
 		sampleRatePercent: z.number(),
 		enforce: z.boolean(),
+		enforceSampleRatePercent: z.number(),
 		enforceEnterprise: z.boolean(),
 		classifier: z.enum(CONTENT_FILTER_CLASSIFIERS),
+		shadowClassifiers: z.array(z.enum(CONTENT_FILTER_CLASSIFIERS)),
 		internalScope: z.enum(CONTENT_FILTER_INTERNAL_SCOPES),
 		moderateImages: z.boolean(),
+		blockGroups: z.array(z.enum(CONTENT_FILTER_BLOCK_GROUPS)).nullable(),
+		csamScoreThreshold: z.number(),
 		providers: z.array(
 			z.object({
 				id: z.string(),
 				name: z.string(),
 				color: z.string().nullable(),
 				enabled: z.boolean(),
+				enforced: z.boolean(),
 			}),
 		),
 	})
@@ -6558,10 +6586,14 @@ admin.openapi(getContentFilterSettingsRoute, async (c) => {
 		enabled: settings.enabled,
 		sampleRatePercent: settings.sampleRatePercent,
 		enforce: settings.enforce,
+		enforceSampleRatePercent: settings.enforceSampleRatePercent,
 		enforceEnterprise: settings.enforceEnterprise,
 		classifier: settings.classifier,
+		shadowClassifiers: settings.shadowClassifiers,
 		internalScope: settings.internalScope,
 		moderateImages: settings.moderateImages,
+		blockGroups: settings.blockGroups,
+		csamScoreThreshold: settings.csamScoreThreshold,
 		providers: listContentFilterProviders(settings),
 	});
 });
@@ -6572,10 +6604,14 @@ admin.openapi(updateContentFilterSettingsRoute, async (c) => {
 		enabled: settings.enabled,
 		sampleRatePercent: settings.sampleRatePercent,
 		enforce: settings.enforce,
+		enforceSampleRatePercent: settings.enforceSampleRatePercent,
 		enforceEnterprise: settings.enforceEnterprise,
 		classifier: settings.classifier,
+		shadowClassifiers: settings.shadowClassifiers,
 		internalScope: settings.internalScope,
 		moderateImages: settings.moderateImages,
+		blockGroups: settings.blockGroups,
+		csamScoreThreshold: settings.csamScoreThreshold,
 		providers: listContentFilterProviders(settings),
 	});
 });
@@ -11142,6 +11178,7 @@ const providerDetailSchema = z.object({
 				paidAt: z.string().nullable(),
 				listingInviteCode: z.string().nullable(),
 				billingMode: z.enum(AIRSIDE_BILLING_MODES),
+				autoApproveFares: z.boolean(),
 				domains: z.array(
 					z.object({
 						domain: z.string(),
@@ -11304,6 +11341,7 @@ admin.openapi(getProviderDetail, async (c) => {
 					pendingBranding: tables.providerClaim.pendingBranding,
 
 					billingMode: tables.providerClaim.billingMode,
+					autoApproveFares: tables.providerClaim.autoApproveFares,
 					createdAt: tables.providerClaim.createdAt,
 					reviewedAt: tables.providerClaim.reviewedAt,
 				},
@@ -11556,6 +11594,7 @@ admin.openapi(getProviderDetail, async (c) => {
 						paidAt: carrier.paidAt?.toISOString() ?? null,
 						listingInviteCode: carrier.listingInviteCode,
 						billingMode: carrier.claim.billingMode,
+						autoApproveFares: carrier.claim.autoApproveFares,
 						domains: carrierDomains.map((d) => ({
 							domain: d.domain,
 							verificationMethod: d.verificationMethod,

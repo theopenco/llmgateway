@@ -4,21 +4,27 @@ import { openaiModels } from "./models/openai.js";
 
 import type { ModelDefinition } from "./models.js";
 
+const find = (modelId: string, providerId: string) =>
+	(openaiModels as readonly ModelDefinition[])
+		.find((entry) => entry.id === modelId)
+		?.providers.find((mapping) => mapping.providerId === providerId);
+
 describe("Azure OpenAI retirements", () => {
-	it.each(["gpt-4o", "gpt-4o-mini", "gpt-4.1-mini"])(
-		"retires azure/%s on April 14, 2027 without retiring other providers",
+	it.each(["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"])(
+		"keeps azure/%s live until April 14, 2027",
 		(modelId) => {
-			const model = (openaiModels as readonly ModelDefinition[]).find(
-				(entry) => entry.id === modelId,
-			);
-			const azure = model?.providers.find(
-				(mapping) => mapping.providerId === "azure",
-			);
+			const azure = find(modelId, "azure");
 			expect(azure?.deactivatedAt).toEqual(new Date("2027-04-14"));
-			expect(
-				model?.providers.find((mapping) => mapping.providerId === "openai")
-					?.deactivatedAt,
-			).toBeUndefined();
+			expect(azure?.deprecatedAt).toBeUndefined();
+		},
+	);
+
+	it.each(["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"])(
+		"shuts down openai/%s on January 14, 2027, before azure",
+		(modelId) => {
+			expect(find(modelId, "openai")?.deactivatedAt).toEqual(
+				new Date("2027-01-14"),
+			);
 		},
 	);
 });

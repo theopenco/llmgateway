@@ -401,62 +401,65 @@ function configureSession(
 	});
 }
 
-describe("e2e realtime capability parity", () => {
-	let server: Server;
-	let port: number;
-	let realtime: ReturnType<typeof attachRealtimeServer>;
-	beforeAll(async () => {
-		await beforeAllHook();
-		server = createAdaptorServer({ fetch: app.fetch }) as Server;
-		realtime = attachRealtimeServer(server);
-		await new Promise<void>((resolve) =>
-			server.listen(0, "127.0.0.1", resolve),
-		);
-		port = (server.address() as AddressInfo).port;
-	});
-	beforeEach(beforeEachHook);
-	afterAll(async () => {
-		realtime?.closeAll(1001, "test_teardown");
-		await new Promise<void>((resolve) => server?.close(() => resolve()));
-	});
-	test.each(capabilityCases)(
-		"$model $capability",
-		getTestOptions(),
-		async ({ model, session, imageUrl }) => {
-			const updated = await configureSession(port, model, session, imageUrl);
-			expect(updated.session).toMatchObject(session);
-			if (updated.mcpCalls > 0) {
-				expect(updated.responses).toHaveLength(1);
-				expect(updated.mcpCompleted).toBe(updated.mcpCalls);
-				expect(updated.responses[0]?.usage).toMatchObject({
-					input_tokens: expect.any(Number),
-					output_tokens: expect.any(Number),
-				});
-			} else if (session.tools) {
-				expect(updated.responses).toHaveLength(2);
-				expect(updated.toolOutputAcknowledged).toBe(true);
-				const last = updated.responses[1]!;
-				expect(last.output).toEqual(
-					expect.arrayContaining([
-						expect.objectContaining({
-							type: "message",
-							content: expect.arrayContaining([
-								expect.objectContaining({
-									type: "output_text",
-									text: expect.stringMatching(/\S/),
-								}),
-							]),
-						}),
-					]),
-				);
-			} else {
-				expect(updated.responses).toHaveLength(1);
-				if (imageUrl) {
-					expect(updated.imageTokens).toBeGreaterThan(0);
+describe.skipIf(capabilityCases.length === 0)(
+	"e2e realtime capability parity",
+	() => {
+		let server: Server;
+		let port: number;
+		let realtime: ReturnType<typeof attachRealtimeServer>;
+		beforeAll(async () => {
+			await beforeAllHook();
+			server = createAdaptorServer({ fetch: app.fetch }) as Server;
+			realtime = attachRealtimeServer(server);
+			await new Promise<void>((resolve) =>
+				server.listen(0, "127.0.0.1", resolve),
+			);
+			port = (server.address() as AddressInfo).port;
+		});
+		beforeEach(beforeEachHook);
+		afterAll(async () => {
+			realtime?.closeAll(1001, "test_teardown");
+			await new Promise<void>((resolve) => server?.close(() => resolve()));
+		});
+		test.each(capabilityCases)(
+			"$model $capability",
+			getTestOptions(),
+			async ({ model, session, imageUrl }) => {
+				const updated = await configureSession(port, model, session, imageUrl);
+				expect(updated.session).toMatchObject(session);
+				if (updated.mcpCalls > 0) {
+					expect(updated.responses).toHaveLength(1);
+					expect(updated.mcpCompleted).toBe(updated.mcpCalls);
+					expect(updated.responses[0]?.usage).toMatchObject({
+						input_tokens: expect.any(Number),
+						output_tokens: expect.any(Number),
+					});
+				} else if (session.tools) {
+					expect(updated.responses).toHaveLength(2);
+					expect(updated.toolOutputAcknowledged).toBe(true);
+					const last = updated.responses[1]!;
+					expect(last.output).toEqual(
+						expect.arrayContaining([
+							expect.objectContaining({
+								type: "message",
+								content: expect.arrayContaining([
+									expect.objectContaining({
+										type: "output_text",
+										text: expect.stringMatching(/\S/),
+									}),
+								]),
+							}),
+						]),
+					);
 				} else {
-					expect(updated.audioBytes).toBeGreaterThan(0);
+					expect(updated.responses).toHaveLength(1);
+					if (imageUrl) {
+						expect(updated.imageTokens).toBeGreaterThan(0);
+					} else {
+						expect(updated.audioBytes).toBeGreaterThan(0);
+					}
 				}
-			}
-		},
-	);
-});
+			},
+		);
+	},
+);

@@ -1620,6 +1620,18 @@ export function transformResponseToOpenai(
 		}
 	}
 
+	// Not every branch above writes annotations (pass-through bodies keep the
+	// upstream's, often none), so gateway-run search citations could be lost.
+	if (
+		annotations?.length &&
+		Array.isArray(transformedResponse?.choices) &&
+		transformedResponse.choices.length === 1 &&
+		transformedResponse.choices[0]?.message &&
+		!transformedResponse.choices[0].message.annotations?.length
+	) {
+		transformedResponse.choices[0].message.annotations = annotations;
+	}
+
 	// OpenAI's schema always carries `message.content` (nullable), but some
 	// upstreams drop the key entirely when a reasoning model spends the whole
 	// `max_tokens` budget on thinking — Together's GLM deployments return a bare

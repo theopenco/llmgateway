@@ -15,6 +15,11 @@ import {
 import { readAll } from "@/test-utils/test-helpers.js";
 
 import { createWebSearchVerificationRequest } from "@llmgateway/actions";
+import {
+	DEFAULT_GATEWAY_WEB_SEARCH_ENGINE,
+	type ProviderModelMapping,
+	usesGatewayWebSearch,
+} from "@llmgateway/models";
 
 const testWebSearch = process.env.TEST_WEB_SEARCH;
 
@@ -33,6 +38,15 @@ const providersWithoutWebSearchAnnotations = ["zai/", "alibaba/", "deepseek/"];
 // only routable with it, and would otherwise be filtered out of these tests.
 const FORCE_WEB_SEARCH = { type: "web_search" } as const;
 
+// The log records who searched: the gateway's default engine for mappings
+// without native search (the test org sets none), else the provider.
+const expectedWebSearchEngine = (providers: ProviderModelMapping[]) =>
+	usesGatewayWebSearch(providers[0])
+		? DEFAULT_GATEWAY_WEB_SEARCH_ENGINE
+		: providers[0].providerId;
+const expectedWebSearchType = (providers: ProviderModelMapping[]) =>
+	usesGatewayWebSearch(providers[0]) ? "gateway" : "native";
+
 const expectsWebSearchAnnotations = (model: string) =>
 	!providersWithoutWebSearchAnnotations.some((prefix) =>
 		model.startsWith(prefix),
@@ -50,7 +64,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 	test.each(webSearchModels)(
 		"web search non-streaming $model",
 		{ timeout: 300000 }, // Increase timeout for web search
-		async ({ model }) => {
+		async ({ model, providers }) => {
 			const requestId = generateTestRequestId();
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
@@ -87,6 +101,9 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 			expect(log).toHaveProperty("webSearchCost");
 			expect(typeof log.webSearchCost).toBe("number");
 			expect(log.webSearchCost).toBeGreaterThan(0);
+			expect(log.webSearchEngine).toBe(expectedWebSearchEngine(providers));
+			expect(log.webSearchType).toBe(expectedWebSearchType(providers));
+			expect(log.webSearchCount).toBeGreaterThan(0);
 
 			if (expectsWebSearchAnnotations(model)) {
 				// Verify annotations (citations) are present
@@ -192,7 +209,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 	test.each(streamingWebSearchModels)(
 		"web search streaming $model",
 		{ timeout: 180000 }, // Increase timeout for web search
-		async ({ model }) => {
+		async ({ model, providers }) => {
 			const requestId = generateTestRequestId();
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
@@ -255,6 +272,9 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 			expect(log).toHaveProperty("webSearchCost");
 			expect(typeof log.webSearchCost).toBe("number");
 			expect(log.webSearchCost).toBeGreaterThan(0);
+			expect(log.webSearchEngine).toBe(expectedWebSearchEngine(providers));
+			expect(log.webSearchType).toBe(expectedWebSearchType(providers));
+			expect(log.webSearchCount).toBeGreaterThan(0);
 
 			if (expectsWebSearchAnnotations(model)) {
 				// Verify annotations (citations) are present in at least one chunk

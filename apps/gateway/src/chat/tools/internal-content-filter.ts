@@ -161,12 +161,20 @@ export function toInternalModerationResult(
 	const tags = Array.isArray(response.tags) ? response.tags : [];
 	const block = response.block === true;
 	const scoredCategories = tags.length > 0 ? tags : [INTERNAL_BLOCK_CATEGORY];
+	// `signal:*` entries are inputs to the rules, not rules.
+	const rules = Array.isArray(response.reasons)
+		? response.reasons.filter(
+				(reason) => typeof reason === "string" && !reason.startsWith("signal:"),
+			)
+		: [];
 	return {
 		flagged: block,
 		categories: Object.fromEntries(tags.map((tag) => [tag, block])),
 		category_scores: block
 			? Object.fromEntries(scoredCategories.map((tag) => [tag, 1]))
 			: {},
+		// Set on every block, even empty: its tags must never stand in for it.
+		...(block ? { rules } : {}),
 	};
 }
 

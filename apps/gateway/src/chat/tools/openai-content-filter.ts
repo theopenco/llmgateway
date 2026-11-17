@@ -55,6 +55,8 @@ export interface OpenAIModerationResult {
 	categories?: Record<string, boolean>;
 	category_scores?: Record<string, number>;
 	category_applied_input_types?: Record<string, string[]>;
+	/** Internal classifier only: the rules that made it block. */
+	rules?: string[];
 }
 
 export interface OpenAIContentFilterCheckResult {

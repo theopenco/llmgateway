@@ -6,6 +6,10 @@ permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: autofix-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   autofix:
     runs-on: ubuntu-latest

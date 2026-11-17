@@ -6,7 +6,6 @@ import {
 	metricsKey,
 } from "@llmgateway/db";
 import {
-	getProviderDefinition,
 	type AvailableModelProvider,
 	type ModelWithPricing,
 	type ProviderModelMapping,
@@ -76,12 +75,7 @@ function getEffectivePriority(
 	providerId: string,
 	cfg: ResolvedRoutingConfig,
 ): number {
-	const override = cfg.providerPriorities[providerId];
-	if (typeof override === "number") {
-		return override;
-	}
-	const providerDef = getProviderDefinition(providerId);
-	return providerDef?.priority ?? 1;
+	return cfg.providerPriorities[providerId] ?? 1;
 }
 
 function isTestProcess(): boolean {

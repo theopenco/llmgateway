@@ -16,6 +16,7 @@ import {
 	getConcurrentTestOptions,
 	getTestOptions,
 	expandAllProviderRegions,
+	usesGatewayWebSearch,
 } from "@llmgateway/models";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { uniqueId } from "@llmgateway/shared/random";
@@ -1317,6 +1318,22 @@ export const reasoningEffortModels = fullMode
 		)
 	: [];
 
+/**
+ * One case per (provider mapping, reasoning mode) the catalogue declares in
+ * `reasoningModes`, so a mapping that accepts `reasoning.mode` (e.g. OpenAI
+ * Pro) is exercised against the real upstream. Provider-pinned entries only:
+ * the modes are a per-mapping property.
+ */
+export const reasoningModeModels = fullMode
+	? testModels.flatMap((m) =>
+			m.originalModel
+				? m.providers.flatMap((p: ProviderModelMapping) =>
+						(p.reasoningModes ?? []).map((mode) => ({ model: m.model, mode })),
+					)
+				: [],
+		)
+	: [];
+
 export const verbosityModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.verbosity === true),
 );
@@ -1369,9 +1386,29 @@ export const streamingImageModels = imageModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.streaming !== false),
 );
 
-export const webSearchModels = testModels.filter((m) =>
-	m.providers.some((p: ProviderModelMapping) => p.webSearch === true),
-);
+// Mappings without native search get gateway-run search, the same for every
+// model, so one text model per provider covers it.
+export const gatewayWebSearchModels = testModels.filter((m, i, all) => {
+	const isGatewaySearched = (o: (typeof all)[number]) =>
+		o.providers.length === 1 &&
+		usesGatewayWebSearch(o.providers[0]) &&
+		!imageModels.includes(o);
+	return (
+		isGatewaySearched(m) &&
+		all.findIndex(
+			(o) =>
+				isGatewaySearched(o) &&
+				o.providers[0].providerId === m.providers[0].providerId,
+		) === i
+	);
+});
+
+export const webSearchModels = [
+	...testModels.filter((m) =>
+		m.providers.some((p: ProviderModelMapping) => p.webSearch === true),
+	),
+	...gatewayWebSearchModels,
+];
 
 export const streamingWebSearchModels = webSearchModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.streaming !== false),

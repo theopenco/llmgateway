@@ -610,14 +610,14 @@ describe("smart routing", () => {
 		const token = await seedBase("free-narrow", {
 			orgConfig: {
 				classifier: "none",
-				models: [MID_MODEL, "ling-3.1-flash"],
+				models: [MID_MODEL, "atria-dawn-preview"],
 			},
-			providers: ["openai", "novita"],
+			providers: ["openai", "atria"],
 		});
 
 		// No free model is active today; pin the clock to when this one was.
 		vi.useFakeTimers({ toFake: ["Date"] });
-		vi.setSystemTime(new Date("2026-10-15T12:00:00Z"));
+		vi.setSystemTime(new Date("2026-10-01T12:00:00Z"));
 		try {
 			const res = await chatCompletion(token, {
 				model: "smart",
@@ -625,7 +625,7 @@ describe("smart routing", () => {
 				free_models_only: true,
 			});
 			expect(res.status).toBe(200);
-			expect((await res.json()).model).toContain("ling-3.1-flash");
+			expect((await res.json()).model).toContain("atria-dawn-preview");
 		} finally {
 			vi.useRealTimers();
 		}

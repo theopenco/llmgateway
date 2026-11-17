@@ -93,9 +93,10 @@ function hourWindow(targetHour: Date) {
  * sampledCount to keep the violation rate honest during an outage.
  *
  * Every row is keyed by classifier, role and, for the internal classifier, the
- * scope it read, so flag rates compare across scopes; role is always "deciding"
- * since the shadow classifier was removed, and a legacy shadow verdict is
- * ignored.
+ * scope it read. Each shadow classifier on the evaluation adds its own rows
+ * under role "shadow" (never blocked), so flag rates compare per classifier on
+ * the same requests by grouping on classifier alone. The legacy single
+ * `shadow` verdict is ignored.
  * The "all" rows also carry classifier durations, failed checks included.
  *
  * The same scan feeds contentFilterHourlyLatencyStats: the classifier's own
@@ -131,7 +132,8 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 				evaluation."internalScope" as internal_scope,
 				evaluation."classifierDurationMs" as classifier_duration_ms,
 				evaluation."classifierRequests" as classifier_requests,
-				evaluation."imageDurationMs" as image_duration_ms
+				evaluation."imageDurationMs" as image_duration_ms,
+				evaluation.shadows
 			from ${log}
 			cross join lateral jsonb_to_record(${log.gatewayContentFilterEvaluation}) as evaluation(
 				classifier text,
@@ -143,7 +145,8 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 				"internalScope" text,
 				"classifierDurationMs" double precision,
 				"classifierRequests" integer,
-				"imageDurationMs" double precision
+				"imageDurationMs" double precision,
+				shadows jsonb
 			)
 			where ${log.createdAt} >= ${startUtc}::timestamp
 				and ${log.createdAt} < ${startUtc}::timestamp + interval '1 hour'
@@ -157,22 +160,20 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 				api_key_id,
 				used_model,
 				used_provider,
-				classifier_duration_ms,
-				classifier_requests,
-				image_duration_ms,
 				case
-					when verdict.classifier = 'internal' then coalesce(internal_scope, 'full')
+					when verdict.classifier = 'internal' then coalesce(verdict.scope, 'full')
 					else ''
 				end as internal_scope,
 				verdict.*,
 				-- Retries copy the evaluation onto every attempt: sum each request's
 				-- duration once overall and once per model it touched.
 				row_number() over (
-					partition by organization_id, project_id, request_id, verdict.role
+					partition by organization_id, project_id, request_id, verdict.role,
+						verdict.classifier
 				) = 1 as first_for_request,
 				row_number() over (
 					partition by organization_id, project_id, request_id, verdict.role,
-						used_model, used_provider
+						verdict.classifier, used_model, used_provider
 				) = 1 as first_for_model
 			from evaluations
 			cross join lateral (
@@ -183,7 +184,28 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 					action = 'blocked' as blocked,
 					matched_categories,
 					moderation_failed,
-					round(duration_ms)::bigint as duration_ms
+					round(duration_ms)::bigint as duration_ms,
+					internal_scope as scope,
+					classifier_duration_ms,
+					classifier_requests,
+					image_duration_ms
+				union all
+				select
+					shadow ->> 'classifier',
+					'shadow',
+					coalesce((shadow ->> 'violation')::boolean, false),
+					false,
+					shadow -> 'matchedCategories',
+					coalesce((shadow ->> 'moderationFailed')::boolean, false),
+					round((shadow ->> 'durationMs')::double precision)::bigint,
+					shadow ->> 'internalScope',
+					(shadow ->> 'classifierDurationMs')::double precision,
+					(shadow ->> 'classifierRequests')::integer,
+					(shadow ->> 'imageDurationMs')::double precision
+				from jsonb_array_elements(
+					case when jsonb_typeof(shadows) = 'array' then shadows else '[]'::jsonb end
+				) as shadow
+				where shadow ->> 'classifier' is not null
 			) as verdict
 		)
 		select
@@ -256,7 +278,8 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			null::text as used_provider,
 			${CONTENT_FILTER_STATS_ALL_CATEGORY} as category,
 			classifier,
-			role,
+			-- Unused on latency rows, which are not split by role.
+			min(role) as role,
 			internal_scope,
 			0 as sampled_count,
 			0 as violation_count,
@@ -283,7 +306,8 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			) as latency
 		from verdicts
 		where first_for_request and classifier_duration_ms is not null
-		group by classifier, role, internal_scope
+		-- Not split by role: a classifier never both decides and shadows a request.
+		group by classifier, internal_scope
 	`);
 
 	const values: ContentFilterStatsInsert[] = [];

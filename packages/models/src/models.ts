@@ -25,6 +25,7 @@ import { openaiModels } from "./models/openai.js";
 import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { recraftModels } from "./models/recraft.js";
+import { reflectionModels } from "./models/reflection.js";
 import { sakanaModels } from "./models/sakana.js";
 import { stepfunModels } from "./models/stepfun.js";
 import { tencentModels } from "./models/tencent.js";
@@ -731,7 +732,8 @@ export interface ProviderModelMapping {
 	 */
 	jsonOutputSchema?: boolean;
 	/**
-	 * Whether this model supports web search/grounding capabilities
+	 * Whether the upstream runs web search natively. Chat mappings without it
+	 * get gateway-run search instead (`usesGatewayWebSearch`).
 	 */
 	webSearch?: boolean;
 	/**
@@ -1116,4 +1118,5 @@ export const models = [
 	...thinkingmachinesModels,
 	...stepfunModels,
 	...ibmModels,
+	...reflectionModels,
 ] as const satisfies ModelDefinition[];

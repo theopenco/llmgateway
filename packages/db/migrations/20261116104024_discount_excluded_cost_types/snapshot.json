@@ -1,0 +1,47 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "cd9c68df-e8a8-4b3e-a2a1-9f09e76297d3",
+  "prevIds": [
+    "66ecc1b7-824c-4c56-9d3d-23ae7754a938"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "discount",
+        "excluded_cost_types"
+      ],
+      "writes": [
+        "s|col|public.discount.excluded_cost_types",
+        "n|col|public.discount.excluded_cost_types",
+        "e|col|public.discount.excluded_cost_types"
+      ],
+      "reads": [
+        "n|tbl|public.discount",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "discount",
+        "name": "excluded_cost_types",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 1,
+        "default": "'{}'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

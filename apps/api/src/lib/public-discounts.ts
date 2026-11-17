@@ -28,6 +28,7 @@ export async function loadPublicDiscounts() {
 			provider: providerId,
 			model: modelId,
 			discountPercent: result.discount,
+			excludedCostTypes: result.excludedCostTypes ?? [],
 			reason: "reason" in row ? row.reason : null,
 			expiresAt: "expiresAt" in row ? row.expiresAt : null,
 			createdAt: row.createdAt,

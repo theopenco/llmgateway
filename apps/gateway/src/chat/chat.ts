@@ -259,6 +259,10 @@ import {
 	getRegionSpecificEnvVarName,
 	getRequestedModelAlias,
 	isProviderMappingAllowedByRestriction,
+	GATEWAY_WEB_SEARCH_ENGINES,
+	resolveGatewayWebSearchEngine,
+	supportsWebSearch,
+	usesGatewayWebSearch,
 	usesEncryptedReasoning,
 } from "@llmgateway/models";
 import {
@@ -349,6 +353,16 @@ import {
 	platformCredentialCoversRegion,
 	preferProvidersWithKeys,
 } from "./tools/hybrid-provider-routing.js";
+import {
+	addInternalWebSearchCost,
+	buildWebSearchQuery,
+	injectWebSearchResults,
+	type InternalWebSearch,
+	internalWebSearchSkipReason,
+	runInternalWebSearch,
+	webSearchAnnotations,
+	webSearchLogFields,
+} from "./tools/internal-web-search.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
 import { mapFinishReasonToOpenai } from "./tools/map-finish-reason-to-openai.js";
 import {
@@ -1871,6 +1885,14 @@ chat.openapi(completions, async (c) => {
 	// scope for both the credit gate below and every cost calculation.
 	const sponsoredOnboarding = isSponsoredOnboardingRequest(c);
 
+	// Set once the gateway ran a web search itself for an upstream without
+	// native search (`usesGatewayWebSearch`). Billed by the calculateCosts wrapper
+	// and recorded on the log by insertLogEntry.
+	let internalWebSearch:
+		{ search: InternalWebSearch; price: string } | undefined;
+	// Native searches the latest cost calculation billed, for the log row.
+	let nativeWebSearchCount = 0;
+
 	// Wraps the imported calculateCosts so a sponsored call is zeroed once, here,
 	// instead of at each of the ~11 places costs are computed (streaming,
 	// non-streaming, cached, cancelled, error paths). Mirrors the insertLog
@@ -1878,6 +1900,10 @@ chat.openapi(completions, async (c) => {
 	// first thing they ever did.
 	const calculateCosts: typeof _calculateCosts = async (...args) => {
 		const costs = await _calculateCosts(...args);
+		nativeWebSearchCount = costs.webSearchCount;
+		if (internalWebSearch) {
+			addInternalWebSearchCost(costs, internalWebSearch.price);
+		}
 		if (sponsoredOnboarding) {
 			zeroInferenceCosts(costs);
 		}
@@ -1961,7 +1987,6 @@ chat.openapi(completions, async (c) => {
 		prompt_cache_key,
 		prompt_cache_retention,
 		prompt_cache_options,
-		tool_choice,
 		routing,
 		free_models_only,
 		no_reasoning,
@@ -2074,6 +2099,9 @@ chat.openapi(completions, async (c) => {
 		frequency_penalty,
 		presence_penalty,
 		tools,
+		// Mutable: a gateway-run web search drops a `"required"` choice once no
+		// tool is left to call.
+		tool_choice,
 	} = validationResult.data;
 
 	// Debug: Log tools received from the AI SDK (development only)
@@ -2468,6 +2496,11 @@ chat.openapi(completions, async (c) => {
 			// records them. Explicit values in logData still win.
 			requestedServiceTier,
 			usedServiceTier: servedServiceTier,
+			...webSearchLogFields(
+				logData,
+				internalWebSearch?.search.engine,
+				nativeWebSearchCount,
+			),
 			...(await getRoutingBaselineFields(logData)),
 			...logData,
 			...(clientSafetyParams.safety_identifier !== undefined && {
@@ -3635,8 +3668,9 @@ chat.openapi(completions, async (c) => {
 			: modelInfo.providers;
 		const canElectSearch = candidates.some(
 			(p) =>
-				(p as ProviderModelMapping).webSearch === true &&
-				(p as ProviderModelMapping).webSearchForcedOnly !== true,
+				((p as ProviderModelMapping).webSearch === true &&
+					(p as ProviderModelMapping).webSearchForcedOnly !== true) ||
+				usesGatewayWebSearch(p as ProviderModelMapping),
 		);
 		if (!canElectSearch) {
 			webSearchTool = undefined;
@@ -5703,7 +5737,7 @@ chat.openapi(completions, async (c) => {
 					) {
 						return false;
 					}
-					if (webSearchTool && provider.webSearch !== true) {
+					if (webSearchTool && !supportsWebSearch(provider)) {
 						return false;
 					}
 					// Same rule the routing filter applies: search-on-demand-only
@@ -8879,6 +8913,78 @@ chat.openapi(completions, async (c) => {
 		region: usedRegion,
 	});
 
+	// The upstream has no native web search, so the gateway searches and adds
+	// the results to the prompt. From here on the request is a plain chat
+	// request: retries and fallbacks reuse the enriched messages and never
+	// search again. A skipped search still clears the tool: the upstream
+	// cannot search, and nothing is billed.
+	const usedMappingForSearch = getUsedProviderMapping();
+	if (
+		webSearchTool &&
+		usedMappingForSearch &&
+		usesGatewayWebSearch(usedMappingForSearch)
+	) {
+		const engine = resolveGatewayWebSearchEngine(organization?.webSearchEngine);
+		const skip = internalWebSearchSkipReason({
+			toolChoice: tool_choice,
+			compliancePolicyActive: !!compliancePolicy,
+			// BYOK searches are charged to credits by the worker, so they need
+			// credits up front like data retention does.
+			unfundedByokSearch:
+				currentCredentialSource() === "byok" &&
+				!sponsoredOnboarding &&
+				!!organization &&
+				getAvailableCredits(organization).totalAvailableCredits <= 0,
+		});
+		if (skip) {
+			logger.info("Internal web search skipped", {
+				requestId,
+				engine,
+				reason: skip,
+			});
+		}
+		const query = skip ? null : buildWebSearchQuery(messages as BaseMessage[]);
+		const search = query
+			? await runInternalWebSearch(engine, query, webSearchTool, requestId)
+			: null;
+		// `tool_choice: {type: "web_search"}` demands a search: answering
+		// without one would hide that it never ran.
+		if (webSearchTool.forced && (skip || (query && !search))) {
+			throw new HTTPException(skip === "unfunded_byok_search" ? 402 : 503, {
+				message:
+					skip === "compliance_policy"
+						? "Web search is required by tool_choice, but the gateway does not run web search under a compliance policy. Choose a model with native web search."
+						: skip === "unfunded_byok_search"
+							? "Web search is required by tool_choice, but the organization has no credits for the gateway-run search. Please add credits."
+							: "Web search is required by tool_choice, but the search engine is unavailable. Please retry.",
+			});
+		}
+		if (search) {
+			internalWebSearch = {
+				search,
+				price: GATEWAY_WEB_SEARCH_ENGINES[engine].price,
+			};
+			messages = injectWebSearchResults(
+				messages as BaseMessage[],
+				search,
+			) as typeof messages;
+		}
+		webSearchTool = undefined;
+		// web_search was the only tool: send a tool-free request.
+		if (tools?.length === 0) {
+			tools = undefined;
+			if (tool_choice === "required") {
+				tool_choice = undefined;
+			}
+		}
+	} else if (webSearchTool) {
+		// Native search keeps the tool, which only a native upstream takes, so
+		// retries stay on native mappings.
+		iamFilteredModelProviders = iamFilteredModelProviders.filter(
+			(p) => (p as ProviderModelMapping).webSearch === true,
+		);
+	}
+
 	// Encrypted reasoning another credential produced, or that an account
 	// already rejected, cannot verify here, so it is left out up front rather
 	// than cost a rejected attempt on every turn of the conversation.
@@ -9522,6 +9628,32 @@ chat.openapi(completions, async (c) => {
 						});
 					}
 				};
+
+				// Gateway-run search results go out first, where a native search
+				// would surface them, so /v1/messages clients get the
+				// server_tool_use + web_search_tool_result pair before the text.
+				if (internalWebSearch?.search.results.length) {
+					await writeSSEAndCache({
+						data: JSON.stringify({
+							id: `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created: Math.floor(Date.now() / 1000),
+							model: usedModelFormatted,
+							choices: [
+								{
+									index: 0,
+									delta: {
+										role: "assistant",
+										content: "",
+										annotations: webSearchAnnotations(internalWebSearch.search),
+									},
+									finish_reason: null,
+								},
+							],
+						}),
+						id: String(eventId++),
+					});
+				}
 
 				const writeStreamingContentFilterResponse = async ({
 					billingModel,
@@ -13397,6 +13529,7 @@ chat.openapi(completions, async (c) => {
 										cacheWriteInputCost: null,
 										requestCost: null,
 										webSearchCost: null,
+										webSearchCount: 0,
 										contentFilterCost: null,
 										imageInputTokens: null,
 										imageOutputTokens: null,
@@ -13748,6 +13881,7 @@ chat.openapi(completions, async (c) => {
 									cacheWriteInputCost: null,
 									requestCost: null,
 									webSearchCost: null,
+									webSearchCount: 0,
 									contentFilterCost: null,
 									imageInputTokens: null,
 									imageOutputTokens: null,
@@ -15928,9 +16062,15 @@ chat.openapi(completions, async (c) => {
 		cachedAudioInputTokens,
 		toolResults,
 		images,
-		annotations,
+		annotations: parsedAnnotations,
 		searchResults,
 	} = parsedResponse;
+	const annotations = internalWebSearch?.search.results.length
+		? [
+				...webSearchAnnotations(internalWebSearch.search),
+				...(parsedAnnotations ?? []),
+			]
+		: parsedAnnotations;
 	if (webSearchTool && usedWebSearchFormat()) {
 		const reported = Math.max(
 			webSearchCount ?? 0,

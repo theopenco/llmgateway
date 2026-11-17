@@ -249,6 +249,9 @@ FROM runtime AS worker
 WORKDIR /app
 COPY --from=worker-prep /app/worker-dist ./
 COPY --from=base-builder /app/.tool-versions ./
+# The weekly new-models newsletter lists the changelog entries of its week.
+COPY --from=worker-builder /app/apps/ui/src/content/changelog ./changelog
+ENV CHANGELOG_DIR=/app/changelog
 ENV NODE_ENV=production
 CMD ["node", "--enable-source-maps", "dist/index.js"]
 

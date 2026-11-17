@@ -215,6 +215,39 @@ describe("content filter error stats aggregator", () => {
 		]);
 	});
 
+	it("counts a shadow classifier's errors under that classifier", async () => {
+		await db.insert(log).values([
+			// Only the shadow failed; the deciding check was clean.
+			logRow({
+				gatewayContentFilterEvaluation: evaluation(undefined, {
+					classifier: "openai",
+					shadows: [
+						{
+							classifier: "internal",
+							violation: false,
+							flagged: false,
+							matchedCategories: [],
+							categoryScores: {},
+							moderationFailed: true,
+							durationMs: 5000,
+							moderationErrors: [TIMEOUT],
+						},
+					],
+				}),
+			}),
+		]);
+
+		await calculateContentFilterErrorStatsForHour(HOUR);
+		expect(await rows()).toEqual([
+			expect.objectContaining({
+				classifier: "internal",
+				source: "internal",
+				kind: "timeout",
+				errorCount: 1,
+			}),
+		]);
+	});
+
 	it("replaces the hour on recount", async () => {
 		await db
 			.insert(log)

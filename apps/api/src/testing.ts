@@ -60,6 +60,7 @@ export async function deleteAll() {
 			await db.delete(projectHourlySourceStats);
 			await db.delete(tables.projectHourlySourceModelStats);
 			await db.delete(tables.projectHourlyRoutingStats);
+			await db.delete(tables.projectHourlyWebSearchStats);
 			await db.delete(apiKeyHourlyStats);
 			await db.delete(apiKeyHourlyModelStats);
 			await db.delete(apiKeyHourlySourceStats);
@@ -215,6 +216,10 @@ function getCommonAggregationFields() {
 		requestCost:
 			sql<number>`coalesce(sum(cast(${tables.log.requestCost} as double precision)), 0)`.as(
 				"requestCost",
+			),
+		webSearchCost:
+			sql<number>`coalesce(sum(cast(${tables.log.webSearchCost} as double precision)), 0)`.as(
+				"webSearchCost",
 			),
 		dataStorageCost:
 			sql<number>`coalesce(sum(cast(${tables.log.dataStorageCost} as double precision)), 0)`.as(

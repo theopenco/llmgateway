@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { Decimal } from "decimal.js";
 
 import { getApiKeyScope, getUserProjectIds } from "@llmgateway/actions";
@@ -23,6 +25,7 @@ import {
 } from "@llmgateway/shared/email";
 import {
 	buildUnsubscribeHeaders,
+	getEmailCategoryLabel,
 	renderFooterText,
 	signUnsubscribeToken,
 } from "@llmgateway/shared/email-unsubscribe";
@@ -286,6 +289,78 @@ export async function processNotifications(now = new Date()): Promise<void> {
 	await deliverNotificationEmails(now);
 }
 
+type PendingItem = typeof notification.$inferSelect;
+
+function getUiUrl(): string {
+	return process.env.UI_URL ?? "https://llmgateway.io";
+}
+
+// The settings page lives under an org; user-level events (e.g. price
+// changes) use the recipient's oldest membership.
+async function getNotificationSettingsUrl(item: PendingItem): Promise<string> {
+	const organizationId =
+		item.organizationId ??
+		(item.projectId
+			? (
+					await db.query.project.findFirst({
+						where: { id: item.projectId },
+					})
+				)?.organizationId
+			: undefined) ??
+		(
+			await db.query.userOrganization.findFirst({
+				where: { userId: item.userId },
+				orderBy: { createdAt: "asc" },
+			})
+		)?.organizationId;
+	return organizationId
+		? `${getUiUrl()}/dashboard/${organizationId}/org/notifications`
+		: `${getUiUrl()}/dashboard`;
+}
+
+// Single notifications keep their original key so retries of emails queued
+// before batching still dedupe; batches hash their member ids.
+function getBatchIdempotencyKey(items: PendingItem[]): string {
+	if (items.length === 1) {
+		return `notification/${items[0].id}`;
+	}
+	const ids = items
+		.map((item) => item.id)
+		.sort()
+		.join(",");
+	return `notification-batch/${createHash("sha256").update(ids).digest("hex")}`;
+}
+
+export function renderNotificationEmail(
+	items: PendingItem[],
+	settingsUrl: string,
+	token: string,
+): { subject: string; text: string } {
+	const [first] = items;
+	const footer = renderFooterText(first.type, token, settingsUrl);
+	if (items.length === 1) {
+		return {
+			subject: first.title,
+			text: `${first.message}\n\n${getUiUrl()}${first.href}${footer}`,
+		};
+	}
+	const sameTitle = items.every((item) => item.title === first.title);
+	const sameHref = items.every((item) => item.href === first.href);
+	const entries = items.map((item) =>
+		[
+			`- ${sameTitle ? item.message : `${item.title}: ${item.message}`}`,
+			...(sameHref ? [] : [`  ${getUiUrl()}${item.href}`]),
+		].join("\n"),
+	);
+	const label = getEmailCategoryLabel(first.type);
+	return {
+		subject: sameTitle
+			? `${first.title} (${items.length})`
+			: `${items.length} new ${label}`,
+		text: `You have ${items.length} new ${label}:\n\n${entries.join("\n\n")}${sameHref ? `\n\n${getUiUrl()}${first.href}` : ""}${footer}`,
+	};
+}
+
 export async function deliverNotificationEmails(
 	now = new Date(),
 ): Promise<void> {
@@ -302,6 +377,9 @@ export async function deliverNotificationEmails(
 		orderBy: { createdAt: "asc" },
 		limit: 100,
 	});
+	// One email per recipient and category, so a scan that detects several
+	// events at once (e.g. right after opting in) does not flood the inbox.
+	const batches = new Map<string, { email: string; items: PendingItem[] }>();
 	for (const item of pending) {
 		const recipient = await db.query.user.findFirst({
 			where: { id: item.userId, status: "active", emailVerified: true },
@@ -366,37 +444,69 @@ export async function deliverNotificationEmails(
 				continue;
 			}
 		}
+		const key = `${item.userId}:${item.type}`;
+		const batch = batches.get(key) ?? { email: recipient.email, items: [] };
+		batch.items.push(item);
+		batches.set(key, batch);
+	}
+	for (const { email, items: candidates } of batches.values()) {
+		// Claim the batch before sending so a failed bookkeeping write cannot
+		// resend these rows inside a different batch; a failed send releases it.
+		const claimed = await db
+			.update(notification)
+			.set({ emailSentAt: now })
+			.where(
+				and(
+					inArray(
+						notification.id,
+						candidates.map((item) => item.id),
+					),
+					isNull(notification.emailSentAt),
+				),
+			)
+			.returning({ id: notification.id });
+		const claimedIds = new Set(claimed.map((row) => row.id));
+		const items = candidates.filter((item) => claimedIds.has(item.id));
+		if (items.length === 0) {
+			continue;
+		}
 		try {
-			const uiUrl = process.env.UI_URL ?? "https://llmgateway.io";
-			const token = signUnsubscribeToken({
-				email: recipient.email,
-				category: item.type,
-			});
+			const [first] = items;
+			const token = signUnsubscribeToken({ email, category: first.type });
 			const { error } = await client.emails.send(
 				{
 					from: fromEmail,
 					replyTo: replyToEmail,
-					to: recipient.email,
-					subject: item.title,
-					text: `${item.message}\n\n${uiUrl}${item.href}${renderFooterText(item.type, token)}`,
+					to: email,
+					...renderNotificationEmail(
+						items,
+						await getNotificationSettingsUrl(first),
+						token,
+					),
 					headers: buildUnsubscribeHeaders(token),
 				},
-				{ idempotencyKey: `notification/${item.id}` },
+				{ idempotencyKey: getBatchIdempotencyKey(items) },
 			);
 			if (error) {
 				throw new Error(error.message);
 			}
-			await db
-				.update(notification)
-				.set({ emailSentAt: now })
-				.where(
-					and(eq(notification.id, item.id), isNull(notification.emailSentAt)),
-				);
 		} catch (error) {
 			logger.error(
 				"Notification email delivery failed",
 				error instanceof Error ? error : new Error(String(error)),
 			);
+			await db
+				.update(notification)
+				.set({ emailSentAt: null })
+				.where(
+					and(
+						inArray(
+							notification.id,
+							items.map((item) => item.id),
+						),
+						eq(notification.emailSentAt, now),
+					),
+				);
 		}
 	}
 }

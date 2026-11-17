@@ -58,6 +58,8 @@ describe("admin content filter settings", () => {
 				providerIds: ["openai", "anthropic", "openai"],
 				sampleRatePercent: 25,
 				enforce: true,
+				enforceProviderIds: ["openai", "openai"],
+				enforceSampleRatePercent: 10,
 				enforceEnterprise: false,
 			}),
 		});
@@ -71,16 +73,49 @@ describe("admin content filter settings", () => {
 				.map((p: { id: string }) => p.id)
 				.sort(),
 		).toEqual(["anthropic", "openai"]);
+		expect(
+			body.providers
+				.filter((p: { enforced: boolean }) => p.enforced)
+				.map((p: { id: string }) => p.id),
+		).toEqual(["openai"]);
+		expect(body.enforceSampleRatePercent).toBe(10);
 		expect(await getContentFilterSettings()).toEqual({
 			enabled: true,
 			providerIds: ["openai", "anthropic"],
 			sampleRatePercent: 25,
 			enforce: true,
+			enforceProviderIds: ["openai"],
+			enforceSampleRatePercent: 10,
 			enforceEnterprise: false,
 			classifier: "openai",
+			shadowClassifiers: [],
 			internalScope: "full",
 			moderateImages: true,
+			blockGroups: null,
+			csamScoreThreshold: 0.01,
 		});
+	});
+
+	test("stores shadow classifiers without the deciding one", async () => {
+		const res = await app.request("/admin/settings/content-filter", {
+			method: "PUT",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				enabled: true,
+				providerIds: ["openai"],
+				sampleRatePercent: 100,
+				enforce: false,
+				enforceEnterprise: false,
+				classifier: "internal",
+				shadowClassifiers: ["openai", "internal", "openai"],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect((await res.json()).shadowClassifiers).toEqual(["openai"]);
+		expect((await getContentFilterSettings()).shadowClassifiers).toEqual([
+			"openai",
+		]);
 	});
 
 	test("rejects unknown providers and out-of-range sample rates", async () => {
@@ -96,6 +131,23 @@ describe("admin content filter settings", () => {
 			}),
 		});
 		expect(unknown.status).toBe(400);
+
+		const unknownEnforced = await app.request(
+			"/admin/settings/content-filter",
+			{
+				method: "PUT",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					enabled: true,
+					providerIds: [],
+					sampleRatePercent: 100,
+					enforce: false,
+					enforceProviderIds: ["not-a-provider"],
+					enforceEnterprise: false,
+				}),
+			},
+		);
+		expect(unknownEnforced.status).toBe(400);
 
 		const rate = await app.request("/admin/settings/content-filter", {
 			method: "PUT",

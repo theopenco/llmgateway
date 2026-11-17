@@ -103,6 +103,30 @@ describe("toInternalModerationResult", () => {
 		);
 	});
 
+	it("keeps the rules behind a block, without their signals", () => {
+		expect(
+			toInternalModerationResult({
+				tags: ["child_exploitation", "sexual_content"],
+				block: true,
+				reasons: ["minor_plus_sexual_conjunction", "signal:minor"],
+			}).rules,
+		).toEqual(["minor_plus_sexual_conjunction"]);
+		expect(
+			toInternalModerationResult({
+				tags: ["child_exploitation"],
+				block: true,
+				reasons: ["signal:minor"],
+			}).rules,
+		).toEqual([]);
+		expect(
+			toInternalModerationResult({
+				tags: ["malware_cyber"],
+				block: false,
+				reasons: ["malware_operational"],
+			}),
+		).not.toHaveProperty("rules");
+	});
+
 	it("records an untagged block under a fallback category", () => {
 		expect(
 			toInternalModerationResult({ tags: [], block: true }).category_scores,

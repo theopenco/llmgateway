@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
-import { setAirsideModelServing } from "@/lib/airside-catalogue.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { setAirsideModelServing } from "@llmgateway/actions";
 import { and, db, eq, gt, tables } from "@llmgateway/db";
 
 const MODEL_ID = "catalog-mode-model";

@@ -35,6 +35,7 @@ import {
 } from "@/components/models/model-cta-button";
 import { ModelFaqSection } from "@/components/models/model-faq";
 import { ModelRating } from "@/components/models/model-rating";
+import { ModelSectionTabs } from "@/components/models/model-section-tabs";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ModelUsageStats } from "@/components/models/model-usage-stats";
 import { ProviderComparisonTable } from "@/components/models/provider-comparison-table";
@@ -74,6 +75,7 @@ import {
 } from "@llmgateway/shared/components";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
+import type { ModelSection } from "@/components/models/model-section-tabs";
 import type { Metadata } from "next";
 
 interface PageProps {
@@ -135,12 +137,12 @@ export default async function ModelPage({ params }: PageProps) {
 
 	// Carrier-uploaded branding (Airside claims) overlays the static provider
 	// info, and is the only provider info a DB-only carrier has.
+	const providerInfoById = new Map(providerDefinitions.map((p) => [p.id, p]));
+	const apiProviderById = new Map(apiProviders.map((p) => [p.id, p]));
 	const expandedProviders = expandAllProviderRegions(modelDef.providers);
 	const modelProviders = expandedProviders.map((provider) => {
-		const providerInfo = providerDefinitions.find(
-			(p) => p.id === provider.providerId,
-		);
-		const apiProvider = apiProviders.find((p) => p.id === provider.providerId);
+		const providerInfo = providerInfoById.get(provider.providerId);
+		const apiProvider = apiProviderById.get(provider.providerId);
 		const globalDiscount = getEffectiveProviderDiscount(
 			allDiscounts,
 			provider.providerId,
@@ -189,8 +191,8 @@ export default async function ModelPage({ params }: PageProps) {
 		Array.from(new Set(activeProviders.map((p) => p.providerId))),
 	);
 	const currentModelDiscountProvider = currentModelDiscount?.provider
-		? (providerDefinitions.find((p) => p.id === currentModelDiscount.provider)
-				?.name ?? currentModelDiscount.provider)
+		? (providerInfoById.get(currentModelDiscount.provider)?.name ??
+			currentModelDiscount.provider)
 		: null;
 
 	const adaptedModel = adaptModel(modelDef, modelProviders);
@@ -594,11 +596,58 @@ export default async function ModelPage({ params }: PageProps) {
 		});
 	}
 	const stabilityBadge = getStabilityBadgeProps(modelDef.stability);
-	const pageSections = [
-		{ href: "#providers", label: `Providers (${uniqueProviderCount})` },
-		{ href: "#performance", label: "Performance" },
-		...(faqs.length > 0 ? [{ href: "#faq", label: "FAQ" }] : []),
-		{ href: "#related", label: "Related models" },
+	const pageSections: ModelSection[] = [
+		{
+			id: "providers",
+			label: `Providers (${uniqueProviderCount})`,
+			content: (
+				<section>
+					<h2 className="text-xl font-semibold md:text-2xl">
+						Providers for {modelDef.name}
+					</h2>
+					<p className="mb-4 mt-1 max-w-3xl text-muted-foreground">
+						Compare price, limits and live performance side by side. LLM Gateway
+						routes each request to the best provider that can handle your prompt
+						size and parameters.
+					</p>
+					<ProviderComparisonTable model={adaptedModel} />
+				</section>
+			),
+		},
+		{
+			id: "performance",
+			label: "Performance",
+			content: (
+				<section>
+					<ModelBenchmarks
+						modelId={canonicalName}
+						uploadedIcons={uploadedProviderIcons}
+					/>
+				</section>
+			),
+		},
+		...(faqs.length > 0
+			? [
+					{
+						id: "faq",
+						label: "FAQ",
+						content: (
+							<section>
+								<ModelFaqSection faqs={faqs} />
+							</section>
+						),
+					},
+				]
+			: []),
+		{
+			id: "related",
+			label: "Related models",
+			content: (
+				<section>
+					<RelatedModels modelDef={modelDef} />
+				</section>
+			),
+		},
 	];
 	const secondaryActionClass =
 		"inline-flex h-8 items-center gap-1.5 rounded-md border border-border/60 px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground";
@@ -749,47 +798,7 @@ export default async function ModelPage({ params }: PageProps) {
 						</div>
 					)}
 
-					<nav
-						aria-label="On this page"
-						className="mb-8 flex gap-1 overflow-x-auto border-b"
-					>
-						{pageSections.map((section) => (
-							<a
-								key={section.href}
-								href={section.href}
-								className="-mb-px whitespace-nowrap border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground"
-							>
-								{section.label}
-							</a>
-						))}
-					</nav>
-
-					<section id="providers" className="mb-12 scroll-mt-28">
-						<h2 className="text-xl font-semibold md:text-2xl">
-							Providers for {modelDef.name}
-						</h2>
-						<p className="mb-4 mt-1 max-w-3xl text-muted-foreground">
-							Compare price, limits and live performance side by side. LLM
-							Gateway routes each request to the best provider that can handle
-							your prompt size and parameters.
-						</p>
-						<ProviderComparisonTable model={adaptedModel} />
-					</section>
-
-					<section id="performance" className="mb-12 scroll-mt-28">
-						<ModelBenchmarks
-							modelId={canonicalName}
-							uploadedIcons={uploadedProviderIcons}
-						/>
-					</section>
-
-					<section id="faq" className="mb-12 scroll-mt-28">
-						<ModelFaqSection faqs={faqs} />
-					</section>
-
-					<section id="related" className="mb-8 scroll-mt-28">
-						<RelatedModels modelDef={modelDef} />
-					</section>
+					<ModelSectionTabs sections={pageSections} />
 				</div>
 			</div>
 			<Footer />

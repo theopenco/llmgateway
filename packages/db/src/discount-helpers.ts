@@ -9,6 +9,7 @@ import { cdb } from "./cdb.js";
 import {
 	discount as discountTable,
 	providerRoutingSettings,
+	type DiscountExcludableCostType,
 } from "./schema.js";
 
 type DiscountRow = Pick<
@@ -18,6 +19,7 @@ type DiscountRow = Pick<
 	| "provider"
 	| "model"
 	| "discountPercent"
+	| "excludedCostTypes"
 	| "expiresAt"
 >;
 type AirsideDiscountRow = Pick<
@@ -45,6 +47,11 @@ export interface EffectiveDiscount {
 		| "none";
 	/** The discount record ID if from database */
 	discountId?: string;
+	/**
+	 * Cost types billed at full price under this discount. Token costs are
+	 * always discounted. Absent (e.g. a pre-deploy SWR mirror entry) means none.
+	 */
+	excludedCostTypes?: DiscountExcludableCostType[];
 }
 
 /**
@@ -117,6 +124,7 @@ export async function loadDiscountResolver(
 						provider: discountTable.provider,
 						model: discountTable.model,
 						discountPercent: discountTable.discountPercent,
+						excludedCostTypes: discountTable.excludedCostTypes,
 						expiresAt: discountTable.expiresAt,
 					})
 					.from(discountTable)
@@ -194,6 +202,7 @@ async function queryEffectiveDiscount(
 			provider: discountTable.provider,
 			model: discountTable.model,
 			discountPercent: discountTable.discountPercent,
+			excludedCostTypes: discountTable.excludedCostTypes,
 			expiresAt: discountTable.expiresAt,
 		})
 		.from(discountTable)
@@ -278,6 +287,7 @@ export function resolveEffectiveDiscount(
 				discount: orgProviderModel.discountPercent,
 				source: "org_provider_model",
 				discountId: orgProviderModel.id,
+				excludedCostTypes: orgProviderModel.excludedCostTypes,
 			};
 		}
 
@@ -293,6 +303,7 @@ export function resolveEffectiveDiscount(
 				discount: orgProvider.discountPercent,
 				source: "org_provider",
 				discountId: orgProvider.id,
+				excludedCostTypes: orgProvider.excludedCostTypes,
 			};
 		}
 
@@ -308,6 +319,7 @@ export function resolveEffectiveDiscount(
 				discount: orgModel.discountPercent,
 				source: "org_model",
 				discountId: orgModel.id,
+				excludedCostTypes: orgModel.excludedCostTypes,
 			};
 		}
 	}
@@ -324,6 +336,7 @@ export function resolveEffectiveDiscount(
 			discount: globalProviderModel.discountPercent,
 			source: "global_provider_model",
 			discountId: globalProviderModel.id,
+			excludedCostTypes: globalProviderModel.excludedCostTypes,
 		};
 	}
 
@@ -337,6 +350,7 @@ export function resolveEffectiveDiscount(
 			discount: globalProvider.discountPercent,
 			source: "global_provider",
 			discountId: globalProvider.id,
+			excludedCostTypes: globalProvider.excludedCostTypes,
 		};
 	}
 
@@ -350,6 +364,7 @@ export function resolveEffectiveDiscount(
 			discount: globalModel.discountPercent,
 			source: "global_model",
 			discountId: globalModel.id,
+			excludedCostTypes: globalModel.excludedCostTypes,
 		};
 	}
 	const global = discounts.find(
@@ -360,6 +375,7 @@ export function resolveEffectiveDiscount(
 			discount: global.discountPercent,
 			source: "global",
 			discountId: global.id,
+			excludedCostTypes: global.excludedCostTypes,
 		};
 	}
 
