@@ -156,6 +156,7 @@ describe("checkGuardrails", () => {
 
 		expect(classify).toHaveBeenCalledTimes(1);
 		const request = classify.mock.calls[0]![0];
+		expect(request.model).toBe("jev-1.14.0");
 		expect(Object.keys(request.questions)).toHaveLength(2);
 		expect(request.text).toContain("[EMAIL_REDACTED]");
 		expect(request.text).not.toContain("jane@example.com");

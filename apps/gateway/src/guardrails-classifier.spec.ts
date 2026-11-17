@@ -13,7 +13,7 @@ import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 describe("guardrail classifier", () => {
 	const harness = createGatewayApiTestHarness();
 
-	async function seed(suffix: string) {
+	async function seed(suffix: string, classifierModel?: string) {
 		await db
 			.update(tables.organization)
 			.set({ plan: "enterprise" })
@@ -40,6 +40,7 @@ describe("guardrail classifier", () => {
 			systemRules: withDefaultSystemRules({
 				harmful_content: { enabled: true, action: "block" },
 			}),
+			...(classifierModel ? { classifierModel } : {}),
 		});
 	}
 
@@ -68,7 +69,7 @@ describe("guardrail classifier", () => {
 		expect(json.error.violations[0].rule_id).toBe("system:harmful_content");
 
 		const logs = await waitForLogs(2);
-		const check = logs.find((log) => log.apiOrigin === "systemone");
+		const check = logs.find((log) => log.apiOrigin === "decisions");
 		expect(check?.usedModel).toBe("typesafe/jev-1.14.0");
 		expect(check?.hasError).toBe(false);
 		expect(Number(check?.cost)).toBeGreaterThan(0);
@@ -84,10 +85,21 @@ describe("guardrail classifier", () => {
 
 		expect(res.status).toBe(200);
 		const logs = await waitForLogs(2);
-		expect(logs.filter((log) => log.apiOrigin === "systemone")).toHaveLength(1);
+		expect(logs.filter((log) => log.apiOrigin === "decisions")).toHaveLength(1);
 		expect(
 			logs.filter((log) => log.apiOrigin === "chat-completions"),
 		).toHaveLength(1);
+	});
+
+	test("runs on the configured decision model", async () => {
+		await seed("guardrail-model", "typesafe/jev-1.13.0");
+
+		const res = await request("guardrail-model", "say hello");
+
+		expect(res.status).toBe(200);
+		const logs = await waitForLogs(2);
+		const check = logs.find((log) => log.apiOrigin === "decisions");
+		expect(check?.usedModel).toBe("typesafe/jev-1.13.0");
 	});
 
 	test("fails open when the classifier request fails", async () => {
@@ -105,13 +117,16 @@ describe("guardrail classifier hop", () => {
 	});
 
 	test("forwards the caller's API key and client IP", async () => {
-		const spy = vi
-			.spyOn(app, "request")
-			.mockResolvedValue(Response.json({ answers: { q0: { noul: 0.9 } } }));
+		const spy = vi.spyOn(app, "request").mockResolvedValue(
+			Response.json({
+				answers: [{ type: "predicate", name: "q0", probability: 0.9 }],
+			}),
+		);
 		const outer = new Hono();
 		let scores: Record<string, number> | undefined;
 		outer.post("/", async (c) => {
 			scores = await createGuardrailClassifier(c)({
+				model: "microsoft-decision-1",
 				text: "user: hi",
 				questions: { harmful: "The text is harmful." },
 			});
@@ -128,12 +143,13 @@ describe("guardrail classifier hop", () => {
 
 		expect(scores).toEqual({ harmful: 0.9 });
 		const [path, init] = spy.mock.calls[0]!;
-		expect(path).toBe("/v1/systemone");
+		expect(path).toBe("/v1/decisions");
 		const headers = new Headers((init as RequestInit).headers);
 		expect(headers.get("Authorization")).toBe("Bearer caller-token");
 		expect(headers.get("x-forwarded-for")).toBe("192.0.2.1");
 		const body = JSON.parse(String((init as RequestInit).body));
-		expect(body.model).toBe("jev-1.14.0");
-		expect(Object.keys(body.questions)).toEqual(["q0"]);
+		expect(body.model).toBe("microsoft-decision-1");
+		expect(body.input).toBe("user: hi");
+		expect(body.questions).toMatchObject([{ type: "predicate", name: "q0" }]);
 	});
 });

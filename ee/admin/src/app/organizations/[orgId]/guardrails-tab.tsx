@@ -160,6 +160,14 @@ export function GuardrailsTab({ data }: { data: GuardrailsResponse }) {
 										{config.maxFileSizeMb} MB
 									</span>
 								</div>
+								<div className="flex items-center justify-between border-b border-border/40 pb-2">
+									<span className="text-sm text-muted-foreground">
+										Classifier model
+									</span>
+									<span className="font-mono text-sm font-medium">
+										{config.classifierModel}
+									</span>
+								</div>
 								<div className="space-y-1">
 									<p className="text-sm text-muted-foreground">
 										Allowed file types

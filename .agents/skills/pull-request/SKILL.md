@@ -50,6 +50,26 @@ Most review happens before the PR exists. Before `gh pr create`:
 - When the same finding comes back on a second PR, fix it at the source
   (ESLint rule, skill line, `REVIEW.md`) in that PR.
 
+## Review agents
+
+Once the first revision is up, harden it with independent review subagents on
+top of CodeRabbit and human reviews. Rate the change yourself:
+
+- **Simple** (copy, config, a small contained fix): none.
+- **Medium** size or risk (one feature area, a schema or billing touch): at
+  least one.
+- **Big** (cross-app features, request path, billing, security, migrations):
+  two or three, each with a different focus (correctness and edge cases;
+  security, billing and data isolation; tests and simplification).
+
+Brief each agent with the PR number, the intended behaviour and `REVIEW.md`,
+not your own reasoning, so it reviews with fresh context. Each one reads
+`git diff origin/main...HEAD`, fixes what it finds in the same branch, runs the
+affected tests and lint, and pushes to the same PR. Run them one after another
+on a shared branch, or in separate worktrees rebased before each push. Then
+reply to and resolve any review threads their fixes address, and wait for
+checks again.
+
 ## Creating the PR
 
 Write the body from `.github/pull_request_template.md` into `.context/pr-body.md`:

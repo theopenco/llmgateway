@@ -19,6 +19,8 @@ export interface GuardrailConfigData {
 	systemRules: SystemRulesConfig;
 	maxFileSizeMb: number;
 	allowedFileTypes: string[];
+	/** Decision model the classifier rules run on. */
+	classifierModel: string;
 }
 
 export interface GuardrailScope {
@@ -50,6 +52,8 @@ export interface RedactionInfo {
 }
 
 export interface ClassifierRequest {
+	/** Decision model to score with. */
+	model: string;
 	/** Untrusted conversation text to score. */
 	text: string;
 	/** Question id to a yes/no criterion the text is scored against. */

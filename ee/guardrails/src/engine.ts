@@ -7,6 +7,7 @@ import {
 	guardrailRule,
 	guardrailViolation,
 	defaultAllowedFileTypes,
+	defaultGuardrailClassifierModel,
 	defaultGuardrailClassifierThreshold,
 	withDefaultSystemRules,
 	and,
@@ -115,6 +116,7 @@ function toConfigData(
 				systemRules: SystemRulesConfig | null;
 				maxFileSizeMb: number;
 				allowedFileTypes: string[] | null;
+				classifierModel: string | null;
 		  }
 		| undefined,
 ): GuardrailConfigData | null {
@@ -127,6 +129,7 @@ function toConfigData(
 		systemRules: withDefaultSystemRules(config.systemRules),
 		maxFileSizeMb: config.maxFileSizeMb,
 		allowedFileTypes: config.allowedFileTypes ?? defaultAllowedFileTypes,
+		classifierModel: config.classifierModel ?? defaultGuardrailClassifierModel,
 	};
 }
 
@@ -504,6 +507,7 @@ function buildClassifierText(segments: TextSegment[]): string {
 
 async function runClassifier(
 	input: GuardrailInput,
+	model: string,
 	messages: Message[],
 	questions: Map<string, PendingQuestion>,
 	violations: RuleViolation[],
@@ -523,6 +527,7 @@ async function runClassifier(
 	let scores: Record<string, number>;
 	try {
 		scores = await input.classify({
+			model,
 			text,
 			questions: Object.fromEntries(
 				[...questions].map(([id, question]) => [id, question.instructions]),
@@ -665,6 +670,7 @@ export async function checkGuardrails(
 
 	const classifier = await runClassifier(
 		input,
+		config.classifierModel,
 		applyRedactions(input.messages, redactions),
 		questions,
 		violations,

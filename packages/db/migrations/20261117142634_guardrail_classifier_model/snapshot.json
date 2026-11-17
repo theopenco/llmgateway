@@ -1,0 +1,72 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "ea3faa24-aa67-47ec-9365-8db09badc629",
+  "prevIds": [
+    "6ee2deb2-179c-47e6-bff5-6c0a5c50b759"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "guardrail_config",
+        "classifier_model"
+      ],
+      "writes": [
+        "s|col|public.guardrail_config.classifier_model",
+        "n|col|public.guardrail_config.classifier_model",
+        "e|col|public.guardrail_config.classifier_model"
+      ],
+      "reads": [
+        "n|tbl|public.guardrail_config",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "alter_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "guardrail_config",
+        "system_rules"
+      ],
+      "writes": [
+        "s|colprop|public.guardrail_config.system_rules.default"
+      ],
+      "reads": [
+        "n|tbl|public.guardrail_config",
+        "n|sch|public",
+        "n|col|public.guardrail_config.system_rules"
+      ],
+      "sqlHash": "7574803d2948cfb8"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "guardrail_config",
+        "name": "classifier_model",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'jev-1.14.0'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"guardrail_config\",\"system_rules\"]",
+      "set": {
+        "default": "'{\"prompt_injection\":{\"enabled\":true,\"action\":\"block\",\"classifier\":false},\"jailbreak\":{\"enabled\":true,\"action\":\"block\",\"classifier\":false},\"pii_detection\":{\"enabled\":true,\"action\":\"redact\"},\"secrets\":{\"enabled\":true,\"action\":\"block\"},\"file_types\":{\"enabled\":true,\"action\":\"block\"},\"document_leakage\":{\"enabled\":false,\"action\":\"warn\"},\"harmful_content\":{\"enabled\":false,\"action\":\"block\",\"classifier\":true}}'"
+      }
+    }
+  ]
+}

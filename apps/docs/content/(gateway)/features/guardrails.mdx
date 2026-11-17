@@ -51,13 +51,15 @@ Rules that look for instructions (prompt injection, jailbreak, topic restriction
 ## Detection Methods
 
 - **Pattern rules** run inside the gateway with no extra latency or cost.
-- **ML classifier rules** score the request with [Jev](https://llmgateway.io/models), a calibrated decision model. They catch paraphrased, obfuscated and non-English attempts that patterns miss.
+- **ML classifier rules** score the request with a calibrated [decision model](https://llmgateway.io/models), Jev 1.14 by default. They catch paraphrased, obfuscated and non-English attempts that patterns miss.
 
-Each request that has classifier rules enabled triggers **one** extra decision request that answers every classifier question at once. It runs with the caller's API key, so it:
+Each request that has classifier rules enabled triggers **one** extra [`/v1/decisions`](/features/decisions) request that answers every classifier question at once. It runs with the caller's API key, so it:
 
-- is billed to your organization at the Jev model price, like any other request;
-- appears in your activity logs as its own `/v1/systemone` request;
-- follows your project mode, API key and compliance settings. A project that only uses your own provider keys needs a TypeSafe key, or credits.
+- is billed to your organization at the decision model's price, like any other request;
+- appears in your activity logs as its own `/v1/decisions` request;
+- follows your project mode, API key and compliance settings. A project that only uses your own provider keys needs a key for the decision model's provider, or credits.
+
+Pick the decision model under **Classifier model** in the guardrail settings. Any decision model works, optionally provider-prefixed (`typesafe/jev-1.14.0`). Default thresholds are tuned for Jev 1.14, so recheck them after switching.
 
 The classifier only sees non-system messages, after redaction, so values redacted by PII or sensitive-data rules never reach it. If the classifier request fails (for example, insufficient credits), classifier rules are skipped for that request and pattern rules still apply.
 

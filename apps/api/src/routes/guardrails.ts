@@ -19,6 +19,7 @@ import {
 	customRuleTypes,
 	defaultSystemRulesConfig,
 	defaultAllowedFileTypes,
+	defaultGuardrailClassifierModel,
 	piiEntities,
 	withDefaultSystemRules,
 } from "@llmgateway/db";
@@ -27,6 +28,7 @@ import {
 	presetTopics,
 	systemRuleCatalog,
 } from "@llmgateway/guardrails";
+import { isDecisionModelRef } from "@llmgateway/models";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import {
 	canManageProject,
@@ -240,6 +242,7 @@ const guardrailConfigSchema = z.object({
 	systemRules: systemRulesConfigSchema.nullable(),
 	maxFileSizeMb: z.number(),
 	allowedFileTypes: z.array(z.string()),
+	classifierModel: z.string(),
 	piiAction: z
 		.enum(["block", "redact", "warn", "allow"])
 		.nullable()
@@ -450,6 +453,16 @@ const updateConfigBodySchema = z.object({
 		.describe(
 			"MIME types (image/png, image/*) or extensions (pdf). Empty allows every type.",
 		),
+	classifierModel: z
+		.string()
+		.trim()
+		.min(1)
+		.max(128)
+		.refine((model) => isDecisionModelRef(model), {
+			message: "Must be a decision model, optionally provider-prefixed",
+		})
+		.optional()
+		.describe("Decision model the ML classifier rules run on."),
 	piiAction: z
 		.enum(["block", "redact", "warn", "allow"])
 		.optional()
@@ -514,6 +527,7 @@ async function upsertScopedConfig(
 					systemRules,
 					maxFileSizeMb: body.maxFileSizeMb ?? existing.maxFileSizeMb,
 					allowedFileTypes: body.allowedFileTypes ?? existing.allowedFileTypes,
+					classifierModel: body.classifierModel ?? existing.classifierModel,
 					piiAction,
 				})
 				.where(eq(tables.guardrailConfig.id, existing.id))
@@ -531,6 +545,8 @@ async function upsertScopedConfig(
 				systemRules,
 				maxFileSizeMb: body.maxFileSizeMb ?? 10,
 				allowedFileTypes: body.allowedFileTypes ?? defaultAllowedFileTypes,
+				classifierModel:
+					body.classifierModel ?? defaultGuardrailClassifierModel,
 				piiAction,
 			})
 			.returning();
@@ -545,6 +561,7 @@ const guardrailConfigDefaults = {
 	systemRules: defaultSystemRulesConfig,
 	maxFileSizeMb: 10,
 	allowedFileTypes: defaultAllowedFileTypes,
+	classifierModel: defaultGuardrailClassifierModel,
 	piiAction: "redact" as GuardrailAction,
 };
 

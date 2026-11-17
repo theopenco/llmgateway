@@ -41,6 +41,7 @@ import { Switch } from "@/lib/components/switch";
 import { Textarea } from "@/lib/components/textarea";
 import { useApi } from "@/lib/fetch-client";
 
+import { listDecisionModels } from "@llmgateway/models";
 import {
 	canManageProject,
 	isOrganizationAdmin,
@@ -370,7 +371,11 @@ interface DraftConfig {
 	systemRules: SystemRulesConfig;
 	maxFileSizeMb: number;
 	allowedFileTypes: string[];
+	classifierModel: string;
 }
+
+const DEFAULT_CLASSIFIER_MODEL = "jev-1.14.0";
+const DECISION_MODELS = listDecisionModels();
 
 const DEFAULT_DRAFT: DraftConfig = {
 	inheritOrganization: true,
@@ -378,6 +383,7 @@ const DEFAULT_DRAFT: DraftConfig = {
 	systemRules: DEFAULT_SYSTEM_RULES,
 	maxFileSizeMb: 10,
 	allowedFileTypes: DEFAULT_ALLOWED_FILE_TYPES,
+	classifierModel: DEFAULT_CLASSIFIER_MODEL,
 };
 
 function toDraft(config: GuardrailConfig | null): DraftConfig {
@@ -391,6 +397,7 @@ function toDraft(config: GuardrailConfig | null): DraftConfig {
 		systemRules: { ...DEFAULT_SYSTEM_RULES, ...config.systemRules },
 		maxFileSizeMb: config.maxFileSizeMb,
 		allowedFileTypes: config.allowedFileTypes,
+		classifierModel: config.classifierModel,
 	};
 }
 
@@ -605,6 +612,7 @@ function GuardrailsForm({
 							systemRules: draft.systemRules,
 							maxFileSizeMb: draft.maxFileSizeMb,
 							allowedFileTypes: draft.allowedFileTypes,
+							classifierModel: draft.classifierModel,
 						},
 			);
 			setSuccess("Configuration saved successfully");
@@ -802,7 +810,7 @@ function GuardrailsForm({
 						<CardTitle>System Rules</CardTitle>
 						<CardDescription>
 							Built-in rules. Pattern rules run in-process at no cost; rules
-							marked ML also score requests with the Jev classifier.
+							marked ML also score requests with a decision model.
 						</CardDescription>
 					</CardHeader>
 					<CardContent className="space-y-4">
@@ -891,12 +899,41 @@ function GuardrailsForm({
 							);
 						})}
 						{usesBilledClassifier && (
-							<p className="text-sm text-muted-foreground">
-								ML checks run as one extra Jev request per chat request, billed
-								to your organization and listed in your activity logs. If that
-								request fails, ML rules are skipped and pattern rules still
-								apply.
-							</p>
+							<div className="space-y-2 border-t pt-4">
+								<Label>Classifier model</Label>
+								<Select
+									value={shown.classifierModel}
+									disabled={!editable}
+									onValueChange={(value) =>
+										setDraft({ ...draft, classifierModel: value })
+									}
+								>
+									<SelectTrigger className="w-64">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{DECISION_MODELS.some(
+											(model) => model.id === shown.classifierModel,
+										) ? null : (
+											<SelectItem value={shown.classifierModel}>
+												{shown.classifierModel}
+											</SelectItem>
+										)}
+										{DECISION_MODELS.map((model) => (
+											<SelectItem key={model.id} value={model.id}>
+												{model.name}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								<p className="text-sm text-muted-foreground">
+									ML checks run as one extra decision request per chat request,
+									billed to your organization at the model's price and listed in
+									your activity logs. Thresholds are tuned for Jev 1.14; recheck
+									them after switching. If that request fails, ML rules are
+									skipped and pattern rules still apply.
+								</p>
+							</div>
 						)}
 					</CardContent>
 				</Card>

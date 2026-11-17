@@ -5262,6 +5262,12 @@ export function withDefaultSystemRules(
 /**
  * MIME types (`image/png`, `image/*`) or file extensions (`pdf`).
  */
+/**
+ * Decision model guardrail classifier rules run on. Stored per config so a
+ * new default never shifts thresholds tuned against an older model.
+ */
+export const defaultGuardrailClassifierModel = "jev-1.14.0";
+
 export const defaultAllowedFileTypes = [
 	"image/jpeg",
 	"image/png",
@@ -5352,6 +5358,9 @@ export const guardrailConfig = snakeCase.table(
 			.default(defaultAllowedFileTypes)
 			.notNull(),
 		piiAction: text("pii_action").$type<GuardrailAction>().default("redact"),
+		classifierModel: text("classifier_model")
+			.default(defaultGuardrailClassifierModel)
+			.notNull(),
 		createdAt: timestamp("created_at").notNull().defaultNow(),
 		updatedAt: timestamp("updated_at")
 			.notNull()
