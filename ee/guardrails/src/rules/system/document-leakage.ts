@@ -4,7 +4,8 @@ const DOCUMENT_LEAKAGE_PATTERNS = [
 	// Internal/confidential markers
 	/\b(internal\s+use\s+only|confidential|proprietary|trade\s+secret)\b/i,
 	// Classification markers
-	/\b(top\s+secret|secret|classified|restricted)\b/i,
+	// Bare "secret", "restricted" and "draft" are everyday words.
+	/\b(top\s+secret|classified\s+(information|document|material)|secret\s*\/\/\s*noforn)\b/i,
 	// Common corporate document markers
 	/\b(do\s+not\s+(share|distribute|forward)|not\s+for\s+(public|external)\s+(use|distribution))\b/i,
 	// Legal markers
@@ -12,7 +13,7 @@ const DOCUMENT_LEAKAGE_PATTERNS = [
 	// NDA markers
 	/\b(under\s+nda|non[- ]?disclosure|covered\s+by\s+agreement)\b/i,
 	// Draft markers (may indicate unfinished internal docs)
-	/\b(draft|for\s+internal\s+review|not\s+for\s+release)\b/i,
+	/\b(internal\s+draft|for\s+internal\s+review|not\s+for\s+release)\b/i,
 ];
 
 export const documentLeakageRule: SystemRule = {
@@ -21,11 +22,9 @@ export const documentLeakageRule: SystemRule = {
 	category: "document_leakage",
 	defaultEnabled: false,
 	defaultAction: "warn",
-	check: (content, config) => {
-		if (!config.enabled) {
-			return { passed: true, matches: [] };
-		}
-
+	redactable: false,
+	trustedRoles: "scan",
+	check: (content) => {
 		const matches: string[] = [];
 		for (const pattern of DOCUMENT_LEAKAGE_PATTERNS) {
 			const match = content.match(pattern);

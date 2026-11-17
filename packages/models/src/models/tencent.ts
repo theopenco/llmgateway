@@ -189,6 +189,42 @@ export const tencentModels = [
 		],
 	},
 	{
+		id: "hy4",
+		name: "Hy4",
+		description:
+			"Tencent's Hy4 Hunyuan reasoning model, the general release of Hy4 Preview with stronger agentic and long-horizon performance, image understanding, and a 1M context window.",
+		family: "tencent",
+		releasedAt: new Date("2026-11-02"),
+		providers: [
+			{
+				providerId: "tencent",
+				externalId: "hy4",
+				inputPrice: "0.834e-6",
+				cachedInputPrice: "0.042e-6",
+				outputPrice: "2.501e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 65536,
+				maxTemperature: 1,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
 		id: "hy4-flash",
 		name: "Hy4 Flash",
 		description:

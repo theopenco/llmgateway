@@ -230,6 +230,7 @@ import {
 	applyRedactions,
 	checkGuardrails,
 	logViolation,
+	type RuleViolation,
 } from "@llmgateway/guardrails";
 import { logger, toError } from "@llmgateway/logger";
 import {
@@ -344,6 +345,7 @@ import { extractTokenUsage } from "./tools/extract-token-usage.js";
 import { extractToolCalls } from "./tools/extract-tool-calls.js";
 import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
 import { getEnvKeyCount } from "./tools/get-provider-env.js";
+import { createGuardrailClassifier } from "./tools/guardrail-classifier.js";
 import { hasMeaningfulAssistantOutput } from "./tools/has-meaningful-assistant-output.js";
 import { healJsonResponse } from "./tools/heal-json-response.js";
 import {
@@ -3412,20 +3414,40 @@ chat.openapi(completions, async (c) => {
 			organizationId: project.organizationId,
 			projectId: project.id,
 			messages: messages as Parameters<typeof checkGuardrails>[0]["messages"],
+			classify: createGuardrailClassifier(c),
 		});
 
+		if (guardrailResult.classifier?.error) {
+			// Classifier rules fail open; pattern rules still applied.
+			logger.warn("guardrail_classifier_failed", {
+				organizationId: project.organizationId,
+				projectId: project.id,
+				apiKeyId: apiKey.id,
+				questions: guardrailResult.classifier.questions,
+				error: guardrailResult.classifier.error,
+			});
+		}
+
+		const recordViolation = async (violation: RuleViolation) => {
+			try {
+				await logViolation(project.organizationId, violation, {
+					apiKeyId: apiKey.id,
+					model: requestedModel,
+					retainSensitiveContent: retentionLevel === "retain",
+				});
+			} catch (error) {
+				// The request outcome must not depend on the audit write.
+				logger.error("guardrail_violation_log_failed", {
+					organizationId: project.organizationId,
+					ruleId: violation.ruleId,
+					error: toError(error),
+				});
+			}
+		};
+
 		if (guardrailResult.blocked) {
-			// Log violations (don't let logging failures affect the request)
 			for (const violation of guardrailResult.violations) {
-				try {
-					await logViolation(project.organizationId, violation, {
-						apiKeyId: apiKey.id,
-						model: requestedModel,
-						retainSensitiveContent: retentionLevel === "retain",
-					});
-				} catch {
-					// Silently ignore logging failures
-				}
+				await recordViolation(violation);
 			}
 
 			const blockedViolations = guardrailResult.violations.map((v) => ({
@@ -3486,15 +3508,7 @@ chat.openapi(completions, async (c) => {
 		for (const violation of guardrailResult.violations.filter(
 			(v) => v.action !== "block",
 		)) {
-			try {
-				await logViolation(project.organizationId, violation, {
-					apiKeyId: apiKey.id,
-					model: requestedModel,
-					retainSensitiveContent: retentionLevel === "retain",
-				});
-			} catch {
-				// Silently ignore logging failures
-			}
+			await recordViolation(violation);
 		}
 	}
 
