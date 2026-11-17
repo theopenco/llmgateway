@@ -14,3 +14,4 @@ export * from "./model-family.js";
 export * from "./virtual-models.js";
 export * from "./token-pricing.js";
 export * from "./web-search.js";
+export * from "./decision-models.js";
