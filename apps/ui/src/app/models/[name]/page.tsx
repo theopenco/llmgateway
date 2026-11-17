@@ -137,12 +137,12 @@ export default async function ModelPage({ params }: PageProps) {
 
 	// Carrier-uploaded branding (Airside claims) overlays the static provider
 	// info, and is the only provider info a DB-only carrier has.
+	const providerInfoById = new Map(providerDefinitions.map((p) => [p.id, p]));
+	const apiProviderById = new Map(apiProviders.map((p) => [p.id, p]));
 	const expandedProviders = expandAllProviderRegions(modelDef.providers);
 	const modelProviders = expandedProviders.map((provider) => {
-		const providerInfo = providerDefinitions.find(
-			(p) => p.id === provider.providerId,
-		);
-		const apiProvider = apiProviders.find((p) => p.id === provider.providerId);
+		const providerInfo = providerInfoById.get(provider.providerId);
+		const apiProvider = apiProviderById.get(provider.providerId);
 		const globalDiscount = getEffectiveProviderDiscount(
 			allDiscounts,
 			provider.providerId,
@@ -191,8 +191,8 @@ export default async function ModelPage({ params }: PageProps) {
 		Array.from(new Set(activeProviders.map((p) => p.providerId))),
 	);
 	const currentModelDiscountProvider = currentModelDiscount?.provider
-		? (providerDefinitions.find((p) => p.id === currentModelDiscount.provider)
-				?.name ?? currentModelDiscount.provider)
+		? (providerInfoById.get(currentModelDiscount.provider)?.name ??
+			currentModelDiscount.provider)
 		: null;
 
 	const adaptedModel = adaptModel(modelDef, modelProviders);

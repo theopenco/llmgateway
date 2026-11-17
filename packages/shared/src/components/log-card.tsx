@@ -574,9 +574,9 @@ export function LogCard({
 							<Clock className="h-3.5 w-3.5 shrink-0" />
 							<span>
 								{log.totalTokens} tokens
-								{log.cachedTokens && Number(log.cachedTokens) > 0 && (
+								{log.cachedTokens && Number(log.cachedTokens) > 0 ? (
 									<span className="ml-1">({log.cachedTokens} cached)</span>
-								)}
+								) : null}
 							</span>
 						</div>
 						<div className="flex items-center gap-1">
@@ -601,12 +601,12 @@ export function LogCard({
 								</p>
 							</TooltipContent>
 						</Tooltip>
-						{log.discount && log.discount !== 1 && (
+						{log.discount && log.discount !== 1 ? (
 							<div className="flex items-center gap-1 text-emerald-600">
 								<TrendingDown className="h-3.5 w-3.5 shrink-0" />
 								<span>{(log.discount * 100).toFixed(0)}% off</span>
 							</div>
-						)}
+						) : null}
 						{log.source && (
 							<div className="flex items-center gap-1">
 								<LinkIcon className="h-3.5 w-3.5 shrink-0" />
@@ -968,54 +968,54 @@ export function LogCard({
 								<div>{log.completionTokens}</div>
 								<div className="text-muted-foreground">Total Tokens</div>
 								<div className="font-medium">{log.totalTokens}</div>
-								{log.cachedTokens && Number(log.cachedTokens) > 0 && (
+								{log.cachedTokens && Number(log.cachedTokens) > 0 ? (
 									<>
 										<div className="text-muted-foreground">
 											Cached Input Tokens
 										</div>
 										<div className="font-medium">{log.cachedTokens}</div>
 									</>
-								)}
-								{log.cacheWriteTokens && Number(log.cacheWriteTokens) > 0 && (
+								) : null}
+								{log.cacheWriteTokens && Number(log.cacheWriteTokens) > 0 ? (
 									<>
 										<div className="text-muted-foreground">
 											Cache Write Tokens
 										</div>
 										<div className="font-medium">{log.cacheWriteTokens}</div>
 									</>
-								)}
-								{log.reasoningTokens && Number(log.reasoningTokens) > 0 && (
+								) : null}
+								{log.reasoningTokens && Number(log.reasoningTokens) > 0 ? (
 									<>
 										<div className="text-muted-foreground">
 											Reasoning Tokens
 										</div>
 										<div>{log.reasoningTokens}</div>
 									</>
-								)}
-								{log.imageInputTokens && Number(log.imageInputTokens) > 0 && (
+								) : null}
+								{log.imageInputTokens && Number(log.imageInputTokens) > 0 ? (
 									<>
 										<div className="text-muted-foreground">
 											Image Input Tokens
 										</div>
 										<div>{log.imageInputTokens}</div>
 									</>
-								)}
-								{log.imageOutputTokens && Number(log.imageOutputTokens) > 0 && (
+								) : null}
+								{log.imageOutputTokens && Number(log.imageOutputTokens) > 0 ? (
 									<>
 										<div className="text-muted-foreground">
 											Image Output Tokens
 										</div>
 										<div>{log.imageOutputTokens}</div>
 									</>
-								)}
-								{log.audioInputTokens && Number(log.audioInputTokens) > 0 && (
+								) : null}
+								{log.audioInputTokens && Number(log.audioInputTokens) > 0 ? (
 									<>
 										<div className="text-muted-foreground">
 											Audio Input Tokens
 										</div>
 										<div>{log.audioInputTokens}</div>
 									</>
-								)}
+								) : null}
 								<div className="text-muted-foreground">
 									Original Finish Reason
 								</div>
@@ -1154,14 +1154,14 @@ export function LogCard({
 										)}
 										<div>Inference Total</div>
 										<div>{log.cost ? `$${log.cost.toFixed(8)}` : "$0"}</div>
-										{log.discount && log.discount !== 1 && (
+										{log.discount && log.discount !== 1 ? (
 											<>
 												<div>Discount Applied</div>
 												<div className="text-green-600">
 													{(log.discount * 100).toFixed(0)}% off
 												</div>
 											</>
-										)}
+										) : null}
 										{log.pricingTier && (
 											<>
 												<div>Pricing Tier</div>
@@ -1459,7 +1459,7 @@ export function LogCard({
 								</Tooltip>
 								<span>{log.reasoningEffort ?? "-"}</span>
 							</div>
-							{log.reasoningMaxTokens && (
+							{log.reasoningMaxTokens ? (
 								<div className="flex items-center justify-between gap-2">
 									<Tooltip>
 										<TooltipTrigger asChild>
@@ -1476,7 +1476,7 @@ export function LogCard({
 									</Tooltip>
 									<span>{formatNumber(log.reasoningMaxTokens)}</span>
 								</div>
-							)}
+							) : null}
 							{log.effort && (
 								<div className="flex items-center justify-between gap-2">
 									<Tooltip>
