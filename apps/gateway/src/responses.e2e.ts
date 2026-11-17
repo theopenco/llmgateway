@@ -207,11 +207,15 @@ describe("e2e", getConcurrentTestOptions(), () => {
 	test.each(encryptedReasoningModels)(
 		"responses stateless encrypted reasoning $model",
 		getTestOptions(),
-		async ({ model }) => {
-			// The prompt has to make the model actually think: cheap reasoning
-			// models (e.g. gpt-5.6-luna) spend zero reasoning tokens on a trivial
-			// "remember my name" turn and then emit no reasoning item at all, so
-			// there would be no encrypted payload to round-trip.
+		async ({ model, providers }) => {
+			// The model has to actually think: cheap reasoning models (e.g.
+			// gpt-5.6-luna) and gpt-6.2-sol at its default effort spend zero
+			// reasoning tokens on a trivial "remember my name" turn and then emit
+			// no reasoning item at all, so there would be no encrypted payload to
+			// round-trip.
+			const supportsHighEffort = providers.some((p: ProviderModelMapping) =>
+				p.reasoningEfforts?.includes("high"),
+			);
 			const firstInput = [
 				{
 					role: "user",
@@ -226,6 +230,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 					store: false,
 					include: ["reasoning.encrypted_content"],
 					input: firstInput,
+					...(supportsHighEffort && { reasoning: { effort: "high" } }),
 				},
 				firstRequestId,
 			);
