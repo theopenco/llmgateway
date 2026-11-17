@@ -165,7 +165,8 @@ export const minimaxModels = [
 				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				vision: true,
 				tools: true,
-				jsonOutput: true,
+				// Streamed json_object output intermittently returns `{}`.
+				jsonOutput: false,
 			},
 		],
 	},
