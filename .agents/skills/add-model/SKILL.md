@@ -241,6 +241,27 @@ a model shows 100% allocated there, more capacity needs a Request quota
 submission to Microsoft or a resource in another subscription, which has its own
 quota.
 
+## Alibaba regions and workspaces
+
+Alibaba credentials are per region: `LLM_ALIBABA_API_KEY__<REGION>` and
+`LLM_ALIBABA_WORKSPACE_ID__<REGION>` (`SINGAPORE`, `EU_FRANKFURT`,
+`US_VIRGINIA`, `CN_BEIJING`), resolved by `getRegionSpecificEnvValue` and
+`getRegionScopedProviderEnvValue`. The unsuffixed variables are only a
+fallback. A key works only against its own region's host, so a 401 on every
+Alibaba model, existing ones included, means a wrong or missing regional key,
+not a broken mapping.
+
+- A mapping without `:region` runs in the default region (`singapore`). Put
+  each region the model is listed for on Model Studio's pricing page in the
+  mapping's `regions` array with that region's prices; models are often
+  region-limited, so don't claim a region without checking.
+- Frankfurt is served only by the workspace-dedicated host
+  `https://<workspaceId>.eu-central-1.maas.aliyuncs.com`, so set
+  `LLM_ALIBABA_WORKSPACE_ID__EU_FRANKFURT` with its key. Without it the gateway
+  falls back to the trial host (1000 RPM, no SLA), which is not a valid test of
+  the mapping. The other regions use their shared DashScope hosts.
+- Test every region separately: `TEST_MODELS="alibaba/<model>:<region>"`.
+
 ## 7. Verify
 
 Use the `verify` skill to launch an isolated stack so another worktree cannot
