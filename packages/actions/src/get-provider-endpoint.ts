@@ -22,7 +22,10 @@ import {
 	CLOUDFLARE_ACCOUNT_ID_REGEX,
 } from "@llmgateway/shared";
 
-import { getBedrockProfilePrefix } from "./provider-api-format.js";
+import {
+	getAwsBedrockModelPrefix,
+	getBedrockProfilePrefix,
+} from "./provider-api-format.js";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
@@ -242,12 +245,10 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	bytedance: "https://ark.ap-southeast.bytepluses.com/api/v3",
 	minimax: "https://api.minimax.io",
 	sakana: "https://api.sakana.ai",
-	reve: "https://api.reve.com",
 	xiaomi: "https://api.xiaomimimo.com",
 	canopywave: "https://inference.canopywave.io",
 	deepinfra: "https://api.deepinfra.com/v1/openai",
 	fireworks: "https://api.fireworks.ai/inference",
-	ranoai: "https://api.ranoai.com",
 	baidu: "https://api.baiduqianfan.ai",
 	atria: "https://api.atria-asi.ai",
 	tencent: "https://tokenhub-intl.tencentcloudmaas.com",
@@ -620,35 +621,6 @@ export function getProviderEndpoint(
 				}
 				break;
 			}
-			case "azure-ai-foundry": {
-				const resource =
-					credentialConfig?.resource ??
-					providerKeyOptions?.azure_ai_foundry_resource ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"azure-ai-foundry",
-								"resource",
-								configIndex,
-								undefined,
-								variant,
-							));
-
-				if (!resource) {
-					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
-					throw new ProviderConfigError(
-						`Azure AI Foundry resource is required - set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var`,
-					);
-				}
-				if (!isProviderHostnameLabel(resource)) {
-					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
-					throw new ProviderConfigError(
-						`Azure AI Foundry resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var)`,
-					);
-				}
-				url = `https://${resource}.services.ai.azure.com`;
-				break;
-			}
 			case "azure-anthropic": {
 				const resource =
 					credentialConfig?.resource ??
@@ -749,10 +721,12 @@ export function getProviderEndpoint(
 		return appendPath(url, "/v1/responses");
 	}
 	if (apiFormat === "anthropic-messages") {
-		// DeepSeek serves its Anthropic-compatible API under `/anthropic`.
+		// DeepSeek and AWS Bedrock serve it under `/anthropic`.
 		return appendPath(
 			url,
-			provider === "deepseek" ? "/anthropic/v1/messages" : "/v1/messages",
+			provider === "deepseek" || provider === "aws-bedrock"
+				? "/anthropic/v1/messages"
+				: "/v1/messages",
 		);
 	}
 	if (apiFormat === "google-vertex") {
@@ -954,20 +928,19 @@ export function getProviderEndpoint(
 			}
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
-			const awsRegionPrefix = region
-				? (
-						providers.find((p) => p.id === "aws-bedrock") as
-							ProviderDefinition | undefined
-					)?.regionConfig?.modelPrefixMap?.[region]
-				: undefined;
-			// envValueOrDefault honors skipEnvVars (BYOK), so the server's
-			// LLM_AWS_BEDROCK_REGION can't silently affect provider-key routing.
-			const prefix =
-				providerKeyOptions?.aws_bedrock_region_prefix ??
-				awsRegionPrefix ??
-				envValueOrDefault("aws-bedrock", "region", "global.") ??
-				"global.";
-
+			// Callers that pass no format (key validation) still reach Claude's
+			// Messages API; the model id goes in its body.
+			if (providerMapping?.apiFormat === "anthropic-messages") {
+				return appendPath(url, "/anthropic/v1/messages");
+			}
+			// skipEnvVars (BYOK) keeps the server's LLM_AWS_BEDROCK_REGION from
+			// silently affecting provider-key routing.
+			const prefix = getAwsBedrockModelPrefix(region, {
+				providerKeyOptions,
+				skipEnvVars,
+				configIndex,
+				variant,
+			});
 			const endpoint = stream ? "converse-stream" : "converse";
 			return `${url}/model/${prefix}${externalId}/${endpoint}`;
 		}
@@ -1049,20 +1022,6 @@ export function getProviderEndpoint(
 				return `${url}/openai/v1/chat/completions`;
 			}
 		}
-		case "azure-ai-foundry": {
-			const apiVersion =
-				providerKeyOptions?.azure_ai_foundry_api_version ??
-				credentialConfig?.apiVersion ??
-				getProviderEnvValue(
-					"azure-ai-foundry",
-					"apiVersion",
-					configIndex,
-					"2024-05-01-preview",
-					variant,
-				) ??
-				"2024-05-01-preview";
-			return `${url}/models/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
-		}
 		case "azure-anthropic":
 			// Claude models on Microsoft Foundry are only served through the
 			// Anthropic Messages API; there is no OpenAI-compatible surface.
@@ -1107,11 +1066,6 @@ export function getProviderEndpoint(
 				return `${url}/v1/wand/hunyuan-image/v35-generation`;
 			}
 			return `${url}/v1/chat/completions`;
-		case "reve":
-			if (imageGenerations) {
-				return `${url}/v1/image/create`;
-			}
-			return `${url}/v1/image/create`;
 		case "deepinfra":
 			return `${url}/chat/completions`;
 		case "sakana": {
@@ -1168,7 +1122,6 @@ export function getProviderEndpoint(
 		case "nebius":
 		case "canopywave":
 		case "xiaomi":
-		case "ranoai":
 		case "atria":
 		case "cloudflare":
 		case "custom":

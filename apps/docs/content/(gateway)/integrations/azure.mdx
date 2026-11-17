@@ -14,12 +14,6 @@ Azure provides access to OpenAI's powerful language models through Microsoft's e
 	Messages API integration described below.
 </Callout>
 
-<Callout type="warn">
-	The legacy `azure-ai-foundry` mappings deactivate on **2026-11-07 at 00:00
-	UTC**. [Migrate to Azure](#migrate-from-azure-ai-foundry) before then.
-	Existing legacy requests keep working during the notice period.
-</Callout>
-
 ## Prerequisites
 
 - An Azure account with an active subscription
@@ -151,31 +145,6 @@ The same key also serves embeddings (`/v1/embeddings`), text-to-speech (`/v1/aud
 Azure uses the same gateway parameters for speech formats, speed, delivery instructions, realtime voices, audio codecs, turn detection, noise reduction, input transcription, and function calling as OpenAI. Availability still depends on the upstream model: some Azure speech deployments expose fewer voices. Use the provider mapping's `supported_voices` from `GET /v1/models` rather than assuming OpenAI's voice list applies.
 
 [Speech generation](/features/speech-generation#streaming) streams audio as it arrives and supports SSE on compatible mappings. [Realtime sessions](/features/realtime) support image input and native MCP tools with authorization and usage accounting. Stored provider prompt references and native WebRTC/SIP remain outside the gateway's supported API for both providers.
-
-## Migrate from Azure AI Foundry
-
-The legacy `azure-ai-foundry` provider uses the Azure Model Inference API. Its
-replacement is the existing `azure` provider in **AI Foundry** mode, which uses
-Azure's OpenAI-compatible v1 API. See the [legacy models page](https://llmgateway.io/models?provider=azure-ai-foundry) for affected mappings.
-
-1. Confirm that the same deployments are available in your Foundry resource.
-2. Add an **Azure** provider key using that resource's API key and resource name.
-   Select **AI Foundry**, not the legacy deployment-based **Azure OpenAI** type.
-   Set the validation model to an existing upstream deployment name; it may
-   differ from the canonical gateway model ID. Do not apply a single-deployment
-   override to a key intended to serve several models.
-3. Change explicit request prefixes from `azure-ai-foundry/<model-id>` to
-   `azure/<model-id>`, keeping the canonical model ID unchanged. Update provider
-   restrictions and saved routing configurations that name the legacy provider.
-4. Test the new key before removing the legacy credential. Scope keys to the
-   models actually deployed in their resource; do not replace an existing Azure
-   credential belonging to a different resource.
-
-Self-hosted configurations must explicitly configure `LLM_AZURE_API_KEY` and
-exactly one of `LLM_AZURE_RESOURCE` or `LLM_AZURE_BASE_URL`. The legacy
-`LLM_AZURE_AI_FOUNDRY_*` variables are not aliases. Existing legacy credentials and
-provider IDs remain supported until the scheduled cutoff; `azure-anthropic` is
-unchanged.
 
 ## Priority processing
 

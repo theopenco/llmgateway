@@ -275,9 +275,6 @@ export interface ProviderDefinition {
 	apiKeyInstructions?: string;
 	// Learn more URL for API key creation
 	learnMore?: string;
-	// Priority weight for routing (default: 1). Lower values deprioritize the provider.
-	// e.g., 0.8 means 20% lower priority (score multiplied by 1/0.8 = 1.25)
-	priority?: number;
 	// Whether requests that match the gateway content filter should avoid this provider
 	// when an alternative provider is available.
 	contentFilter?: boolean;
@@ -604,7 +601,6 @@ export const providers: ProviderDefinition[] = [
 		website: "https://cloud.google.com/vertex-ai",
 		statusPageUrl: "https://status.cloud.google.com",
 		announcement: null,
-		priority: 0.2,
 		regionConfig: {
 			optionsKey: "vertex_openai_region",
 			defaultRegion: "global",
@@ -665,7 +661,6 @@ export const providers: ProviderDefinition[] = [
 		website: "https://cloud.google.com/vertex-ai",
 		statusPageUrl: "https://status.cloud.google.com",
 		announcement: null,
-		priority: 0.2,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
@@ -708,7 +703,6 @@ export const providers: ProviderDefinition[] = [
 		website: null,
 		statusPageUrl: null,
 		announcement: null,
-		priority: 0.9,
 		termsUrl: null,
 		privacyPolicyUrl: null,
 		legalEntity: null,
@@ -829,7 +823,6 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
-		priority: 1.2,
 	},
 	{
 		id: "alibaba",
@@ -1023,7 +1016,6 @@ export const providers: ProviderDefinition[] = [
 				region: "LLM_AWS_BEDROCK_REGION",
 			},
 		},
-		priority: 2,
 		cancellation: true,
 		color: "#FF9900",
 		website: "https://aws.amazon.com/bedrock",
@@ -1139,7 +1131,6 @@ export const providers: ProviderDefinition[] = [
 				region: "LLM_AWS_MANTLE_REGION",
 			},
 		},
-		priority: 2,
 		cancellation: true,
 		color: "#FF9900",
 		website: "https://aws.amazon.com/bedrock",
@@ -1224,7 +1215,6 @@ export const providers: ProviderDefinition[] = [
 		apiKeyInstructions:
 			"The resource name can be found in your Azure base URL: https://<resource-name>.openai.azure.com",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
-		priority: 2,
 		serviceTiers: [
 			{
 				id: "priority",
@@ -1234,45 +1224,6 @@ export const providers: ProviderDefinition[] = [
 					"Premium low-latency tier at a 100% premium. Requires a Global Standard or Data Zone (US) deployment.",
 			},
 		],
-		termsUrl: "https://www.microsoft.com/licensing/terms",
-		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
-		usagePolicyUrl: "https://www.microsoft.com/en-us/legal/terms-of-use",
-		legalEntity: "Microsoft Corporation",
-		headquarters: "US",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-			soc2: 2,
-			iso27001: true,
-			gdpr: true,
-		},
-	},
-	{
-		id: "azure-ai-foundry",
-		name: "Azure AI Foundry (Legacy)",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Legacy Azure Model Inference API. Use Azure with the AI Foundry deployment type.",
-		env: {
-			required: {
-				apiKey: "LLM_AZURE_AI_FOUNDRY_API_KEY",
-				resource: "LLM_AZURE_AI_FOUNDRY_RESOURCE",
-			},
-			optional: {
-				apiVersion: "LLM_AZURE_AI_FOUNDRY_API_VERSION",
-			},
-		},
-		cancellation: true,
-		color: "#0078D4",
-		website: "https://azure.microsoft.com/en-us/products/ai-foundry",
-		statusPageUrl: "https://status.ai.azure.com",
-		announcement:
-			"Legacy mappings retire on 2026-11-07. Use Azure with the AI Foundry deployment type.",
-		apiKeyInstructions:
-			"The resource name can be found in your Azure AI Foundry base URL: https://<resource-name>.services.ai.azure.com",
-		learnMore: "https://docs.llmgateway.io/integrations/azure",
-		priority: 1.5,
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
 		usagePolicyUrl: "https://www.microsoft.com/en-us/legal/terms-of-use",
@@ -1353,7 +1304,6 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
-		priority: 1.2,
 	},
 	{
 		id: "moonshot",
@@ -1381,7 +1331,6 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
-		priority: 1.2,
 	},
 	{
 		id: "baidu",
@@ -1670,7 +1619,6 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
-		priority: 1.2,
 	},
 	{
 		id: "meta",
@@ -1847,32 +1795,6 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "reve",
-		name: "Reve",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Reve's image generation models with native 4K resolution and code-based controllable image creation.",
-		env: {
-			required: {
-				apiKey: "LLM_REVE_API_KEY",
-			},
-		},
-		cancellation: false,
-		color: "#1a1a2e",
-		website: "https://reve.com",
-		statusPageUrl: "https://status.reve.com",
-		announcement: null,
-		termsUrl:
-			"https://help.reve.com/hc/en-us/articles/46731550696468-Terms-of-service",
-		privacyPolicyUrl:
-			"https://help.reve.com/hc/en-us/articles/46731763484692-Privacy-policy",
-		usagePolicyUrl:
-			"https://help.reve.com/hc/en-us/articles/46731490142484-Usage-policy",
-		legalEntity: "Reve AI, Inc.",
-		headquarters: "US",
-		dataPolicy: null,
-	},
-	{
 		id: "elevenlabs",
 		name: "ElevenLabs",
 		forwardsSafetyIdentifier: false,
@@ -1949,33 +1871,6 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "ranoai",
-		name: "RanoAI",
-		forwardsSafetyIdentifier: false,
-		description:
-			"RanoAI serves open-weight large language models on Furiosa RNGD NPU hardware via an OpenAI-compatible inference API.",
-		env: {
-			required: {
-				apiKey: "LLM_RANOAI_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#000000",
-		website: "https://ranoai.com",
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: "https://ranoai.com/terms",
-		privacyPolicyUrl: "https://ranoai.com/privacy",
-		usagePolicyUrl: "https://ranoai.com/terms",
-		legalEntity: "Always With You, LLC",
-		headquarters: "US",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-		},
-	},
-	{
 		id: "tencent",
 		name: "Tencent Cloud",
 		forwardsSafetyIdentifier: false,
@@ -2007,7 +1902,6 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: null,
 		},
-		priority: 1.2,
 	},
 	{
 		id: "atria",

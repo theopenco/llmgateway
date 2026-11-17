@@ -103,8 +103,14 @@ export function parseProviderResponse(
 	options?: {
 		cacheThoughtSignatures?: boolean;
 		serverToolUseAlwaysReported?: boolean;
+		/**
+		 * Provider whose replay the thinking signatures are sealed for, when it
+		 * differs from the response format (Claude on AWS Bedrock).
+		 */
+		thinkingProvider?: Provider;
 	},
 ) {
+	const thinkingProvider = options?.thinkingProvider ?? usedProvider;
 	let content = null;
 	let reasoningContent = null;
 	let reasoningDetails: ReasoningDetail[] | null = null;
@@ -317,7 +323,7 @@ export function parseProviderResponse(
 			reasoningContent =
 				thinkingBlocks.map((block: any) => block.thinking).join("") ?? null;
 			reasoningDetails = sealedThinkingDetails(
-				usedProvider,
+				thinkingProvider,
 				contentBlocks.map((block: any): AnthropicThinkingBlock | null =>
 					block.type === "thinking" && typeof block.signature === "string"
 						? {
@@ -440,7 +446,7 @@ export function parseProviderResponse(
 				anthropicContent = contentBlocks.map((block: any) =>
 					(block.type === "thinking" && typeof block.signature === "string") ||
 					(block.type === "redacted_thinking" && typeof block.data === "string")
-						? sealAnthropicThinkingBlock(usedProvider, block)
+						? sealAnthropicThinkingBlock(thinkingProvider, block)
 						: block,
 				);
 			}
@@ -1169,24 +1175,6 @@ export function parseProviderResponse(
 				completionTokens = billedTokens;
 				imageOutputTokens = billedTokens > 0 ? billedTokens : null;
 				totalTokens = billedTokens;
-				break;
-			}
-			// Check if this is a Reve image generation response
-			// Format: { image: "base64...", version: "...", content_violation: false, ... }
-			if (usedProvider === "reve" && typeof json.image === "string") {
-				images = [
-					{
-						type: "image_url",
-						image_url: {
-							url: `data:image/png;base64,${json.image}`,
-						},
-					},
-				];
-				content = imageLabel;
-				finishReason = "stop";
-				promptTokens = 0;
-				completionTokens = 0;
-				totalTokens = 0;
 				break;
 			}
 			// Check if this is an OpenAI responses format (has output array instead of choices)

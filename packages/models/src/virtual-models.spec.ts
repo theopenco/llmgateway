@@ -7,10 +7,18 @@ import {
 	getModelAliases,
 	getModelDenyRefs,
 	getRequestedModelAlias,
+	getVirtualAliasName,
 	getVirtualModelTarget,
 } from "./virtual-models.js";
 
 describe("virtual models", () => {
+	it.each([
+		["deepseek-v4.1-flash-latest", "DeepSeek V4.1 Flash Latest"],
+		["jev-latest", "Jev Latest"],
+		["jev", "Jev"],
+	])("names virtual alias %s %s", (alias, name) => {
+		expect(getVirtualAliasName(alias)).toBe(name);
+	});
 	it.each([
 		["deepseek-v4.1-flash-latest", "deepseek-v4.1-flash-1017"],
 		["jev", "jev-1.14.0"],

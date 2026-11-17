@@ -15,6 +15,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
 import { useFetchClient } from "@/lib/fetch-client";
 import { mapModels } from "@/lib/mapmodels";
+import { isGroupChatModel } from "@/lib/model-studio";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
@@ -54,17 +55,7 @@ export default function GroupChatClient({
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 
-	// Filter out image/video/embedding models — group chat is text-only
-	const chatModels = useMemo(
-		() =>
-			models.filter(
-				(m) =>
-					!m.output?.includes("image") &&
-					!m.output?.includes("video") &&
-					!m.output?.includes("embedding"),
-			),
-		[models],
-	);
+	const chatModels = useMemo(() => models.filter(isGroupChatModel), [models]);
 
 	const mapped = useMemo(
 		() => mapModels(chatModels, providers),

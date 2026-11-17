@@ -752,6 +752,136 @@ describe("content filter stats aggregator", () => {
 		]);
 	});
 
+	it("counts each shadow classifier's verdict under its own classifier, once per request", async () => {
+		const shadowed = evaluation({
+			classifier: "openai",
+			violation: true,
+			action: "blocked",
+			enforced: true,
+			matchedCategories: ["violence"],
+			durationMs: 100,
+			shadows: [
+				{
+					classifier: "internal",
+					violation: true,
+					flagged: true,
+					matchedCategories: ["blocked"],
+					categoryScores: { blocked: 1 },
+					moderationFailed: false,
+					durationMs: 30,
+					classifierDurationMs: 20,
+					classifierRequests: 1,
+					internalScope: "latest_turn",
+				},
+				{
+					classifier: "jev",
+					violation: false,
+					flagged: false,
+					matchedCategories: [],
+					categoryScores: {},
+					moderationFailed: true,
+					durationMs: 40,
+				},
+			],
+		});
+		await db.insert(log).values([
+			logRow({
+				requestId: "cf-req-shadowed",
+				hasError: true,
+				gatewayContentFilterEvaluation: shadowed,
+			}),
+			logRow({
+				requestId: "cf-req-shadowed",
+				gatewayContentFilterEvaluation: shadowed,
+			}),
+		]);
+
+		await calculateContentFilterStatsForHour(HOUR);
+		expect(await verdictRows("org")).toEqual([
+			{
+				usedModel: null,
+				category: "all",
+				classifier: "openai",
+				role: "deciding",
+				sampledCount: 1,
+				violationCount: 1,
+				blockedCount: 1,
+				durationSumMs: 100,
+				durationCount: 1,
+				durationMaxMs: 100,
+			},
+			{
+				usedModel: null,
+				category: "violence",
+				classifier: "openai",
+				role: "deciding",
+				sampledCount: 0,
+				violationCount: 1,
+				blockedCount: 0,
+				...NO_DURATION,
+			},
+			{
+				usedModel: null,
+				category: "all",
+				classifier: "internal",
+				role: "shadow",
+				sampledCount: 1,
+				violationCount: 1,
+				blockedCount: 0,
+				durationSumMs: 30,
+				durationCount: 1,
+				durationMaxMs: 30,
+			},
+			{
+				usedModel: null,
+				category: "blocked",
+				classifier: "internal",
+				role: "shadow",
+				sampledCount: 0,
+				violationCount: 1,
+				blockedCount: 0,
+				...NO_DURATION,
+			},
+			{
+				usedModel: null,
+				category: "all",
+				classifier: "jev",
+				role: "shadow",
+				sampledCount: 0,
+				violationCount: 0,
+				blockedCount: 0,
+				durationSumMs: 40,
+				durationCount: 1,
+				durationMaxMs: 40,
+			},
+		]);
+		const scopes = (await db.select().from(contentFilterHourlyStats))
+			.filter((row) => row.category === "all")
+			.map((row) => [row.classifier, row.internalScope])
+			.sort();
+		expect(scopes).toEqual([
+			["internal", "latest_turn"],
+			["jev", ""],
+			["openai", ""],
+		]);
+		const latency = await db.select().from(contentFilterHourlyLatencyStats);
+		expect(latency).toEqual([
+			expect.objectContaining({
+				classifier: "internal",
+				internalScope: "latest_turn",
+				checkCount: 1,
+				classifierDurationSumMs: 20,
+			}),
+		]);
+		expect(
+			(await apiKeyStatsRows()).filter((row) => row.category === "all"),
+		).toEqual([
+			expect.objectContaining({ classifier: "internal", role: "shadow" }),
+			expect.objectContaining({ classifier: "jev", role: "shadow" }),
+			expect.objectContaining({ classifier: "openai", role: "deciding" }),
+		]);
+	});
+
 	it("sums each request's duration once, and once per model it touched", async () => {
 		const retried = evaluation({ classifier: "internal", durationMs: 300 });
 		await db.insert(log).values([

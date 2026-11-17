@@ -865,6 +865,54 @@ describe("calculateCosts", () => {
 		);
 	});
 
+	it("bills web search at full price when the discount excludes it", async () => {
+		const run = () =>
+			calculateCosts(
+				"gemini-2.5-pro",
+				"google-vertex",
+				null,
+				1000,
+				700,
+				200,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				2, // webSearchCount
+			);
+		const base = await run();
+		vi.mocked(mockGetEffectiveDiscount).mockResolvedValueOnce({
+			discount: "0.5",
+			source: "global_provider",
+			discountId: "disc-google",
+			excludedCostTypes: ["web_search"],
+		});
+		const excluded = await run();
+		vi.mocked(mockGetEffectiveDiscount).mockResolvedValueOnce({
+			discount: "0.5",
+			source: "global_provider",
+			discountId: "disc-google",
+			excludedCostTypes: [],
+		});
+		const included = await run();
+
+		expect(base.webSearchCost).toBeGreaterThan(0);
+		expect(base.cachedInputCost).toBeGreaterThan(0);
+		expect(excluded.webSearchCost).toBeCloseTo(base.webSearchCost!);
+		expect(included.webSearchCost).toBeCloseTo(base.webSearchCost! / 2);
+		for (const result of [excluded, included]) {
+			expect(result.discount).toBeCloseTo(0.5);
+			expect(result.inputCost).toBeCloseTo(base.inputCost! / 2);
+			expect(result.outputCost).toBeCloseTo(base.outputCost! / 2);
+			expect(result.cachedInputCost).toBeCloseTo(base.cachedInputCost! / 2);
+		}
+		const discountedNonSearch = (base.totalCost! - base.webSearchCost!) / 2;
+		expect(excluded.totalCost).toBeCloseTo(
+			discountedNonSearch + base.webSearchCost!,
+		);
+	});
+
 	it("should not include discount field when no discount applied", async () => {
 		const result = await calculateCosts("gpt-4", "azure", null, 100, 50, null);
 
@@ -1016,47 +1064,6 @@ describe("calculateCosts", () => {
 		expect(result.totalCost).toBeCloseTo(0.00325);
 		expect(result.completionTokens).toBe(200);
 		expect(result.estimatedCost).toBe(false);
-	});
-
-	it("should bill RanoAI cached tokens at the cache-read rate", async () => {
-		// RanoAI does automatic prefix caching and charges input_cache_read
-		// (0.05/M), half the input rate. Without cachedInputPrice the engine
-		// falls back to inputPrice and would bill cached tokens at 2x.
-		const result = await calculateCosts(
-			"gemma-4-31b-it",
-			"ranoai",
-			null,
-			2521,
-			10,
-			2496, // cachedTokens
-		);
-
-		// 25 uncached * 0.1e-6 + 2496 cached * 0.05e-6
-		expect(result.inputCost).toBeCloseTo(0.0000025, 10);
-		expect(result.cachedInputCost).toBeCloseTo(0.0001248, 10);
-	});
-
-	it("should not double-bill RanoAI reasoning tokens", async () => {
-		// RanoAI reports reasoning in completion_tokens_details (hoisted to a
-		// top-level reasoning_tokens by the streaming transform) while already
-		// counting it inside completion_tokens, so it must not be added again.
-		const result = await calculateCosts(
-			"gemma-4-31b-it",
-			"ranoai",
-			null,
-			1000,
-			330, // completionTokens already includes the 267 reasoning tokens
-			null,
-			undefined,
-			267,
-		);
-
-		// inputPrice 0.1e-6, outputPrice 0.3e-6. Precision matters here: billing
-		// 330 vs 597 output tokens differs by only 8e-5, which the default
-		// two-decimal toBeCloseTo would not catch.
-		expect(result.inputCost).toBeCloseTo(0.0001, 10);
-		expect(result.outputCost).toBeCloseTo(0.000099, 10); // 330 * 0.3e-6, not 597
-		expect(result.completionTokens).toBe(330);
 	});
 
 	it("should not double-bill DeepSeek reasoning tokens", async () => {

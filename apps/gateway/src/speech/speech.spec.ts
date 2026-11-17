@@ -3,7 +3,10 @@ import { describe, expect, test, vi } from "vitest";
 import { app } from "@/app.js";
 import { isTrackedKeyHealthy } from "@/lib/api-key-health.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
-import { getLastElevenLabsVoiceId } from "@/test-utils/mock-openai-server.js";
+import {
+	getLastElevenLabsVoiceId,
+	getLastGoogleSpeechPart,
+} from "@/test-utils/mock-openai-server.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
@@ -431,6 +434,82 @@ describe("speech", () => {
 		expect(log).toBeDefined();
 		expect(log?.hasError).toBe(false);
 		expect(log?.finishReason).toBe("stop");
+	});
+
+	test("/v1/audio/speech passes Gemini 3.8 WAV through without re-wrapping", async () => {
+		await seedKeys("real-token-speech-38-wav", "token-id-speech-38-wav");
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-38-wav",
+			},
+			body: JSON.stringify({
+				model: "google-ai-studio/gemini-3.8-flash-tts",
+				input: "Hello there",
+				instructions: "Say cheerfully",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("audio/wav");
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.subarray(0, 4).toString("ascii")).toBe("RIFF");
+		// Single 44-byte header + 16 bytes of mock PCM payload.
+		expect(bytes.length).toBe(44 + 16);
+		expect(getLastGoogleSpeechPart()).toEqual({
+			text: "Hello there",
+			speechMetadata: { style: "Say cheerfully" },
+		});
+	});
+
+	test("/v1/audio/speech strips the Gemini 3.8 WAV header for PCM", async () => {
+		await seedKeys("real-token-speech-38-pcm", "token-id-speech-38-pcm");
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-38-pcm",
+			},
+			body: JSON.stringify({
+				model: "google-ai-studio/gemini-3.8-flash-lite-tts",
+				input: "Hello there",
+				response_format: "pcm",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("audio/pcm");
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.length).toBe(16);
+		expect(getLastGoogleSpeechPart()).toEqual({ text: "Hello there" });
+	});
+
+	test("/v1/audio/speech prefixes instructions for earlier Gemini TTS", async () => {
+		await seedKeys(
+			"real-token-speech-instructions",
+			"token-id-speech-instructions",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-instructions",
+			},
+			body: JSON.stringify({
+				model: "google-ai-studio/gemini-3.1-flash-tts-preview",
+				input: "Hello there",
+				instructions: "Say cheerfully",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(getLastGoogleSpeechPart()).toEqual({
+			text: "Say cheerfully: Hello there",
+		});
 	});
 
 	test("/v1/audio/speech proxies OpenAI tts-1 and bills by characters", async () => {

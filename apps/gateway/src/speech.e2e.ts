@@ -103,7 +103,7 @@ const speechCapabilityCases =
 					: []),
 			])
 		: [];
-describe(
+describe.skipIf(speechCapabilityCases.length === 0)(
 	"e2e OpenAI-compatible speech capabilities",
 	getConcurrentTestOptions(),
 	() => {

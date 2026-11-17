@@ -2,6 +2,7 @@ import {
 	googleProviderSupportsAudioFormat,
 	mappingSupportsToolChoice,
 } from "@llmgateway/actions";
+import { supportsWebSearch } from "@llmgateway/models";
 import {
 	routingExclusionReasonMessage,
 	type RoutingExclusionReason,
@@ -278,7 +279,7 @@ export function getProviderFilterReasons(
 	) {
 		reasons.push(exclusionReason("tool_choice"));
 	}
-	if (options.webSearchTool && provider.webSearch !== true) {
+	if (options.webSearchTool && !supportsWebSearch(provider)) {
 		reasons.push(exclusionReason("web_search"));
 	}
 	// Mappings that can only search on demand are no use to a request that

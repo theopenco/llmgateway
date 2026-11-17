@@ -85,6 +85,20 @@ describe("provider keys route", () => {
 		});
 	});
 
+	test("rejects the removed azure-ai-foundry provider", async () => {
+		const res = await app.request("/keys/provider", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				provider: "azure-ai-foundry",
+				token: "test-token",
+				organizationId: "test-org-id",
+				allowedModels: ["grok-4-3"],
+			}),
+		});
+		expect(res.status).toBe(400);
+	});
+
 	test("does not expose or accept managed selection strategy on BYOK keys", async () => {
 		const headers = { Cookie: token, "Content-Type": "application/json" };
 		const created = await app.request("/keys/provider", {

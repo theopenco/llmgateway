@@ -4,7 +4,7 @@ import { HTTPException } from "hono/http-exception";
 import { db, eq, tables } from "@llmgateway/db";
 import { models as catalogueModels } from "@llmgateway/models";
 
-import type { CatalogueTransaction } from "./airside-catalogue.js";
+import type { CatalogueTransaction } from "@llmgateway/actions";
 import type { ModelDefinition } from "@llmgateway/models";
 
 /**

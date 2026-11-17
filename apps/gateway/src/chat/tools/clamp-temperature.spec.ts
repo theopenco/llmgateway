@@ -17,11 +17,17 @@ describe("clampTemperature", () => {
 	});
 
 	it("clamps values above the mapping ceiling", () => {
-		expect(clampTemperature(1.9, "runware", 1)).toBe(1);
+		expect(clampTemperature(1.9, "runware", { maxTemperature: 1 })).toBe(1);
 	});
 
 	it("uses the tighter provider or mapping ceiling", () => {
-		expect(clampTemperature(1.5, "zai", 0.8)).toBe(0.8);
+		expect(clampTemperature(1.5, "zai", { maxTemperature: 0.8 })).toBe(0.8);
+	});
+
+	it("applies Anthropic's ceiling to a Messages API mapping", () => {
+		expect(
+			clampTemperature(1.5, "aws-bedrock", { apiFormat: "anthropic-messages" }),
+		).toBe(1);
 	});
 
 	it("keeps values within the provider ceiling", () => {

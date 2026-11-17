@@ -1958,8 +1958,8 @@ const DEFAULT_VERTEX_VIDEO_REGION = "us-central1";
  * `LLM_*` env vars are never applied implicitly (mirrors getProviderEndpoint's
  * skipEnvVars), so the deployment's proxy or GCP project only reaches an org's
  * own key when the key itself is configured for it. Vertex output written to
- * the platform bucket targets the storage project instead, so the key's own
- * project is only required without a bucket.
+ * the platform bucket is reserved for platform credentials (see
+ * getVertexVideoOutputBucket), so a BYOK Vertex key always needs its own project.
  */
 function resolveByokVideoProviderSettings(
 	providerId: Provider,
@@ -1980,12 +1980,29 @@ function resolveByokVideoProviderSettings(
 		baseUrl,
 		vertexProjectId,
 		vertexRegion: DEFAULT_VERTEX_VIDEO_REGION,
-		hasVertexProject: Boolean(
-			vertexProjectId ||
-			(getGoogleVertexVideoOutputBucket() &&
-				process.env.GOOGLE_CLOUD_PROJECT?.trim()),
-		),
+		hasVertexProject: Boolean(vertexProjectId),
 	};
+}
+
+/**
+ * Platform GCS bucket for a Vertex video attempt's output. Only platform
+ * credentials (credits mode) can write to it; a BYOK key runs in the customer's
+ * own GCP project, so Veo returns its output inline instead.
+ */
+function getVertexVideoOutputBucket(
+	providerContext: Pick<ProviderContext, "usedMode">,
+): string | null {
+	return providerContext.usedMode === "credits"
+		? getGoogleVertexVideoOutputBucket()
+		: null;
+}
+
+function getVertexInlineVideoRetentionMessage(
+	providerContext: Pick<ProviderContext, "usedMode">,
+): string {
+	return providerContext.usedMode === "api-keys"
+		? "Google Vertex video generation with your own provider key returns the video inline, which requires data retention to be enabled for your organization."
+		: "Google Vertex video generation requires either GCS output storage or data retention to be enabled.";
 }
 
 function resolveByokVideoProviderContext(
@@ -3746,7 +3763,7 @@ async function createGoogleVertexVideoJob(
 	upstreamRequest: Record<string, unknown>;
 	upstreamResponse: Record<string, unknown>;
 }> {
-	const outputBucket = getGoogleVertexVideoOutputBucket();
+	const outputBucket = getVertexVideoOutputBucket(providerContext);
 	const storageProjectId = process.env.GOOGLE_CLOUD_PROJECT?.trim();
 	const vertexProjectId = outputBucket
 		? storageProjectId
@@ -5215,6 +5232,9 @@ async function insertVideoClientErrorLog(options: {
 	statusCode: number;
 	message: string;
 	startedAt: number;
+	// When the client got its response; defaults to now. Set it when the log is
+	// written after background work, so that work stays out of the duration.
+	endedAt?: number;
 	// A gateway decision made before any provider attempt, e.g. a content
 	// filter block: overrides the client_error classification and keeps the
 	// routing metadata as routed instead of recording a failed attempt.
@@ -5235,7 +5255,7 @@ async function insertVideoClientErrorLog(options: {
 		apiKeyId: options.apiKey.id,
 		endUserSessionId: options.apiKey.endUserSession?.id ?? null,
 		endCustomerWalletId: options.apiKey.endCustomerWalletId ?? null,
-		duration: Math.max(0, Date.now() - options.startedAt),
+		duration: Math.max(0, (options.endedAt ?? Date.now()) - options.startedAt),
 		timeToFirstToken: null,
 		timeToFirstReasoningToken: null,
 		requestedModel: getFormattedRequestedVideoModel(
@@ -5596,33 +5616,55 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		contentFilterEvaluation = started.outcome?.evaluation ?? null;
 		pendingContentFilterEvaluation =
 			started.pending?.then((outcome) => {
-				contentFilterEvaluation = outcome?.evaluation ?? null;
+				contentFilterEvaluation =
+					outcome?.evaluation ?? contentFilterEvaluation;
 				return contentFilterEvaluation;
 			}) ?? null;
 	}
 	if (contentFilterEvaluation?.action === "blocked") {
-		await insertVideoClientErrorLog({
-			request,
-			requestId,
-			apiKey,
-			project,
-			organization,
-			normalizedModel,
-			requestedProvider,
-			providerContext: selectedProviderContext,
-			upstreamModelName: selectedUpstreamModelName,
-			routingMetadata: enrichedRoutingMetadata,
-			statusCode: 403,
-			message: GATEWAY_CONTENT_FILTER_MESSAGE,
-			startedAt,
-			outcome: {
-				finishReason: "llmgateway_content_filter",
-				unifiedFinishReason: UnifiedFinishReason.CONTENT_FILTER,
-				hasError: false,
-				internalContentFilter: true,
-				gatewayContentFilterEvaluation: contentFilterEvaluation,
-			},
-		});
+		const endedAt = Date.now();
+		const logBlocked = async (
+			evaluation: GatewayContentFilterEvaluation | null,
+		) =>
+			await insertVideoClientErrorLog({
+				request,
+				requestId,
+				apiKey,
+				project,
+				organization,
+				normalizedModel,
+				requestedProvider,
+				providerContext: selectedProviderContext,
+				upstreamModelName: selectedUpstreamModelName,
+				routingMetadata: enrichedRoutingMetadata,
+				statusCode: 403,
+				message: GATEWAY_CONTENT_FILTER_MESSAGE,
+				startedAt,
+				endedAt,
+				outcome: {
+					finishReason: "llmgateway_content_filter",
+					unifiedFinishReason: UnifiedFinishReason.CONTENT_FILTER,
+					hasError: false,
+					internalContentFilter: true,
+					gatewayContentFilterEvaluation: evaluation,
+				},
+			});
+		if (pendingContentFilterEvaluation) {
+			// Shadow verdicts are still running: log once they settle, without
+			// holding the 403 for them.
+			void trackPendingWork(
+				pendingContentFilterEvaluation
+					.then(logBlocked)
+					.catch((error: unknown) => {
+						logger.error("Failed to insert blocked video log", {
+							requestId,
+							error: toError(error),
+						});
+					}),
+			);
+		} else {
+			await logBlocked(contentFilterEvaluation);
+		}
 		throw new HTTPException(403, { message: GATEWAY_CONTENT_FILTER_MESSAGE });
 	}
 
@@ -5757,7 +5799,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 
 			if (
 				isGoogleVertexVideoProvider(selectedProviderContext.providerId) &&
-				!getGoogleVertexVideoOutputBucket() &&
+				!getVertexVideoOutputBucket(selectedProviderContext) &&
 				getEffectiveRetentionLevel(organization, apiKey) === "none"
 			) {
 				const statusCode = 400;
@@ -5779,8 +5821,9 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				);
 				if (!nextProvider || requestedProvider) {
 					throw new HTTPException(400, {
-						message:
-							"Vertex-compatible video generation requires either GCS output storage or data retention to be enabled.",
+						message: getVertexInlineVideoRetentionMessage(
+							selectedProviderContext,
+						),
 					});
 				}
 
@@ -5791,8 +5834,9 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				);
 				if (!nextMapping) {
 					throw new HTTPException(400, {
-						message:
-							"Google Vertex video generation requires either GCS output storage or data retention to be enabled.",
+						message: getVertexInlineVideoRetentionMessage(
+							selectedProviderContext,
+						),
 					});
 				}
 
@@ -6135,13 +6179,14 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		// counters' overall best-effort semantics.
 		await recordSpend(organization.id, reservedSpendUsd);
 
-		// A background evaluation that settled after the insert is merged into the
-		// job row, where the worker reads it at finalization.
-		if (pendingContentFilterEvaluation && !storedContentFilterEvaluation) {
+		// A background evaluation (or shadow verdicts behind an inline one) that
+		// settled after the insert is merged into the job row, where the worker
+		// reads it at finalization.
+		if (pendingContentFilterEvaluation) {
 			void trackPendingWork(
 				pendingContentFilterEvaluation
 					.then(async (evaluation) => {
-						if (!evaluation) {
+						if (!evaluation || evaluation === storedContentFilterEvaluation) {
 							return;
 						}
 						await db

@@ -1046,51 +1046,6 @@ export const deepseekModels = [
 				jsonOutputSchema: true,
 			},
 			{
-				// RanoAI serves DeepSeek V4 Flash on Furiosa RNGD NPUs. The NPU
-				// deployment exposes a 1M-token context and accepts up to 393216 output
-				// tokens, rejecting 393217.
-				// Reasoning arrives as `reasoning_content` (streamed as deltas) only
-				// when `reasoning_effort` is passed explicitly — a request without it
-				// returns no reasoning at all, and "none" suppresses it.
-				// `reasoning_tokens` is reported inside completion_tokens.
-				//
-				// All four tool_choice modes are honoured, so none are declared here.
-				// The endpoint silently ignores n > 1 and returns one choice, so this
-				// mapping must not advertise supportsN.
-				// Prompt caching is automatic prefix caching — the first request
-				// misses and later ones report `cached_tokens` — priced at the
-				// `input_cache_read` rate /v1/models advertises.
-				providerId: "ranoai",
-				externalId: "deepseek-v4-flash",
-				deactivatedAt: new Date("2026-11-17"),
-				inputPrice: "0.14e-6",
-				outputPrice: "0.28e-6",
-				cachedInputPrice: "0.028e-6",
-				requestPrice: "0",
-				contextSize: 1000000,
-				maxOutput: 393216,
-				// RanoAI serves NVFP4 weights; the catalogue's quantization union only
-				// carries the generic 4-bit float value.
-				quantization: "fp4",
-				streaming: true,
-				reasoning: true,
-				reasoningEfforts: [
-					"none",
-					"minimal",
-					"low",
-					"medium",
-					"high",
-					"xhigh",
-					"max",
-				],
-				vision: false,
-				tools: true,
-				// json_object returns valid JSON but often ignores requested fields and
-				// emits an empty object; schema-constrained output is reliable.
-				jsonOutput: false,
-				jsonOutputSchema: true,
-			},
-			{
 				providerId: "canopywave",
 				externalId: "deepseek/deepseek-v4-flash",
 				deactivatedAt: new Date("2026-11-17"),
@@ -1580,6 +1535,25 @@ export const deepseekModels = [
 					"reasoning_effort",
 				],
 			},
+			{
+				providerId: "deepinfra",
+				externalId: "deepseek-ai/DeepSeek-V4-Flash-Vision-Exp",
+				inputPrice: "0.44e-6",
+				// DeepInfra lists a cache-read rate but never reports cache hits
+				// for this model (cached_tokens stays 0), so caching is undeclared.
+				outputPrice: "1.32e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 262144,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
 		],
 	},
 	{
@@ -1933,6 +1907,26 @@ export const deepseekModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 			},
+			{
+				providerId: "inference.net",
+				externalId: "deepseek-v4.1-flash",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.007e-6",
+				outputPrice: "1e-6",
+				requestPrice: "0",
+				contextSize: 1040000,
+				maxOutput: 393216,
+				maxTemperature: 1.5,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsAssistantPrefill: false,
+			},
 		],
 	},
 	{
@@ -2277,6 +2271,25 @@ export const deepseekModels = [
 				supportsAssistantPrefill: false,
 			},
 			{
+				providerId: "fireworks",
+				externalId: "accounts/fireworks/models/deepseek-v4p1-flash-1017",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.006e-6",
+				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				serviceTiers: ["priority"],
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsAssistantPrefill: false,
+			},
+			{
 				providerId: "baidu",
 				externalId: "deepseek-v4.1-flash-1017",
 				inputPrice: "0.28e-6",
@@ -2332,6 +2345,27 @@ export const deepseekModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 				// Workers AI silently drops `developer` messages.
+				supportsDeveloperRole: false,
+			},
+			{
+				providerId: "mistral",
+				externalId: "deepseek-v4-1-flash-1017",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.007e-6",
+				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				maxTemperature: 1.5,
+				streaming: true,
+				reasoning: true,
+				// Mistral rejects "minimal" and "medium" for this model.
+				reasoningEfforts: ["none", "low", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
 				supportsDeveloperRole: false,
 			},
 		],

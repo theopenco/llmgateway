@@ -120,9 +120,11 @@ export {
 } from "./model-categories.js";
 
 export {
+	getAppVersion,
 	HealthChecker,
 	type HealthCheckResult,
 	type HealthCheckOptions,
+	type ReadinessGateOptions,
 	type HealthCheckDependencies,
 	type HealthResponse,
 } from "./health-check.js";
@@ -268,6 +270,14 @@ export {
 } from "./model-error-rate-alerts.js";
 
 export {
+	FAILING_CREDENTIAL_ERROR_RATE,
+	FAILING_CREDENTIAL_MIN_REQUESTS,
+	FAILING_CREDENTIAL_WINDOW_HOURS,
+	failingCredentialWindowStart,
+	getFailingCredentialRate,
+} from "./failing-credentials.js";
+
+export {
 	deriveStabilityMetrics,
 	type StabilityCounts,
 	type StabilityMetrics,
@@ -282,15 +292,19 @@ export {
 } from "./onboarding.js";
 
 export {
+	CONTENT_FILTER_BLOCK_GROUPS,
 	CONTENT_FILTER_CLASSIFIERS,
 	CONTENT_FILTER_INTERNAL_SCOPES,
 	CONTENT_FILTER_SETTING_ID,
 	contentFilterSettingsSchema,
 	DEFAULT_CONTENT_FILTER_SETTINGS,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
+	getContentFilterCategoryGroup,
+	getContentFilterRuleGroup,
 	INTERNAL_CLASSIFIER_MODEL,
 	isContentFilterErrorText,
 	parseContentFilterSettings,
+	type ContentFilterBlockGroup,
 	type ContentFilterClassifier,
 	type ContentFilterInternalScope,
 	type ContentFilterSettings,

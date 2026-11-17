@@ -251,11 +251,18 @@ export default async function ContentFilterPage({
 						</p>
 					</div>
 				</div>
-				<Button asChild variant="outline" size="sm">
-					<Link href={`/content-filter/errors?window=${window}`}>
-						Moderation errors
-					</Link>
-				</Button>
+				<div className="flex flex-wrap items-center gap-2">
+					<Button asChild variant="outline" size="sm">
+						<Link href={`/content-filter/classifiers?window=${window}`}>
+							Classifier comparison
+						</Link>
+					</Button>
+					<Button asChild variant="outline" size="sm">
+						<Link href={`/content-filter/errors?window=${window}`}>
+							Moderation errors
+						</Link>
+					</Button>
+				</div>
 			</header>
 
 			<Card>

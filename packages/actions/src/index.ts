@@ -1,3 +1,4 @@
+export * from "./airside-catalogue.js";
 export * from "./airside-gateway-inference.js";
 export * from "./anthropic-thinking.js";
 export * from "./anthropic-tool-search.js";

@@ -1124,9 +1124,14 @@ export function AirsideFilingsClient() {
 												</div>
 											</TableCell>
 											<TableCell>
-												<Badge variant={STATUS_BADGE[filing.status]}>
-													{filing.status}
-												</Badge>
+												<div className="flex items-center gap-1">
+													<Badge variant={STATUS_BADGE[filing.status]}>
+														{filing.status}
+													</Badge>
+													{filing.autoApproved ? (
+														<Badge variant="outline">auto</Badge>
+													) : null}
+												</div>
 											</TableCell>
 											<TableCell className="text-right">
 												{filing.status === "pending" ? (
@@ -1315,6 +1320,9 @@ export function AirsideFilingsClient() {
 												</Badge>
 												{filing.initiatedBy === "admin" ? (
 													<Badge variant="outline">by admin</Badge>
+												) : null}
+												{filing.autoApproved ? (
+													<Badge variant="outline">auto</Badge>
 												) : null}
 											</div>
 										</TableCell>

@@ -45,7 +45,7 @@ import {
 } from "@llmgateway/db";
 import { recordLogPersistLag } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
-import { hasErrorCode } from "@llmgateway/models";
+import { hasErrorCode, isGatewayWebSearch } from "@llmgateway/models";
 import {
 	assertSafeWebhookUrl,
 	calculateFees,
@@ -65,6 +65,7 @@ import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
 
 import { posthog } from "./posthog.js";
 import { refreshAirsidePayoutStatements } from "./services/airside-payouts.js";
+import { syncAirsideCarrierPrices } from "./services/airside-price-sync.js";
 import { deliverAirsideVerificationEmails } from "./services/airside-verification-emails.js";
 import { backfillPauseMs } from "./services/backfill-pacing.js";
 import {
@@ -79,6 +80,7 @@ import {
 	scheduleDailyModelVerifications,
 	modelVerificationConcurrency,
 } from "./services/daily-model-verifications.js";
+import { checkFailingCredentialAlerts } from "./services/failing-credential-alerts.js";
 import {
 	runFollowUpEmailsLoop,
 	canSendFollowUp,
@@ -97,6 +99,7 @@ import {
 import { checkModelErrorRateAlerts } from "./services/model-error-rate-alerts.js";
 import { deliverModelVerificationRegressions } from "./services/model-verification-regressions.js";
 import { processNextModelVerification } from "./services/model-verifications.js";
+import { runNewModelsDigestLoop } from "./services/new-models-digest.js";
 import { processNotifications } from "./services/notifications.js";
 import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
@@ -169,6 +172,9 @@ const MODEL_ERROR_RATE_ALERTS_LOCK_KEY = "model_error_rate_alerts";
 const AIRSIDE_PAYOUTS_LOCK_KEY = "airside_payout_statements";
 const AIRSIDE_PAYOUTS_INTERVAL_SECONDS =
 	Number(process.env.AIRSIDE_PAYOUTS_INTERVAL_SECONDS) || 3600;
+const AIRSIDE_PRICE_SYNC_LOCK_KEY = "airside_price_sync";
+const AIRSIDE_PRICE_SYNC_INTERVAL_SECONDS =
+	Number(process.env.AIRSIDE_PRICE_SYNC_INTERVAL_SECONDS) || 3600;
 const ROUTING_BASELINE_BACKFILL_LOCK_KEY = "routing_baseline_backfill";
 const SOURCE_MODEL_STATS_BACKFILL_LOCK_KEY = "source_model_stats_backfill";
 const MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY =
@@ -308,6 +314,8 @@ const schema = z.object({
 	response_size: z.number(),
 	hasError: z.boolean().nullable(),
 	data_storage_cost: z.string().nullable(),
+	web_search_cost: z.number().nullable(),
+	web_search_type: z.string().nullable(),
 	prompt_tokens: z.string().nullable(),
 	completion_tokens: z.string().nullable(),
 	total_tokens: z.string().nullable(),
@@ -1197,6 +1205,8 @@ export async function batchProcessLogs(): Promise<number> {
 					response_size: log.responseSize,
 					hasError: log.hasError,
 					data_storage_cost: log.dataStorageCost,
+					web_search_cost: log.webSearchCost,
+					web_search_type: log.webSearchType,
 					prompt_tokens: log.promptTokens,
 					completion_tokens: log.completionTokens,
 					total_tokens: log.totalTokens,
@@ -1330,10 +1340,18 @@ export async function batchProcessLogs(): Promise<number> {
 					row.cost > 0 &&
 					!row.cached
 				) {
+					// A gateway-run search is paid to the search engine, not spent on
+					// the provider key.
+					const keySpend = isGatewayWebSearch(row.web_search_type)
+						? Decimal.max(
+								0,
+								new Decimal(row.cost).minus(row.web_search_cost ?? 0),
+							)
+						: new Decimal(row.cost);
 					providerKeyCosts.set(
 						row.provider_key_id,
 						(providerKeyCosts.get(row.provider_key_id) ?? new Decimal(0)).plus(
-							new Decimal(row.cost),
+							keySpend,
 						),
 					);
 				}
@@ -1365,6 +1383,21 @@ export async function batchProcessLogs(): Promise<number> {
 					const storageCost = new Decimal(row.data_storage_cost);
 					if (storageCost.greaterThan(0)) {
 						addToBucket(storageCost, false);
+					}
+				}
+
+				// A gateway-run web search runs on the platform's search account,
+				// so BYOK (api-keys) rows still pay for it from credits, like
+				// storage. Credits-mode rows already carry it in their cost.
+				if (
+					row.used_mode === "api-keys" &&
+					!row.cached &&
+					row.web_search_cost &&
+					isGatewayWebSearch(row.web_search_type)
+				) {
+					const searchCost = new Decimal(row.web_search_cost);
+					if (searchCost.greaterThan(0)) {
+						addToBucket(searchCost, false);
 					}
 				}
 
@@ -3511,6 +3544,7 @@ async function runModelErrorRateAlertsLoop() {
 				if (await acquireLock(MODEL_ERROR_RATE_ALERTS_LOCK_KEY)) {
 					try {
 						await checkModelErrorRateAlerts();
+						await checkFailingCredentialAlerts();
 					} finally {
 						await releaseLock(MODEL_ERROR_RATE_ALERTS_LOCK_KEY);
 					}
@@ -3527,6 +3561,38 @@ async function runModelErrorRateAlertsLoop() {
 	} finally {
 		activeLoops--;
 		logger.info("Model error-rate alerts loop stopped");
+	}
+}
+
+async function runAirsidePriceSyncLoop() {
+	activeLoops++;
+	const interval = AIRSIDE_PRICE_SYNC_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting Airside price sync loop (interval: ${AIRSIDE_PRICE_SYNC_INTERVAL_SECONDS} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock(AIRSIDE_PRICE_SYNC_LOCK_KEY)) {
+					try {
+						await syncAirsideCarrierPrices();
+					} finally {
+						await releaseLock(AIRSIDE_PRICE_SYNC_LOCK_KEY);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in Airside price sync loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(60_000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Airside price sync loop stopped");
 	}
 }
 
@@ -3837,6 +3903,9 @@ export async function startWorker() {
 	logger.info(
 		`- Airside payout statements: runs every ${AIRSIDE_PAYOUTS_INTERVAL_SECONDS} seconds to open and refresh last month's previews`,
 	);
+	logger.info(
+		`- Airside price sync: runs every ${AIRSIDE_PRICE_SYNC_INTERVAL_SECONDS} seconds to apply prices approved carriers publish on /v1/models`,
+	);
 
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
@@ -3888,9 +3957,22 @@ export async function startWorker() {
 	void runNotificationsLoop();
 	void runModelErrorRateAlertsLoop();
 	void runAirsidePayoutsLoop();
+	void runAirsidePriceSyncLoop();
 	void runDataStreamsLoop();
 	void runProviderKeyModelSyncLoop();
 	void runFollowUpEmailsLoop({
+		shouldStop: isStopRequested,
+		acquireLock,
+		releaseLock,
+		interruptibleSleep,
+		registerLoop: () => {
+			activeLoops++;
+		},
+		unregisterLoop: () => {
+			activeLoops--;
+		},
+	});
+	void runNewModelsDigestLoop({
 		shouldStop: isStopRequested,
 		acquireLock,
 		releaseLock,

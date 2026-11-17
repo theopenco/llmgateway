@@ -65,7 +65,7 @@ describe("gateway authenticated reads", () => {
 				.set({ keyType: "platform_publishable" })
 				.where(eq(tables.apiKey.id, "read-access-key"));
 			const response = await app.request(path, { headers });
-			expect(response.status, await response.text()).toBe(403);
+			expect(response.status, await response.text()).toBe(401);
 		},
 	);
 

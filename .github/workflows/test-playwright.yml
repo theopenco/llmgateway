@@ -9,7 +9,10 @@ permissions:
 jobs:
   shard:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -58,13 +61,28 @@ jobs:
           done
           echo "::warning::Ubuntu apt mirrors unreachable; using the runner image's preinstalled libraries."
 
-      - name: Build apps for the local stack
-        # Next.js rewrites embed these URLs at build time. Do not restore
-        # remote build artifacts made with the production URL defaults.
-        run: pnpm build --env-mode=loose --cache=local:rw
+      - name: Set up Turborepo Remote Cache
+        # Fork PRs get no OIDC token; they fall back to building cold.
+        if: vars.TURBO_TEAM != ''
+        continue-on-error: true
+        uses: vercel/setup-turborepo-remote-cache-action@v1.1.0
+        with:
+          team: ${{ vars.TURBO_TEAM }}
 
+      # Next.js rewrites embed the URLs above at build time, and loose env mode
+      # keeps them out of Turbo's hashes. CACHE_PLATFORM is a global hash input,
+      # so keying it on this file keeps these artifacts apart from builds made
+      # with the production URL defaults and from older values of this env.
+      - name: Scope the build cache to this environment
+        run: echo "CACHE_PLATFORM=playwright-$(sha256sum .github/workflows/test-playwright.yml | cut -c1-16)" >> "$GITHUB_ENV"
+
+      - name: Build apps for the local stack
+        run: pnpm build --env-mode=loose
+
+      # Not `pnpm run setup`: its strict-mode build:core misses the cache the
+      # loose build above filled and rebuilds every package.
       - name: Seed the database
-        run: pnpm run setup
+        run: pnpm setup:db
 
       - name: Run browser test shard ${{ matrix.shard }}
         run: |
@@ -87,6 +105,7 @@ jobs:
   # Named `run` so the aggregated check stays `playwright / run`.
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: shard
     if: ${{ !cancelled() }}
     steps:

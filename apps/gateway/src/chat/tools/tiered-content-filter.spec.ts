@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { DEFAULT_CONTENT_FILTER_SETTINGS } from "@llmgateway/shared";
 
 import {
+	buildContentFilterShadowVerdict,
 	buildGatewayContentFilterEvaluation,
 	evaluateTieredContentFilter,
 	getLenientContentFilterScoreThreshold,
@@ -41,6 +42,22 @@ const enabledSettings = {
 };
 
 describe("resolveTieredContentFilterPlan", () => {
+	test("carries the shadow classifiers without the deciding one or duplicates", async () => {
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", {
+				...enabledSettings,
+				classifier: "internal",
+				shadowClassifiers: ["openai", "internal", "openai", "jev"],
+			}),
+		).toMatchObject({
+			classifier: "internal",
+			shadowClassifiers: ["openai", "jev"],
+		});
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", enabledSettings),
+		).toMatchObject({ shadowClassifiers: [] });
+	});
+
 	test("skips when disabled, when the provider is not enabled, or when not sampled", async () => {
 		expect(
 			await resolveTieredContentFilterPlan(org(), "openai", {
@@ -89,8 +106,11 @@ describe("resolveTieredContentFilterPlan", () => {
 			enforce: false,
 			exemptReason: "global_log_only",
 			classifier: "openai",
+			shadowClassifiers: [],
 			internalScope: "full",
 			moderateImages: true,
+			blockGroups: null,
+			csamScoreThreshold: 0.01,
 		});
 	});
 
@@ -120,6 +140,96 @@ describe("resolveTieredContentFilterPlan", () => {
 				enforcing,
 			),
 		).toMatchObject({ enforce: false, exemptReason: "org_log_only" });
+	});
+
+	test("blocks on enforced providers while the rest stay log-only", async () => {
+		const perProvider = {
+			...enabledSettings,
+			providerIds: ["openai", "anthropic"],
+			enforceProviderIds: ["openai"],
+		};
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", perProvider),
+		).toMatchObject({ enforce: true });
+		expect(
+			await resolveTieredContentFilterPlan(org(), "anthropic", perProvider),
+		).toMatchObject({ enforce: false, exemptReason: "global_log_only" });
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", {
+				...enabledSettings,
+				providerIds: [],
+				enforceProviderIds: ["openai"],
+			}),
+		).toMatchObject({ enforce: true });
+		expect(
+			await resolveTieredContentFilterPlan(
+				org({ plan: "enterprise" }),
+				"openai",
+				perProvider,
+			),
+		).toMatchObject({ enforce: false, exemptReason: "enterprise" });
+		expect(
+			await resolveTieredContentFilterPlan(
+				org({ contentFilterLogOnly: true }),
+				"openai",
+				perProvider,
+			),
+		).toMatchObject({ enforce: false, exemptReason: "org_log_only" });
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", {
+				...perProvider,
+				enabled: false,
+			}),
+		).toBeNull();
+		// Settings cached by the previous release lack the field.
+		const { enforceProviderIds: _omitted, ...legacy } = perProvider;
+		expect(
+			await resolveTieredContentFilterPlan(
+				org(),
+				"openai",
+				legacy as typeof perProvider,
+			),
+		).toMatchObject({ enforce: false, exemptReason: "global_log_only" });
+	});
+
+	test("splits a blocking provider between blocking and monitoring", async () => {
+		const split = {
+			...enabledSettings,
+			enforceProviderIds: ["openai"],
+			enforceSampleRatePercent: 10,
+		};
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", split, () => 0.05),
+		).toMatchObject({ enforce: true });
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", split, () => 0.5),
+		).toMatchObject({ enforce: false, exemptReason: "global_log_only" });
+		// Missing the blocking share falls back to the general rate.
+		expect(
+			await resolveTieredContentFilterPlan(
+				org(),
+				"openai",
+				{ ...split, sampleRatePercent: 90 },
+				() => 0.95,
+			),
+		).toBeNull();
+		// The blocking share is checked even when the general rate skips it.
+		expect(
+			await resolveTieredContentFilterPlan(
+				org(),
+				"openai",
+				{ ...split, sampleRatePercent: 0 },
+				() => 0.05,
+			),
+		).toMatchObject({ enforce: true });
+		expect(
+			await resolveTieredContentFilterPlan(
+				org(),
+				"openai",
+				{ ...split, enforceSampleRatePercent: 0 },
+				() => 0,
+			),
+		).toMatchObject({ enforce: false, exemptReason: "global_log_only" });
 	});
 
 	test("honours the content filter pin and the trust tier pin", async () => {
@@ -174,6 +284,7 @@ describe("evaluateTieredContentFilter", () => {
 			violation: true,
 			flagged: true,
 			matchedCategories: [],
+			matchedGroups: [],
 			categoryScores: { violence: 0.2 },
 		});
 	});
@@ -187,6 +298,7 @@ describe("evaluateTieredContentFilter", () => {
 			violation: true,
 			flagged: false,
 			matchedCategories: ["violence", "harassment"],
+			matchedGroups: [],
 			categoryScores: { violence: 0.6, hate: 0.1, harassment: 0.55 },
 		});
 		expect(evaluateTieredContentFilter(results, "lenient")).toMatchObject({
@@ -215,8 +327,87 @@ describe("evaluateTieredContentFilter", () => {
 			violation: false,
 			flagged: false,
 			matchedCategories: [],
+			matchedGroups: [],
 			categoryScores: {},
 		});
+	});
+
+	test("sexual/minors matches csam above its own threshold at every level", () => {
+		const results: OpenAIModerationResult[] = [
+			{
+				flagged: false,
+				category_scores: { "sexual/minors": 0.02, sexual: 0.3 },
+			},
+		];
+		for (const level of ["strict", "lenient"] as const) {
+			expect(evaluateTieredContentFilter(results, level)).toMatchObject({
+				violation: true,
+				matchedCategories: ["sexual/minors"],
+				matchedGroups: ["csam"],
+			});
+		}
+		expect(evaluateTieredContentFilter(results, "lenient", 0.05)).toMatchObject(
+			{ violation: false, matchedGroups: [] },
+		);
+	});
+
+	test("groups OpenAI categories, including the ones strict flags", () => {
+		expect(
+			evaluateTieredContentFilter(
+				[
+					{
+						flagged: true,
+						categories: { sexual: true, violence: false },
+						category_scores: { sexual: 0.4, violence: 0.1 },
+					},
+				],
+				"strict",
+			),
+		).toMatchObject({ violation: true, matchedGroups: ["sexual"] });
+		expect(
+			evaluateTieredContentFilter(
+				[{ flagged: false, category_scores: { violence: 0.95 } }],
+				"lenient",
+			),
+		).toMatchObject({ violation: true, matchedGroups: [] });
+	});
+
+	test("groups internal blocks by rule, not by the tags that fire together", () => {
+		const internal = (rules: string[]): OpenAIModerationResult => ({
+			flagged: true,
+			categories: {
+				child_exploitation: true,
+				sexual_content: true,
+				malware_cyber: true,
+			},
+			category_scores: {
+				child_exploitation: 1,
+				sexual_content: 1,
+				malware_cyber: 1,
+			},
+			rules,
+		});
+		expect(
+			evaluateTieredContentFilter(
+				[internal(["malware_operational", "obfuscation_evasion"])],
+				"lenient",
+			),
+		).toMatchObject({ violation: true, matchedGroups: ["cyber"] });
+		expect(
+			evaluateTieredContentFilter(
+				[internal(["minor_plus_sexual_conjunction", "nudify_targeted"])],
+				"lenient",
+			).matchedGroups,
+		).toEqual(["csam", "sexual"]);
+		expect(
+			evaluateTieredContentFilter(
+				[internal(["jailbreak_plus_harm"])],
+				"strict",
+			),
+		).toMatchObject({ violation: true, matchedGroups: [] });
+		expect(evaluateTieredContentFilter([internal([])], "strict")).toMatchObject(
+			{ violation: true, matchedGroups: [] },
+		);
 	});
 
 	test("inverted thresholds fall back to the defaults for both", () => {
@@ -248,15 +439,46 @@ describe("buildGatewayContentFilterEvaluation", () => {
 		level: "strict" as const,
 		enforce: true,
 		classifier: "openai" as const,
+		shadowClassifiers: [],
 		internalScope: "full" as const,
 		moderateImages: true,
+		blockGroups: null,
+		csamScoreThreshold: 0.01,
 	};
 	const violation = {
 		violation: true,
 		flagged: true,
 		matchedCategories: ["violence"],
+		matchedGroups: [],
 		categoryScores: { violence: 0.9 },
 	};
+
+	test("blocks only violations in the plan's block groups", () => {
+		const groupedPlan = { ...plan, blockGroups: ["csam" as const] };
+		expect(
+			buildGatewayContentFilterEvaluation(groupedPlan, violation, false, 5),
+		).toMatchObject({ violation: true, action: "logged", enforced: true });
+		expect(
+			buildGatewayContentFilterEvaluation(
+				groupedPlan,
+				{
+					...violation,
+					matchedCategories: ["sexual/minors"],
+					matchedGroups: ["csam"],
+				},
+				false,
+				5,
+			),
+		).toMatchObject({ action: "blocked", matchedGroups: ["csam"] });
+		expect(
+			buildGatewayContentFilterEvaluation(
+				{ ...plan, blockGroups: [] },
+				violation,
+				false,
+				5,
+			),
+		).toMatchObject({ action: "logged" });
+	});
 
 	test("records the internal classifier's input scope", () => {
 		expect(
@@ -288,6 +510,7 @@ describe("buildGatewayContentFilterEvaluation", () => {
 			enforced: true,
 			flagged: true,
 			matchedCategories: ["violence"],
+			matchedGroups: [],
 			categoryScores: { violence: 0.9 },
 			moderationFailed: false,
 			durationMs: 42,
@@ -311,5 +534,32 @@ describe("buildGatewayContentFilterEvaluation", () => {
 				10,
 			),
 		).toMatchObject({ action: "passed", moderationFailed: true });
+	});
+
+	test("builds a shadow verdict that never carries an action", () => {
+		const verdict = buildContentFilterShadowVerdict(
+			{ ...plan, internalScope: "latest_turn" },
+			"internal",
+			violation,
+			false,
+			12,
+			{ classifierDurationMs: 11, classifierRequests: 1 },
+		);
+		expect(verdict).toEqual({
+			classifier: "internal",
+			violation: true,
+			flagged: true,
+			matchedCategories: ["violence"],
+			matchedGroups: [],
+			categoryScores: { violence: 0.9 },
+			moderationFailed: false,
+			durationMs: 12,
+			classifierDurationMs: 11,
+			classifierRequests: 1,
+			internalScope: "latest_turn",
+		});
+		expect(
+			buildContentFilterShadowVerdict(plan, "openai", violation, false, 3),
+		).not.toHaveProperty("internalScope");
 	});
 });

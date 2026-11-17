@@ -10,6 +10,7 @@ import {
 	projectHourlySourceStats,
 	projectHourlySourceModelStats,
 	projectHourlyRoutingStats,
+	projectHourlyWebSearchStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
 	apiKeyHourlySourceStats,
@@ -20,7 +21,9 @@ import {
 	isNull,
 	isNotNull,
 	eq,
+	gt,
 	inArray,
+	or,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
@@ -179,7 +182,10 @@ export function getBaseAggregationFields() {
 		inputCost: sumLogMoney(log.inputCost, "inputCost"),
 		outputCost: sumLogMoney(log.outputCost, "outputCost"),
 		requestCost: sumLogMoney(log.requestCost, "requestCost"),
+		webSearchCost: sumLogMoney(log.webSearchCost, "webSearchCost"),
 		dataStorageCost: sumLogMoney(log.dataStorageCost, "dataStorageCost"),
+		// Slightly overstated when a discount excludes web search: the
+		// full-price search fee in `cost` is grossed up too.
 		discountSavings: sql<number>`coalesce(
 			sum(
 				case
@@ -677,6 +683,87 @@ export async function recalculateProjectHourlyRoutingStats(
 	}
 }
 
+// Rows before `log.webSearchEngine` existed only searched natively, so the
+// provider that served them is the engine.
+const webSearchEngineExpr = sql<string>`coalesce(${log.webSearchEngine}, ${log.usedProvider})`;
+const webSearchTypeExpr = sql<
+	"native" | "gateway"
+>`coalesce(${log.webSearchType}, 'native')`;
+
+function getWebSearchAggregationFields() {
+	return {
+		requestCount: sql<number>`count(*)::int`.as("requestCount"),
+		searchCount: sql<number>`coalesce(sum(${log.webSearchCount}), 0)::int`.as(
+			"searchCount",
+		),
+		webSearchCost: sumLogMoney(log.webSearchCost, "webSearchCost"),
+		cost: sumLogMoney(log.cost, "cost"),
+	};
+}
+
+/**
+ * Calculate hourly web search usage for a batch of projects, per type (gateway
+ * or native), engine (a gateway engine, or the provider for native search),
+ * provider and mode.
+ */
+export async function recalculateProjectHourlyWebSearchStats(
+	projectIds: string[],
+	hourTimestamp: string,
+	window: LogWindow = {},
+) {
+	const rows = await db
+		.select({
+			projectId: log.projectId,
+			webSearchType: webSearchTypeExpr.as("webSearchType"),
+			webSearchEngine: webSearchEngineExpr.as("webSearchEngine"),
+			usedProvider: log.usedProvider,
+			usedMode: log.usedMode,
+			...getWebSearchAggregationFields(),
+		})
+		.from(log)
+		.where(
+			and(
+				inArray(log.projectId, projectIds),
+				hourLogWindow(hourTimestamp, window),
+				or(isNotNull(log.webSearchEngine), gt(log.webSearchCost, 0)),
+			),
+		)
+		.groupBy(
+			log.projectId,
+			webSearchTypeExpr,
+			webSearchEngineExpr,
+			log.usedProvider,
+			log.usedMode,
+		);
+
+	for (let offset = 0; offset < rows.length; offset += STATS_WRITE_BATCH_SIZE) {
+		await db
+			.insert(projectHourlyWebSearchStats)
+			.values(
+				rows.slice(offset, offset + STATS_WRITE_BATCH_SIZE).map((stat) => ({
+					...stat,
+					hourTimestamp: sql`${hourTimestamp}::timestamp`,
+				})),
+			)
+			.onConflictDoUpdate({
+				target: [
+					projectHourlyWebSearchStats.projectId,
+					projectHourlyWebSearchStats.hourTimestamp,
+					projectHourlyWebSearchStats.webSearchType,
+					projectHourlyWebSearchStats.webSearchEngine,
+					projectHourlyWebSearchStats.usedProvider,
+					projectHourlyWebSearchStats.usedMode,
+				],
+				...statsUpdate(
+					getTableColumns(projectHourlyWebSearchStats),
+					getWebSearchAggregationFields(),
+					true,
+					window.accumulate,
+				),
+			});
+	}
+}
+
 /**
  * Calculate hourly API key statistics for a batch of projects.
  */
@@ -967,6 +1054,11 @@ export async function recalculateBucket(
 		window,
 	);
 	await recalculateProjectHourlyRoutingStats(projectIds, hourTimestamp, window);
+	await recalculateProjectHourlyWebSearchStats(
+		projectIds,
+		hourTimestamp,
+		window,
+	);
 	await recalculateApiKeyHourlyStats(projectIds, hourTimestamp, window);
 	await recalculateApiKeyHourlyModelStats(projectIds, hourTimestamp, window);
 	await recalculateApiKeyHourlySourceStatsForProjects(

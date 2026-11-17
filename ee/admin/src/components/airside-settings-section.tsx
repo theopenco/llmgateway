@@ -22,6 +22,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { canWrite } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
@@ -510,6 +511,44 @@ function BillingModeField({
 	);
 }
 
+function AutoApproveFaresField({
+	settings,
+	editable,
+}: {
+	settings: AirsideSettings;
+	editable: boolean;
+}) {
+	const $api = useApi();
+	const update = $api.useMutation(
+		"patch",
+		"/admin/airside/claims/{id}/settings",
+		useRefreshOnSuccess("Fare approval saved."),
+	);
+	return (
+		<div className="flex items-center gap-2">
+			<Switch
+				id="auto-approve-fares"
+				checked={settings.autoApproveFares}
+				disabled={!editable || update.isPending}
+				onCheckedChange={(checked) =>
+					update.mutate({
+						params: { path: { id: settings.claimId } },
+						body: { autoApproveFares: checked },
+					})
+				}
+			/>
+			<Label
+				htmlFor="auto-approve-fares"
+				className="text-xs font-normal text-muted-foreground"
+			>
+				{settings.autoApproveFares
+					? "Automatic: filed changes and /v1/models prices apply without review"
+					: "Manual review"}
+			</Label>
+		</div>
+	);
+}
+
 function FareRow({
 	providerId,
 	modelId,
@@ -886,6 +925,9 @@ export function AirsideSettingsSection({
 					</SettingRow>
 					<SettingRow label="Billing">
 						<BillingModeField settings={settings} editable={editable} />
+					</SettingRow>
+					<SettingRow label="Fare approval">
+						<AutoApproveFaresField settings={settings} editable={editable} />
 					</SettingRow>
 					<SettingRow label="Claimed">
 						{formatDate(settings.claimedAt)}

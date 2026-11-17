@@ -11,10 +11,17 @@ on:
 permissions:
   contents: read
 
+# A new commit on a PR supersedes the run for the previous one. Pushes to main
+# and merge queue entries each keep their own run.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   quality:
     if: github.event_name == 'pull_request' && github.head_ref != 'main'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -30,14 +37,28 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: bash scripts/check-new-migrations.sh "origin/$BASE_REF" "$HEAD_SHA"
 
-  lint:
-    uses: ./.github/workflows/run.yml
+  build:
+    uses: ./.github/workflows/verify.yml
     secrets: inherit
     permissions:
       contents: read
       id-token: write
+
+  lint:
+    needs: build
+    if: ${{ !cancelled() }}
+    uses: ./.github/workflows/gate.yml
     with:
-      cmd: pnpm build && pnpm lint
+      outcome: ${{ needs.build.outputs.lint }}
+      step: pnpm lint
+
+  generate:
+    needs: build
+    if: ${{ !cancelled() }}
+    uses: ./.github/workflows/gate.yml
+    with:
+      outcome: ${{ needs.build.outputs.generate }}
+      step: git diff --exit-code
 
   migrations:
     # Fails when this PR's migrations and ones merged since it branched touch
@@ -52,24 +73,6 @@ jobs:
     with:
       cmd: pnpm migrations:check && pnpm migrations:lint
 
-  generate:
-    uses: ./.github/workflows/run.yml
-    secrets: inherit
-    permissions:
-      contents: read
-      id-token: write
-    with:
-      cmd: pnpm build && git diff --exit-code
-
-  build:
-    uses: ./.github/workflows/run.yml
-    secrets: inherit
-    permissions:
-      contents: read
-      id-token: write
-    with:
-      cmd: pnpm build && pnpm run setup && bash .github/start.sh
-
   test:
     uses: ./.github/workflows/test-unit.yml
     secrets: inherit
@@ -79,3 +82,6 @@ jobs:
 
   playwright:
     uses: ./.github/workflows/test-playwright.yml
+    permissions:
+      contents: read
+      id-token: write

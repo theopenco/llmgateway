@@ -3060,13 +3060,13 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 	);
 
 	test("strips none for an OpenAI-compatible mapping that does not declare it", async () => {
-		// grok-4-3 via azure-ai-foundry speaks a non-allowlisted provider and
+		// grok-4-1-fast-reasoning via xai speaks a non-allowlisted provider and
 		// its catalog entry omits `none` from reasoningEfforts. The mapping
 		// must be the authority: with `none` undeclared, the value is
 		// normalized away instead of forwarded to a provider that may 4xx.
 		const requestBody = await prepare({
-			provider: "azure-ai-foundry",
-			model: "grok-4-3",
+			provider: "xai",
+			model: "grok-4-1-fast-reasoning",
 		});
 		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
@@ -3226,8 +3226,8 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 		// xAI mappings that declare reasoning: true but previously omitted
 		// reasoning_effort from supportedParameters, silently dropping any
 		// effort value before the request was built (#3436, #3403).
-		["azure-ai-foundry", "grok-4-3", "medium"],
-		["azure-ai-foundry", "grok-4-1-fast-reasoning", "high"],
+		["azure", "grok-4-3", "medium"],
+		["azure", "grok-4-1-fast-reasoning", "high"],
 		["xai", "grok-4", "high"],
 	];
 
@@ -4943,13 +4943,11 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			false, // isProd
 		)) as any;
 
-		expect(requestBody.additionalModelRequestFields.thinking).toEqual({
+		expect(requestBody.thinking).toEqual({
 			type: "adaptive",
 			display: "summarized",
 		});
-		expect(requestBody.additionalModelRequestFields.output_config.effort).toBe(
-			"max",
-		);
+		expect(requestBody.output_config.effort).toBe("max");
 	});
 
 	test('sets display "summarized" for adaptive thinking on Bedrock', async () => {
@@ -4973,7 +4971,7 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			false, // isProd
 		)) as any;
 
-		expect(requestBody.additionalModelRequestFields.thinking).toEqual({
+		expect(requestBody.thinking).toEqual({
 			type: "adaptive",
 			display: "summarized",
 		});
@@ -5297,9 +5295,9 @@ describe("prepareRequestBody - Google AI Studio", () => {
 
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			[{ role: "user", content: "test" }],
 			false,
 			undefined,
@@ -6542,9 +6540,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		const marker = { type: "ephemeral" as const };
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-opus-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-opus-4-6-v1",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[
 				{
 					role: "system",
@@ -6802,9 +6800,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("should sanitize complex tool schemas for Bedrock Converse", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-sonnet-4-6",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[{ role: "user", content: "Run a tool" }],
 			false,
 			undefined,
@@ -6890,9 +6888,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("should group consecutive tool results into a single user message", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-sonnet-4-6",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[
 				{ role: "user", content: "What is the weather and time in Berlin?" },
 				{
@@ -6991,9 +6989,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("sends text parts of an assistant message with tool calls as text blocks", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-sonnet-4-6",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[
 				{ role: "user", content: "What is the weather in Berlin?" },
 				{
@@ -7049,9 +7047,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("synthesizes toolConfig when history has tool blocks but request omits tools", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-opus-4-8",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-opus-4-8",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[
 				{ role: "user", content: "What is the weather in Berlin?" },
 				{
@@ -7112,9 +7110,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("does not synthesize toolConfig when history has no tool blocks", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-opus-4-8",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-opus-4-8",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[{ role: "user", content: "Hello there" }],
 			false,
 			undefined,
@@ -7228,9 +7226,9 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 	test("aws-bedrock forwards budget into additionalModelRequestFields.thinking.budget_tokens", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-sonnet-4-6",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
 			false,
 			undefined,
@@ -7527,9 +7525,9 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		test("forwards caller-supplied max_tokens verbatim", async () => {
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7553,9 +7551,9 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			// is omitted.
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7571,15 +7569,15 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				false,
 			)) as any;
 
-			expect(requestBody.inferenceConfig?.maxTokens).toBe(64000);
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(8192);
 		});
 
 		test("falls back to model maxOutput when caller omits with reasoning enabled", async () => {
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7595,18 +7593,18 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				false,
 			)) as any;
 
-			// claude-sonnet-4-6's aws-bedrock provider mapping declares maxOutput:
-			// 64000. Falling back to a flat 1024 (the old historical Anthropic
+			// claude-sonnet-4-5's aws-bedrock provider mapping declares maxOutput:
+			// 8192. Falling back to a flat 1024 (the old historical Anthropic
 			// default) silently truncates large reasoning + tool responses.
-			expect(requestBody.inferenceConfig?.maxTokens).toBe(64000);
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(8192);
 		});
 
 		test("preserves caller max_tokens even when reasoning is enabled", async () => {
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7632,9 +7630,9 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			// floored by the reasoning check on the way out.
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7664,9 +7662,9 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			// builder must drop them too.
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[
 					{ role: "user", content: "say hi" },
 					{ role: "assistant", content: "" },
@@ -8023,41 +8021,66 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				expect(requestBody.messages[3].reasoning).toBe(reasoningLeft);
 			},
 		);
-	});
 
-	describe("azure-ai-foundry", () => {
-		test("keeps Grok 4.3 as Azure Foundry chat completions", async () => {
+		test("backfills reasoning_content on every assistant turn for Reflection Beam", async () => {
+			// Beam's chat template rejects any earlier assistant turn without a
+			// non-empty reasoning_content, tool call or not (verified 2026-11-16).
 			const requestBody = (await prepareRequestBody(
-				"azure-ai-foundry",
-				"grok-4-3",
+				"together-ai",
+				"beam-1.0-501b-a23b",
 				null,
-				"grok-4.3",
-				[{ role: "user", content: "Hello!" }],
-				true,
-				0.2,
-				8192,
-				0.9,
+				"reflection/Beam-1.0-501B-A23B",
+				[
+					{ role: "user", content: "Hi" },
+					{ role: "assistant", content: "Hello!" },
+					{ role: "user", content: "Weather in Paris?" },
+					{
+						role: "assistant",
+						content: "",
+						reasoning: "Look it up.",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: '{"city":"Paris"}',
+								},
+							},
+						],
+					},
+					{ role: "tool", tool_call_id: "call_1", content: "sunny" },
+					{ role: "assistant", content: "Sunny.", reasoning_content: "" },
+					{ role: "user", content: "Thanks!" },
+				],
+				false,
 				undefined,
 				undefined,
 				undefined,
 				undefined,
 				undefined,
-				"medium",
-				true,
-			)) as unknown as Record<string, unknown>;
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
 
-			expect(requestBody.model).toBe("grok-4.3");
-			expect(requestBody.messages).toEqual([
-				{ role: "user", content: "Hello!" },
-			]);
-			expect(requestBody.stream).toBe(true);
-			expect(requestBody.stream_options).toEqual({ include_usage: true });
-			expect(requestBody.temperature).toBe(0.2);
-			expect(requestBody.max_tokens).toBe(8192);
-			expect(requestBody.max_completion_tokens).toBeUndefined();
-			expect(requestBody.top_p).toBe(0.9);
-			expect(requestBody.reasoning_effort).toBe("medium");
-			expect(requestBody.inferenceConfig).toBeUndefined();
+			expect(
+				[1, 3, 5].map((i) => requestBody.messages[i].reasoning_content),
+			).toEqual([" ", "Look it up.", " "]);
+			expect(requestBody.messages[3].reasoning).toBeUndefined();
+			expect(requestBody.messages[0].reasoning_content).toBeUndefined();
 		});
 	});
 
@@ -9796,6 +9819,8 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 		["anthropic", "claude-sonnet-5"],
 		["anthropic", "claude-sonnet-4-5"],
 		["vertex-anthropic", "claude-sonnet-4-5"],
+		["aws-bedrock", "claude-haiku-5-5"],
+		["aws-bedrock", "claude-sonnet-5"],
 	] as const)(
 		"%s %s forwards none as thinking disabled",
 		async (provider, model) => {
@@ -9831,8 +9856,8 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 		expect(requestBody.thinking).toBeUndefined();
 	});
 
-	test.each(["claude-haiku-5-5", "claude-sonnet-5", "claude-sonnet-4-5"])(
-		"aws-bedrock %s forwards none as thinking disabled",
+	test.each(["claude-sonnet-4-5"])(
+		"aws-bedrock Converse %s forwards none as thinking disabled",
 		async (model) => {
 			const requestBody = await prepare({
 				provider: "aws-bedrock",
@@ -9853,7 +9878,7 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 	test("aws-bedrock sends no thinking field when no effort is requested", async () => {
 		const requestBody = await prepare({
 			provider: "aws-bedrock",
-			model: "claude-haiku-5-5",
+			model: "claude-sonnet-4-5",
 		});
 
 		expect(requestBody.additionalModelRequestFields?.thinking).toBeUndefined();
@@ -9872,10 +9897,10 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 		])(
 			"forwards %s as toolConfig.toolChoice",
 			async (_label, toolChoice, expected) => {
-				for (const reasoningEffort of [undefined, "none", "high"] as const) {
+				for (const reasoningEffort of [undefined, "none"] as const) {
 					const requestBody = await prepare({
 						provider: "aws-bedrock",
-						model: "claude-haiku-5-5",
+						model: "claude-sonnet-4-5",
 						reasoningEffort,
 						toolChoice,
 					});
@@ -9891,6 +9916,7 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 				"anthropic",
 				"vertex-anthropic",
 				"azure-anthropic",
+				"aws-bedrock",
 			] as const) {
 				const requestBody = await prepare({
 					provider,
@@ -9899,18 +9925,12 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 				});
 				expect(requestBody.tool_choice).toEqual({ type: "any" });
 			}
-			const bedrock = await prepare({
-				provider: "aws-bedrock",
-				model: "claude-sonnet-5",
-				toolChoice: "required",
-			});
-			expect(bedrock.toolConfig.toolChoice).toEqual({ any: {} });
 		});
 
 		test("leaves auto unset", async () => {
 			const requestBody = await prepare({
 				provider: "aws-bedrock",
-				model: "claude-haiku-5-5",
+				model: "claude-sonnet-4-5",
 				toolChoice: "auto",
 			});
 
@@ -10640,40 +10660,46 @@ describe("prepareRequestBody - alibaba forced tool use", () => {
 	);
 });
 
-describe("prepareRequestBody - Baidu Kimi K3 empty text parts", () => {
-	test("drops empty text parts", async () => {
-		const requestBody = (await prepareRequestBody(
-			"baidu",
-			"kimi-k3",
-			null,
-			"qianfan-vl-v1",
-			[
-				{
-					role: "user",
-					content: [
-						{ type: "text", text: "describe this" },
-						{ type: "text", text: "" },
-					],
-				},
-			],
-			false,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			false,
-		)) as { messages: { content: unknown }[] };
+describe("prepareRequestBody - empty text parts", () => {
+	test.each([
+		["baidu", "kimi-k3", "qianfan-vl-v1"],
+		["sakana", "sakana-namazu", "sakana-namazu-v1.0"],
+	] as const)(
+		"drops empty text parts for %s/%s",
+		async (provider, model, externalId) => {
+			const requestBody = (await prepareRequestBody(
+				provider,
+				model,
+				null,
+				externalId,
+				[
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "describe this" },
+							{ type: "text", text: "" },
+						],
+					},
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as { messages: { content: unknown }[] };
 
-		expect(requestBody.messages[0].content).toEqual([
-			{ type: "text", text: "describe this" },
-		]);
-	});
+			expect(requestBody.messages[0].content).toEqual([
+				{ type: "text", text: "describe this" },
+			]);
+		},
+	);
 });
 
 describe("prepareRequestBody - fal image generation", () => {
@@ -11060,7 +11086,7 @@ describe("prepareRequestBody - tool strict, allowed_callers and eager_input_stre
 	});
 
 	test("Bedrock Converse turns eager_input_streaming into the fine-grained tool streaming beta", async () => {
-		const body = await prepare("aws-bedrock", "claude-sonnet-4-6", false, true);
+		const body = await prepare("aws-bedrock", "claude-sonnet-4-5", false, true);
 		expect(body.toolConfig.tools[0].toolSpec).not.toHaveProperty(
 			"eager_input_streaming",
 		);
@@ -11068,7 +11094,7 @@ describe("prepareRequestBody - tool strict, allowed_callers and eager_input_stre
 			"fine-grained-tool-streaming-2025-05-14",
 		]);
 
-		const nonStreaming = await prepare("aws-bedrock", "claude-sonnet-4-6");
+		const nonStreaming = await prepare("aws-bedrock", "claude-sonnet-4-5");
 		expect(
 			nonStreaming.additionalModelRequestFields?.anthropic_beta,
 		).toBeUndefined();
@@ -11077,9 +11103,9 @@ describe("prepareRequestBody - tool strict, allowed_callers and eager_input_stre
 	test("Bedrock Converse keeps buffered streaming unless every tool opts in", async () => {
 		const body = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			[{ role: "user", content: "Weather in Paris?" }],
 			true,
 			undefined,

@@ -18,6 +18,7 @@ import { GATEWAY_CONTENT_FILTER_MESSAGE } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const MODERATION_URL = "https://api.openai.com/v1/moderations";
+const INTERNAL_CLASSIFIER_URL = "https://classifier.test";
 
 interface ModerationResult {
 	flagged: boolean;
@@ -33,6 +34,10 @@ describe("tiered gateway content filter", () => {
 	let moderationCalls = 0;
 	let moderationResponse: () => Response | Promise<Response> = () =>
 		new Response("{}");
+	let previousInternalUrl: string | undefined;
+	let internalCalls = 0;
+	let internalResponse: () => Response | Promise<Response> = () =>
+		new Response("{}");
 
 	beforeAll(() => {
 		mockServerUrl = harness.mockServerUrl;
@@ -44,6 +49,9 @@ describe("tiered gateway content filter", () => {
 		process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
 		delete process.env.LLM_CONTENT_FILTER_MODE;
 		moderationCalls = 0;
+		previousInternalUrl = process.env.LLM_CONTENT_FILTER_INTERNAL_URL;
+		process.env.LLM_CONTENT_FILTER_INTERNAL_URL = INTERNAL_CLASSIFIER_URL;
+		internalCalls = 0;
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
@@ -78,6 +86,10 @@ describe("tiered gateway content filter", () => {
 					moderationCalls += 1;
 					return await moderationResponse();
 				}
+				if (new URL(url).origin === INTERNAL_CLASSIFIER_URL) {
+					internalCalls += 1;
+					return await internalResponse();
+				}
 				return await originalFetch(input as RequestInfo | URL, init);
 			});
 	});
@@ -94,6 +106,11 @@ describe("tiered gateway content filter", () => {
 			delete process.env.LLM_CONTENT_FILTER_MODE;
 		} else {
 			process.env.LLM_CONTENT_FILTER_MODE = previousContentFilterMode;
+		}
+		if (previousInternalUrl === undefined) {
+			delete process.env.LLM_CONTENT_FILTER_INTERNAL_URL;
+		} else {
+			process.env.LLM_CONTENT_FILTER_INTERNAL_URL = previousInternalUrl;
 		}
 	});
 
@@ -170,6 +187,7 @@ describe("tiered gateway content filter", () => {
 			exemptReason: "global_log_only",
 			flagged: true,
 			matchedCategories: ["violence"],
+			matchedGroups: [],
 			categoryScores: { violence: 0.95, hate: 0.1 },
 			moderationFailed: false,
 			durationMs: expect.any(Number),
@@ -216,6 +234,54 @@ describe("tiered gateway content filter", () => {
 		expect(log.gatewayContentFilterResponse).toHaveLength(1);
 	});
 
+	test("records shadow verdicts without holding a blocking request for them", async () => {
+		let release: () => void = () => {};
+		const released = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		moderation(violent);
+		internalResponse = async () => {
+			await released;
+			return new Response(
+				JSON.stringify({ tags: [], block: false, score: 0 }),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			);
+		};
+		await harness.setContentFilterSettings({
+			providerIds: ["llmgateway"],
+			enforce: true,
+			shadowClassifiers: ["internal"],
+		});
+
+		try {
+			// Blocked on OpenAI's verdict while the shadow is still pending.
+			const res = await chat("tier-shadow");
+			expect((await res.json()).choices[0].finish_reason).toBe(
+				"content_filter",
+			);
+			await vi.waitFor(() => expect(internalCalls).toBe(1));
+		} finally {
+			release();
+		}
+
+		const log = await waitForLogByRequestId("tier-shadow");
+		expect(moderationCalls).toBe(1);
+		expect(log.gatewayContentFilterEvaluation).toMatchObject({
+			classifier: "openai",
+			action: "blocked",
+			violation: true,
+			shadows: [
+				{
+					classifier: "internal",
+					violation: false,
+					moderationFailed: false,
+					internalScope: "full",
+				},
+			],
+		});
+		expect(log.gatewayContentFilterResponse).toHaveLength(2);
+	});
+
 	test("blocks a strict-tier violation when enforcement is on", async () => {
 		moderation(violent);
 		await harness.setContentFilterSettings({
@@ -245,6 +311,40 @@ describe("tiered gateway content filter", () => {
 		// The org retains payloads, so the blocked request survives insertLog.
 		expect(log.content).toBe(GATEWAY_CONTENT_FILTER_MESSAGE);
 		expect(log.messages).not.toBeNull();
+	});
+
+	test("blocks only the configured groups and logs other violations", async () => {
+		await harness.setContentFilterSettings({
+			providerIds: ["llmgateway"],
+			enforce: true,
+			blockGroups: ["csam"],
+		});
+
+		moderation(violent);
+		const passed = await chat("tier-group-logged");
+		expect((await passed.json()).choices[0].finish_reason).not.toBe(
+			"content_filter",
+		);
+		expect(
+			(await waitForLogByRequestId("tier-group-logged"))
+				.gatewayContentFilterEvaluation,
+		).toMatchObject({ violation: true, action: "logged", matchedGroups: [] });
+
+		moderation([
+			{ flagged: false, category_scores: { "sexual/minors": 0.02 } },
+		]);
+		const blocked = await chat("tier-group-blocked");
+		expect((await blocked.json()).choices[0].finish_reason).toBe(
+			"content_filter",
+		);
+		expect(
+			(await waitForLogByRequestId("tier-group-blocked"))
+				.gatewayContentFilterEvaluation,
+		).toMatchObject({
+			action: "blocked",
+			matchedCategories: ["sexual/minors"],
+			matchedGroups: ["csam"],
+		});
 	});
 
 	test("streams the block as a single content_filter chunk", async () => {
@@ -400,11 +500,16 @@ describe("tiered gateway content filter", () => {
 		await harness.setContentFilterSettings({
 			providerIds: ["llmgateway"],
 			enforce: true,
+			shadowClassifiers: ["internal"],
 		});
 
 		const res = await chat("tier-compliance");
 		expect((await res.json()).choices[0].finish_reason).toBe("stop");
 		expect(moderationCalls).toBe(0);
+		// No deciding verdict to record a shadow on, so the shadow never runs.
+		const log = await waitForLogByRequestId("tier-compliance");
+		expect(log.gatewayContentFilterEvaluation).toBeNull();
+		expect(internalCalls).toBe(0);
 	});
 
 	test("skips moderation without an OpenAI credential", async () => {

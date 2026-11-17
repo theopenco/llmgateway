@@ -2450,9 +2450,13 @@ export function FileFareDialog({
 		"post",
 		"/airside/models/{id}/price-filings",
 		{
-			onSuccess: async () => {
+			onSuccess: async ({ filing }) => {
 				await invalidate();
-				toast.success("Fare filed — it takes effect once approved.");
+				toast.success(
+					filing.status === "approved"
+						? "Fare applied — it is live now."
+						: "Fare filed — it takes effect once approved.",
+				);
 				setOpen(false);
 				setNote("");
 			},

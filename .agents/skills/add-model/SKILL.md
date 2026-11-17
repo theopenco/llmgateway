@@ -52,7 +52,7 @@ git diff origin/main...HEAD -- packages/models/src/models/
 Apply these to every change in `packages/models`:
 
 - Write each model and provider mapping in full as a plain object literal in the `models` array. Duplicated fields are preferred here; small shared `const` values are fine, but no helper (e.g. `makeModel(...)`) builds definition objects.
-- A mapping on `origin/main` is never removed: historical usage and analytics reference it. Retire it with `deactivatedAt: new Date("YYYY-MM-DD")`. Mappings added only on the current branch may be removed. Exception: Iceberg, Granite, and Glacier may be removed with a one-time database cleanup after the source removal deploys, keeping shared models, logs, usage aggregates, and history. EmberCloud may be removed once its 2026-10-28 `deactivatedAt` has passed. NanoGPT's static provider and three already-deactivated mappings may be removed by explicit user authorization; retain shared canonical models and historical DB rows. Also exempt: providers configured in Airside, as described in [Airside-only providers](#airside-only-providers).
+- A mapping on `origin/main` is never removed: historical usage and analytics reference it. Retire it with `deactivatedAt: new Date("YYYY-MM-DD")`. Mappings added only on the current branch may be removed. Exception: Iceberg, Granite, and Glacier may be removed with a one-time database cleanup after the source removal deploys, keeping shared models, logs, usage aggregates, and history. EmberCloud may be removed once its 2026-10-28 `deactivatedAt` has passed. Reve was removed after its 2026-08-06 `deactivatedAt` passed. RanoAI was removed by explicit user authorization because it stopped serving requests. NanoGPT's static provider and three already-deactivated mappings may be removed by explicit user authorization; retain shared canonical models and historical DB rows. Azure AI Foundry (`azure-ai-foundry`) was removed by explicit user authorization after its 2026-11-07 `deactivatedAt` passed; `azure` serves its models. Also exempt: providers configured in Airside, as described in [Airside-only providers](#airside-only-providers).
 - Set `deactivatedAt` at least 7 days out for a mapping that still serves live requests, or on the provider's announced retirement date. A same-day or retroactive date requires the mapping to be unable to serve any live request today. A rejected parameter, a missing capability, or flaky quality is a metadata fix (`jsonOutput`, `vision`, `reasoningEfforts`, `supportedToolChoices`, `stability: "unstable"`, `test: "skip"`) or a gateway fix; leave the mapping active and say so in the PR.
 - Write per-token prices (`inputPrice`, `outputPrice`, `cachedInputPrice`, …) in `e-6` notation so the coefficient reads as USD per million tokens (`"1.4e-6"`). `requestPrice` (flat USD per request) and `perSecondPrice` are exempt.
 - One model definition has at most one mapping per `providerId`; regional variants go in that mapping's `regions` array. Lookups key on `(providerId, region)`, so a second same-provider mapping silently resolves to the first and bills at its prices. A distinct upstream deployment (e.g. a priority router with its own `externalId` and pricing) gets its own model entry and `id`.
@@ -240,6 +240,32 @@ maximum is the subscription's shared quota for the model (Operate → Quota). On
 a model shows 100% allocated there, more capacity needs a Request quota
 submission to Microsoft or a resource in another subscription, which has its own
 quota.
+
+## Alibaba regions and workspaces
+
+Alibaba keys are region-scoped (`regionConfig` in `providers.ts` leaves
+`sharedCredentialAcrossRegions` unset). A key works only against its own
+region's host, so a 401 on every Alibaba model, existing ones included, means a
+wrong or missing regional key, not a broken mapping.
+
+- Keys: `LLM_ALIBABA_API_KEY` covers only the default region (`singapore`).
+  Every other region needs its own `LLM_ALIBABA_API_KEY__<REGION>` (suffix from
+  `getRegionEnvVarSuffix`, e.g. `EU_FRANKFURT`, `US_VIRGINIA`, `CN_BEIJING`,
+  `CN_HONGKONG`, `AP_TOKYO`); without it routing treats the region as
+  unavailable.
+- Routing: `pinDefaultRegion` is unset, so a request without `:region` goes to
+  the cheapest region the mapping lists that has a key, not always to
+  Singapore. Put each region the model is listed for on Model Studio's pricing
+  page in the mapping's `regions` array with that region's prices; models are
+  often region-limited, so don't claim a region without checking.
+- Workspaces: Singapore, US Virginia and Beijing use shared DashScope hosts.
+  Frankfurt, Hong Kong and Tokyo are served only by a workspace-dedicated
+  `https://<workspaceId>.<region>.maas.aliyuncs.com` host. The workspace id
+  comes from the key's provider options, else
+  `LLM_ALIBABA_WORKSPACE_ID__<REGION>`, else `LLM_ALIBABA_WORKSPACE_ID`. When
+  none resolves, the gateway uses that region's trial host (1000 RPM, no SLA),
+  which is not a valid test of the mapping.
+- Test every region separately: `TEST_MODELS="alibaba/<model>:<region>"`.
 
 ## 7. Verify
 

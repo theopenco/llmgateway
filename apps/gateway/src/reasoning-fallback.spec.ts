@@ -12,12 +12,18 @@ import { rememberReasoningCredential } from "./chat/tools/reasoning-credential-p
 import { resetKeyHealth } from "./lib/api-key-health.js";
 import { createSessionProviderStore } from "./lib/preferred-provider.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
+import { overrideProviderPriorities } from "./test-utils/routing-priority.js";
 import { waitForLogs } from "./test-utils/test-helpers.js";
 
 import type { CompletionsRequest } from "./chat/schemas/completions.js";
 
 describe("reasoning model retry before output", () => {
 	const harness = createGatewayApiTestHarness();
+	// gpt-5.5 / gpt-6-luna tie on price between openai and azure; make azure
+	// the natural winner so routing assertions are deterministic.
+	beforeEach(() => {
+		overrideProviderPriorities({ azure: 2 });
+	});
 	beforeEach(resetKeyHealth);
 	const model = "gpt-6-luna";
 	const encryptedHistory: CompletionsRequest["messages"] = [

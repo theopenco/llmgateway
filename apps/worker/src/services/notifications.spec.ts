@@ -240,6 +240,41 @@ describe("usage notifications", () => {
 		});
 		expect(payload.headers).toEqual(buildUnsubscribeHeaders(token));
 		expect(payload.text).toContain(buildUnsubscribeUrl(token));
+		expect(payload.text).toContain("/dashboard/alert-org/org/notifications");
+	});
+	it("groups events detected together into one email per category", async () => {
+		await enable("model_retirement", "alert-owner", true);
+		await enable("budget", "alert-owner", true);
+		await insertUsage();
+		await db.insert(tables.model).values({ id: "other-model", family: "test" });
+		await db.insert(tables.modelProviderMapping).values({
+			id: "other-mapping",
+			modelId: "other-model",
+			providerId: "test-provider",
+			externalId: "other-model",
+			deactivatedAt: daysFromNow(7),
+		});
+		await db.insert(tables.apiKeyHourlyModelStats).values({
+			projectId: "alert-project",
+			apiKeyId: "alert-key",
+			usedModel: "test-provider/other-model",
+			usedProvider: "test-provider",
+			hourTimestamp: new Date(now.getTime() - 3600000),
+			requestCount: 10,
+		});
+		await processNotifications(now);
+		expect(send).toHaveBeenCalledTimes(2);
+		const retirement = send.mock.calls
+			.map((call) => call[0])
+			.find((payload) => payload.subject.startsWith("Model deactivation"));
+		expect(retirement.subject).toBe("Model deactivation approaching (2)");
+		expect(retirement.text).toContain("test-provider/test-model");
+		expect(retirement.text).toContain("test-provider/other-model");
+		expect(
+			(await db.query.notification.findMany()).every((n) => n.emailSentAt),
+		).toBe(true);
+		await deliverNotificationEmails(now);
+		expect(send).toHaveBeenCalledTimes(2);
 	});
 	it("stops emailing an address that used the one-click link, permanently", async () => {
 		await enable("budget", "alert-owner", true);
