@@ -260,6 +260,17 @@ export async function syncAirsideModelMetadata(
 	await cdb.transaction(sync);
 }
 
+/** Columns of a filing approved on arrival under the claim's `autoApproveFares`. */
+export function autoApprovedFilingFields() {
+	return {
+		status: "approved" as const,
+		autoApproved: true,
+		reviewNote:
+			"Approved automatically: this carrier's fare changes skip review.",
+		reviewedAt: new Date(),
+	};
+}
+
 /** Upsert an approved price update into the materialized catalogue. */
 export async function updateAirsideMappingPrices(
 	model: DraftModelRow,

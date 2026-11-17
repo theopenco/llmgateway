@@ -350,6 +350,9 @@ export const organization = snakeCase.table(
 		// "developer". Stored lowercase, no leading "@". Unique so a domain can
 		// only be claimed by one organization.
 		ssoAutoJoinDomain: text(),
+		// Engine the gateway searches with for providers without native web
+		// search (GATEWAY_WEB_SEARCH_ENGINES). Null = the default engine.
+		webSearchEngine: text(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
@@ -2585,6 +2588,14 @@ export const log = snakeCase.table(
 		cacheWriteInputCost: real(),
 		requestCost: real(),
 		webSearchCost: real(),
+		// Who ran the request's web search: a gateway engine
+		// (GATEWAY_WEB_SEARCH_ENGINES) for an upstream without native search, or
+		// the provider that ran it natively. Null when no search was billed.
+		webSearchEngine: text(),
+		// Whether the gateway or the upstream ran the search. Null when no
+		// search was billed, and on rows from before gateway-run search (native).
+		webSearchType: text({ enum: ["native", "gateway"] }),
+		webSearchCount: integer(),
 		contentFilterCost: real(),
 		imageInputTokens: decimal(),
 		imageOutputTokens: decimal(),
@@ -5900,6 +5911,10 @@ export const providerClaim = snakeCase.table(
 		billingMode: text({ enum: ["payg", "postpaid", "payout"] })
 			.notNull()
 			.default("payg"),
+		// Admin-only trust flag. Price updates and fare changes the carrier
+		// files are approved on arrival, and the worker applies the prices the
+		// carrier publishes on its /v1/models the same way.
+		autoApproveFares: boolean().notNull().default(false),
 		// Self-declared public profile shown on the provider page. Display only:
 		// it never feeds compliance routing, which reads the static catalogue.
 		website: text(),
@@ -6366,6 +6381,8 @@ export const providerPriceFiling = snakeCase.table(
 			.default("pending"),
 		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
 		note: text(),
+		// Approved without review under the claim's `autoApproveFares`.
+		autoApproved: boolean().notNull().default(false),
 		reviewedBy: text(),
 		reviewNote: text(),
 		reviewedAt: timestamp(),
@@ -6443,6 +6460,8 @@ export const providerRoutingFiling = snakeCase.table(
 		// Admin-only: the model override was removed and the model falls back to
 		// the default fare (recorded in the discount/margin columns).
 		clearsOverride: boolean().notNull().default(false),
+		// Approved without review under the claim's `autoApproveFares`.
+		autoApproved: boolean().notNull().default(false),
 		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
 		reviewedBy: text(),
 		reviewNote: text(),
@@ -6593,6 +6612,7 @@ export const projectHourlyStats = snakeCase.table(
 		inputCost: real().notNull().default(0),
 		outputCost: real().notNull().default(0),
 		requestCost: real().notNull().default(0),
+		webSearchCost: real().notNull().default(0),
 		dataStorageCost: real().notNull().default(0),
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
@@ -6680,6 +6700,7 @@ export const projectHourlyModelStats = snakeCase.table(
 		inputCost: real().notNull().default(0),
 		outputCost: real().notNull().default(0),
 		requestCost: real().notNull().default(0),
+		webSearchCost: real().notNull().default(0),
 		dataStorageCost: real().notNull().default(0),
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
@@ -6787,6 +6808,7 @@ export const projectHourlySourceStats = snakeCase.table(
 		inputCost: real().notNull().default(0),
 		outputCost: real().notNull().default(0),
 		requestCost: real().notNull().default(0),
+		webSearchCost: real().notNull().default(0),
 		dataStorageCost: real().notNull().default(0),
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
@@ -6899,6 +6921,51 @@ export const projectHourlyRoutingStats = snakeCase.table(
 	],
 );
 
+// Web search usage per project, hour, type and engine. `webSearchType` splits
+// gateway-run from native search; `webSearchEngine` is the gateway engine, or
+// for native search the provider that ran it.
+export const projectHourlyWebSearchStats = snakeCase.table(
+	"project_hourly_web_search_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		projectId: text().notNull(),
+		hourTimestamp: timestamp().notNull(),
+		webSearchType: text({ enum: ["native", "gateway"] }).notNull(),
+		webSearchEngine: text().notNull(),
+		usedProvider: text().notNull(),
+		usedMode: text({ enum: ["api-keys", "credits"] }).notNull(),
+		requestCount: integer().notNull().default(0),
+		searchCount: integer().notNull().default(0),
+		webSearchCost: real().notNull().default(0),
+		// Total cost of those requests, web search included.
+		cost: real().notNull().default(0),
+	},
+	(table) => [
+		unique("project_hourly_web_search_stats_unique").on(
+			table.projectId,
+			table.hourTimestamp,
+			table.webSearchType,
+			table.webSearchEngine,
+			table.usedProvider,
+			table.usedMode,
+		),
+		index("project_hourly_web_search_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		index("project_hourly_web_search_stats_hour_timestamp_engine_idx").on(
+			table.hourTimestamp,
+			table.webSearchType,
+			table.webSearchEngine,
+		),
+	],
+);
+
 // API key hourly statistics aggregation - for per-key breakdown queries
 export const apiKeyHourlyStats = snakeCase.table(
 	"api_key_hourly_stats",
@@ -6950,6 +7017,7 @@ export const apiKeyHourlyStats = snakeCase.table(
 		inputCost: real().notNull().default(0),
 		outputCost: real().notNull().default(0),
 		requestCost: real().notNull().default(0),
+		webSearchCost: real().notNull().default(0),
 		dataStorageCost: real().notNull().default(0),
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
@@ -7112,6 +7180,7 @@ export const apiKeyHourlyModelStats = snakeCase.table(
 		inputCost: real().notNull().default(0),
 		outputCost: real().notNull().default(0),
 		requestCost: real().notNull().default(0),
+		webSearchCost: real().notNull().default(0),
 		dataStorageCost: real().notNull().default(0),
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
@@ -7207,6 +7276,7 @@ export const apiKeyHourlySourceStats = snakeCase.table(
 		inputCost: real().notNull().default(0),
 		outputCost: real().notNull().default(0),
 		requestCost: real().notNull().default(0),
+		webSearchCost: real().notNull().default(0),
 		dataStorageCost: real().notNull().default(0),
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
@@ -7313,6 +7383,7 @@ const globalModelStatsColumns = () => ({
 	inputCost: real().notNull().default(0),
 	outputCost: real().notNull().default(0),
 	requestCost: real().notNull().default(0),
+	webSearchCost: real().notNull().default(0),
 	dataStorageCost: real().notNull().default(0),
 	discountSavings: real().notNull().default(0),
 	imageInputCost: real().notNull().default(0),
@@ -7408,6 +7479,7 @@ const globalSourceStatsColumns = () => ({
 	inputCost: real().notNull().default(0),
 	outputCost: real().notNull().default(0),
 	requestCost: real().notNull().default(0),
+	webSearchCost: real().notNull().default(0),
 	dataStorageCost: real().notNull().default(0),
 	discountSavings: real().notNull().default(0),
 	imageInputCost: real().notNull().default(0),
@@ -7489,6 +7561,7 @@ const globalProviderKeyModelStatsColumns = () => ({
 	inputCost: real().notNull().default(0),
 	outputCost: real().notNull().default(0),
 	requestCost: real().notNull().default(0),
+	webSearchCost: real().notNull().default(0),
 	dataStorageCost: real().notNull().default(0),
 	discountSavings: real().notNull().default(0),
 	imageInputCost: real().notNull().default(0),
@@ -8090,6 +8163,15 @@ export const modelPriceState = snakeCase.table("model_price_state", {
 		.notNull()
 		.defaultNow()
 		.$onUpdate(() => new Date()),
+});
+
+// One row per newsletter issue the worker handled, so each is drafted once.
+export const newsletterIssue = snakeCase.table("newsletter_issue", {
+	// The issue kind and the first day it does not cover: new-models:2026-11-16.
+	id: text().primaryKey(),
+	createdAt: timestamp().notNull().defaultNow(),
+	// The Resend broadcast draft; null when the period had nothing to announce.
+	broadcastId: text(),
 });
 
 export const loungeConnection = snakeCase.table(

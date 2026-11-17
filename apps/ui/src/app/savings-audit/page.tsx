@@ -26,6 +26,11 @@ const faqs = [
 			"Any CSV with one column for the model and columns for input and output tokens. Activity and usage exports from most LLM platforms work as they are. If a column is not recognized, pick it by hand after loading the file.",
 	},
 	{
+		question: "Can an AI agent run the audit for me?",
+		answer:
+			"Yes. Copy the prompt on this page into an agent with computer use. It opens your OpenRouter activity, exports it as CSV and loads the file here, in your own browser session.",
+	},
+	{
 		question: "Is my usage data uploaded?",
 		answer:
 			"No. The file is parsed in your browser and nothing in it is sent to our servers. Only the per-model totals shown on the page are computed, and they stay on the page.",

@@ -4331,6 +4331,8 @@ const logEntrySchema = z.object({
 	cacheWriteInputCost: z.number().nullable(),
 	requestCost: z.number().nullable(),
 	webSearchCost: z.number().nullable(),
+	webSearchEngine: z.string().nullable(),
+	webSearchType: z.enum(["native", "gateway"]).nullable(),
 	contentFilterCost: z.number().nullable(),
 	imageInputCost: z.number().nullable(),
 	imageOutputCost: z.number().nullable(),
@@ -4535,6 +4537,8 @@ async function fetchAdminLogs(scope: SQLWrapper, query: AdminLogQuery) {
 			cacheWriteInputCost: tables.log.cacheWriteInputCost,
 			requestCost: tables.log.requestCost,
 			webSearchCost: tables.log.webSearchCost,
+			webSearchEngine: tables.log.webSearchEngine,
+			webSearchType: tables.log.webSearchType,
 			contentFilterCost: tables.log.contentFilterCost,
 			imageInputCost: tables.log.imageInputCost,
 			imageOutputCost: tables.log.imageOutputCost,
@@ -11164,6 +11168,7 @@ const providerDetailSchema = z.object({
 				paidAt: z.string().nullable(),
 				listingInviteCode: z.string().nullable(),
 				billingMode: z.enum(AIRSIDE_BILLING_MODES),
+				autoApproveFares: z.boolean(),
 				domains: z.array(
 					z.object({
 						domain: z.string(),
@@ -11326,6 +11331,7 @@ admin.openapi(getProviderDetail, async (c) => {
 					pendingBranding: tables.providerClaim.pendingBranding,
 
 					billingMode: tables.providerClaim.billingMode,
+					autoApproveFares: tables.providerClaim.autoApproveFares,
 					createdAt: tables.providerClaim.createdAt,
 					reviewedAt: tables.providerClaim.reviewedAt,
 				},
@@ -11578,6 +11584,7 @@ admin.openapi(getProviderDetail, async (c) => {
 						paidAt: carrier.paidAt?.toISOString() ?? null,
 						listingInviteCode: carrier.listingInviteCode,
 						billingMode: carrier.claim.billingMode,
+						autoApproveFares: carrier.claim.autoApproveFares,
 						domains: carrierDomains.map((d) => ({
 							domain: d.domain,
 							verificationMethod: d.verificationMethod,

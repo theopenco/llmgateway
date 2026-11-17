@@ -16,13 +16,6 @@ import {
 	smokeTestListing,
 	fileVerifiedProviderKey,
 } from "@/lib/airside-carrier-keys.js";
-import {
-	materializeAirsideModel,
-	setAirsideModelServing,
-	staticCatalogueHasActiveMapping,
-	syncAirsideModelMetadata,
-	updateAirsideMappingPrices,
-} from "@/lib/airside-catalogue.js";
 import { assertListingContextSize } from "@/lib/airside-context-size.js";
 import {
 	assertDecisionMetadataEdit,
@@ -42,6 +35,10 @@ import {
 	WEBSITE_VERIFICATION_TXT_NAME,
 	websiteVerificationRecord,
 } from "@/lib/airside-domains.js";
+import {
+	applyRoutingFiling,
+	carrierAutoApprovesFares,
+} from "@/lib/airside-fares.js";
 import {
 	airsideModelMetadataSchema,
 	type AirsideModelMetadataInput,
@@ -118,6 +115,12 @@ import { sendTransactionalEmail } from "@/utils/email.js";
 import {
 	hasMessageContentVerification,
 	DAILY_MODEL_VERIFICATION_PREFIX,
+	autoApprovedFilingFields,
+	materializeAirsideModel,
+	setAirsideModelServing,
+	staticCatalogueHasActiveMapping,
+	syncAirsideModelMetadata,
+	updateAirsideMappingPrices,
 } from "@llmgateway/actions";
 import {
 	AIRSIDE_BASELINE_MARGIN,
@@ -135,6 +138,7 @@ import {
 	gte,
 	inArray,
 	isNotNull,
+	isNull,
 	REMOVED_PROVIDER_KEY_STATUSES,
 	sql,
 	tables,
@@ -329,6 +333,9 @@ const claimSchema = z.object({
 	pendingBranding: pendingBrandingSchema.nullable(),
 	// Set by admins; read-only for the carrier.
 	billingMode: z.enum(AIRSIDE_BILLING_MODES),
+	// Set by admins: price updates and fare changes apply without review, and
+	// prices published on the carrier's /v1/models are picked up hourly.
+	autoApproveFares: z.boolean(),
 	// Whether we hold a platform credential for this carrier. Without one the
 	// gateway has nothing to authenticate with, so an approved listing still
 	// serves no traffic — the portal says so instead of looking healthy.
@@ -407,6 +414,8 @@ const filingSchema = z.object({
 	metadata: airsideModelMetadataSchema.nullable(),
 	status: z.enum(["pending", "approved", "rejected"]),
 	note: z.string().nullable(),
+	// Approved without review under the carrier's automatic fare approval.
+	autoApproved: z.boolean(),
 	reviewNote: z.string().nullable(),
 	reviewedAt: z.string().nullable(),
 	createdAt: z.string(),
@@ -478,6 +487,7 @@ const routingFilingSchema = z.object({
 	// "admin" = set directly by LLMGateway, not filed by the carrier.
 	initiatedBy: z.enum(["carrier", "admin"]),
 	clearsOverride: z.boolean(),
+	autoApproved: z.boolean(),
 	reviewNote: z.string().nullable(),
 	reviewedAt: z.string().nullable(),
 	createdAt: z.string(),
@@ -525,6 +535,7 @@ function serializeRoutingFiling(row: RoutingFilingRow) {
 		status: row.status,
 		initiatedBy: row.initiatedBy,
 		clearsOverride: row.clearsOverride,
+		autoApproved: row.autoApproved,
 		reviewNote: row.reviewNote,
 		reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
 		createdAt: row.createdAt.toISOString(),
@@ -558,6 +569,7 @@ function serializeClaim(
 		iconUrl: row.iconUrl,
 		pendingBranding: row.pendingBranding ?? null,
 		billingMode: row.billingMode,
+		autoApproveFares: row.autoApproveFares,
 		// Unknown on the single-claim responses (nothing renders the warning
 		// off those); the companies listing the portal polls resolves it.
 		hasManagedCredential: credentialedProviders?.has(row.providerId) ?? true,
@@ -710,6 +722,7 @@ function serializeFiling(row: PriceFilingRow) {
 		metadata: (row.metadata ?? null) as AirsideModelMetadataInput | null,
 		status: row.status,
 		note: row.note,
+		autoApproved: row.autoApproved,
 		reviewNote: row.reviewNote,
 		reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
 		createdAt: row.createdAt.toISOString(),
@@ -4190,6 +4203,15 @@ airside.openapi(createPriceFiling, async (c) => {
 			});
 		}
 		const kind = locked.status === "active" ? "update" : "initial";
+		// New listings always go through review; only price updates on a live
+		// listing can skip it.
+		const autoApprove =
+			kind === "update" &&
+			(await carrierAutoApprovesFares(
+				tx,
+				locked.providerCompanyId,
+				locked.providerId,
+			));
 		if (locked.status === "rejected") {
 			await tx
 				.update(tables.providerDraftModel)
@@ -4209,16 +4231,22 @@ airside.openapi(createPriceFiling, async (c) => {
 				regionPrices: body.regionPrices?.length ? body.regionPrices : null,
 				requestedBy: user.id,
 				note: body.note ?? null,
+				...(autoApprove ? autoApprovedFilingFields() : {}),
 			})
 			.returning();
+		if (autoApprove) {
+			await updateAirsideMappingPrices(locked, created, tx);
+		}
 		return created;
 	});
-	await notifyAirsideFiling({
-		kind: filing.kind,
-		id: filing.id,
-		providerId: model.providerId,
-		modelName: model.modelName,
-	});
+	if (filing.status === "pending") {
+		await notifyAirsideFiling({
+			kind: filing.kind,
+			id: filing.id,
+			providerId: model.providerId,
+			modelName: model.modelName,
+		});
+	}
 	return c.json({ filing: serializeFiling(filing) }, 201);
 });
 
@@ -4987,18 +5015,55 @@ airside.openapi(updateRoutingSettings, async (c) => {
 		});
 	}
 	// Fare changes are filings: nothing reaches the routing election until an
-	// admin approves them, so a carrier cannot move its knobs invisibly.
+	// admin approves them, so a carrier cannot move its knobs invisibly. A
+	// carrier approved for automatic fare changes files one born approved.
+	const values = {
+		providerCompanyId: body.providerCompanyId,
+		providerId,
+		modelId,
+		discountPercent: String(body.discountPercent),
+		marginPercent: String(body.marginPercent),
+		requestedBy: user.id,
+	};
 	try {
+		if (claim.autoApproveFares) {
+			// cdb: the gateway prices the routing election from provider_routing_settings.
+			const filing = await cdb.transaction(async (tx) => {
+				// A filing still awaiting review would overwrite this one once
+				// approved, so it has to be decided first.
+				const pending = await tx
+					.select({ id: tables.providerRoutingFiling.id })
+					.from(tables.providerRoutingFiling)
+					.where(
+						and(
+							eq(tables.providerRoutingFiling.providerId, providerId),
+							eq(tables.providerRoutingFiling.status, "pending"),
+							modelId
+								? eq(tables.providerRoutingFiling.modelId, modelId)
+								: isNull(tables.providerRoutingFiling.modelId),
+						),
+					)
+					.limit(1)
+					.$withCache(false);
+				if (pending.length > 0) {
+					throw new HTTPException(409, {
+						message: modelId
+							? "A fare change for this model is already awaiting approval."
+							: "A fare change for this carrier is already awaiting approval.",
+					});
+				}
+				const [created] = await tx
+					.insert(tables.providerRoutingFiling)
+					.values({ ...values, ...autoApprovedFilingFields() })
+					.returning();
+				await applyRoutingFiling(tx, created);
+				return created;
+			});
+			return c.json({ filing: serializeRoutingFiling(filing) }, 201);
+		}
 		const [filing] = await db
 			.insert(tables.providerRoutingFiling)
-			.values({
-				providerCompanyId: body.providerCompanyId,
-				providerId,
-				modelId,
-				discountPercent: String(body.discountPercent),
-				marginPercent: String(body.marginPercent),
-				requestedBy: user.id,
-			})
+			.values(values)
 			.returning();
 		await notifyAirsideFiling({
 			kind: "routing",

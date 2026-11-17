@@ -732,7 +732,8 @@ export interface ProviderModelMapping {
 	 */
 	jsonOutputSchema?: boolean;
 	/**
-	 * Whether this model supports web search/grounding capabilities
+	 * Whether the upstream runs web search natively. Chat mappings without it
+	 * get gateway-run search instead (`usesGatewayWebSearch`).
 	 */
 	webSearch?: boolean;
 	/**

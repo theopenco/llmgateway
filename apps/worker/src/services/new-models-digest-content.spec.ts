@@ -9,12 +9,11 @@ import {
 	formatPerMillion,
 	fromCatalogue,
 	parseChangelogEntry,
-	parseUntil,
 	readCatalogueList,
 	selectChangelog,
 	selectNewModels,
 	type DigestModelInput,
-} from "./new-models-digest-lib.js";
+} from "./new-models-digest-content.js";
 
 // Ways the weekly issue can go wrong: a model that landed is never announced
 // (added after its release date, or between two runs), or is announced twice;
@@ -121,7 +120,9 @@ describe("which models make the issue", () => {
 
 		expect(ids(models, tuesday)).toEqual(["this-monday", "last-week"]);
 		expect(
-			selectNewModels(models, providerNames, tuesday, 7, until).map((m) => m.id),
+			selectNewModels(models, providerNames, tuesday, 7, until).map(
+				(m) => m.id,
+			),
 		).toEqual(["last-week"]);
 		expect(
 			buildDigest({
@@ -139,22 +140,10 @@ describe("which models make the issue", () => {
 		).toEqual(["On time"]);
 	});
 
-	test("the end day must exist and not lie ahead", () => {
-		expect(parseUntil(undefined, now)).toBe(now);
-		expect(parseUntil("2026-11-09", now)).toEqual(
-			new Date("2026-11-09T00:00:00Z"),
-		);
-		for (const value of ["2026-02-30", "16/11/2026", "2026-11-9", "soon"]) {
-			expect(() => parseUntil(value, now)).toThrow(
-				"--until must be a real date like 2026-11-16",
-			);
-		}
-		expect(() => parseUntil("2026-11-11", now)).toThrow(
-			"--until cannot be in the future",
-		);
-		expect(describeWindow(now, 7)).toBe("2026-11-03 to 2026-11-09 (UTC)");
+	test("names the first and last day it covers", () => {
+		expect(describeWindow(now, 7)).toBe("2026-11-03 to 2026-11-09");
 		expect(describeWindow(new Date("2026-03-02T00:00:00Z"), 2)).toBe(
-			"2026-02-28 to 2026-03-01 (UTC)",
+			"2026-02-28 to 2026-03-01",
 		);
 	});
 
@@ -352,12 +341,7 @@ test("prices and context sizes read the way the site prints them", () => {
 test("the subject names up to two models and counts the rest", () => {
 	const [a, b, c, d] = ["A", "B", "C", "D"].map(
 		(name) =>
-			selectNewModels(
-				[model({ id: name, name })],
-				providerNames,
-				now,
-				7,
-			)[0],
+			selectNewModels([model({ id: name, name })], providerNames, now, 7)[0],
 	);
 
 	expect(buildSubject([a])).toBe("New on LLM Gateway: A");
@@ -513,7 +497,28 @@ describe("the issue", () => {
 		expect(draft).toMatchObject({
 			segment_id: "segment-1",
 			topic_id: "topic-1",
+			name: "New models: 2026-11-03 to 2026-11-09",
 			subject: "New on LLM Gateway: Model A",
 		});
+	});
+
+	test("keeps the broadcast name inside Resend's 70 characters whatever the models are called", () => {
+		const long = (id: string) =>
+			model({ id, name: `${id} ${"Very Long Model Name ".repeat(4)}` });
+		const digest = buildDigest({
+			...input,
+			models: [long("a"), long("b"), long("c")],
+		});
+		if (!digest) {
+			throw new Error("expected an issue");
+		}
+
+		const draft = buildBroadcastDraft(digest, {
+			segmentId: "segment-1",
+			topicId: "topic-1",
+		});
+
+		expect(draft.subject.length).toBeGreaterThan(70);
+		expect(draft.name.length).toBeLessThanOrEqual(70);
 	});
 });

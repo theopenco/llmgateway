@@ -32,6 +32,7 @@ export function serializeOrganization(
 		providerCompliancePolicy: organization.providerCompliancePolicy,
 		smartRoutingConfig: organization.smartRoutingConfig,
 		ssoAutoJoinDomain: organization.ssoAutoJoinDomain,
+		webSearchEngine: organization.webSearchEngine,
 		status: organization.status,
 		blockReason: organization.blockReason,
 		autoTopUpEnabled: organization.autoTopUpEnabled,

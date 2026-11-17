@@ -1,14 +1,14 @@
 import { HTTPException } from "hono/http-exception";
 
+import { materializeAirsideModel } from "@llmgateway/actions";
 import { and, desc, eq, ne, tables } from "@llmgateway/db";
 
-import { materializeAirsideModel } from "./airside-catalogue.js";
 import {
 	assertActivationKind,
 	assertListingKind,
 } from "./airside-decisions.js";
 
-import type { CatalogueTransaction } from "./airside-catalogue.js";
+import type { CatalogueTransaction } from "@llmgateway/actions";
 
 type DraftModelRow = typeof tables.providerDraftModel.$inferSelect;
 

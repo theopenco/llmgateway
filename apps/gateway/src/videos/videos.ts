@@ -1958,8 +1958,8 @@ const DEFAULT_VERTEX_VIDEO_REGION = "us-central1";
  * `LLM_*` env vars are never applied implicitly (mirrors getProviderEndpoint's
  * skipEnvVars), so the deployment's proxy or GCP project only reaches an org's
  * own key when the key itself is configured for it. Vertex output written to
- * the platform bucket targets the storage project instead, so the key's own
- * project is only required without a bucket.
+ * the platform bucket is reserved for platform credentials (see
+ * getVertexVideoOutputBucket), so a BYOK Vertex key always needs its own project.
  */
 function resolveByokVideoProviderSettings(
 	providerId: Provider,
@@ -1980,12 +1980,29 @@ function resolveByokVideoProviderSettings(
 		baseUrl,
 		vertexProjectId,
 		vertexRegion: DEFAULT_VERTEX_VIDEO_REGION,
-		hasVertexProject: Boolean(
-			vertexProjectId ||
-			(getGoogleVertexVideoOutputBucket() &&
-				process.env.GOOGLE_CLOUD_PROJECT?.trim()),
-		),
+		hasVertexProject: Boolean(vertexProjectId),
 	};
+}
+
+/**
+ * Platform GCS bucket for a Vertex video attempt's output. Only platform
+ * credentials (credits mode) can write to it; a BYOK key runs in the customer's
+ * own GCP project, so Veo returns its output inline instead.
+ */
+function getVertexVideoOutputBucket(
+	providerContext: Pick<ProviderContext, "usedMode">,
+): string | null {
+	return providerContext.usedMode === "credits"
+		? getGoogleVertexVideoOutputBucket()
+		: null;
+}
+
+function getVertexInlineVideoRetentionMessage(
+	providerContext: Pick<ProviderContext, "usedMode">,
+): string {
+	return providerContext.usedMode === "api-keys"
+		? "Google Vertex video generation with your own provider key returns the video inline, which requires data retention to be enabled for your organization."
+		: "Google Vertex video generation requires either GCS output storage or data retention to be enabled.";
 }
 
 function resolveByokVideoProviderContext(
@@ -3746,7 +3763,7 @@ async function createGoogleVertexVideoJob(
 	upstreamRequest: Record<string, unknown>;
 	upstreamResponse: Record<string, unknown>;
 }> {
-	const outputBucket = getGoogleVertexVideoOutputBucket();
+	const outputBucket = getVertexVideoOutputBucket(providerContext);
 	const storageProjectId = process.env.GOOGLE_CLOUD_PROJECT?.trim();
 	const vertexProjectId = outputBucket
 		? storageProjectId
@@ -5757,7 +5774,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 
 			if (
 				isGoogleVertexVideoProvider(selectedProviderContext.providerId) &&
-				!getGoogleVertexVideoOutputBucket() &&
+				!getVertexVideoOutputBucket(selectedProviderContext) &&
 				getEffectiveRetentionLevel(organization, apiKey) === "none"
 			) {
 				const statusCode = 400;
@@ -5779,8 +5796,9 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				);
 				if (!nextProvider || requestedProvider) {
 					throw new HTTPException(400, {
-						message:
-							"Vertex-compatible video generation requires either GCS output storage or data retention to be enabled.",
+						message: getVertexInlineVideoRetentionMessage(
+							selectedProviderContext,
+						),
 					});
 				}
 
@@ -5791,8 +5809,9 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				);
 				if (!nextMapping) {
 					throw new HTTPException(400, {
-						message:
-							"Google Vertex video generation requires either GCS output storage or data retention to be enabled.",
+						message: getVertexInlineVideoRetentionMessage(
+							selectedProviderContext,
+						),
 					});
 				}
 
