@@ -85,7 +85,7 @@ describe("provider keys route", () => {
 		});
 	});
 
-	test("rejects retired provider keys even with an explicit model list", async () => {
+	test("rejects the removed azure-ai-foundry provider", async () => {
 		const res = await app.request("/keys/provider", {
 			method: "POST",
 			headers: { Cookie: token, "Content-Type": "application/json" },
@@ -97,31 +97,6 @@ describe("provider keys route", () => {
 			}),
 		});
 		expect(res.status).toBe(400);
-	});
-
-	test("keeps retired key history readable but rejects reactivation", async () => {
-		await db
-			.update(tables.providerKey)
-			.set({ provider: "azure-ai-foundry", status: "inactive" })
-			.where(eq(tables.providerKey.id, "test-provider-key-id"));
-		const list = await app.request("/keys/provider", {
-			headers: { Cookie: token },
-		});
-		expect(list.status).toBe(200);
-		expect(await list.json()).toMatchObject({
-			providerKeys: expect.arrayContaining([
-				expect.objectContaining({ provider: "azure-ai-foundry" }),
-			]),
-		});
-		const res = await app.request("/keys/provider/test-provider-key-id", {
-			method: "PATCH",
-			headers: { Cookie: token, "Content-Type": "application/json" },
-			body: JSON.stringify({ status: "active" }),
-		});
-		expect(res.status).toBe(400);
-		expect(await res.json()).toMatchObject({
-			message: expect.stringMatching(/retired/i),
-		});
 	});
 
 	test("does not expose or accept managed selection strategy on BYOK keys", async () => {

@@ -323,8 +323,6 @@ export interface ProviderDefinition {
 	dataPolicy?: ProviderDataPolicy | null;
 	/** Additional provider policy links shown in the Data & Privacy card */
 	additionalLinks?: ProviderAdditionalLink[];
-	/** Historical catalogue entry; no new credentials or inference. */
-	retired?: boolean;
 }
 
 export const providers: ProviderDefinition[] = [
@@ -1226,35 +1224,6 @@ export const providers: ProviderDefinition[] = [
 					"Premium low-latency tier at a 100% premium. Requires a Global Standard or Data Zone (US) deployment.",
 			},
 		],
-		termsUrl: "https://www.microsoft.com/licensing/terms",
-		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
-		usagePolicyUrl: "https://www.microsoft.com/en-us/legal/terms-of-use",
-		legalEntity: "Microsoft Corporation",
-		headquarters: "US",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-			soc2: 2,
-			iso27001: true,
-			gdpr: true,
-		},
-	},
-	{
-		id: "azure-ai-foundry",
-		retired: true,
-		name: "Azure AI Foundry (Legacy)",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Legacy Azure Model Inference API. Use Azure with the AI Foundry deployment type.",
-		env: { required: {} },
-		cancellation: true,
-		color: "#0078D4",
-		website: "https://azure.microsoft.com/en-us/products/ai-foundry",
-		statusPageUrl: "https://status.ai.azure.com",
-		announcement:
-			"Retired on 2026-11-07. Use Azure with the AI Foundry deployment type.",
-		learnMore: "https://docs.llmgateway.io/integrations/azure",
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
 		usagePolicyUrl: "https://www.microsoft.com/en-us/legal/terms-of-use",
@@ -2644,8 +2613,4 @@ export function formatServiceTierMultiplier(multiplier: number): string {
 			? `−${Math.round((1 - multiplier) * 100)}%`
 			: `+${Math.round((multiplier - 1) * 100)}%`;
 	return `${multiplier}× (${delta})`;
-}
-/** Retained for historical lookups, not new credentials or requests. */
-export function isRetiredProvider(providerId: string): boolean {
-	return getProviderDefinition(providerId)?.retired === true;
 }
