@@ -187,6 +187,7 @@ describe("tiered gateway content filter", () => {
 			exemptReason: "global_log_only",
 			flagged: true,
 			matchedCategories: ["violence"],
+			matchedGroups: [],
 			categoryScores: { violence: 0.95, hate: 0.1 },
 			moderationFailed: false,
 			durationMs: expect.any(Number),
@@ -310,6 +311,40 @@ describe("tiered gateway content filter", () => {
 		// The org retains payloads, so the blocked request survives insertLog.
 		expect(log.content).toBe(GATEWAY_CONTENT_FILTER_MESSAGE);
 		expect(log.messages).not.toBeNull();
+	});
+
+	test("blocks only the configured groups and logs other violations", async () => {
+		await harness.setContentFilterSettings({
+			providerIds: ["llmgateway"],
+			enforce: true,
+			blockGroups: ["csam"],
+		});
+
+		moderation(violent);
+		const passed = await chat("tier-group-logged");
+		expect((await passed.json()).choices[0].finish_reason).not.toBe(
+			"content_filter",
+		);
+		expect(
+			(await waitForLogByRequestId("tier-group-logged"))
+				.gatewayContentFilterEvaluation,
+		).toMatchObject({ violation: true, action: "logged", matchedGroups: [] });
+
+		moderation([
+			{ flagged: false, category_scores: { "sexual/minors": 0.02 } },
+		]);
+		const blocked = await chat("tier-group-blocked");
+		expect((await blocked.json()).choices[0].finish_reason).toBe(
+			"content_filter",
+		);
+		expect(
+			(await waitForLogByRequestId("tier-group-blocked"))
+				.gatewayContentFilterEvaluation,
+		).toMatchObject({
+			action: "blocked",
+			matchedCategories: ["sexual/minors"],
+			matchedGroups: ["csam"],
+		});
 	});
 
 	test("streams the block as a single content_filter chunk", async () => {

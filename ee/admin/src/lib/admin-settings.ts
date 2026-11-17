@@ -48,6 +48,8 @@ export interface ContentFilterSettingsInput {
 	shadowClassifiers: ("openai" | "jev" | "internal")[];
 	internalScope: "full" | "latest_turn";
 	moderateImages: boolean;
+	blockGroups: ("csam" | "sexual" | "cyber")[] | null;
+	csamScoreThreshold: number;
 }
 
 export async function getContentFilterSettings() {

@@ -299,7 +299,11 @@ export async function evaluateContentFilterWithClassifiers(options: {
 	return {
 		evaluation: buildGatewayContentFilterEvaluation(
 			plan,
-			evaluateTieredContentFilter(result.results, plan.level),
+			evaluateTieredContentFilter(
+				result.results,
+				plan.level,
+				plan.csamScoreThreshold,
+			),
 			moderationFailed(result),
 			result.durationMs,
 			{
@@ -384,7 +388,11 @@ export function withShadowVerdicts(
 				buildContentFilterShadowVerdict(
 					plan,
 					result.classifier,
-					evaluateTieredContentFilter(result.results, plan.level),
+					evaluateTieredContentFilter(
+						result.results,
+						plan.level,
+						plan.csamScoreThreshold,
+					),
 					moderationFailed(result),
 					result.durationMs,
 					{

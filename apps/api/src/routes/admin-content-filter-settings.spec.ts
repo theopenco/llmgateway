@@ -91,6 +91,8 @@ describe("admin content filter settings", () => {
 			shadowClassifiers: [],
 			internalScope: "full",
 			moderateImages: true,
+			blockGroups: null,
+			csamScoreThreshold: 0.01,
 		});
 	});
 
