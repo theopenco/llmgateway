@@ -295,6 +295,8 @@ function getUiUrl(): string {
 	return process.env.UI_URL ?? "https://llmgateway.io";
 }
 
+// The settings page lives under an org; user-level events (e.g. price
+// changes) use the recipient's oldest membership.
 async function getNotificationSettingsUrl(item: PendingItem): Promise<string> {
 	const organizationId =
 		item.organizationId ??
@@ -304,7 +306,13 @@ async function getNotificationSettingsUrl(item: PendingItem): Promise<string> {
 						where: { id: item.projectId },
 					})
 				)?.organizationId
-			: undefined);
+			: undefined) ??
+		(
+			await db.query.userOrganization.findFirst({
+				where: { userId: item.userId },
+				orderBy: { createdAt: "asc" },
+			})
+		)?.organizationId;
 	return organizationId
 		? `${getUiUrl()}/dashboard/${organizationId}/org/notifications`
 		: `${getUiUrl()}/dashboard`;
@@ -422,11 +430,17 @@ export async function deliverNotificationEmails(
 			if (!preference) {
 				continue;
 			}
-			const scope = await getApiKeyScope(
-				item.userId,
-				await getUserProjectIds(item.userId),
-			);
-			if (!canReadEvent(scope, item)) {
+			// Price changes are public catalogue events with no project to check.
+			if (
+				item.type !== "model_price_change" &&
+				!canReadEvent(
+					await getApiKeyScope(
+						item.userId,
+						await getUserProjectIds(item.userId),
+					),
+					item,
+				)
+			) {
 				continue;
 			}
 		}
