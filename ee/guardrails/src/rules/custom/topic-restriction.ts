@@ -90,8 +90,9 @@ export const presetTopics = Object.keys(TOPIC_KEYWORDS);
 const INFLECTIONS = "(?:s|es|ed|d|ing|er|ers)?";
 
 function keywordPattern(keyword: string): RegExp {
+	// Lookarounds instead of \b so topics ending in punctuation ("C++") match.
 	return new RegExp(
-		`\\b${escapeRegex(keyword.toLowerCase())}${INFLECTIONS}\\b`,
+		`(?<![\\w])${escapeRegex(keyword.toLowerCase())}${INFLECTIONS}(?![\\w])`,
 		"i",
 	);
 }
@@ -117,7 +118,10 @@ export function checkTopicRestriction(
 			continue;
 		}
 		// Unknown topics are matched as a phrase.
-		const keywords = TOPIC_KEYWORDS[topicKey(topic)] ?? [topicLabel(topic)];
+		const key = topicKey(topic);
+		const keywords = Object.hasOwn(TOPIC_KEYWORDS, key)
+			? TOPIC_KEYWORDS[key]!
+			: [topicLabel(topic)];
 		const keyword = keywords.find((candidate) =>
 			keywordPattern(candidate).test(content),
 		);

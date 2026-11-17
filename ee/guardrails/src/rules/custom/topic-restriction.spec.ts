@@ -29,4 +29,13 @@ describe("checkTopicRestriction", () => {
 		);
 		expect(check("Tell me about cryptography", ["crypto"])).toBe(true);
 	});
+
+	it("matches phrases ending in punctuation", () => {
+		expect(check("Discuss C++.", ["C++"])).toBe(false);
+	});
+
+	it("does not treat inherited properties as presets", () => {
+		expect(check("call the constructor", ["constructor"])).toBe(false);
+		expect(check("hello", ["toString"])).toBe(true);
+	});
 });

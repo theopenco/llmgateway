@@ -101,6 +101,9 @@ describe("PII entities", () => {
 			"IBAN",
 		]);
 		expect(detectPii("ref DE00 3704 0044 0532 0130 00").patterns).toEqual([]);
+		expect(redactPii("pay BE68 5390 0754 7034 EUR", ["iban"]).redacted).toBe(
+			"pay [IBAN_REDACTED] EUR",
+		);
 	});
 
 	it("restricts detection to the selected entities", () => {

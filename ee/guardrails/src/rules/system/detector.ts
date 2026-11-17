@@ -26,6 +26,12 @@ export interface Detector {
 	 * nearby keywords.
 	 */
 	validate?: (value: string, before: string, after: string) => boolean;
+	/**
+	 * Returns the valid leading part of a match, or null to discard it. For
+	 * patterns that may over-consume trailing text, such as an IBAN followed
+	 * by a currency code.
+	 */
+	trim?: (value: string) => string | null;
 }
 
 export interface DetectorMatch {
@@ -58,8 +64,16 @@ export function findMatches(
 				continue;
 			}
 
-			const [start, end] = span;
-			const value = content.slice(start, end);
+			const [start, spanEnd] = span;
+			let value = content.slice(start, spanEnd);
+			if (detector.trim) {
+				const trimmed = detector.trim(value);
+				if (!trimmed) {
+					continue;
+				}
+				value = trimmed;
+			}
+			const end = start + value.length;
 
 			if (detector.validate) {
 				const matchStart = match.index;

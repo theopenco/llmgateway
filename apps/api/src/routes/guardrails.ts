@@ -11,6 +11,7 @@ import {
 	desc,
 	eq,
 	gte,
+	isNull,
 	lt,
 	lte,
 	tables,
@@ -467,54 +468,71 @@ async function upsertScopedConfig(
 	scope: GuardrailScopeContext,
 	body: z.infer<typeof updateProjectConfigBodySchema>,
 ) {
-	const existing = await findScopedConfig(scope);
+	// Partial updates merge into the stored rules, so lock the row to keep
+	// concurrent edits of different rules from overwriting each other.
+	return await db.transaction(async (tx) => {
+		const [locked] = await tx
+			.select()
+			.from(tables.guardrailConfig)
+			.where(
+				scope.projectId
+					? eq(tables.guardrailConfig.projectId, scope.projectId)
+					: and(
+							eq(tables.guardrailConfig.organizationId, scope.organizationId),
+							isNull(tables.guardrailConfig.projectId),
+						),
+			)
+			.for("update")
+			.limit(1);
+		const existing = locked ? normalizeConfig(locked) : undefined;
 
-	const systemRules = withDefaultSystemRules({
-		...(existing?.systemRules ?? defaultSystemRulesConfig),
-		...(body.systemRules as Partial<SystemRulesConfig> | undefined),
-	});
-	if (body.piiAction && !body.systemRules?.pii_detection) {
-		systemRules.pii_detection = {
-			...systemRules.pii_detection,
-			action: body.piiAction,
-		};
-	}
-	assertSystemRulesSupported(systemRules);
-	// Kept in sync for readers of the deprecated column.
-	const piiAction = systemRules.pii_detection.action;
+		const systemRules = withDefaultSystemRules({
+			...(existing?.systemRules ?? defaultSystemRulesConfig),
+			...(body.systemRules as Partial<SystemRulesConfig> | undefined),
+		});
+		if (body.piiAction && !body.systemRules?.pii_detection) {
+			systemRules.pii_detection = {
+				...systemRules.pii_detection,
+				action: body.piiAction,
+			};
+		}
+		assertSystemRulesSupported(systemRules);
+		// Kept in sync for readers of the deprecated column.
+		const piiAction = systemRules.pii_detection.action;
 
-	if (existing) {
-		const [updated] = await db
-			.update(tables.guardrailConfig)
-			.set({
-				inheritOrganization:
-					body.inheritOrganization ?? existing.inheritOrganization,
-				enabled: body.enabled ?? existing.enabled,
+		if (existing) {
+			const [updated] = await tx
+				.update(tables.guardrailConfig)
+				.set({
+					inheritOrganization:
+						body.inheritOrganization ?? existing.inheritOrganization,
+					enabled: body.enabled ?? existing.enabled,
+					systemRules,
+					maxFileSizeMb: body.maxFileSizeMb ?? existing.maxFileSizeMb,
+					allowedFileTypes: body.allowedFileTypes ?? existing.allowedFileTypes,
+					piiAction,
+				})
+				.where(eq(tables.guardrailConfig.id, existing.id))
+				.returning();
+			return normalizeConfig(updated);
+		}
+
+		const [created] = await tx
+			.insert(tables.guardrailConfig)
+			.values({
+				organizationId: scope.organizationId,
+				projectId: scope.projectId,
+				inheritOrganization: body.inheritOrganization ?? true,
+				enabled: body.enabled ?? true,
 				systemRules,
-				maxFileSizeMb: body.maxFileSizeMb ?? existing.maxFileSizeMb,
-				allowedFileTypes: body.allowedFileTypes ?? existing.allowedFileTypes,
+				maxFileSizeMb: body.maxFileSizeMb ?? 10,
+				allowedFileTypes: body.allowedFileTypes ?? defaultAllowedFileTypes,
 				piiAction,
 			})
-			.where(eq(tables.guardrailConfig.id, existing.id))
 			.returning();
-		return normalizeConfig(updated);
-	}
 
-	const [created] = await db
-		.insert(tables.guardrailConfig)
-		.values({
-			organizationId: scope.organizationId,
-			projectId: scope.projectId,
-			inheritOrganization: body.inheritOrganization ?? true,
-			enabled: body.enabled ?? true,
-			systemRules,
-			maxFileSizeMb: body.maxFileSizeMb ?? 10,
-			allowedFileTypes: body.allowedFileTypes ?? defaultAllowedFileTypes,
-			piiAction,
-		})
-		.returning();
-
-	return normalizeConfig(created);
+		return normalizeConfig(created);
+	});
 }
 
 const guardrailConfigDefaults = {
@@ -981,11 +999,19 @@ async function updateScopedRule(
 	body: z.infer<typeof updateRuleBodySchema>,
 ) {
 	const existing = await findScopedRule(scope, ruleId);
-	assertCustomRuleSupported(
-		existing.type,
-		(body.config as CustomRuleConfig) ?? existing.config,
-		(body.action as GuardrailAction) ?? existing.action,
-	);
+	// Disabling or renaming a stored rule must work even if it predates the
+	// action validation; the engine treats such a "redact" as "block".
+	if (
+		body.config !== undefined ||
+		body.action !== undefined ||
+		body.enabled === true
+	) {
+		assertCustomRuleSupported(
+			existing.type,
+			(body.config as CustomRuleConfig) ?? existing.config,
+			(body.action as GuardrailAction) ?? existing.action,
+		);
+	}
 
 	const [updated] = await db
 		.update(tables.guardrailRule)

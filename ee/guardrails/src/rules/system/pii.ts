@@ -82,6 +82,25 @@ function isIban(value: string): boolean {
 }
 
 /**
+ * The pattern can swallow a trailing word ("… 7034 EUR"), so drop trailing
+ * groups until the checksum holds.
+ */
+function validIbanPrefix(value: string): string | null {
+	let candidate = value;
+	while (candidate.replace(/ /g, "").length >= 15) {
+		if (isIban(candidate)) {
+			return candidate;
+		}
+		const lastSpace = candidate.lastIndexOf(" ");
+		if (lastSpace <= 0) {
+			return null;
+		}
+		candidate = candidate.slice(0, lastSpace);
+	}
+	return null;
+}
+
+/**
  * Ordered by specificity: an SSN or card number must win over the looser phone
  * detector when their spans overlap.
  */
@@ -115,7 +134,7 @@ const PII_DETECTORS: Detector[] = [
 		label: "IBAN",
 		replacement: "[IBAN_REDACTED]",
 		pattern: /\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\b/,
-		validate: (value) => isIban(value),
+		trim: validIbanPrefix,
 	},
 	{
 		id: "email",

@@ -6,6 +6,7 @@ const MAX_PATTERN_LENGTH = 1000;
 const REDOS_PATTERNS = [
 	/\([^)]*[+*][^)]*\)[+*]/, // (x+)+ or (x*)+ patterns
 	/\([^)]*\)\{[^}]+\}[+*]/, // (x){n}+ patterns
+	/\([^)]*[+*][^)]*\)\{\d+,\d*\}/, // (x+){n,} and (x+){n,m} patterns
 ];
 
 /**

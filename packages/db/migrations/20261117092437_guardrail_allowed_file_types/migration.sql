@@ -9,4 +9,6 @@ SET "allowed_file_types" = ARRAY(
 	) AS t
 	ORDER BY t
 )
-WHERE NOT ("allowed_file_types" @> ARRAY['image/jpeg', 'image/png', 'image/gif', 'image/webp']::text[]);
+-- An empty list allows every type and stays empty.
+WHERE cardinality("allowed_file_types") > 0
+	AND NOT ("allowed_file_types" @> ARRAY['image/jpeg', 'image/png', 'image/gif', 'image/webp']::text[]);

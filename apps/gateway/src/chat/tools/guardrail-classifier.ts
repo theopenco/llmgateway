@@ -66,7 +66,11 @@ export function createGuardrailClassifier(c: Context): GuardrailClassifier {
 						...forwardedCustomHeaders(c.req.raw.headers),
 					},
 					body: JSON.stringify(body),
-					signal: AbortSignal.timeout(GUARDRAIL_CLASSIFIER_TIMEOUT_MS),
+					// Stop the paid check when the caller disconnects.
+					signal: AbortSignal.any([
+						c.req.raw.signal,
+						AbortSignal.timeout(GUARDRAIL_CLASSIFIER_TIMEOUT_MS),
+					]),
 				}),
 		);
 

@@ -98,4 +98,23 @@ describe("checkMessageFiles", () => {
 			),
 		).toEqual([]);
 	});
+
+	it("checks files inside tool results", () => {
+		expect(
+			checkMessageFiles(
+				message([
+					{
+						type: "tool_result",
+						content: [
+							{
+								type: "image",
+								source: { media_type: "application/pdf", data: "AAAA" },
+							},
+						],
+					},
+				]),
+				{ allowedFileTypes: images, maxFileSizeMb: 10 },
+			),
+		).toEqual(["Blocked file type: application/pdf"]);
+	});
 });

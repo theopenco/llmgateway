@@ -1,4 +1,4 @@
-import type { Message } from "@/types.js";
+import type { Message, MessageContent } from "@/types.js";
 
 /** Extensions an allowed-types entry may name instead of a MIME type. */
 const EXTENSION_MIME_TYPES: Record<string, string[]> = {
@@ -112,45 +112,64 @@ function collectFiles(messages: Message[]): FileCandidate[] {
 				: Array.isArray(message.content)
 					? message.content
 					: [];
-		for (const part of parts) {
-			if (part.type === "text" && part.text) {
-				for (const match of part.text.matchAll(TEXT_DATA_URI)) {
-					files.push({
-						mimeType: match[1] ?? null,
-						bytes: base64Bytes(match[2] ?? ""),
-					});
-				}
-			} else if (part.type === "image_url" && part.image_url?.url) {
-				const { url } = part.image_url;
-				files.push(
-					url.startsWith("data:")
-						? fromDataUri(url)
-						: { mimeType: mimeFromName(safePathname(url)), bytes: null },
-				);
-			} else if (part.type === "image" && part.source?.data) {
+		collectParts(parts, files);
+	}
+	return files;
+}
+
+function collectParts(parts: MessageContent[], files: FileCandidate[]): void {
+	for (const part of parts) {
+		if (part.type === "text" && part.text) {
+			for (const match of part.text.matchAll(TEXT_DATA_URI)) {
 				files.push({
-					mimeType: part.source.media_type ?? null,
-					bytes: base64Bytes(part.source.data),
+					mimeType: match[1] ?? null,
+					bytes: base64Bytes(match[2] ?? ""),
 				});
-			} else if (part.type === "input_audio" && part.input_audio?.data) {
-				files.push({
-					mimeType:
-						AUDIO_FORMAT_MIME_TYPES[part.input_audio.format ?? ""] ?? null,
-					bytes: base64Bytes(part.input_audio.data),
-				});
-			} else if (part.type === "file" && part.file?.file_data) {
-				const data = part.file.file_data;
-				const file = data.startsWith("data:")
-					? fromDataUri(data)
-					: { mimeType: null, bytes: base64Bytes(data) };
-				files.push({
-					mimeType: file.mimeType ?? mimeFromName(part.file.filename),
-					bytes: file.bytes,
-				});
+			}
+		} else if (part.type === "image_url" && part.image_url?.url) {
+			const { url } = part.image_url;
+			files.push(
+				url.startsWith("data:")
+					? fromDataUri(url)
+					: { mimeType: mimeFromName(safePathname(url)), bytes: null },
+			);
+		} else if (part.type === "image" && part.source?.data) {
+			files.push({
+				mimeType: part.source.media_type ?? null,
+				bytes: base64Bytes(part.source.data),
+			});
+		} else if (part.type === "input_audio" && part.input_audio?.data) {
+			files.push({
+				mimeType:
+					AUDIO_FORMAT_MIME_TYPES[part.input_audio.format ?? ""] ?? null,
+				bytes: base64Bytes(part.input_audio.data),
+			});
+		} else if (part.type === "file" && part.file?.file_data) {
+			const data = part.file.file_data;
+			const file = data.startsWith("data:")
+				? fromDataUri(data)
+				: { mimeType: null, bytes: base64Bytes(data) };
+			files.push({
+				mimeType: file.mimeType ?? mimeFromName(part.file.filename),
+				bytes: file.bytes,
+			});
+		} else if (part.type === "tool_result") {
+			// Tool results carry their own text, image and file blocks.
+			if (typeof part.content === "string") {
+				collectParts([{ type: "text", text: part.content }], files);
+			} else if (Array.isArray(part.content)) {
+				collectParts(part.content.filter(isContentPart), files);
 			}
 		}
 	}
-	return files;
+}
+
+function isContentPart(value: unknown): value is MessageContent {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		typeof (value as { type?: unknown }).type === "string"
+	);
 }
 
 function safePathname(url: string): string | undefined {
