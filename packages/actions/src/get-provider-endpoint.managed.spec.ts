@@ -285,8 +285,7 @@ describe("managed credential config in getProviderEndpoint", () => {
 			"vertex-anthropic",
 			undefined,
 			"claude-sonnet-4-6",
-			// The credential's service-account JSON is already an access token by
-			// the time the request is built, so nothing is derivable from it.
+			// No service-account JSON: the project comes from the credential.
 			undefined,
 			false,
 			false,

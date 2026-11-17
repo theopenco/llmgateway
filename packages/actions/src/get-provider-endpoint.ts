@@ -838,13 +838,12 @@ export function getProviderEndpoint(
 			return `${url}/v1/projects/${projectId}/locations/${vertexRegion}/endpoints/openapi/chat/completions`;
 		}
 		case "vertex-anthropic": {
-			// A managed credential states its project outright: by the time a
-			// request is built its service-account JSON has already been exchanged
-			// for an access token, so nothing downstream can derive one from it.
+			// A managed credential states its project outright.
 			let vaProjectId = credentialConfig?.project;
 			// BYOK provider keys hold the customer's service-account JSON; derive
 			// the project from it so requests hit their project, not the server's.
-			if (!vaProjectId && token) {
+			// Env credentials keep LLM_VERTEX_ANTHROPIC_PROJECT first.
+			if (!vaProjectId && token && skipEnvVars) {
 				try {
 					const sa = JSON.parse(token) as { project_id?: string };
 					vaProjectId = sa.project_id;
