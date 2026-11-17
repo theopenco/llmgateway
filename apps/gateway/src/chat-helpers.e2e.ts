@@ -1318,6 +1318,22 @@ export const reasoningEffortModels = fullMode
 		)
 	: [];
 
+/**
+ * One case per (provider mapping, reasoning mode) the catalogue declares in
+ * `reasoningModes`, so a mapping that accepts `reasoning.mode` (e.g. OpenAI
+ * Pro) is exercised against the real upstream. Provider-pinned entries only:
+ * the modes are a per-mapping property.
+ */
+export const reasoningModeModels = fullMode
+	? testModels.flatMap((m) =>
+			m.originalModel
+				? m.providers.flatMap((p: ProviderModelMapping) =>
+						(p.reasoningModes ?? []).map((mode) => ({ model: m.model, mode })),
+					)
+				: [],
+		)
+	: [];
+
 export const verbosityModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.verbosity === true),
 );
