@@ -2,11 +2,17 @@ import { Decimal } from "decimal.js";
 
 import { logger, toError } from "@llmgateway/logger";
 
+import {
+	hasContentFilterCredential,
+	resolveContentFilterCredential,
+} from "./content-filter-credential.js";
+
 import type { Annotation } from "./types.js";
 import type {
 	BaseMessage,
 	MessageContent,
 	GatewayWebSearchEngine,
+	ProviderId,
 	WebSearchTool,
 	WebSearchType,
 } from "@llmgateway/models";
@@ -103,6 +109,11 @@ interface SearchLimits {
 interface EngineAdapter {
 	/** Env var holding the platform credential for this engine. */
 	apiKeyEnv: string;
+	/**
+	 * Provider whose platform credential also authorizes this engine, used
+	 * when `apiKeyEnv` is unset.
+	 */
+	platformProvider?: ProviderId;
 	buildRequest: (
 		apiKey: string,
 		query: string,
@@ -225,6 +236,8 @@ const ENGINE_ADAPTERS: Record<GatewayWebSearchEngine, EngineAdapter> = {
 	},
 	perplexity: {
 		apiKeyEnv: "PERPLEXITY_SEARCH_API_KEY",
+		// The Search API takes the same key as Perplexity's chat models.
+		platformProvider: "perplexity",
 		buildRequest: (apiKey, query, tool, limits) => {
 			const domainFilter = tool.allowed_domains?.length
 				? tool.allowed_domains
@@ -261,6 +274,30 @@ const ENGINE_ADAPTERS: Record<GatewayWebSearchEngine, EngineAdapter> = {
 	},
 };
 
+/**
+ * The engine's own env var wins; otherwise the platform credential of the
+ * provider sharing its key (managed credential, else its `LLM_*` env var).
+ */
+async function resolveEngineApiKey(
+	adapter: EngineAdapter,
+	requestId: string,
+): Promise<string | undefined> {
+	const fromEnv = process.env[adapter.apiKeyEnv];
+	if (fromEnv) {
+		return fromEnv;
+	}
+	const provider = adapter.platformProvider;
+	if (!provider || !(await hasContentFilterCredential(provider))) {
+		return undefined;
+	}
+	const credential = await resolveContentFilterCredential(
+		provider,
+		"",
+		`web-search:${requestId}`,
+	);
+	return credential.providerToken;
+}
+
 export async function runInternalWebSearch(
 	engine: GatewayWebSearchEngine,
 	query: string,
@@ -268,12 +305,25 @@ export async function runInternalWebSearch(
 	requestId: string,
 ): Promise<InternalWebSearch | null> {
 	const adapter = ENGINE_ADAPTERS[engine];
-	const apiKey = process.env[adapter.apiKeyEnv];
+	let apiKey: string | undefined;
+	try {
+		apiKey = await resolveEngineApiKey(adapter, requestId);
+	} catch (error) {
+		logger.error("Internal web search skipped: credential unavailable", {
+			requestId,
+			engine,
+			error: toError(error).message,
+		});
+		return null;
+	}
 	if (!apiKey) {
 		logger.error("Internal web search skipped: API key is not set", {
 			requestId,
 			engine,
 			env: adapter.apiKeyEnv,
+			...(adapter.platformProvider && {
+				platformProvider: adapter.platformProvider,
+			}),
 		});
 		return null;
 	}
