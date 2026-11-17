@@ -8,6 +8,7 @@ import {
 	listEligibleProviderKeys,
 } from "@/lib/cached-queries.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
+import { usesServiceAccountAccessToken } from "@/lib/gcp-token.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 import { posthog } from "@/posthog.js";
@@ -34,7 +35,6 @@ import {
 import {
 	type BaseMessage,
 	getRegionSpecificEnvVarName,
-	getVariantEnvVarNameFor,
 	hasMaxTokens,
 	type ModelDefinition,
 	type OpenAIRequestBody,
@@ -1202,23 +1202,11 @@ export async function resolveProviderContext(
 		}
 	}
 
-	// Vertex's OpenAI-compatible endpoint requires an OAuth2 access token
-	// derived from the configured service account JSON. The SA JSON is the
-	// long-lived credential (kept in usedApiKeyHash above for health tracking)
-	// while the short-lived access token is what travels in the Authorization
-	// header — so swap usedToken here so downstream header builders just work.
-	// Read the env var directly to bypass round-robin comma-splitting (an SA
-	// JSON value contains commas and would otherwise be truncated).
-	if (usedProvider === "vertex-openai") {
-		const fullSaJson = usesDatabaseCredential
-			? usedToken
-			: (process.env[
-					getVariantEnvVarNameFor(
-						"LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON",
-						envVariant,
-					) ?? "LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON"
-				] ?? "");
-		usedToken = await getGcpServiceAccountAccessToken(fullSaJson);
+	// The SA JSON stays the long-lived credential (usedApiKeyHash and the
+	// endpoint's project above); the access token minted from it is what
+	// travels in the Authorization header.
+	if (usesServiceAccountAccessToken(usedProvider)) {
+		usedToken = await getGcpServiceAccountAccessToken(usedToken);
 	}
 
 	// --- Headers ---

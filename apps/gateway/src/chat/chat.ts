@@ -83,8 +83,8 @@ import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { fetchProvider } from "@/lib/fetch-provider.js";
 import {
-	getGcpAccessToken,
 	getVertexAnthropicProjectId,
+	usesServiceAccountAccessToken,
 } from "@/lib/gcp-token.js";
 import {
 	evaluateProviderAccessRestriction,
@@ -7506,21 +7506,6 @@ chat.openapi(completions, async (c) => {
 		});
 	}
 
-	if (usedProvider === "vertex-anthropic") {
-		if (managedKey) {
-			// The managed credential's token is the service-account JSON, so
-			// exchange it directly instead of reading the deployment's env var.
-			usedToken = await getGcpServiceAccountAccessToken(usedToken);
-		} else {
-			const gcpToken = await getGcpAccessToken(
-				providerKey ? undefined : envVariant,
-			);
-			if (gcpToken) {
-				usedToken = gcpToken;
-			}
-		}
-	}
-
 	// Check email verification and rate limits for free models (only when using credits/environment tokens)
 	if (
 		isModelTrulyFree((finalModelInfo ?? modelInfo) as ModelDefinition) &&
@@ -7648,19 +7633,14 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Vertex's OpenAI-compatible endpoint requires an OAuth2 access token
-	// derived from the configured service account JSON. The SA JSON is the
-	// long-lived credential (kept in usedApiKeyHash above for health tracking)
-	// while the short-lived access token is what travels in the Authorization
-	// header — so swap usedToken here so downstream header builders just work.
-	// usedToken already holds the selected SA JSON: round-robin no longer
-	// splits a JSON credential on its inner commas, so the selected entry is
-	// used as-is (whether it came from a provider key or the env var).
+	// The SA JSON is the long-lived credential (kept in usedApiKeyHash above
+	// for health tracking); the short-lived access token travels in the
+	// Authorization header, so swap usedToken for downstream header builders.
 	// Keep the SA JSON: the endpoint derives the project from it when the
 	// credential carries no explicit project setting.
-	let vertexOpenaiServiceAccountJson: string | undefined;
-	if (usedProvider === "vertex-openai") {
-		vertexOpenaiServiceAccountJson = usedToken;
+	let vertexServiceAccountJson: string | undefined;
+	if (usesServiceAccountAccessToken(usedProvider)) {
+		vertexServiceAccountJson = usedToken;
 		usedToken = await getGcpServiceAccountAccessToken(usedToken);
 	}
 
@@ -7994,9 +7974,7 @@ chat.openapi(completions, async (c) => {
 				upstreamModelName,
 				usesGoogleQueryToken(transportProvider)
 					? usedToken
-					: usedProvider === "vertex-openai"
-						? vertexOpenaiServiceAccountJson
-						: undefined,
+					: vertexServiceAccountJson,
 				stream,
 				supportsReasoning,
 				hasExistingToolCalls,
