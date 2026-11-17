@@ -302,6 +302,32 @@ describe("managed credential config in getProviderEndpoint", () => {
 		);
 	});
 
+	it.each([
+		["the env project for an env credential", false, "env-project"],
+		["a provider key's own project", true, "sa-project"],
+	])("resolves Vertex Anthropic to %s", (_label, skipEnvVars, project) => {
+		process.env.LLM_VERTEX_ANTHROPIC_PROJECT = "env-project";
+		delete process.env.LLM_VERTEX_ANTHROPIC_REGION;
+		delete process.env.LLM_VERTEX_ANTHROPIC_BASE_URL;
+
+		const url = getProviderEndpoint(
+			"vertex-anthropic",
+			undefined,
+			"claude-sonnet-4-6",
+			JSON.stringify({ project_id: "sa-project" }),
+			false,
+			false,
+			false,
+			undefined,
+			0,
+			false,
+			undefined,
+			skipEnvVars,
+		);
+
+		expect(url).toContain(`/projects/${project}/`);
+	});
+
 	it("leaves env-var resolution alone when no managed credential is active", () => {
 		process.env.LLM_OPENAI_BASE_URL = "https://openai.from-env.example";
 
