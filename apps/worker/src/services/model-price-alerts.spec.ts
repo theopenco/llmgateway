@@ -352,6 +352,9 @@ describe("model price alerts", () => {
 			to: "owner@example.com",
 			subject: "Price change for Model A",
 		});
+		expect(send.mock.calls[0][0].text).toContain(
+			"/dashboard/price-org/org/notifications",
+		);
 		expect(
 			(await db.query.notification.findFirst())?.emailSentAt,
 		).not.toBeNull();
