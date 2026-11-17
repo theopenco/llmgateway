@@ -82,6 +82,8 @@ const PLAN: TieredContentFilterPlan = {
 	shadowClassifiers: [],
 	internalScope: "full",
 	moderateImages: true,
+	blockGroups: null,
+	csamScoreThreshold: 0.01,
 };
 
 describe("runContentFilterClassifier", () => {

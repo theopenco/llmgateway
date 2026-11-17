@@ -2347,6 +2347,27 @@ export const deepseekModels = [
 				// Workers AI silently drops `developer` messages.
 				supportsDeveloperRole: false,
 			},
+			{
+				providerId: "mistral",
+				externalId: "deepseek-v4-1-flash-1017",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.007e-6",
+				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				maxTemperature: 1.5,
+				streaming: true,
+				reasoning: true,
+				// Mistral rejects "minimal" and "medium" for this model.
+				reasoningEfforts: ["none", "low", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsDeveloperRole: false,
+			},
 		],
 	},
 	{

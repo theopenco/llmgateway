@@ -53,12 +53,18 @@ export const contentFilterModerationErrorSchema = z.object({
 	message: z.string(),
 });
 
+/** Policy groups a verdict matched; mirrors CONTENT_FILTER_BLOCK_GROUPS. */
+const contentFilterBlockGroupsSchema = z.array(
+	z.enum(["csam", "sexual", "cyber"]),
+);
+
 export const contentFilterShadowVerdictSchema = z.object({
 	classifier: contentFilterClassifierSchema,
 	violation: z.boolean(),
 	flagged: z.boolean(),
 	matchedCategories: z.array(z.string()),
 	categoryScores: z.record(z.string(), z.number()),
+	matchedGroups: contentFilterBlockGroupsSchema.optional(),
 	moderationFailed: z.boolean(),
 	durationMs: z.number().nonnegative(),
 	classifierDurationMs: z.number().nonnegative().optional(),
@@ -84,6 +90,9 @@ export const gatewayContentFilterEvaluationSchema = z.object({
 	matchedCategories: z.array(z.string()),
 	// Highest score per category across every moderation result.
 	categoryScores: z.record(z.string(), z.number()),
+	// Policy groups the matched categories belong to; absent on older
+	// evaluations. With `blockGroups` set, only these decide `action`.
+	matchedGroups: contentFilterBlockGroupsSchema.optional(),
 	moderationFailed: z.boolean(),
 	// Absent on evaluations written before the classifier became selectable;
 	// those all ran on OpenAI moderation.
