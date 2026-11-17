@@ -1,7 +1,7 @@
-import { app } from "@/app.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
+import { internalRequest } from "@/lib/internal-request.js";
 import { requestLogContext } from "@/lib/request-log-context.js";
 
 import { forwardedCustomHeaders } from "./extract-custom-headers.js";
@@ -53,7 +53,7 @@ export function createGuardrailClassifier(c: Context): GuardrailClassifier {
 		// which must not mark the outer request as logged.
 		const response = await requestLogContext.exit(
 			async () =>
-				await app.request("/v1/systemone", {
+				await internalRequest("/v1/systemone", {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
