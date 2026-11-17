@@ -449,7 +449,27 @@ export async function deliverNotificationEmails(
 		batch.items.push(item);
 		batches.set(key, batch);
 	}
-	for (const { email, items } of batches.values()) {
+	for (const { email, items: candidates } of batches.values()) {
+		// Claim the batch before sending so a failed bookkeeping write cannot
+		// resend these rows inside a different batch; a failed send releases it.
+		const claimed = await db
+			.update(notification)
+			.set({ emailSentAt: now })
+			.where(
+				and(
+					inArray(
+						notification.id,
+						candidates.map((item) => item.id),
+					),
+					isNull(notification.emailSentAt),
+				),
+			)
+			.returning({ id: notification.id });
+		const claimedIds = new Set(claimed.map((row) => row.id));
+		const items = candidates.filter((item) => claimedIds.has(item.id));
+		if (items.length === 0) {
+			continue;
+		}
 		try {
 			const [first] = items;
 			const token = signUnsubscribeToken({ email, category: first.type });
@@ -470,23 +490,23 @@ export async function deliverNotificationEmails(
 			if (error) {
 				throw new Error(error.message);
 			}
+		} catch (error) {
+			logger.error(
+				"Notification email delivery failed",
+				error instanceof Error ? error : new Error(String(error)),
+			);
 			await db
 				.update(notification)
-				.set({ emailSentAt: now })
+				.set({ emailSentAt: null })
 				.where(
 					and(
 						inArray(
 							notification.id,
 							items.map((item) => item.id),
 						),
-						isNull(notification.emailSentAt),
+						eq(notification.emailSentAt, now),
 					),
 				);
-		} catch (error) {
-			logger.error(
-				"Notification email delivery failed",
-				error instanceof Error ? error : new Error(String(error)),
-			);
 		}
 	}
 }
