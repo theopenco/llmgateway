@@ -1615,6 +1615,7 @@ export function AllModels({
 
 	const modelsWithProviders: ModelWithProviders[] = useMemo(() => {
 		const now = new Date();
+		const providerById = new Map(providers.map((p) => [p.id, p]));
 
 		const baseModels = models
 			.filter((model) => {
@@ -1646,7 +1647,7 @@ export function AllModels({
 					...model,
 					providerDetails: visibleMappings.map((mapping) => ({
 						provider: mapping,
-						providerInfo: providers.find((p) => p.id === mapping.providerId)!,
+						providerInfo: providerById.get(mapping.providerId)!,
 					})),
 				};
 			})

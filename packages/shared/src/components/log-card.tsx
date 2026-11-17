@@ -1450,7 +1450,7 @@ export function LogCard({
 								</Tooltip>
 								<span>{log.reasoningEffort ?? "-"}</span>
 							</div>
-							{log.reasoningMaxTokens && (
+							{log.reasoningMaxTokens ? (
 								<div className="flex items-center justify-between gap-2">
 									<Tooltip>
 										<TooltipTrigger asChild>
@@ -1467,7 +1467,7 @@ export function LogCard({
 									</Tooltip>
 									<span>{formatNumber(log.reasoningMaxTokens)}</span>
 								</div>
-							)}
+							) : null}
 							{log.effort && (
 								<div className="flex items-center justify-between gap-2">
 									<Tooltip>
