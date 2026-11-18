@@ -125,7 +125,7 @@ export async function processNotifications(now = new Date()): Promise<void> {
 	// so take freshness from the provider row the same stats run always writes.
 	const unhealthyMappings = (
 		await db.query.modelProviderMapping.findMany({
-			where: { upstreamErrorsCount: { gt: 0 } },
+			where: { status: "active", upstreamErrorsCount: { gt: 0 } },
 		})
 	).filter((m) => {
 		const owner = providers.find((p) => p.id === m.providerId);
