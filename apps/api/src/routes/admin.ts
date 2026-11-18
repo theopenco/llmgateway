@@ -6538,6 +6538,7 @@ const contentFilterSettingsResponseSchema = z
 				color: z.string().nullable(),
 				enabled: z.boolean(),
 				enforced: z.boolean(),
+				devPassEnforced: z.boolean(),
 			}),
 		),
 	})
@@ -6565,7 +6566,10 @@ const updateContentFilterSettingsRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: contentFilterSettingsSchema,
+					// Optional so a save from an older admin build keeps the stored list.
+					schema: contentFilterSettingsSchema.extend({
+						devPassEnforceProviderIds: z.array(z.string()).optional(),
+					}),
 				},
 			},
 		},
@@ -6599,7 +6603,13 @@ admin.openapi(getContentFilterSettingsRoute, async (c) => {
 });
 
 admin.openapi(updateContentFilterSettingsRoute, async (c) => {
-	const settings = await setContentFilterSettings(c.req.valid("json"));
+	const input = c.req.valid("json");
+	const settings = await setContentFilterSettings({
+		...input,
+		devPassEnforceProviderIds:
+			input.devPassEnforceProviderIds ??
+			(await getContentFilterSettings()).devPassEnforceProviderIds,
+	});
 	return c.json({
 		enabled: settings.enabled,
 		sampleRatePercent: settings.sampleRatePercent,
