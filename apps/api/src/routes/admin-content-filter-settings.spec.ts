@@ -103,6 +103,34 @@ describe("admin content filter settings", () => {
 		});
 	});
 
+	test("keeps the DevPass providers when a save omits them", async () => {
+		const save = (extra: Record<string, unknown>) =>
+			app.request("/admin/settings/content-filter", {
+				method: "PUT",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					enabled: true,
+					providerIds: [],
+					sampleRatePercent: 100,
+					enforce: false,
+					enforceEnterprise: false,
+					...extra,
+				}),
+			});
+
+		expect(
+			(await save({ devPassEnforceProviderIds: ["anthropic"] })).status,
+		).toBe(200);
+		expect((await save({})).status).toBe(200);
+		expect(
+			(await getContentFilterSettings()).devPassEnforceProviderIds,
+		).toEqual(["anthropic"]);
+		expect((await save({ devPassEnforceProviderIds: [] })).status).toBe(200);
+		expect(
+			(await getContentFilterSettings()).devPassEnforceProviderIds,
+		).toEqual([]);
+	});
+
 	test("stores shadow classifiers without the deciding one", async () => {
 		const res = await app.request("/admin/settings/content-filter", {
 			method: "PUT",
