@@ -1137,6 +1137,9 @@ anthropic.openapi(messages, async (c) => {
 							},
 						};
 					}
+					if (block.type === "document") {
+						return documentBlockToFilePart(block);
+					}
 					return block;
 				});
 
@@ -2449,6 +2452,38 @@ anthropic.openapi(messages, async (c) => {
 
 	return c.json(anthropicResponse);
 });
+
+/**
+ * Lower a document block to the internal `file` part. A url or file-id
+ * source would have the provider fetch content the gateway never saw, so only
+ * inline sources are accepted.
+ */
+function documentBlockToFilePart(block: {
+	source: { type: string; media_type?: unknown; data?: unknown };
+	title?: string | null;
+}) {
+	const { source } = block;
+	let fileData: string | undefined;
+	if (typeof source.data === "string") {
+		if (source.type === "base64" && typeof source.media_type === "string") {
+			fileData = `data:${source.media_type};base64,${source.data}`;
+		} else if (source.type === "text") {
+			fileData = `data:text/plain;base64,${Buffer.from(source.data, "utf8").toString("base64")}`;
+		}
+	}
+	if (!fileData) {
+		throw new HTTPException(400, {
+			message: `Document source type "${source.type}" is not supported. Send the document inline with a "base64" or "text" source.`,
+		});
+	}
+	return {
+		type: "file",
+		file: {
+			...(block.title && { filename: block.title }),
+			file_data: fileData,
+		},
+	};
+}
 
 interface AnthropicImageBlock {
 	type: "image";
