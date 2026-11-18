@@ -846,8 +846,6 @@ export const anthropicModels = [
 			{
 				providerId: "azure-anthropic",
 				externalId: "claude-sonnet-5",
-				// Introductory pricing through 2026-08-31 (input $2, output $10 per 1M);
-				// standard rate is input $3, output $15.
 				inputPrice: "2.0e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.2e-6",
