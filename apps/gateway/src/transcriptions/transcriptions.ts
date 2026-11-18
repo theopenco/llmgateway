@@ -54,6 +54,10 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import {
+	getClientSafetyIdentifierParams,
+	clientSafetyIdentifierFields,
+} from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
@@ -121,6 +125,7 @@ const transcriptionFormSchema = z
 			description:
 				"A key term to bias transcription toward (e.g. product names). Repeat the field for multiple terms.",
 		}),
+		...clientSafetyIdentifierFields,
 	})
 	.openapi({
 		description: "Multipart form fields for the transcription request.",
@@ -396,6 +401,11 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 	const keyterms = keytermValues.filter(
 		(value): value is string => typeof value === "string" && value.length > 0,
 	);
+	// Only logged as params.safety_identifier; never forwarded upstream.
+	const clientSafetyParams = getClientSafetyIdentifierParams({
+		safety_identifier: firstString(formBody.safety_identifier),
+		user: firstString(formBody.user),
+	});
 
 	// Authenticate before model resolution so unauthenticated callers get a
 	// 401 instead of catalogue-dependent errors.
@@ -824,7 +834,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				customHeaders,
 				debugMode,
 				userAgent,
-				rawRequest: upstreamRequestSummary,
+				rawRequest: { ...upstreamRequestSummary, ...clientSafetyParams },
 				upstreamRequest: upstreamRequestSummary,
 			});
 

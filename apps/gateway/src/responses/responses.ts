@@ -32,6 +32,7 @@ import {
 	setResponsesContext,
 	deleteResponsesContext,
 } from "@/lib/responses-context.js";
+import { getClientSafetyIdentifierParams } from "@/lib/safety-identifier.js";
 import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
 import { shortid } from "@llmgateway/db";
@@ -478,7 +479,11 @@ responses.post("/", async (c) => {
 	const chatRequest: Record<string, unknown> = {
 		messages,
 		stream: req.stream,
-		safety_identifier: req.safety_identifier,
+		// Logged by the chat handler; never forwarded upstream.
+		...getClientSafetyIdentifierParams({
+			safety_identifier: req.safety_identifier,
+			user: req.user,
+		}),
 	};
 	if (req.model !== undefined) {
 		chatRequest.model = req.model;

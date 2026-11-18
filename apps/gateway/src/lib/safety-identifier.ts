@@ -1,4 +1,22 @@
+import { z } from "@hono/zod-openapi";
+
 import type { InferSelectModel, tables } from "@llmgateway/db";
+
+/**
+ * Client end-user identifier fields for endpoints without a native one. Only
+ * recorded in log params.safety_identifier, never forwarded upstream.
+ */
+export const clientSafetyIdentifierFields = {
+	safety_identifier: z.string().max(128).nullable().optional().openapi({
+		description:
+			"Opaque end-user identifier stored in log params.safety_identifier. Never forwarded upstream and never replaces LLM Gateway's per-organization identifier.",
+		example: "app-user-42",
+	}),
+	user: z.string().nullable().optional().openapi({
+		description:
+			"Legacy end-user identifier, recorded as params.safety_identifier when safety_identifier is absent and it is at most 128 characters. Never forwarded upstream.",
+	}),
+};
 
 export function getClientSafetyIdentifierParams(body: unknown): {
 	safety_identifier?: string;

@@ -335,7 +335,7 @@ decisions.openapi(createDecision, async (c): Promise<any> => {
 						input: request.input,
 						questions: request.questions,
 						// OpenAI attributes abuse to it, so the client's value is
-						// replaced by the API key's; Airside carriers get none.
+						// replaced by the organization's; Airside carriers get none.
 						...(providerId === "openai"
 							? { safety_identifier: safetyIdentifier }
 							: {}),
