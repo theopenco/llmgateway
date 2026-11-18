@@ -6,7 +6,6 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
-import { getOrganizationSafetyIdentifier } from "@llmgateway/shared/safety-identifier";
 
 const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
@@ -158,12 +157,10 @@ describe("admin organization key listings", () => {
 			const details = await get("/settings", cookie);
 			expect(details.status).toBe(200);
 			const { organization } = await details.json();
-			expect(organization.providerSafetyIdentifier).toBe(
-				getOrganizationSafetyIdentifier(ORG_ID),
-			);
+			expect(organization.safetyIdentifier).toMatch(/^org_[0-9a-f]{32}$/);
 
 			const search = await app.request(
-				`/admin/organizations?search=${encodeURIComponent(organization.providerSafetyIdentifier)}`,
+				`/admin/organizations?search=${encodeURIComponent(organization.safetyIdentifier)}`,
 				{ headers: { Cookie: cookie } },
 			);
 			expect(search.status).toBe(200);

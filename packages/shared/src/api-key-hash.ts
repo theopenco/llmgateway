@@ -22,10 +22,7 @@ export const MASTER_KEY_PREFIX_DEV = "llmgmkdev_";
  * provider-key encryption uses it. Older entries exist only so provider-key
  * ciphertexts written under a previous secret stay decryptable during a
  * rotation (rotate by prepending the new secret, keep the old one until all
- * ciphertexts are re-encrypted, then drop it). Provider safety identifiers
- * (safety-identifier.ts) are derived, never stored: keep a retired secret
- * until provider abuse reports quoting identifiers issued under it can no
- * longer arrive, or they stop resolving to an organization.
+ * ciphertexts are re-encrypted, then drop it).
  *
  * Gateway API-key, master-key, and SCIM authentication check every keyring
  * entry. Only log.usedApiKeyHash uses the current secret alone; historical log

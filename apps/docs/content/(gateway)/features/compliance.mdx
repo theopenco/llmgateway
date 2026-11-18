@@ -202,7 +202,7 @@ In both credits and bring-your-own-key mode, the client value is saved in reques
 
 ### What providers receive
 
-LLM Gateway derives one opaque identifier per organization with a keyed hash. It reveals neither your organization ID nor any API key, and contains no personal data. Every request from the organization shares this provider-facing identifier, across all of its projects and API keys and after key rotation, even if requests carry different client `safety_identifier` values. It is not derived from your client value and cannot be overridden by it.
+LLM Gateway generates an opaque, random identifier once per organization. It is not your organization ID, reveals no API key, and contains no personal data. Every request from the organization shares this provider-facing identifier, across all of its projects and API keys and after key rotation, even if requests carry different client `safety_identifier` values. It is not derived from your client value and cannot be overridden by it.
 
 - **Credits:** upstream APIs that support abuse attribution receive the fixed organization identifier when forwarding is enabled on the gateway-managed credential, mapped to the field or header their API expects. Your client identifier is not forwarded as their safety identifier.
 - **Bring your own key (BYOK):** neither the gateway identifier nor your client identifier is sent as a provider safety identifier.

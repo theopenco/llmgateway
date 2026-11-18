@@ -5,12 +5,14 @@ import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import { resetKeyHealth } from "@/lib/api-key-health.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import { resetFailOnceCounter } from "@/test-utils/mock-openai-server.js";
-import { waitForLogs } from "@/test-utils/test-helpers.js";
+import {
+	getOrganizationSafetyIdentifier,
+	waitForLogs,
+} from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
-import { getOrganizationSafetyIdentifier } from "@llmgateway/shared/safety-identifier";
 
 describe("embeddings", () => {
 	const harness = createGatewayApiTestHarness();
@@ -320,7 +322,7 @@ describe("embeddings", () => {
 			(log) => log.usedModel === "openai/text-embedding-3-small",
 		);
 		expect(embeddingLog?.upstreamRequest).toMatchObject({
-			user: getOrganizationSafetyIdentifier("org-id"),
+			user: await getOrganizationSafetyIdentifier("org-id"),
 		});
 	});
 

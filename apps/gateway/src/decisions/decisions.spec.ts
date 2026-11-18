@@ -2,12 +2,14 @@ import { describe, expect, test } from "vitest";
 
 import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
-import { waitForLogs } from "@/test-utils/test-helpers.js";
+import {
+	getOrganizationSafetyIdentifier,
+	waitForLogs,
+} from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { cdb, db, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
-import { getOrganizationSafetyIdentifier } from "@llmgateway/shared/safety-identifier";
 
 const QUESTIONS = [
 	{
@@ -159,7 +161,7 @@ describe("decisions", () => {
 		const logs = await waitForLogs(1);
 		const log = logs.find((l) => l.usedModel === "openai/gpt-6-luna-decisions");
 		expect(log?.upstreamRequest).toMatchObject({
-			safety_identifier: getOrganizationSafetyIdentifier("org-id"),
+			safety_identifier: await getOrganizationSafetyIdentifier("org-id"),
 		});
 	});
 

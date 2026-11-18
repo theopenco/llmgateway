@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 
 import { providers } from "@llmgateway/models";
-import { getOrganizationSafetyIdentifier } from "@llmgateway/shared/safety-identifier";
 
 import { prepareRequestBody } from "./prepare-request-body.js";
 
@@ -12,7 +11,7 @@ import type {
 	ProviderId,
 } from "@llmgateway/models";
 
-const SAFETY_IDENTIFIER = getOrganizationSafetyIdentifier("org-id");
+const SAFETY_IDENTIFIER = "org_0123456789abcdef0123456789abcdef";
 
 async function prepare(options: {
 	provider: ProviderId;

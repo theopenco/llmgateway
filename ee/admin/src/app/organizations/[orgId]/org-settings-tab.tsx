@@ -410,15 +410,9 @@ export function OrgSettingsTab({
 						<SettingRow label="SSO auto-join domain">
 							{org.ssoAutoJoinDomain ?? "—"}
 						</SettingRow>
-						{/* Sent to providers today; searchable in the organizations list. */}
+						{/* Sent to providers; searchable in the organizations list. Older
+						    reports may quote the per-key identifiers on the API Keys tab. */}
 						<SettingRow label="Safety identifier">
-							<span className="font-mono text-xs break-all">
-								{org.providerSafetyIdentifier}
-							</span>
-						</SettingRow>
-						{/* Quoted by older provider abuse reports, as are the per-key
-						    identifiers on the API Keys tab. */}
-						<SettingRow label="Legacy safety identifier">
 							<span className="font-mono text-xs">{org.safetyIdentifier}</span>
 						</SettingRow>
 					</CardContent>

@@ -22,7 +22,6 @@ import {
 	piiEntities,
 	withDefaultSystemRules,
 } from "@llmgateway/db";
-import { getOrganizationSafetyIdentifier } from "@llmgateway/shared/safety-identifier";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -246,7 +245,6 @@ const getOrganizationSettings = createRoute({
 							id: z.string(),
 							name: z.string(),
 							safetyIdentifier: z.string(),
-							providerSafetyIdentifier: z.string(),
 							billingEmail: z.string(),
 							createdAt: z.string(),
 							plan: z.string(),
@@ -325,7 +323,6 @@ adminOrgDetails.openapi(getOrganizationSettings, async (c) => {
 			id: org.id,
 			name: org.name,
 			safetyIdentifier: org.safetyIdentifier,
-			providerSafetyIdentifier: getOrganizationSafetyIdentifier(org.id),
 			billingEmail: org.billingEmail,
 			createdAt: org.createdAt.toISOString(),
 			plan: org.plan,

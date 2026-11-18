@@ -28,7 +28,6 @@ import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 import { readProviderKey } from "@llmgateway/actions";
 import { providerKeyAllowsModel } from "@llmgateway/db";
 import { getRequestedModelAlias } from "@llmgateway/models";
-import { getOrganizationSafetyIdentifier } from "@llmgateway/shared/safety-identifier";
 
 import {
 	findRealtimeMapping,
@@ -500,7 +499,7 @@ async function runRealtimePreflightInner(
 		clientIp: input.clientIp,
 		safetyIdentifier: forwardedSafetyIdentifier(
 			managedKey,
-			getOrganizationSafetyIdentifier(organization.id),
+			organization.safetyIdentifier,
 		),
 	};
 }

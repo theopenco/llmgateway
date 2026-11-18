@@ -288,7 +288,6 @@ import {
 	applyRoutingPreference,
 	type ResolvedRoutingConfig,
 } from "@llmgateway/shared/routing-config";
-import { getOrganizationSafetyIdentifier } from "@llmgateway/shared/safety-identifier";
 import {
 	DEFAULT_SMART_ROUTING_MODELS,
 	isSmartRoutingAvailable,
@@ -3387,9 +3386,7 @@ chat.openapi(completions, async (c) => {
 		mode: project.mode,
 		organizationId: project.organizationId,
 	};
-	const organizationSafetyIdentifier = getOrganizationSafetyIdentifier(
-		organization.id,
-	);
+	const organizationSafetyIdentifier = organization.safetyIdentifier;
 	const retryOrganizationContext = {
 		id: organization.id,
 		credits: organization.credits,

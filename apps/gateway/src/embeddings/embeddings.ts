@@ -84,7 +84,6 @@ import {
 	type VertexTokenType,
 } from "@llmgateway/models";
 import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
-import { getOrganizationSafetyIdentifier } from "@llmgateway/shared/safety-identifier";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { openAIErrorSchema } from "@/lib/error-schemas.js";
@@ -633,7 +632,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		organizationId: project.organizationId,
 	};
 	const retryOrganization = organization;
-	const safetyIdentifier = getOrganizationSafetyIdentifier(organization.id);
+	const safetyIdentifier = organization.safetyIdentifier;
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.

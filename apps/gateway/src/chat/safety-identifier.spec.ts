@@ -3,12 +3,14 @@ import { describe, expect, test, afterEach, vi } from "vitest";
 import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import { resetFailOnceCounter } from "@/test-utils/mock-openai-server.js";
-import { waitForLogs } from "@/test-utils/test-helpers.js";
+import {
+	getOrganizationSafetyIdentifier,
+	waitForLogs,
+} from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { cdb, db, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
-import { getOrganizationSafetyIdentifier } from "@llmgateway/shared/safety-identifier";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -94,10 +96,10 @@ describe("chat safety identifier", () => {
 						Record<string, unknown> | undefined
 				)?.safety_identifier,
 		);
-		expect(forwarded[0]).toBe(getOrganizationSafetyIdentifier("org-id"));
+		expect(forwarded[0]).toBe(await getOrganizationSafetyIdentifier("org-id"));
 		expect(forwarded[1]).toBe(forwarded[0]);
 		expect(forwarded[2]).toBe(
-			getOrganizationSafetyIdentifier("org-id-safety-other"),
+			await getOrganizationSafetyIdentifier("org-id-safety-other"),
 		);
 		expect(forwarded[2]).not.toBe(forwarded[0]);
 		expect(String(forwarded[0])).not.toContain("org-id");
@@ -171,7 +173,7 @@ describe("chat safety identifier", () => {
 			} else {
 				expect(succeeded?.usedMode).toBe("credits");
 				expect(succeeded?.upstreamRequest).toMatchObject({
-					safety_identifier: getOrganizationSafetyIdentifier("org-id"),
+					safety_identifier: await getOrganizationSafetyIdentifier("org-id"),
 				});
 			}
 		},
@@ -252,7 +254,10 @@ describe("safety identifier credential modes", () => {
 			expect(log.upstreamRequest).toMatchObject(
 				byok
 					? {}
-					: { safety_identifier: getOrganizationSafetyIdentifier("org-id") },
+					: {
+							safety_identifier:
+								await getOrganizationSafetyIdentifier("org-id"),
+						},
 			);
 			if (byok) {
 				expect(log.upstreamRequest).not.toHaveProperty("safety_identifier");

@@ -90,11 +90,6 @@
 			"import": "./dist/api-key-hash.js",
 			"default": "./dist/api-key-hash.js"
 		},
-		"./safety-identifier": {
-			"types": "./dist/safety-identifier.d.ts",
-			"import": "./dist/safety-identifier.js",
-			"default": "./dist/safety-identifier.js"
-		},
 		"./email-unsubscribe": {
 			"types": "./dist/email-unsubscribe.d.ts",
 			"import": "./dist/email-unsubscribe.js",

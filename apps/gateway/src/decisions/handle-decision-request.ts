@@ -87,7 +87,6 @@ import {
 	type Provider,
 } from "@llmgateway/models";
 import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
-import { getOrganizationSafetyIdentifier } from "@llmgateway/shared/safety-identifier";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { ServerTypes } from "@/vars.js";
@@ -356,7 +355,7 @@ export interface DecisionEndpoint {
 	hasBoxQuestion?: boolean;
 	/**
 	 * Throw an HTTPException(400) for input the provider can't take.
-	 * `safetyIdentifier` is the authenticating API key's abuse-attribution id.
+	 * `safetyIdentifier` is the organization's abuse-attribution id.
 	 */
 	buildUpstreamRequest: (
 		providerId: string,
@@ -542,9 +541,7 @@ export async function handleDecisionRequest(
 	// Translate only once the caller is allowed to use the model, so a denied
 	// caller sees the access error rather than an input error. Translation runs
 	// before the rate-limit check, so an invalid request uses no slot.
-	const organizationSafetyIdentifier = getOrganizationSafetyIdentifier(
-		project.organizationId,
-	);
+	const organizationSafetyIdentifier = organization.safetyIdentifier;
 	const upstreamRequest = endpoint.buildUpstreamRequest(
 		providerId,
 		upstreamModel,
