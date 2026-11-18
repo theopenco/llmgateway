@@ -116,8 +116,8 @@ export default function PrivacyPage() {
 				<strong>Exception — flagged content.</strong> As described in the Base
 				Policy, requests our content filter flags for child sexual exploitation
 				or sexual content may be kept as an encrypted copy, readable only by
-				authorized trust and safety personnel, for up to 90 days, or longer
-				where the law requires (for example, one year after a report to NCMEC).
+				authorized staff with full administrative access, for up to 90 days, or
+				one year after a report to NCMEC.
 			</p>
 			<h3>c. Cookies and Local Storage</h3>
 			<p>

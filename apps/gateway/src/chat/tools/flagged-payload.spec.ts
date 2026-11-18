@@ -290,6 +290,50 @@ describe("buildFlaggedPayload", () => {
 		]);
 	});
 
+	test("never keeps inline media from odd schemes or tool text", () => {
+		const result = buildFlaggedPayload([
+			{
+				role: "user",
+				content: [
+					{
+						type: "image_url",
+						image_url: { url: `DATA:image/png;BASE64,${imageBase64}` },
+					},
+					{
+						type: "image_url",
+						image_url: { url: `blob:https://example.com/${imageBase64}` },
+					},
+				],
+			},
+			{
+				role: "tool",
+				tool_call_id: "call-3",
+				content: JSON.stringify({
+					shot: { type: "image_url", image_url: { url: "data:,hi" } },
+					note: "kept",
+				}),
+			},
+			{ role: "tool", tool_call_id: "call-4", content: "plain tool text" },
+		]);
+		expect(result.json.includes(imageBase64)).toBe(false);
+		expect(result.json.includes("data:,hi")).toBe(false);
+		const payload = JSON.parse(result.json) as FlaggedPayload;
+		expect(payload.messages[0].content).toEqual([
+			expect.objectContaining({ type: "image", mimeType: "image/png" }),
+			{
+				type: "image",
+				urlSha256: createHash("sha256")
+					.update(`blob:https://example.com/${imageBase64}`)
+					.digest("hex"),
+			},
+		]);
+		expect(JSON.parse(payload.messages[1].content as string)).toMatchObject({
+			shot: { type: "image" },
+			note: "kept",
+		});
+		expect(payload.messages[2].content).toBe("plain tool text");
+	});
+
 	test("drops the oldest messages first to fit the cap", () => {
 		const messages: BaseMessage[] = [
 			{ role: "user", content: "a".repeat(600) },

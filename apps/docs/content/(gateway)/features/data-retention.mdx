@@ -115,7 +115,7 @@ The [gateway content filter](/resources/error-handling#gateway-content-filter) k
 
 - **What is kept:** the request's messages and tool calls, and image URLs without credentials, query string, or fragment (plus a hash of the full URL). Inline images, audio, and files, including media blocks, data URLs, and long base64 data inside tool calls and results, are reduced to a SHA-256 hash, type, size, and file name; their bytes are never stored. Conversations over about 1 MB are trimmed, oldest messages first.
 - **How long:** 90 days, then deleted automatically. A request reported to NCMEC is kept for one year after the report, as U.S. law requires.
-- **Who can see it:** only authorized LLM Gateway trust and safety staff. Copies are encrypted at the application level, never appear in your request logs or exports, and every access is recorded in an internal audit log.
+- **Who can see it:** only authorized LLM Gateway staff with full administrative access. Copies are encrypted at the application level, never appear in your request logs or exports, and every access is recorded in an internal audit log.
 - **Zero data retention:** while a [ZDR policy](/features/compliance) is active, only requests flagged for child safety are kept.
 
 Self-hosted deployments delete expired copies in the worker's retention loop whether or not `ENABLE_DATA_RETENTION_CLEANUP` is set, and can turn preservation off in the admin content filter settings.

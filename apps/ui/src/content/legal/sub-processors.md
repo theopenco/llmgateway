@@ -27,11 +27,11 @@ These sub-processors are engaged for every customer, regardless of which AI mode
 | **Google Cloud (Google LLC / Google Cloud EMEA Ltd.)** | Application hosting, database, object storage, tracing | All platform data — account records, usage metadata, and (where retention is enabled) request and response content     | European Union, United States |
 | **Resend (Plus Five Five, Inc.)**                      | Transactional and product email delivery               | Email address, name, and the contents of the emails we send you (invoices, usage alerts, security and product notices) | United States                 |
 | **PostHog, Inc.**                                      | Product analytics and feature flags                    | Account identifier, email address, IP address, page views, in-product events and usage patterns                        | United States                 |
-| **OpenAI, L.L.C.** (moderation API)                    | Automated content screening for abuse                  | Text and images of requests sampled by the content filter; no account details                                          | United States                 |
+| **OpenAI, L.L.C.** (moderation API)                    | Automated content screening for abuse                  | Text and images of requests the content filter screens; no account details                                             | United States                 |
 
 We do not engage sub-processors for advertising, profiling, or the sale or sharing of personal information. We do not sell personal data.
 
-The content screening sub-processor receives a request only when the gateway content filter samples it, and never when your organization's compliance policy excludes that provider. Our self-hosted classifier runs in our own infrastructure and is not a sub-processor.
+The content screening sub-processor receives a request only when our content filter screens it — every eligible request or a sample, depending on configuration — and never when your organization's compliance policy excludes that provider. Our self-hosted classifier runs in our own infrastructure and is not a sub-processor.
 
 ---
 

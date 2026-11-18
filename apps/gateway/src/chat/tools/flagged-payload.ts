@@ -58,17 +58,26 @@ function describeMediaBlock(
 	return null;
 }
 
-/** Tool-call arguments are JSON text; scrub the parsed value when it parses. */
-function scrubToolArguments(args: string): string {
+/**
+ * Tool-call arguments and string tool results may be JSON text: scrub the
+ * parsed structure when it is one, otherwise scrub the string itself.
+ */
+function scrubJsonText(text: string): string {
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(args);
+		parsed = JSON.parse(text);
 	} catch {
-		// Not JSON (a partial or malformed call): scrub it as one string.
-		const scrubbed = scrubNestedMedia(args);
-		return typeof scrubbed === "string" ? scrubbed : JSON.stringify(scrubbed);
+		// Plain text or a partial call: scrub it as one string.
+		parsed = undefined;
 	}
-	return JSON.stringify(scrubNestedMedia(parsed));
+	const scrubbed =
+		parsed !== null && typeof parsed === "object"
+			? scrubNestedMedia(parsed)
+			: scrubNestedMedia(text);
+	if (typeof scrubbed === "string") {
+		return scrubbed;
+	}
+	return JSON.stringify(scrubbed);
 }
 
 /**
@@ -77,16 +86,22 @@ function scrubToolArguments(args: string): string {
  */
 function describeRemoteUrl(url: string): { url?: string; urlSha256: string } {
 	const urlSha256 = sha256(Buffer.from(url, "utf8"));
+	let parsed: URL;
 	try {
-		const parsed = new URL(url);
-		return {
-			url: `${parsed.origin}${parsed.pathname}`.slice(0, MAX_URL_LENGTH),
-			urlSha256,
-		};
+		parsed = new URL(url);
 	} catch {
 		// Not a parseable URL: keep only its hash.
 		return { urlSha256 };
 	}
+	// Other schemes (an unrecognised inline `data:` form, `blob:` …) can carry
+	// the media itself in their path.
+	if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+		return { urlSha256 };
+	}
+	return {
+		url: `${parsed.origin}${parsed.pathname}`.slice(0, MAX_URL_LENGTH),
+		urlSha256,
+	};
 }
 
 export type FlaggedPayloadEndpoint = "chat" | "speech" | "videos";
@@ -137,7 +152,8 @@ function describeBase64(data: string): { sha256: string; bytes: number } {
 	return { sha256: sha256(bytes), bytes: bytes.length };
 }
 
-const DATA_URL = /^data:([^;,]*)((?:;[^;,]*)*),/;
+// URL schemes are case-insensitive.
+const DATA_URL = /^\s*data:([^;,]*)((?:;[^;,]*)*),/i;
 
 function describeImageUrl(url: string): FlaggedPayloadImage {
 	const match = DATA_URL.exec(url);
@@ -146,7 +162,7 @@ function describeImageUrl(url: string): FlaggedPayloadImage {
 	}
 	const body = url.slice(match[0].length);
 	// A percent-encoded (non-base64) data URL is hashed as sent.
-	const bytes = match[2].includes(";base64")
+	const bytes = match[2].toLowerCase().includes(";base64")
 		? Buffer.from(body, "base64")
 		: Buffer.from(body, "utf8");
 	return {
@@ -231,7 +247,13 @@ function describePart(part: MessageContent): FlaggedPayloadPart {
 				input: scrubNestedMedia(part.input),
 			};
 		case "tool_result":
-			return { type: "tool_result", content: scrubNestedMedia(part.content) };
+			return {
+				type: "tool_result",
+				content:
+					typeof part.content === "string"
+						? scrubJsonText(part.content)
+						: scrubNestedMedia(part.content),
+			};
 		default:
 			return {
 				type: "other",
@@ -256,13 +278,15 @@ function describeMessage(message: BaseMessage): FlaggedPayloadMessage {
 		...(message.name ? { name: message.name } : {}),
 		content:
 			typeof message.content === "string"
-				? message.content
+				? message.role === "tool"
+					? scrubJsonText(message.content)
+					: message.content
 				: (message.content ?? []).map(describePart),
 		...(message.tool_calls?.length
 			? {
 					toolCalls: message.tool_calls.map((call) => ({
 						name: call.function.name,
-						arguments: scrubToolArguments(call.function.arguments),
+						arguments: scrubJsonText(call.function.arguments),
 					})),
 				}
 			: {}),

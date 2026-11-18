@@ -55,7 +55,7 @@ Enterprise organizations can configure this under **Settings → Policies** in t
 Independently of the retention setting:
 
 - **Content screening.** Requests may be screened by automated content classifiers — our own self-hosted models, or a third-party moderation service (see [Data Sharing](#5-data-sharing)) — to detect content that violates our [Terms of Use](https://llmgateway.io/terms). Classifier verdicts (policy categories and scores, not request content) are stored with request metadata.
-- **Flagged content.** When the classifier that decides a request's outcome flags it for child sexual exploitation or sexual content, we may store an encrypted copy of the request, whether or not it was blocked. We keep its text and tool calls, and image URLs without their query string; for images, audio, and files sent inline we keep only a cryptographic hash, type, size, and file name, never the media itself. While a zero-data-retention policy is active, only requests flagged for child sexual exploitation are kept. Only authorized trust and safety personnel can review these copies, and every access is logged.
+- **Flagged content.** When the classifier that decides a request's outcome flags it for child sexual exploitation or sexual content, we may store an encrypted copy of the request, whether or not it was blocked. We keep its text and tool calls, and image URLs without their query string; for images, audio, and files sent inline we keep only a cryptographic hash, type, size, and file name, never the media itself. While a zero-data-retention policy is active, only requests flagged for child sexual exploitation are kept. Only a limited set of authorized staff with full administrative access can review these copies, and every access is logged.
 - **Response caching.** If you enable gateway response caching for a project, responses are cached for the duration you configure (up to one year) so identical requests can be answered from the cache.
 
 ### d. Payment Information
@@ -103,7 +103,7 @@ We do **not sell** your personal information. We share limited data only as need
 
 - **Service Providers / Sub-processors:** for hosting, analytics, payments, and email (see below).
 - **AI Providers:** when routing your API requests to the model you select (e.g., OpenAI, Anthropic, Google, Mistral, and others). Once your request reaches a provider, that provider processes it under **its own terms, privacy policy, and data-training practices**, which vary by provider and which we do not control. You can review each provider's terms, privacy policy, headquarters, certifications, and AI-training and data-retention practices on our [Provider Information page](https://llmgateway.io/legal/providers) before selecting a model.
-- **Content moderation services:** the content of sampled requests (text and images) may be sent to a third-party moderation service listed on our [Sub-processor page](https://llmgateway.io/legal/sub-processors) to screen it for abuse. This is skipped when your organization's compliance policy excludes that provider. Our self-hosted classifier runs in our own infrastructure; we share its pseudonymized results (verdicts, scores, and one-way fingerprints of request text, never the text itself or your account identifiers) with its vendor to evaluate its accuracy.
+- **Content moderation services:** the content of requests our content filter screens (text and images; every eligible request or a sample, depending on configuration) may be sent to a third-party moderation service listed on our [Sub-processor page](https://llmgateway.io/legal/sub-processors) to screen it for abuse. This is skipped when your organization's compliance policy excludes that provider. Our self-hosted classifier runs in our own infrastructure; we share its pseudonymized results (verdicts, scores, and one-way fingerprints of request text, never the text itself or your account identifiers) with its vendor to evaluate its accuracy.
 - **NCMEC and law enforcement:** we report apparent child sexual abuse material, together with the related content and account information, to the National Center for Missing & Exploited Children (NCMEC) as required by U.S. law; NCMEC may make reports available to law enforcement agencies in the United States and other countries. We may report other unlawful content to law enforcement where the law requires or permits.
 - **Legal Authorities:** only where required by law or to protect our rights, users, or the public.
 - **Business transfers:** in connection with a merger, acquisition, financing, or sale of assets, subject to this Policy.
@@ -131,7 +131,7 @@ We keep personal data only as long as necessary for the purposes it was collecte
 
 - **Account and profile data** (name, email, login credentials, API keys): retained while your account is active; deleted promptly when you delete your account.
 - **AI request content and metadata:** request and response content is stored only for Enterprise organizations that enable Retain All Data (and, until November 8, 2026, for other organizations that enabled it before October 9, 2026), and is cleared **30 days** after the request; request metadata, including content filter verdicts, and aggregated usage and cost metadata are retained for analytics and billing accuracy. Independently of the retention setting, Responses API input and output items are stored for up to 30 days to support response retrieval and `previous_response_id` chaining (send `store: false` to opt out), Batch API files are kept for 30 days or until you delete them, and cached responses are kept for the cache duration you configure.
-- **Flagged content** (see [Section 2c](#c-ai-request-data-customer-data)): kept encrypted for up to **90 days** after it was flagged and then deleted automatically. When we report it to NCMEC, we keep it for **one year after the report**, as 18 U.S.C. § 2258A requires, or longer where a legal obligation, such as a law enforcement preservation request, requires. This applies even if you delete your account.
+- **Flagged content** (see [Section 2c](#c-ai-request-data-customer-data)): kept encrypted for up to **90 days** after it was flagged and then deleted automatically. When we report it to NCMEC, we keep it for **one year after the report**, as 18 U.S.C. § 2258A requires. This applies even if you delete your account.
 - **Billing and accounting records** (purchases of credits, payments, invoices, and the transaction history of credits bought and spent): retained for **10 years** to comply with applicable tax and accounting law, even after account deletion, after which they are deleted or anonymized.
 
 Where we retain billing records after account deletion, we restrict processing of that data to what the law requires and anonymize personal identifiers not needed for the accounting record.
@@ -144,7 +144,7 @@ We implement industry-standard technical and organizational measures to protect 
 
 - HTTPS and encryption in transit
 - Application-level encryption for preserved flagged content, readable only by
-  authorized trust and safety personnel, with every access logged
+  authorized staff with full administrative access, with every access logged
 - Encryption at rest for stored provider credentials, and keyed one-way hashes
   for new and rotated gateway API key secrets; authentication compares hashes
   instead of recovering those secrets
@@ -177,7 +177,7 @@ If you are a California resident, you have the right to know, access, delete, an
 
 ### Limits on the right to erasure
 
-We will honor erasure requests except where we are legally obliged to retain data. In particular, **records of credits you purchased and spent** are kept to comply with tax and accounting law (see [Data Retention](#7-data-retention)) and cannot be deleted on request during the statutory retention period. During that period we limit our processing of those records to what the law requires. Once the period ends, the data is deleted or anonymized. Likewise, **flagged content** we must preserve after a report to NCMEC or under another legal obligation cannot be deleted on request until that obligation ends.
+We will honor erasure requests except where we are legally obliged to retain data. In particular, **records of credits you purchased and spent** are kept to comply with tax and accounting law (see [Data Retention](#7-data-retention)) and cannot be deleted on request during the statutory retention period. During that period we limit our processing of those records to what the law requires. Once the period ends, the data is deleted or anonymized. Likewise, **flagged content** we must preserve for one year after a report to NCMEC cannot be deleted on request during that year.
 
 ---
 

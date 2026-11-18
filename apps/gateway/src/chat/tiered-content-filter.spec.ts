@@ -9,6 +9,7 @@ import {
 } from "vitest";
 
 import { app } from "@/app.js";
+import { waitForPendingWork } from "@/lib/pending-work.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import { readAll, waitForLogByRequestId } from "@/test-utils/test-helpers.js";
 
@@ -383,9 +384,11 @@ describe("tiered gateway content filter", () => {
 			{ role: "user", content: "Tell me a story tier-preserve-csam" },
 		]);
 
+		// The insert is detached from the log: drain it before asserting absence.
 		moderation(violent);
 		await chat("tier-preserve-violent");
 		await waitForLogByRequestId("tier-preserve-violent");
+		await waitForPendingWork(10_000);
 		expect(await flaggedRows("tier-preserve-violent")).toHaveLength(0);
 
 		await harness.setContentFilterSettings({
@@ -397,6 +400,7 @@ describe("tiered gateway content filter", () => {
 		]);
 		await chat("tier-preserve-off");
 		await waitForLogByRequestId("tier-preserve-off");
+		await waitForPendingWork(10_000);
 		expect(await flaggedRows("tier-preserve-off")).toHaveLength(0);
 	});
 

@@ -22,8 +22,9 @@ export const MASTER_KEY_PREFIX_DEV = "llmgmkdev_";
  * provider-key or flagged-payload encryption uses it. Older entries exist only
  * so ciphertexts written under a previous secret stay decryptable during a
  * rotation (rotate by prepending the new secret, keep the old one until all
- * provider-key ciphertexts are re-encrypted and every flagged payload it
- * encrypted has expired — up to a year after an NCMEC report — then drop it).
+ * provider-key ciphertexts are re-encrypted, every API key, master key and
+ * SCIM token hashed with it is rolled, and every flagged payload it encrypted
+ * has expired — up to a year after an NCMEC report — then drop it).
  *
  * Gateway API-key, master-key, and SCIM authentication check every keyring
  * entry. Only log.usedApiKeyHash uses the current secret alone; historical log
