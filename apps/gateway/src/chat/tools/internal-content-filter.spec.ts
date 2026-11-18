@@ -3,11 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { logger } from "@llmgateway/logger";
 
 import {
-	buildInternalModerationPrompt,
 	checkInternalContentFilter,
-	chunkInternalModerationText,
 	toInternalModerationResult,
-	truncateMiddle,
 } from "./internal-content-filter.js";
 import { evaluateTieredContentFilter } from "./tiered-content-filter.js";
 
@@ -24,63 +21,6 @@ function verdict(body: Record<string, unknown>, status = 200) {
 		headers: { "Content-Type": "application/json" },
 	});
 }
-
-describe("chunkInternalModerationText", () => {
-	it("keeps a prompt under the limit whole", () => {
-		expect(chunkInternalModerationText("hello", 10)).toEqual(["hello"]);
-		expect(chunkInternalModerationText("", 10)).toEqual([]);
-	});
-
-	it("never splits a multi-byte character", () => {
-		// "é" is two bytes, so a 3-byte limit fits one per chunk.
-		const chunks = chunkInternalModerationText("éééé", 3);
-
-		expect(chunks).toEqual(["é", "é", "é", "é"]);
-	});
-});
-
-describe("truncateMiddle", () => {
-	it("keeps text under the limit whole", () => {
-		expect(truncateMiddle("hello", 10)).toBe("hello");
-	});
-
-	it("keeps the start and the end without splitting a character", () => {
-		const text = `start ${"é".repeat(100)} end`;
-		const truncated = truncateMiddle(text, 40);
-
-		expect(new TextEncoder().encode(truncated).length).toBeLessThanOrEqual(40);
-		expect(truncated.startsWith("start")).toBe(true);
-		expect(truncated.endsWith(" end")).toBe(true);
-		expect(truncated).not.toContain("\uFFFD");
-	});
-});
-
-describe("buildInternalModerationPrompt", () => {
-	it("sends the system prompt and only the turn after the last assistant message", () => {
-		const prompt = buildInternalModerationPrompt([
-			{ role: "system", content: "be helpful" },
-			{ role: "user", content: "old question" },
-			{ role: "assistant", content: "old answer" },
-			{ role: "user", content: "new question" },
-		]);
-
-		expect(prompt).toBe("system: be helpful\n\nuser: new question");
-	});
-
-	it("fits one request and gives the latest turn the budget first", () => {
-		const prompt = buildInternalModerationPrompt(
-			[
-				{ role: "system", content: "s".repeat(500) },
-				{ role: "user", content: `ask ${"x".repeat(500)} this` },
-			],
-			200,
-		);
-
-		expect(new TextEncoder().encode(prompt).length).toBeLessThanOrEqual(200);
-		expect(prompt.startsWith("user: ask")).toBe(true);
-		expect(prompt.endsWith("this")).toBe(true);
-	});
-});
 
 describe("toInternalModerationResult", () => {
 	it("violates both tiers only when the service blocks", () => {

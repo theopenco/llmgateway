@@ -49,6 +49,8 @@ export interface TieredContentFilterPlan {
 	shadowClassifiers: ContentFilterClassifier[];
 	/** What the internal classifier reads; ignored by the others. */
 	internalScope: ContentFilterInternalScope;
+	/** What OpenAI moderation reads of the text; ignored by the others. */
+	openaiScope: ContentFilterInternalScope;
 	/** Whether a text-only classifier delegates image parts to OpenAI. */
 	moderateImages: boolean;
 	/** Groups whose matches block; null blocks every match. */
@@ -201,6 +203,9 @@ export async function resolveTieredContentFilterPlan(
 			(classifier) => classifier !== settings.classifier,
 		),
 		internalScope: settings.internalScope,
+		// Optional: settings cached by the previous release lack this field.
+		openaiScope:
+			settings.openaiScope ?? DEFAULT_CONTENT_FILTER_SETTINGS.openaiScope,
 		moderateImages: settings.moderateImages,
 		// Optional: settings cached by the previous release lack these fields.
 		blockGroups: settings.blockGroups ?? null,

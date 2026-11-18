@@ -81,6 +81,7 @@ const PLAN: TieredContentFilterPlan = {
 	classifier: "jev",
 	shadowClassifiers: [],
 	internalScope: "full",
+	openaiScope: "latest_turn",
 	moderateImages: true,
 	blockGroups: null,
 	csamScoreThreshold: 0.01,
@@ -554,6 +555,7 @@ describe("shadow classifiers", () => {
 		classifier: "jev",
 		shadowClassifiers: ["openai", "internal"],
 		internalScope: "latest_turn",
+		openaiScope: "full",
 	};
 
 	it("runs every shadow detached from the request, with the plan's scope", async () => {
@@ -576,7 +578,14 @@ describe("shadow classifiers", () => {
 			"openai",
 			"internal",
 		]);
-		expect(checkOpenAI).toHaveBeenCalledWith(TEXT_MESSAGES, CONTEXT, undefined);
+		expect(checkOpenAI).toHaveBeenCalledWith(
+			TEXT_MESSAGES,
+			CONTEXT,
+			undefined,
+			{
+				scope: "full",
+			},
+		);
 		expect(checkInternal).toHaveBeenCalledWith(
 			TEXT_MESSAGES,
 			CONTEXT,

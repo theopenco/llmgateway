@@ -53,9 +53,9 @@ const BLOCK_GROUP_LABELS: Record<BlockGroup, string> = {
 	cyber: "Cyber abuse",
 };
 
-type InternalScope = ContentFilterSettingsInput["internalScope"];
+type Scope = ContentFilterSettingsInput["internalScope"];
 
-const INTERNAL_SCOPE_LABELS: Record<InternalScope, string> = {
+const SCOPE_LABELS: Record<Scope, string> = {
 	full: "Whole conversation",
 	latest_turn: "Latest turn only",
 };
@@ -69,7 +69,8 @@ interface ContentFilterSettingsFormProps {
 		enforceEnterprise: boolean;
 		classifier: Classifier;
 		shadowClassifiers: Classifier[];
-		internalScope: InternalScope;
+		internalScope: Scope;
+		openaiScope: Scope;
 		moderateImages: boolean;
 		blockGroups: BlockGroup[] | null;
 		csamScoreThreshold: number;
@@ -101,11 +102,14 @@ export function ContentFilterSettingsForm({
 	);
 	const runsInternal =
 		classifier === "internal" || activeShadows.includes("internal");
+	const runsOpenAI =
+		classifier === "openai" || activeShadows.includes("openai");
 	const runsTextOnly =
 		classifier !== "openai" || activeShadows.some((c) => c !== "openai");
-	const [internalScope, setInternalScope] = useState<InternalScope>(
+	const [internalScope, setInternalScope] = useState<Scope>(
 		settings.internalScope,
 	);
+	const [openaiScope, setOpenaiScope] = useState<Scope>(settings.openaiScope);
 	const [moderateImages, setModerateImages] = useState(settings.moderateImages);
 	const [limitGroups, setLimitGroups] = useState(settings.blockGroups !== null);
 	const [blockGroups, setBlockGroups] = useState<BlockGroup[]>(
@@ -203,6 +207,7 @@ export function ContentFilterSettingsForm({
 					classifier,
 					shadowClassifiers: activeShadows,
 					internalScope,
+					openaiScope,
 					moderateImages,
 					blockGroups: limitGroups ? blockGroups : null,
 					csamScoreThreshold,
@@ -457,20 +462,18 @@ export function ContentFilterSettingsForm({
 						disabled={pending || readOnly}
 						onValueChange={(value) => {
 							setSaved(false);
-							setInternalScope(value as InternalScope);
+							setInternalScope(value as Scope);
 						}}
 					>
 						<SelectTrigger id="content-filter-internal-scope" className="w-64">
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
-							{(Object.keys(INTERNAL_SCOPE_LABELS) as InternalScope[]).map(
-								(option) => (
-									<SelectItem key={option} value={option}>
-										{INTERNAL_SCOPE_LABELS[option]}
-									</SelectItem>
-								),
-							)}
+							{(Object.keys(SCOPE_LABELS) as Scope[]).map((option) => (
+								<SelectItem key={option} value={option}>
+									{SCOPE_LABELS[option]}
+								</SelectItem>
+							))}
 						</SelectContent>
 					</Select>
 					<p className="text-xs text-muted-foreground">
@@ -479,6 +482,38 @@ export function ContentFilterSettingsForm({
 						delays requests when blocking is on. Latest turn only sends the
 						system prompt plus the messages after the last assistant reply, in
 						one request.
+					</p>
+				</div>
+			)}
+
+			{runsOpenAI && (
+				<div className="space-y-2">
+					<Label htmlFor="content-filter-openai-scope">OpenAI text input</Label>
+					<Select
+						value={openaiScope}
+						disabled={pending || readOnly}
+						onValueChange={(value) => {
+							setSaved(false);
+							setOpenaiScope(value as Scope);
+						}}
+					>
+						<SelectTrigger id="content-filter-openai-scope" className="w-64">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{(Object.keys(SCOPE_LABELS) as Scope[]).map((option) => (
+								<SelectItem key={option} value={option}>
+									{SCOPE_LABELS[option]}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					<p className="text-xs text-muted-foreground">
+						OpenAI scores text past about 4,000 tokens as clean, so the text is
+						sent in 4 KiB chunks in one call. Latest turn only sends the system
+						prompt plus the messages after the last assistant reply (up to 64
+						KiB). Whole conversation sends the newest 256 KiB and takes longer
+						on long agent histories. Images are always checked.
 					</p>
 				</div>
 			)}
