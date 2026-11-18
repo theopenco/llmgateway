@@ -40,7 +40,8 @@ import { canReadEvent } from "./notification-scope.js";
 
 import type { notificationPreference } from "@llmgateway/db";
 
-const DAY = 24 * 60 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
 const USAGE_WINDOW_MS = 30 * DAY;
 const HEALTH_FRESHNESS_MS = 10 * 60 * 1000;
 // Provider issue alerts only cover mappings used this recently.
@@ -120,16 +121,19 @@ export async function processNotifications(now = new Date()): Promise<void> {
 	const providers = await db.query.provider.findMany({
 		where: { status: "active" },
 	});
+	// Mapping rows keep their old statsUpdatedAt while counters are unchanged,
+	// so take freshness from the provider row the same stats run always writes.
 	const unhealthyMappings = (
 		await db.query.modelProviderMapping.findMany({
-			where: {
-				upstreamErrorsCount: { gt: 0 },
-				statsUpdatedAt: {
-					gte: new Date(now.getTime() - HEALTH_FRESHNESS_MS),
-				},
-			},
+			where: { upstreamErrorsCount: { gt: 0 } },
 		})
-	).filter((m) => hasUpstreamIssues(m, now));
+	).filter((m) => {
+		const owner = providers.find((p) => p.id === m.providerId);
+		return (
+			!!owner &&
+			hasUpstreamIssues({ ...m, statsUpdatedAt: owner.statsUpdatedAt }, now)
+		);
+	});
 	for (const userId of userIds) {
 		const recipient = await db.query.user.findFirst({
 			where: { id: userId, status: "active" },
@@ -288,9 +292,11 @@ export async function processNotifications(now = new Date()): Promise<void> {
 			const provider = providers.find((p) => p.id === used.provider);
 			// Judge health per mapping the caller used in the last day, so the alert
 			// names the affected model and skips unused or healthy ones.
+			// Compare the bucket's end so a request just inside the window counts.
 			const usedRecently =
 				!!used.lastUsedHour &&
-				used.lastUsedHour.getTime() >= now.getTime() - ISSUE_USAGE_WINDOW_MS;
+				used.lastUsedHour.getTime() + HOUR >
+					now.getTime() - ISSUE_USAGE_WINDOW_MS;
 			const mapping = unhealthyMappings.find(
 				(m) =>
 					usedRecently &&

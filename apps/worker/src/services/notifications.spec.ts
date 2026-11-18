@@ -116,7 +116,8 @@ async function insertUsage() {
 		deactivatedAt: daysFromNow(7),
 		logsCount: 100,
 		upstreamErrorsCount: 30,
-		statsUpdatedAt: now,
+		// Stale on purpose: unchanged mapping counters keep their old timestamp.
+		statsUpdatedAt: daysFromNow(-1),
 	});
 	await db.insert(tables.apiKeyHourlyModelStats).values({
 		projectId: "alert-project",
@@ -182,15 +183,18 @@ describe("usage notifications", () => {
 		await processNotifications(now);
 		expect(await db.query.notification.findMany()).toHaveLength(2);
 		await db.delete(tables.notification);
-		await db.update(tables.modelProviderMapping).set({
-			deactivatedAt: daysFromNow(31),
-			statsUpdatedAt: new Date(now.getTime() - day),
-		});
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ deactivatedAt: daysFromNow(31) });
+		await db
+			.update(tables.provider)
+			.set({ statsUpdatedAt: new Date(now.getTime() - day) });
 		await processNotifications(now);
 		expect(await db.query.notification.findMany()).toHaveLength(0);
 		await db
 			.update(tables.modelProviderMapping)
-			.set({ deactivatedAt: daysFromNow(7), statsUpdatedAt: now });
+			.set({ deactivatedAt: daysFromNow(7) });
+		await db.update(tables.provider).set({ statsUpdatedAt: now });
 		await db
 			.update(tables.apiKeyHourlyModelStats)
 			.set({ hourTimestamp: daysFromNow(-31) });
@@ -221,7 +225,6 @@ describe("usage notifications", () => {
 			providerId: "test-provider",
 			externalId: "other-model",
 			logsCount: 100,
-			statsUpdatedAt: now,
 		});
 		await db.insert(tables.apiKeyHourlyModelStats).values({
 			projectId: "alert-project",
@@ -251,6 +254,12 @@ describe("usage notifications", () => {
 			.set({ hourTimestamp: daysFromNow(-2) });
 		await processNotifications(now);
 		expect(await db.query.notification.findMany()).toHaveLength(0);
+		// The bucket started over a day ago, but it ends inside the window.
+		await db
+			.update(tables.apiKeyHourlyModelStats)
+			.set({ hourTimestamp: new Date(now.getTime() - day - 1800000) });
+		await processNotifications(now);
+		expect(await db.query.notification.findMany()).toHaveLength(1);
 	});
 	it("retries failed email with the same idempotency key and checks current access", async () => {
 		await enable("budget", "alert-owner", true);
