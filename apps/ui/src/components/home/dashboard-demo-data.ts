@@ -1633,9 +1633,9 @@ export const USAGE_ALERTS = [
 	},
 	{
 		id: "ntf_2",
-		title: "Fireworks AI is experiencing errors",
+		title: "kimi-k2 on Fireworks AI is experiencing errors",
 		message:
-			"Recent requests to Fireworks AI show elevated upstream errors. This provider served your traffic in the last 30 days. Check its status and consider another provider while it recovers.",
+			'Recent requests to fireworks/kimi-k2 show elevated upstream errors. Project "Production" used it in the last 30 days. Check the provider status and consider another provider for this model while it recovers.',
 		agoMinutes: 95,
 		unread: true,
 	},

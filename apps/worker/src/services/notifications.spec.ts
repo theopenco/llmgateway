@@ -12,7 +12,7 @@ import {
 	deliverNotificationEmails,
 	isNearBudget,
 	processNotifications,
-	providerHasIssues,
+	hasUpstreamIssues,
 } from "./notifications.js";
 
 const send = vi.hoisted(() => vi.fn().mockResolvedValue({ error: null }));
@@ -114,6 +114,9 @@ async function insertUsage() {
 		providerId: "test-provider",
 		externalId: "test-model",
 		deactivatedAt: daysFromNow(7),
+		logsCount: 100,
+		upstreamErrorsCount: 30,
+		statsUpdatedAt: now,
 	});
 	await db.insert(tables.apiKeyHourlyModelStats).values({
 		projectId: "alert-project",
@@ -179,18 +182,15 @@ describe("usage notifications", () => {
 		await processNotifications(now);
 		expect(await db.query.notification.findMany()).toHaveLength(2);
 		await db.delete(tables.notification);
-		await db
-			.update(tables.modelProviderMapping)
-			.set({ deactivatedAt: daysFromNow(31) });
-		await db
-			.update(tables.provider)
-			.set({ statsUpdatedAt: new Date(now.getTime() - day) });
+		await db.update(tables.modelProviderMapping).set({
+			deactivatedAt: daysFromNow(31),
+			statsUpdatedAt: new Date(now.getTime() - day),
+		});
 		await processNotifications(now);
 		expect(await db.query.notification.findMany()).toHaveLength(0);
 		await db
 			.update(tables.modelProviderMapping)
-			.set({ deactivatedAt: daysFromNow(7) });
-		await db.update(tables.provider).set({ statsUpdatedAt: now });
+			.set({ deactivatedAt: daysFromNow(7), statsUpdatedAt: now });
 		await db
 			.update(tables.apiKeyHourlyModelStats)
 			.set({ hourTimestamp: daysFromNow(-31) });
@@ -211,6 +211,38 @@ describe("usage notifications", () => {
 		expect(await db.query.notification.findMany()).toHaveLength(1);
 	});
 
+	it("names the failing model and skips healthy models on the same provider", async () => {
+		await enable("provider_issue", "alert-owner", true);
+		await insertUsage();
+		await db.insert(tables.model).values({ id: "other-model", family: "test" });
+		await db.insert(tables.modelProviderMapping).values({
+			id: "other-mapping",
+			modelId: "other-model",
+			providerId: "test-provider",
+			externalId: "other-model",
+			logsCount: 100,
+			statsUpdatedAt: now,
+		});
+		await db.insert(tables.apiKeyHourlyModelStats).values({
+			projectId: "alert-project",
+			apiKeyId: "alert-key",
+			usedModel: "test-provider/other-model",
+			usedProvider: "test-provider",
+			hourTimestamp: new Date(now.getTime() - 3600000),
+			requestCount: 10,
+		});
+		await processNotifications(now);
+		expect(await db.query.notification.findMany()).toMatchObject([
+			{
+				title: "test-model on Test provider is experiencing errors",
+				href: "/models/test-model/test-provider",
+			},
+		]);
+		expect(send).toHaveBeenCalledTimes(1);
+		expect(send.mock.calls[0][0].text).toContain(
+			'test-provider/test-model show elevated upstream errors. Project "Test Project" used it',
+		);
+	});
 	it("retries failed email with the same idempotency key and checks current access", async () => {
 		await enable("budget", "alert-owner", true);
 		send.mockResolvedValueOnce({ error: { message: "Temporary failure" } });
@@ -341,9 +373,9 @@ describe("usage notifications", () => {
 			clientErrorsCount: 50,
 			statsUpdatedAt: now,
 		};
-		expect(providerHasIssues(healthy, now)).toBe(false);
+		expect(hasUpstreamIssues(healthy, now)).toBe(false);
 		expect(
-			providerHasIssues(
+			hasUpstreamIssues(
 				{
 					...healthy,
 					logsCount: 10,
@@ -354,7 +386,7 @@ describe("usage notifications", () => {
 			),
 		).toBe(false);
 		expect(
-			providerHasIssues({ ...healthy, upstreamErrorsCount: 20 }, now),
+			hasUpstreamIssues({ ...healthy, upstreamErrorsCount: 20 }, now),
 		).toBe(true);
 	});
 });

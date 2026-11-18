@@ -62,7 +62,7 @@ export function isNearBudget(
 	);
 }
 
-export function providerHasIssues(
+export function hasUpstreamIssues(
 	provider: {
 		logsCount: number;
 		upstreamErrorsCount: number;
@@ -117,6 +117,16 @@ export async function processNotifications(now = new Date()): Promise<void> {
 	const providers = await db.query.provider.findMany({
 		where: { status: "active" },
 	});
+	const unhealthyMappings = (
+		await db.query.modelProviderMapping.findMany({
+			where: {
+				upstreamErrorsCount: { gt: 0 },
+				statsUpdatedAt: {
+					gte: new Date(now.getTime() - HEALTH_FRESHNESS_MS),
+				},
+			},
+		})
+	).filter((m) => hasUpstreamIssues(m, now));
 	for (const userId of userIds) {
 		const recipient = await db.query.user.findFirst({
 			where: { id: userId, status: "active" },
@@ -198,6 +208,11 @@ export async function processNotifications(now = new Date()): Promise<void> {
 		if (!retirement && !health) {
 			continue;
 		}
+		const projectNames = new Map(
+			(
+				await db.query.project.findMany({ where: { id: { in: projects } } })
+			).map((p) => [p.id, p.name]),
+		);
 		const usage = await db
 			.selectDistinct({
 				projectId: apiKeyHourlyModelStats.projectId,
@@ -226,6 +241,7 @@ export async function processNotifications(now = new Date()): Promise<void> {
 			const audience = scope.privilegedProjectIds.includes(used.projectId)
 				? used.projectId
 				: used.apiKeyId;
+			const usedBy = `Project "${projectNames.get(used.projectId) ?? used.projectId}" used it in the last 30 days.`;
 			if (retirement) {
 				for (const mapping of mappings.filter(
 					(m) =>
@@ -250,22 +266,30 @@ export async function processNotifications(now = new Date()): Promise<void> {
 							type: "model_retirement",
 							eventKey: `retirement:${audience}:${mapping.id}:${kind}:${date.toISOString()}`,
 							title: `Model ${kind === "deprecated" ? "deprecation" : "deactivation"} approaching`,
-							message: `${used.provider}/${used.model}${mapping.region ? ` (${mapping.region})` : ""} is scheduled to be ${kind} on ${date.toISOString().slice(0, 10)}. Move to a newer active model before this date; compare capabilities and pricing in the model catalogue.`,
+							message: `${used.provider}/${used.model}${mapping.region ? ` (${mapping.region})` : ""} is scheduled to be ${kind} on ${date.toISOString().slice(0, 10)}. ${usedBy} Move to a newer active model before this date; compare capabilities and pricing in the model catalogue.`,
 							href: "/models",
 						});
 					}
 				}
 			}
 			const provider = providers.find((p) => p.id === used.provider);
-			if (health && provider && providerHasIssues(provider, now)) {
+			// Judge health per mapping so the alert names the affected model and
+			// skips models that are healthy on an otherwise failing provider.
+			const mapping = unhealthyMappings.find(
+				(m) =>
+					m.modelId === used.model &&
+					m.providerId === used.provider &&
+					(m.region ?? "") === used.region,
+			);
+			if (health && provider && mapping) {
 				await recordEvent(userId, health, {
 					projectId: used.projectId,
 					apiKeyId: used.apiKeyId,
 					type: "provider_issue",
-					eventKey: `provider:${audience}:${provider.id}:${now.toISOString().slice(0, 10)}`,
-					title: `${provider.name} is experiencing errors`,
-					message: `Recent requests to ${provider.name} show elevated upstream errors. This provider served your traffic in the last 30 days. Check its status and consider another provider while it recovers.`,
-					href: `/providers/${provider.id}`,
+					eventKey: `provider:${audience}:${mapping.id}:${now.toISOString().slice(0, 10)}`,
+					title: `${used.model} on ${provider.name} is experiencing errors`,
+					message: `Recent requests to ${used.provider}/${used.model}${mapping.region ? ` (${mapping.region})` : ""} show elevated upstream errors. ${usedBy} Check the provider status and consider another provider for this model while it recovers.`,
+					href: `/models/${encodeURIComponent(used.model)}/${encodeURIComponent(provider.id)}`,
 				});
 			}
 		}
