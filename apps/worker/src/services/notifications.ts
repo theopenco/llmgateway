@@ -75,6 +75,48 @@ export function isNearBudget(
 	);
 }
 
+const COUNT_FIELDS = [
+	"logsCount",
+	"cachedCount",
+	"clientErrorsCount",
+	"gatewayErrorsCount",
+	"upstreamErrorsCount",
+	"retriedGatewayErrorsCount",
+	"retriedUpstreamErrorsCount",
+] as const;
+
+/**
+ * Counts that reached each mapping's provider. A regionless mapping's history
+ * also sums its regions' traffic, so those are subtracted; response-cache hits
+ * never reached the provider and are dropped.
+ */
+export function providerIssueCounts(
+	rows: MappingErrorCounts[],
+): MappingErrorCounts[] {
+	const regionsOf = (row: MappingErrorCounts) =>
+		rows.filter(
+			(other) =>
+				other.region &&
+				other.modelId === row.modelId &&
+				other.providerId === row.providerId,
+		);
+	return rows.map((row) => {
+		const own = { ...row };
+		if (!row.region) {
+			for (const regional of regionsOf(row)) {
+				for (const field of COUNT_FIELDS) {
+					own[field] = Math.max(own[field] - regional[field], 0);
+				}
+			}
+		}
+		return {
+			...own,
+			logsCount: Math.max(own.logsCount - own.cachedCount, 0),
+			cachedCount: 0,
+		};
+	});
+}
+
 async function recordEvent(
 	userId: string,
 	preference: Preference,
@@ -122,7 +164,16 @@ export async function processNotifications(now = new Date()): Promise<void> {
 				counts = queryMappingErrorCounts(windowMinutes, {
 					now,
 					baseOnly: false,
-				});
+				})
+					.then(providerIssueCounts)
+					.catch((error: unknown) => {
+						// Skip provider issues this run; budget and retirement alerts still go out.
+						logger.error(
+							"Provider issue error-rate query failed",
+							error instanceof Error ? error : new Error(String(error)),
+						);
+						return [];
+					});
 				countsByWindow.set(windowMinutes, counts);
 			}
 			hits = counts.then((rows) =>

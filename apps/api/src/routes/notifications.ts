@@ -41,13 +41,15 @@ import type { ServerTypes } from "@/vars.js";
 
 export const notifications = new OpenAPIHono<ServerTypes>();
 
+/** An integer from `values`, published as an OpenAPI enum. */
 function oneOf(values: readonly number[]) {
 	return z
 		.number()
 		.int()
 		.refine((value) => values.includes(value), {
 			message: `Must be one of ${values.join(", ")}`,
-		});
+		})
+		.openapi({ enum: [...values] });
 }
 
 /**

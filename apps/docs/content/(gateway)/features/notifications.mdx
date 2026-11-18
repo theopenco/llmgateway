@@ -26,7 +26,7 @@ A provider issue alert fires when a model's error rate on a provider reaches you
 - **Error window**: the last 5 minutes, 15 minutes (default) or 1 hour. Shorter windows alert sooner.
 - **Usage window**: only models you used in the last 1 hour, 4 hours (default) or 24 hours are covered.
 
-The rate counts gateway traffic on credits, across all customers, that returned a provider or gateway error. Client errors (4xx caused by the request) and failed attempts the gateway retried on another provider are not counted. A model needs at least 20 requests in the window before it is judged. Checks run every minute.
+The rate counts gateway traffic on credits, across all customers, that returned a provider or gateway error. Client errors (4xx caused by the request), response-cache hits, and failed attempts the gateway retried on another provider are not counted. A model needs at least 20 requests in the window before it is judged. Checks run every minute.
 
 Retirement dates apply per provider mapping. A mapping can be retired when its provider redirects requests to a newer model. Check the [model catalogue](https://llmgateway.io/models) and update your requested model before the mapping's deactivation date.
 

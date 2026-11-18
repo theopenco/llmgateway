@@ -30,6 +30,7 @@ const counts = {
 	providerId: "openai",
 	region: null,
 	logsCount: 100,
+	cachedCount: 0,
 	clientErrorsCount: 0,
 	gatewayErrorsCount: 0,
 	upstreamErrorsCount: 0,

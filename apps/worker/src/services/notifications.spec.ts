@@ -12,6 +12,7 @@ import {
 	deliverNotificationEmails,
 	isNearBudget,
 	processNotifications,
+	providerIssueCounts,
 } from "./notifications.js";
 
 const send = vi.hoisted(() => vi.fn().mockResolvedValue({ error: null }));
@@ -452,5 +453,32 @@ describe("usage notifications", () => {
 				where: { userId: "alert-developer" },
 			}),
 		).toMatchObject({ email: false, emailSentAt: null });
+	});
+	it("strips regional traffic and cache hits from provider issue counts", () => {
+		const row = {
+			mappingId: "root",
+			modelId: "m",
+			providerId: "p",
+			region: null,
+			logsCount: 100,
+			cachedCount: 20,
+			clientErrorsCount: 0,
+			gatewayErrorsCount: 0,
+			upstreamErrorsCount: 40,
+			retriedGatewayErrorsCount: 0,
+			retriedUpstreamErrorsCount: 0,
+		};
+		const regional = {
+			...row,
+			mappingId: "west",
+			region: "west",
+			logsCount: 50,
+			cachedCount: 0,
+			upstreamErrorsCount: 40,
+		};
+		expect(providerIssueCounts([row, regional])).toMatchObject([
+			{ mappingId: "root", logsCount: 30, upstreamErrorsCount: 0 },
+			{ mappingId: "west", logsCount: 50, upstreamErrorsCount: 40 },
+		]);
 	});
 });

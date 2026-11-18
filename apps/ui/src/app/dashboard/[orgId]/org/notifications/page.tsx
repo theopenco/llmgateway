@@ -175,7 +175,14 @@ export default function NotificationsPage() {
 																disabled={busy}
 																onSave={(value) =>
 																	save.mutate({
-																		body: { ...preference, ...value },
+																		// Send only the edited setting; null keeps the saved one.
+																		body: {
+																			...preference,
+																			issueWindowMinutes: null,
+																			issueErrorRatePercent: null,
+																			issueUsageHours: null,
+																			...value,
+																		},
 																	})
 																}
 															/>

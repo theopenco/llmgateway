@@ -36,6 +36,7 @@ export interface MappingErrorCounts {
 	providerId: string;
 	region: string | null;
 	logsCount: number;
+	cachedCount: number;
 	clientErrorsCount: number;
 	gatewayErrorsCount: number;
 	upstreamErrorsCount: number;
@@ -144,8 +145,11 @@ export async function queryMappingErrorCounts(
 	}: { now?: Date; baseOnly?: boolean } = {},
 ): Promise<MappingErrorCounts[]> {
 	const mph = modelProviderMappingHistory;
+	// Start on a minute boundary so the bucket holding the window's first
+	// requests is included rather than dropped.
 	const windowMs = windowMinutes * MINUTE_MS;
-	const windowStart = new Date(now.getTime() - windowMs);
+	const start = now.getTime() - windowMs;
+	const windowStart = new Date(start - (start % MINUTE_MS));
 	const rows = await db
 		.select({
 			mappingId: mph.modelProviderMappingId,
@@ -153,6 +157,7 @@ export async function queryMappingErrorCounts(
 			providerId: mph.providerId,
 			region: modelProviderMapping.region,
 			logsCount: sql<string>`coalesce(sum(${mph.logsCount}), 0)::bigint`,
+			cachedCount: sql<string>`coalesce(sum(${mph.cachedCount}), 0)::bigint`,
 			clientErrorsCount: sql<string>`coalesce(sum(${mph.clientErrorsCount}), 0)::bigint`,
 			gatewayErrorsCount: sql<string>`coalesce(sum(${mph.gatewayErrorsCount}), 0)::bigint`,
 			upstreamErrorsCount: sql<string>`coalesce(sum(${mph.upstreamErrorsCount}), 0)::bigint`,
@@ -194,6 +199,7 @@ export async function queryMappingErrorCounts(
 		providerId: row.providerId,
 		region: row.region,
 		logsCount: Number(row.logsCount),
+		cachedCount: Number(row.cachedCount),
 		clientErrorsCount: Number(row.clientErrorsCount),
 		gatewayErrorsCount: Number(row.gatewayErrorsCount),
 		upstreamErrorsCount: Number(row.upstreamErrorsCount),
