@@ -22,6 +22,55 @@ import type { GatewayContentFilterEvaluation } from "@llmgateway/db";
 import type { BaseMessage, MessageContent } from "@llmgateway/models";
 import type { ContentFilterBlockGroup } from "@llmgateway/shared";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Media blocks nested in tool payloads, recognised by shape whatever their
+ * size: OpenAI `image_url` / `input_audio` parts and Anthropic base64 sources.
+ */
+function describeMediaBlock(
+	value: Record<string, unknown>,
+): FlaggedPayloadPart | null {
+	if (isRecord(value.image_url) && typeof value.image_url.url === "string") {
+		return describeImageUrl(value.image_url.url);
+	}
+	if (
+		isRecord(value.input_audio) &&
+		typeof value.input_audio.data === "string"
+	) {
+		return { type: "audio", ...describeBase64(value.input_audio.data) };
+	}
+	if (
+		isRecord(value.source) &&
+		value.source.type === "base64" &&
+		typeof value.source.data === "string"
+	) {
+		return {
+			type: value.type === "image" ? "image" : "file",
+			...(typeof value.source.media_type === "string"
+				? { mimeType: value.source.media_type }
+				: {}),
+			...describeBase64(value.source.data),
+		};
+	}
+	return null;
+}
+
+/** Tool-call arguments are JSON text; scrub the parsed value when it parses. */
+function scrubToolArguments(args: string): string {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(args);
+	} catch {
+		// Not JSON (a partial or malformed call): scrub it as one string.
+		const scrubbed = scrubNestedMedia(args);
+		return typeof scrubbed === "string" ? scrubbed : JSON.stringify(scrubbed);
+	}
+	return JSON.stringify(scrubNestedMedia(parsed));
+}
+
 /**
  * A remote media URL without credentials, query or fragment (signed URLs carry
  * tokens there), plus a hash of the full URL to match it against a report.
@@ -115,8 +164,9 @@ const MIN_BASE64_MEDIA_LENGTH = 512;
 const MAX_SCRUB_DEPTH = 32;
 
 /**
- * Tool inputs and results are free-form JSON that can embed media. Replace
- * every data URL or long base64 string, at any depth, with its hash and size.
+ * Tool inputs, results and call arguments are free-form JSON that can embed
+ * media. Replace media blocks, data URLs and long base64 strings, at any
+ * depth, with their hash and size.
  */
 export function scrubNestedMedia(value: unknown, depth = 0): unknown {
 	if (typeof value === "string") {
@@ -134,6 +184,10 @@ export function scrubNestedMedia(value: unknown, depth = 0): unknown {
 	}
 	if (Array.isArray(value)) {
 		return value.map((entry) => scrubNestedMedia(entry, depth + 1));
+	}
+	const media = isRecord(value) ? describeMediaBlock(value) : null;
+	if (media) {
+		return media;
 	}
 	return Object.fromEntries(
 		Object.entries(value).map(([key, entry]) => [
@@ -208,7 +262,7 @@ function describeMessage(message: BaseMessage): FlaggedPayloadMessage {
 			? {
 					toolCalls: message.tool_calls.map((call) => ({
 						name: call.function.name,
-						arguments: call.function.arguments,
+						arguments: scrubToolArguments(call.function.arguments),
 					})),
 				}
 			: {}),

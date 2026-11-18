@@ -232,6 +232,64 @@ describe("buildFlaggedPayload", () => {
 		]);
 	});
 
+	test("hashes small media blocks and media in tool-call arguments", () => {
+		const result = buildFlaggedPayload([
+			{
+				role: "assistant",
+				content: "",
+				tool_calls: [
+					{
+						id: "call-2",
+						type: "function",
+						function: {
+							name: "send",
+							arguments: JSON.stringify({
+								image: `data:image/png;base64,${imageBase64}`,
+							}),
+						},
+					},
+				],
+			},
+			{
+				role: "user",
+				content: [
+					{
+						type: "tool_result",
+						tool_use_id: "call-2",
+						content: [
+							{
+								type: "image",
+								source: {
+									type: "base64",
+									media_type: "image/png",
+									data: imageBase64,
+								},
+							},
+						],
+					},
+				],
+			},
+		]);
+		expect(result.json.includes(imageBase64)).toBe(false);
+		const payload = JSON.parse(result.json) as FlaggedPayload;
+		expect(
+			JSON.parse(payload.messages[0].toolCalls?.[0].arguments ?? "{}"),
+		).toMatchObject({ image: { type: "media", mimeType: "image/png" } });
+		expect(payload.messages[1].content).toEqual([
+			{
+				type: "tool_result",
+				content: [
+					{
+						type: "image",
+						mimeType: "image/png",
+						sha256: createHash("sha256").update(imageBytes).digest("hex"),
+						bytes: imageBytes.length,
+					},
+				],
+			},
+		]);
+	});
+
 	test("drops the oldest messages first to fit the cap", () => {
 		const messages: BaseMessage[] = [
 			{ role: "user", content: "a".repeat(600) },
