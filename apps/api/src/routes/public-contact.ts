@@ -185,7 +185,7 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 	const body = c.req.valid("json");
 	const validatedData = {
 		...body,
-		name: body.name ?? body.email.split("@")[0] ?? body.email,
+		name: body.name ?? body.email,
 		country:
 			body.country ?? getCountryFromHeaders(c.req.raw.headers) ?? "Unknown",
 		message: body.message?.trim() ?? "",
@@ -278,7 +278,7 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 		);
 	}
 
-	const contentToCheck = `${validatedData.name} ${validatedData.message}`;
+	const contentToCheck = `${body.name ?? ""} ${validatedData.message}`;
 	if (checkForSpam(contentToCheck)) {
 		await updateSubmissionStatus(submission.id, "rejected", "keyword_spam");
 		return c.json(

@@ -97,7 +97,7 @@ function ConfirmCard() {
 					<CalendlyInline
 						url={ENTERPRISE_BOOKING_URL}
 						name={
-							confirm.data.name === confirm.data.email.split("@")[0]
+							confirm.data.name === confirm.data.email
 								? undefined
 								: confirm.data.name
 						}

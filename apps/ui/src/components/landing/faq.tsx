@@ -2,6 +2,7 @@ import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import { PlusIcon } from "lucide-react";
 import Link from "next/link";
 
+import { TrackedLink } from "@/components/home/tracked-link";
 import {
 	Accordion,
 	AccordionContent,
@@ -305,12 +306,14 @@ export function Faq() {
 											it.
 										</p>
 										<p className="mt-2">
-											<Link
+											<TrackedLink
 												href="/enterprise#contact"
+												location="home_faq"
+												cta="book_a_call"
 												className="text-foreground underline underline-offset-4"
 											>
 												Book a call to start a pilot
-											</Link>
+											</TrackedLink>
 										</p>
 									</div>
 								</AccordionContent>

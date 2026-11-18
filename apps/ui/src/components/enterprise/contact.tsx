@@ -59,6 +59,14 @@ export function ContactFormEnterprise() {
 	const [formLoadTime] = useState(() => Date.now());
 	const [audience, setAudience] = useState<ContactAudience>("company");
 	const startedRef = useRef(false);
+	const successHeadingRef = useRef<HTMLHeadingElement>(null);
+
+	// The submit button unmounts on success; land keyboard users on the next step.
+	useEffect(() => {
+		if (isSuccess) {
+			successHeadingRef.current?.focus();
+		}
+	}, [isSuccess]);
 
 	const form = useForm<ContactFormData>({
 		resolver: zodResolver(contactFormSchema),
@@ -146,7 +154,13 @@ export function ContactFormEnterprise() {
 									<div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/20 mb-6">
 										<CalendarCheck className="w-8 h-8 text-green-600 dark:text-green-400" />
 									</div>
-									<h3 className="text-2xl font-semibold mb-2">Pick a time</h3>
+									<h3
+										ref={successHeadingRef}
+										tabIndex={-1}
+										className="text-2xl font-semibold mb-2 outline-none"
+									>
+										Pick a time
+									</h3>
 									<p className="text-muted-foreground text-balance">
 										Choose a slot below. We also sent a confirmation link to{" "}
 										<span className="font-medium text-foreground">

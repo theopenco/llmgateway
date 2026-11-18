@@ -65,8 +65,7 @@ export function EnterpriseCTA() {
 							For teams · 30-Day Production Pilot
 						</span>
 						<h2 className="font-display text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight text-foreground text-balance">
-							LLMs in production in 30 days, with SSO, audit logs and a 99.9%
-							SLA
+							LLMs in production in 30 days, with SSO, audit logs and guardrails
 						</h2>
 						<p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto text-balance">
 							Every enterprise plan starts with a pilot on live traffic. If we

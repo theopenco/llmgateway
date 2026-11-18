@@ -1,9 +1,9 @@
 "use client";
 
 import { Check } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { TrackedLink } from "@/components/home/tracked-link";
 import { useSessionStatus } from "@/hooks/useUser";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -167,12 +167,14 @@ export function PricingPlans() {
 						support.
 						<br />
 						Need a custom solution?{" "}
-						<Link
+						<TrackedLink
 							href="/enterprise#contact"
+							location="pricing_footer"
+							cta="book_a_call"
 							className="text-primary hover:underline"
 						>
 							Book a call with our team
-						</Link>
+						</TrackedLink>
 						.
 					</p>
 				</div>

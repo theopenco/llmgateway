@@ -498,7 +498,7 @@ export const Navbar = ({
 
 						{/* Desktop center nav */}
 						<div className="m-auto hidden items-center gap-1 nav:flex min-w-0">
-							<div className="w-[96px] min-[1320px]:w-[140px]">
+							<div className="hidden w-[140px] min-[1320px]:block">
 								<ModelSearch />
 							</div>
 							<NavigationMenu viewport={false} delayDuration={300}>
@@ -800,7 +800,7 @@ export const Navbar = ({
 										<Link
 											href="/login"
 											prefetch={true}
-											className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden min-[1320px]:block whitespace-nowrap"
+											className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden nav:block whitespace-nowrap"
 										>
 											Log In
 										</Link>
@@ -812,12 +812,13 @@ export const Navbar = ({
 										>
 											<Link
 												href="/enterprise#contact"
-												onClick={() =>
+												onClick={() => {
+													setMenuState(false);
 													posthog.capture("cta_clicked", {
 														location: "navbar",
 														cta: "book_a_demo",
-													})
-												}
+													});
+												}}
 											>
 												Book a demo
 											</Link>

@@ -131,7 +131,7 @@ test("a submission with only an email and a size is stored with derived fields",
 	expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
 	const row = await loadSubmission();
 	expect(row).toMatchObject({
-		name: "inquiry",
+		name: inquiry.email,
 		country: "DE",
 		message: "",
 		spamFilterStatus: "unconfirmed",
@@ -140,6 +140,21 @@ test("a submission with only an email and a size is stored with derived fields",
 	await confirm(signEnterpriseContactToken(row!.id));
 	const html: string = send.mock.calls[0][0].html;
 	expect(html).toContain("No message");
+});
+
+test("a name derived from the email is not spam-checked", async () => {
+	const email = "bitcoin-ops@acme.example";
+	const response = await app.request("/public/contact/enterprise", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ email, size: "51-200" }),
+	});
+	await db
+		.delete(tables.enterpriseContactSubmission)
+		.where(eq(tables.enterpriseContactSubmission.email, email));
+
+	expect(response.status).toBe(200);
+	expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
 });
 
 test("a failed sales delivery is retried on the next click", async () => {
