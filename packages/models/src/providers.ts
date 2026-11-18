@@ -1388,7 +1388,7 @@ export const providers: ProviderDefinition[] = [
 		legalEntity: "Perplexity AI, Inc.",
 		headquarters: "US",
 		// The API terms rule out training; zero data retention needs a written
-		// agreement that this account does not have.
+		// agreement with Perplexity.
 		dataPolicy: {
 			apiTraining: false,
 			promptLogging: null,

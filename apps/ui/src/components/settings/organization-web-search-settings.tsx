@@ -120,8 +120,8 @@ export function OrganizationWebSearchSettings() {
 							</p>
 							{blockedByPolicy(id) && (
 								<p className="text-sm text-destructive">
-									Blocked by your compliance policy: searches with this engine
-									are skipped.
+									Blocked by your organization's compliance policy: searches
+									with this engine are skipped. API key policies apply too.
 								</p>
 							)}
 						</div>

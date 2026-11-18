@@ -61,10 +61,10 @@ Some providers serve preview or unreleased models under confidentiality and thei
 
 When a request asks for web search and the model serving it has no native web search, LLM Gateway runs the search itself with the search engine your organization selects. The engine receives a search query built from the latest user message of that request.
 
-| Sub-processor           | Purpose                     | Data processed                                      | Training on queries | Primary processing location |
-| ----------------------- | --------------------------- | --------------------------------------------------- | ------------------- | --------------------------- |
-| **Perplexity AI, Inc.** | Web search (default engine) | Search query from the request's latest user message | No                  | United States               |
-| **Exa Labs Inc.**       | Web search (opt-in engine)  | Search query from the request's latest user message | Yes                 | United States               |
+| Sub-processor           | Purpose                     | Data processed                                      | Training on queries | Retention                                  | Primary processing location |
+| ----------------------- | --------------------------- | --------------------------------------------------- | ------------------- | ------------------------------------------ | --------------------------- |
+| **Perplexity AI, Inc.** | Web search (default engine) | Search query from the request's latest user message | No                  | Not zero; varies by API and model          | United States               |
+| **Exa Labs Inc.**       | Web search (opt-in engine)  | Search query from the request's latest user message | Yes                 | Not specified; zero only on Exa Enterprise | United States               |
 
 Neither engine receives a request unless it includes a web search tool. Compliance policies apply to these engines like they do to AI providers; see [Compliance](https://docs.llmgateway.io/features/compliance#web-search-engines).
 
