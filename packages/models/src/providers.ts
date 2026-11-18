@@ -1381,18 +1381,27 @@ export const providers: ProviderDefinition[] = [
 		website: "https://perplexity.ai",
 		statusPageUrl: "https://status.perplexity.com",
 		announcement: null,
-		termsUrl: "https://www.perplexity.ai/hub/legal/terms-of-service",
+		termsUrl:
+			"https://www.perplexity.ai/hub/legal/perplexity-api-terms-of-service",
 		privacyPolicyUrl: "https://www.perplexity.ai/hub/legal/privacy-policy",
 		usagePolicyUrl: "https://www.perplexity.ai/hub/legal/aup",
 		legalEntity: "Perplexity AI, Inc.",
 		headquarters: "US",
+		// The API terms rule out training; zero data retention needs a written
+		// agreement that this account does not have.
 		dataPolicy: {
 			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
+			promptLogging: null,
+			retentionPeriod: "varies by API and model; ZDR by written agreement",
 			soc2: 2,
 			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "API privacy and data retention",
+				link: "https://docs.perplexity.ai/guides/privacy-security",
+			},
+		],
 	},
 	{
 		id: "nebius",

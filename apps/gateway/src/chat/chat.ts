@@ -57,6 +57,7 @@ import {
 	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
+	isWebSearchEngineCompliant,
 	isZeroDataRetentionEnabled,
 	logComplianceBlock,
 	type ComplianceCheckContext,
@@ -8919,7 +8920,11 @@ chat.openapi(completions, async (c) => {
 		const engine = resolveGatewayWebSearchEngine(organization?.webSearchEngine);
 		const skip = internalWebSearchSkipReason({
 			toolChoice: tool_choice,
-			compliancePolicyActive: !!compliancePolicy,
+			engineCompliant:
+				!compliancePolicy ||
+				isWebSearchEngineCompliant(engine, compliancePolicy, {
+					effectiveProviders,
+				}),
 			// BYOK searches are charged to credits by the worker, so they need
 			// credits up front like data retention does.
 			unfundedByokSearch:
@@ -8942,10 +8947,16 @@ chat.openapi(completions, async (c) => {
 		// `tool_choice: {type: "web_search"}` demands a search: answering
 		// without one would hide that it never ran.
 		if (webSearchTool.forced && (skip || (query && !search))) {
-			throw new HTTPException(skip === "unfunded_byok_search" ? 402 : 503, {
+			const status =
+				skip === "unfunded_byok_search"
+					? 402
+					: skip === "compliance_policy"
+						? 403
+						: 503;
+			throw new HTTPException(status, {
 				message:
 					skip === "compliance_policy"
-						? "Web search is required by tool_choice, but the gateway does not run web search under a compliance policy. Choose a model with native web search."
+						? `Web search is required by tool_choice, but the organization's web search engine (${GATEWAY_WEB_SEARCH_ENGINES[engine].name}) does not meet the compliance policy. Choose a model with native web search or a compliant engine.`
 						: skip === "unfunded_byok_search"
 							? "Web search is required by tool_choice, but the organization has no credits for the gateway-run search. Please add credits."
 							: "Web search is required by tool_choice, but the search engine is unavailable. Please retry.",

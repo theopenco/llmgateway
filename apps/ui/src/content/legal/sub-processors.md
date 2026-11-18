@@ -1,15 +1,15 @@
 ---
 id: "3"
 slug: "sub-processors"
-date: "2026-08-19"
+date: "2026-11-18"
 title: "Sub-processors"
 description: "The complete, versioned list of sub-processors LLM Gateway uses to provide the Service, what each one processes, where it is located, and how we notify customers before the list changes."
 ---
 
 # Sub-processor List
 
-**Version:** 2026-08-19  
-**Last Updated:** August 19, 2026
+**Version:** 2026-11-18  
+**Last Updated:** November 18, 2026
 
 This page is the authoritative list of the sub-processors LLM Gateway engages to provide the Service. It is referenced by our [Privacy Policy](/legal/privacy) and by the Data Processing Addendum (DPA) we enter into with Enterprise customers.
 
@@ -57,11 +57,24 @@ Some providers serve preview or unreleased models under confidentiality and thei
 
 ---
 
-## 3. Changes to This List
+## 3. Web Search Sub-processors
+
+When a request asks for web search and the model serving it has no native web search, LLM Gateway runs the search itself with the search engine your organization selects. The engine receives a search query built from the latest user message of that request.
+
+| Sub-processor           | Purpose                     | Data processed                                      | Training on queries | Primary processing location |
+| ----------------------- | --------------------------- | --------------------------------------------------- | ------------------- | --------------------------- |
+| **Perplexity AI, Inc.** | Web search (default engine) | Search query from the request's latest user message | No                  | United States               |
+| **Exa Labs Inc.**       | Web search (opt-in engine)  | Search query from the request's latest user message | Yes                 | United States               |
+
+Neither engine receives a request unless it includes a web search tool. Compliance policies apply to these engines like they do to AI providers; see [Compliance](https://docs.llmgateway.io/features/compliance#web-search-engines).
+
+---
+
+## 4. Changes to This List
 
 We notify customers **at least 30 days before** a new sub-processor in Section 1 begins processing personal data, giving you time to object.
 
-That notice period applies to the operational sub-processors in Section 1. It does **not** apply to the AI providers in Section 2: those are added continuously, and none of them receives your data unless you select a model it serves or leave automatic routing enabled. Customers who need advance notice for AI providers should use a compliance policy or provider pinning, which turn provider selection into an explicit allowlist under your control.
+That notice period applies to the operational sub-processors in Section 1. It does **not** apply to the AI providers in Section 2 or the web search engines in Section 3: those are added continuously, and none of them receives your data unless you select a model it serves, leave automatic routing enabled, or request web search. Customers who need advance notice for AI providers should use a compliance policy or provider pinning, which turn provider selection into an explicit allowlist under your control.
 
 To receive sub-processor change notices, email **[contact@llmgateway.io](mailto:contact@llmgateway.io)** and ask to be added to the sub-processor notification list.
 
@@ -71,19 +84,19 @@ If you object to a new sub-processor on reasonable data-protection grounds, emai
 
 ---
 
-## 4. International Transfers
+## 5. International Transfers
 
 Personal data may be transferred outside the EEA and the UK to the sub-processors above and to the AI providers you select.
 
 **The safeguard in place depends on which one.** For the operational sub-processors in Section 1, the applicable agreements incorporate the **EU Standard Contractual Clauses** (and the UK International Data Transfer Addendum where applicable), alongside supplementary technical measures including encryption in transit.
 
-For the AI providers in Section 2, this is **provider-specific and in several cases unresolved**. A number of providers we can route to are headquartered in countries with no adequacy decision, and we do not have SCCs executed with them. We are not representing that an Article 46 safeguard is in place for every provider, because it is not.
+For the AI providers in Section 2 and the web search engines in Section 3, this is **provider-specific and in several cases unresolved**. A number of providers we can route to are headquartered in countries with no adequacy decision, and we do not have SCCs executed with them. We are not representing that an Article 46 safeguard is in place for every provider, because it is not.
 
 **If you are routing personal data of EU or UK data subjects, send it only to providers whose documented safeguard you have reviewed and accepted.** The Provider Information page shows each provider's headquarters and GDPR posture. Provider pinning and compliance policies let you enforce routing restrictions rather than rely on convention.
 
 ---
 
-## 5. Contact
+## 6. Contact
 
 Questions about this list, requests for our DPA, or sub-processor objections:  
 📧 **[contact@llmgateway.io](mailto:contact@llmgateway.io)**

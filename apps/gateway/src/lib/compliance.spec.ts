@@ -8,6 +8,7 @@ import {
 	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
+	isWebSearchEngineCompliant,
 	isZeroDataRetentionEnabled,
 } from "./compliance.js";
 
@@ -511,5 +512,26 @@ describe("model lists with virtual aliases", () => {
 				blockedModels: ["deepseek-v4.1-flash-latest"],
 			}),
 		).toBe(true);
+	});
+});
+
+describe("isWebSearchEngineCompliant", () => {
+	it("applies org and key policies together", () => {
+		const policy = getActiveCompliancePolicy(
+			{
+				id: "org-test",
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, requireSoc2: true },
+			},
+			{ providerCompliancePolicy: { enabled: true, blockApiTraining: true } },
+		)!;
+		expect(isWebSearchEngineCompliant("perplexity", policy)).toBe(true);
+		expect(isWebSearchEngineCompliant("exa", policy)).toBe(false);
+	});
+
+	it("fails closed under zero data retention", () => {
+		const policy = { enabled: true, zeroDataRetention: true };
+		expect(isWebSearchEngineCompliant("perplexity", policy)).toBe(false);
+		expect(isWebSearchEngineCompliant("exa", policy)).toBe(false);
 	});
 });

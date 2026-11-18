@@ -14,6 +14,8 @@ import {
 	GATEWAY_WEB_SEARCH_ENGINE_IDS,
 	GATEWAY_WEB_SEARCH_ENGINES,
 	type GatewayWebSearchEngine,
+	getWebSearchEngineComplianceFailures,
+	getWebSearchEngineDataPolicy,
 	resolveGatewayWebSearchEngine,
 } from "@llmgateway/models";
 
@@ -21,6 +23,20 @@ const ENGINE_DESCRIPTIONS: Record<GatewayWebSearchEngine, string> = {
 	perplexity: "Perplexity Search API: ranked web results with page excerpts.",
 	exa: "Exa search: neural web search with page highlights.",
 };
+
+function describeDataHandling(engine: GatewayWebSearchEngine): string {
+	const { dataPolicy } = getWebSearchEngineDataPolicy(engine);
+	const training =
+		dataPolicy?.apiTraining === false
+			? "Does not train on queries"
+			: "May use queries for model training";
+	const retention =
+		dataPolicy?.promptLogging === false &&
+		dataPolicy.retentionPeriod === "0 days"
+			? "zero data retention"
+			: "may retain queries";
+	return `${training}; ${retention}.`;
+}
 
 function formatPricePer1k(price: string): string {
 	return `$${(Number(price) * 1000).toFixed(2)} per 1,000 searches`;
@@ -50,6 +66,10 @@ export function OrganizationWebSearchSettings() {
 	}
 
 	const isOwner = selectedOrganization.role === "owner";
+	const compliancePolicy = selectedOrganization.providerCompliancePolicy;
+	const blockedByPolicy = (id: GatewayWebSearchEngine) =>
+		compliancePolicy?.enabled === true &&
+		getWebSearchEngineComplianceFailures(id, compliancePolicy).length > 0;
 
 	const handleSave = async () => {
 		try {
@@ -75,7 +95,8 @@ export function OrganizationWebSearchSettings() {
 			<p className="text-sm text-muted-foreground">
 				Used only when a request asks for web search and the provider serving it
 				does not support web search natively. Providers with native web search
-				always use their own.
+				always use their own. The engine receives your latest user message and
+				must meet your compliance policy, like a provider.
 				{!isOwner && " Only organization owners can change the engine."}
 			</p>
 			<RadioGroup
@@ -94,8 +115,15 @@ export function OrganizationWebSearchSettings() {
 							</Label>
 							<p className="text-sm text-muted-foreground">
 								{ENGINE_DESCRIPTIONS[id]}{" "}
-								{formatPricePer1k(GATEWAY_WEB_SEARCH_ENGINES[id].price)}.
+								{formatPricePer1k(GATEWAY_WEB_SEARCH_ENGINES[id].price)}.{" "}
+								{describeDataHandling(id)}
 							</p>
+							{blockedByPolicy(id) && (
+								<p className="text-sm text-destructive">
+									Blocked by your compliance policy: searches with this engine
+									are skipped.
+								</p>
+							)}
 						</div>
 					</div>
 				))}

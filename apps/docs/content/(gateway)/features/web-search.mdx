@@ -38,12 +38,12 @@ When the provider serving the request has no native web search, LLM Gateway runs
 
 The search engine is an organization setting under **Settings → Preferences → Web Search**. It applies only when the serving provider has no native web search:
 
-| Engine                                                                             | Price per search |
-| ---------------------------------------------------------------------------------- | ---------------- |
-| [Perplexity Search API](https://docs.perplexity.ai/docs/search/overview) (default) | $0.005           |
-| [Exa](https://exa.ai)                                                              | $0.007           |
+| Engine                                                                             | Price per search | Data handling                                                                                    |
+| ---------------------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------ |
+| [Perplexity Search API](https://docs.perplexity.ai/docs/search/overview) (default) | $0.005           | No training on queries; [retention not zero](https://docs.perplexity.ai/guides/privacy-security) |
+| [Exa](https://exa.ai)                                                              | $0.007           | Queries may be retained and [used for training](https://exa.ai/privacy-policy)                   |
 
-If the search fails, the request continues without results and no search is billed. No search runs when `tool_choice` is `"none"` or when your organization or API key has a [compliance policy](/features/compliance) enabled, since the policy does not cover the search engine. On your own provider keys, the search is charged to your credits, and it is skipped when you have none. With `tool_choice: {"type": "web_search"}`, a search that cannot run returns an error instead of an answer without results. Only organization owners can change the engine. Your activity log shows which engine ran each search.
+If the search fails, the request continues without results and no search is billed. No search runs when `tool_choice` is `"none"`, or when your organization's or API key's [compliance policy](/features/compliance#web-search-engines) rejects the engine: the engine receives your latest user message, so the policy applies to it like to a provider. On your own provider keys, the search is charged to your credits, and it is skipped when you have none. With `tool_choice: {"type": "web_search"}`, a search that cannot run returns an error instead of an answer without results. Only organization owners can change the engine. Your activity log shows which engine ran each search.
 
 <Callout type="warn">
 	**Perplexity Sonar changed on September 25, 2026.** Perplexity retired its

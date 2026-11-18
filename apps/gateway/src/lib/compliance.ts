@@ -12,6 +12,7 @@ import {
 	getProviderComplianceFailures,
 	getProviderDefinition,
 	getProviderRefPolicyListFailures,
+	getWebSearchEngineComplianceFailures,
 	isAttestationCompliant,
 	isModelAllowedByPolicy,
 	isProviderCompliant,
@@ -19,6 +20,7 @@ import {
 	models,
 	withMappingDataPolicy,
 	type ComplianceFailureReason,
+	type GatewayWebSearchEngine,
 	type MappingDataPolicy,
 	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
@@ -135,6 +137,29 @@ export function isProviderIdCompliant(
 	}
 	const definition = resolveProviderDefinition(providerId, context);
 	return definition ? isProviderCompliant(definition, policy) : false;
+}
+
+/**
+ * Whether the policy lets the gateway send a search query to this engine, by
+ * the same rules as a provider.
+ */
+export function isWebSearchEngineCompliant(
+	engine: GatewayWebSearchEngine,
+	policy: ActiveCompliancePolicy,
+	context?: Pick<ComplianceCheckContext, "effectiveProviders">,
+): boolean {
+	if (policy.allOf) {
+		return policy.allOf.every((constraint) =>
+			isWebSearchEngineCompliant(engine, constraint, context),
+		);
+	}
+	return (
+		getWebSearchEngineComplianceFailures(
+			engine,
+			policy,
+			context?.effectiveProviders,
+		).length === 0
+	);
 }
 
 /**
