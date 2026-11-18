@@ -59,6 +59,7 @@ describe("admin content filter settings", () => {
 				sampleRatePercent: 25,
 				enforce: true,
 				enforceProviderIds: ["openai", "openai"],
+				devPassEnforceProviderIds: ["anthropic", "anthropic"],
 				enforceSampleRatePercent: 10,
 				enforceEnterprise: false,
 			}),
@@ -78,6 +79,11 @@ describe("admin content filter settings", () => {
 				.filter((p: { enforced: boolean }) => p.enforced)
 				.map((p: { id: string }) => p.id),
 		).toEqual(["openai"]);
+		expect(
+			body.providers
+				.filter((p: { devPassEnforced: boolean }) => p.devPassEnforced)
+				.map((p: { id: string }) => p.id),
+		).toEqual(["anthropic"]);
 		expect(body.enforceSampleRatePercent).toBe(10);
 		expect(await getContentFilterSettings()).toEqual({
 			enabled: true,
@@ -85,6 +91,7 @@ describe("admin content filter settings", () => {
 			sampleRatePercent: 25,
 			enforce: true,
 			enforceProviderIds: ["openai"],
+			devPassEnforceProviderIds: ["anthropic"],
 			enforceSampleRatePercent: 10,
 			enforceEnterprise: false,
 			classifier: "openai",
@@ -148,6 +155,20 @@ describe("admin content filter settings", () => {
 			},
 		);
 		expect(unknownEnforced.status).toBe(400);
+
+		const unknownDevPass = await app.request("/admin/settings/content-filter", {
+			method: "PUT",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				enabled: true,
+				providerIds: [],
+				sampleRatePercent: 100,
+				enforce: false,
+				devPassEnforceProviderIds: ["not-a-provider"],
+				enforceEnterprise: false,
+			}),
+		});
+		expect(unknownDevPass.status).toBe(400);
 
 		const rate = await app.request("/admin/settings/content-filter", {
 			method: "PUT",

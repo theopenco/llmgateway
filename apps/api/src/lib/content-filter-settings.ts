@@ -19,9 +19,11 @@ export async function getContentFilterSettings(): Promise<ContentFilterSettings>
 export async function setContentFilterSettings(
 	input: ContentFilterSettings,
 ): Promise<ContentFilterSettings> {
-	const unknown = [...input.providerIds, ...input.enforceProviderIds].filter(
-		(providerId) => !getProviderDefinition(providerId),
-	);
+	const unknown = [
+		...input.providerIds,
+		...input.enforceProviderIds,
+		...input.devPassEnforceProviderIds,
+	].filter((providerId) => !getProviderDefinition(providerId));
 	if (unknown.length > 0) {
 		throw new HTTPException(400, {
 			message: `Unknown provider id(s): ${unknown.join(", ")}`,
@@ -31,6 +33,7 @@ export async function setContentFilterSettings(
 		...input,
 		providerIds: [...new Set(input.providerIds)],
 		enforceProviderIds: [...new Set(input.enforceProviderIds)],
+		devPassEnforceProviderIds: [...new Set(input.devPassEnforceProviderIds)],
 		// The deciding classifier never shadows itself.
 		shadowClassifiers: [...new Set(input.shadowClassifiers)].filter(
 			(classifier) => classifier !== input.classifier,
@@ -55,6 +58,7 @@ export async function setContentFilterSettings(
 export function listContentFilterProviders(settings: ContentFilterSettings) {
 	const enabled = new Set(settings.providerIds);
 	const enforced = new Set(settings.enforceProviderIds);
+	const devPassEnforced = new Set(settings.devPassEnforceProviderIds);
 	return providers
 		.map((provider) => ({
 			id: provider.id,
@@ -62,6 +66,7 @@ export function listContentFilterProviders(settings: ContentFilterSettings) {
 			color: provider.color ?? null,
 			enabled: enabled.has(provider.id),
 			enforced: enforced.has(provider.id),
+			devPassEnforced: devPassEnforced.has(provider.id),
 		}))
 		.sort((a, b) => a.name.localeCompare(b.name));
 }
