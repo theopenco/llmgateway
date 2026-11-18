@@ -108,6 +108,9 @@ export const contentFilterSettingsSchema = z.object({
 	// Share of a blocking provider's requests checked in blocking mode. The
 	// rest are monitored log-only at `sampleRatePercent`.
 	enforceSampleRatePercent: z.number().min(0).max(100).default(100),
+	// Extra blocking providers for DevPass orgs only, on top of
+	// `enforceProviderIds`.
+	devPassEnforceProviderIds: z.array(z.string()).default([]),
 	// Enterprise orgs stay log-only unless this is also on.
 	enforceEnterprise: z.boolean().default(false),
 	// Classifier whose scores decide the outcome.

@@ -28,6 +28,7 @@ function org(
 	return {
 		id: "org-id",
 		plan: "pro" as const,
+		kind: "default" as const,
 		createdAt: new Date(NOW),
 		trustTierOverride: null,
 		contentFilterTierOverride: null,
@@ -190,6 +191,30 @@ describe("resolveTieredContentFilterPlan", () => {
 				legacy as typeof perProvider,
 			),
 		).toMatchObject({ enforce: false, exemptReason: "global_log_only" });
+	});
+
+	test("blocks on DevPass-only providers for DevPass orgs", async () => {
+		const devPass = {
+			...enabledSettings,
+			devPassEnforceProviderIds: ["anthropic"],
+		};
+		expect(
+			await resolveTieredContentFilterPlan(
+				org({ kind: "devpass" }),
+				"anthropic",
+				devPass,
+			),
+		).toMatchObject({ enforce: true });
+		expect(
+			await resolveTieredContentFilterPlan(org(), "anthropic", devPass),
+		).toBeNull();
+		expect(
+			await resolveTieredContentFilterPlan(
+				org({ kind: "devpass" }),
+				"google-ai-studio",
+				devPass,
+			),
+		).toBeNull();
 	});
 
 	test("splits a blocking provider between blocking and monitoring", async () => {

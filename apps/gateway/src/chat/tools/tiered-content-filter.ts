@@ -29,6 +29,7 @@ export type TieredContentFilterOrg = Pick<
 	Organization,
 	| "id"
 	| "plan"
+	| "kind"
 	| "createdAt"
 	| "trustTierOverride"
 	| "contentFilterTierOverride"
@@ -145,9 +146,11 @@ export async function resolveTieredContentFilterPlan(
 	settings: ContentFilterSettings,
 	random: () => number = randomFloat,
 ): Promise<TieredContentFilterPlan | null> {
-	// Optional: settings cached by the previous release lack this field.
+	// Optional: settings cached by an older release lack these fields.
 	const providerEnforced =
-		settings.enforceProviderIds?.includes(providerId) ?? false;
+		(settings.enforceProviderIds?.includes(providerId) ?? false) ||
+		(organization.kind === "devpass" &&
+			(settings.devPassEnforceProviderIds?.includes(providerId) ?? false));
 	if (
 		!settings.enabled ||
 		(!providerEnforced && !settings.providerIds.includes(providerId))

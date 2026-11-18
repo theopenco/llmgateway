@@ -32,6 +32,7 @@ interface ContentFilterProvider {
 	color: string | null;
 	enabled: boolean;
 	enforced: boolean;
+	devPassEnforced: boolean;
 }
 
 type Classifier = ContentFilterSettingsInput["classifier"];
@@ -122,7 +123,13 @@ export function ContentFilterSettingsForm({
 	const [enforceSampleRate, setEnforceSampleRate] = useState(
 		String(settings.enforceSampleRatePercent),
 	);
-	const anyEnforced = enforce || enforceProviderIds.length > 0;
+	const [devPassEnforceProviderIds, setDevPassEnforceProviderIds] = useState<
+		string[]
+	>(() => settings.providers.filter((p) => p.devPassEnforced).map((p) => p.id));
+	const anyEnforced =
+		enforce ||
+		enforceProviderIds.length > 0 ||
+		devPassEnforceProviderIds.length > 0;
 	const allSelected =
 		settings.providers.length > 0 &&
 		providerIds.length >= settings.providers.length;
@@ -190,6 +197,7 @@ export function ContentFilterSettingsForm({
 					sampleRatePercent: rate,
 					enforce,
 					enforceProviderIds,
+					devPassEnforceProviderIds,
 					enforceSampleRatePercent: enforceRate,
 					enforceEnterprise: savedEnforceEnterprise,
 					classifier,
@@ -576,6 +584,35 @@ export function ContentFilterSettingsForm({
 							setEnforceProviderIds(next);
 						}}
 						placeholder="Search and select blocking providers..."
+					/>
+				)}
+			</div>
+
+			<div className="space-y-2">
+				<p className="text-sm font-medium">DevPass blocking providers</p>
+				<p className="text-xs text-muted-foreground">
+					Extra blocking providers for DevPass organizations only. They behave
+					like the blocking providers above, at the same blocking sample rate.
+				</p>
+				{readOnly ? (
+					<div className="flex flex-wrap gap-2">
+						{settings.providers
+							.filter((p) => p.devPassEnforced)
+							.map((p) => (
+								<Badge key={p.id} variant="secondary">
+									{p.name}
+								</Badge>
+							))}
+					</div>
+				) : (
+					<MultiProviderSelector
+						providers={settings.providers}
+						selectedProviders={devPassEnforceProviderIds}
+						onProvidersChange={(next) => {
+							setSaved(false);
+							setDevPassEnforceProviderIds(next);
+						}}
+						placeholder="Search and select DevPass blocking providers..."
 					/>
 				)}
 			</div>
