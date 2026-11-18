@@ -557,7 +557,7 @@ export function DashboardClient() {
 		return (
 			<div className="flex flex-col">
 				<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
-					<div className="flex flex-col md:flex-row items-center justify-between space-y-2">
+					<div className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
 						<div>
 							<h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
 							<div className="h-5 w-48 bg-muted animate-pulse rounded mt-1" />
@@ -587,7 +587,7 @@ export function DashboardClient() {
 	return (
 		<div className="flex flex-col">
 			<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
-				<div className="flex flex-col md:flex-row items-center justify-between space-y-2">
+				<div className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
 					<div>
 						<h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
 						{currentProject && (
@@ -601,7 +601,7 @@ export function DashboardClient() {
 							</p>
 						)}
 					</div>
-					<div className="flex items-center space-x-2">
+					<div className="flex flex-wrap items-center gap-2">
 						{selectedOrganization && currentProject && (
 							<>
 								<CreateApiKeyDialog

@@ -49,8 +49,8 @@ export function TopBar({
 					onProjectCreated={onProjectCreated}
 				/>
 			)}
-			<div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-2">
-				<div className="w-[120px] min-w-0 shrink sm:w-[200px]">
+			<div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
+				<div className="w-[120px] sm:w-[200px]">
 					<ModelSearch />
 				</div>
 				<ChangelogNotifications entries={announcementEntries} />
