@@ -5,8 +5,9 @@ import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { cdb, db, eq, tables } from "@llmgateway/db";
+import { cdb, db, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import { getOrganizationSafetyIdentifier } from "@llmgateway/shared/safety-identifier";
 
 import {
 	createRealtimeSessionRecord,
@@ -65,11 +66,9 @@ describe("realtime preflight with managed credentials", () => {
 		// Health failures must attribute to the credential actually sent.
 		expect(result.trackedKeyHealthId).toBe("managed-openai");
 		expect(result.envVarName).toBeUndefined();
-		const [apiKey] = await db
-			.select({ safetyIdentifier: tables.apiKey.safetyIdentifier })
-			.from(tables.apiKey)
-			.where(eq(tables.apiKey.id, "token-id"));
-		expect(result.safetyIdentifier).toBe(apiKey?.safetyIdentifier);
+		expect(result.safetyIdentifier).toBe(
+			getOrganizationSafetyIdentifier("org-id"),
+		);
 		// A managed credential is the platform's own key: the org is billed for
 		// the session exactly as it was on the env-var path.
 		expect(result.usedMode).toBe("credits");

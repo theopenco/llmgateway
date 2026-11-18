@@ -277,10 +277,10 @@ export const organization = snakeCase.table(
 		// small base64 data URL (raster image only, resized client-side) so no
 		// object storage is needed. Null = no logo, UI falls back to initials.
 		logo: text(),
-		// Opaque, random per-organization identifier that was forwarded to
-		// providers as the abuse-attribution identifier before the per-key
-		// `api_key.safety_identifier` replaced it. Kept, unique, so abuse reports
-		// quoting an older value still map back to exactly one organization.
+		// Legacy abuse-attribution identifier, forwarded to providers before the
+		// per-key `api_key.safety_identifier` and the current HMAC-derived
+		// `getOrganizationSafetyIdentifier` (@llmgateway/shared). Kept, unique,
+		// so abuse reports quoting an older value still map back to one org.
 		safetyIdentifier: text()
 			.notNull()
 			.default(sql`'org_' || replace(gen_random_uuid()::text, '-', '')`),
@@ -1953,11 +1953,10 @@ export const apiKey = snakeCase.table(
 		createdBy: text()
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
-		// Opaque, random per-key identifier forwarded to providers as the
-		// abuse-attribution identifier (OpenAI `safety_identifier`, Anthropic
-		// `metadata.user_id`), so a provider abuse report maps back to exactly one
-		// API key. Not the key id, which appears in dashboard URLs and API
-		// responses. Database-generated so every insert path gets one.
+		// Legacy per-key abuse-attribution identifier. No longer forwarded: the
+		// gateway sends the per-organization `getOrganizationSafetyIdentifier`
+		// (@llmgateway/shared). Kept, unique, so abuse reports quoting an older
+		// value still map back to exactly one API key.
 		safetyIdentifier: text()
 			.notNull()
 			.default(sql`'key_' || replace(gen_random_uuid()::text, '-', '')`),

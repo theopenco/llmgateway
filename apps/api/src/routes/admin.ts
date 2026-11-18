@@ -203,6 +203,10 @@ import {
 	renderFooterText,
 	signUnsubscribeToken,
 } from "@llmgateway/shared/email-unsubscribe";
+import {
+	isOrganizationSafetyIdentifier,
+	organizationMatchesSafetyIdentifier,
+} from "@llmgateway/shared/safety-identifier";
 
 import type { ServerTypes } from "@/vars.js";
 import type { SystemBanner } from "@llmgateway/shared";
@@ -219,16 +223,38 @@ function escapeHtml(text: string): string {
 }
 
 /**
+ * Resolves the HMAC-derived provider safety identifier back to its
+ * organization. Not reversible in SQL, so it recomputes the HMAC per
+ * organization, only for input in the identifier's exact format.
+ */
+async function findOrganizationIdsBySafetyIdentifier(
+	value: string,
+): Promise<string[]> {
+	if (!isOrganizationSafetyIdentifier(value)) {
+		return [];
+	}
+	const rows = await db
+		.select({ id: tables.organization.id })
+		.from(tables.organization);
+	return rows
+		.filter((row) => organizationMatchesSafetyIdentifier(row.id, value))
+		.map((row) => row.id);
+}
+
+/**
  * Builds the organization search filter shared by the listing and the bulk
  * block endpoints. Returns `undefined` for an empty search so callers must
  * decide explicitly what "no filter" means — the listing shows everything, the
  * bulk block endpoints reject the request.
  */
-function buildOrganizationSearchFilter(search: string | undefined) {
+async function buildOrganizationSearchFilter(search: string | undefined) {
 	const trimmed = search?.trim();
 	if (!trimmed) {
 		return undefined;
 	}
+
+	const safetyIdentifierOrgIds =
+		await findOrganizationIdsBySafetyIdentifier(trimmed);
 
 	const textPattern = `%${escapeLikePattern(trimmed.toLowerCase())}%`;
 	const idPattern = `%${escapeLikePattern(trimmed)}%`;
@@ -238,7 +264,11 @@ function buildOrganizationSearchFilter(search: string | undefined) {
 		sql`LOWER(${tables.organization.billingEmail}) LIKE ${textPattern} ESCAPE '\\'`,
 		sql`${tables.organization.id} LIKE ${idPattern} ESCAPE '\\'`,
 		// Provider abuse reports quote the safety identifier we send upstream:
-		// per API key now, per organization for older reports.
+		// HMAC-derived per organization now; older reports quote the legacy
+		// per-organization or per-key value.
+		safetyIdentifierOrgIds.length > 0
+			? inArray(tables.organization.id, safetyIdentifierOrgIds)
+			: undefined,
 		sql`${tables.organization.safetyIdentifier} LIKE ${idPattern} ESCAPE '\\'`,
 		// Project and API key IDs match exactly, resolving to their organization.
 		sql`EXISTS (SELECT 1 FROM ${tables.project} p WHERE p.organization_id = ${tables.organization.id} AND p.id = ${trimmed})`,
@@ -2898,7 +2928,7 @@ admin.openapi(getOrganizations, async (c) => {
 		usageEndDate.setUTCHours(23, 59, 59, 999);
 	}
 
-	const searchFilter = buildOrganizationSearchFilter(search);
+	const searchFilter = await buildOrganizationSearchFilter(search);
 
 	const orderFn = sortOrder === "asc" ? asc : desc;
 
@@ -10232,7 +10262,7 @@ async function resolveBulkBlockCandidates(
 		});
 	}
 
-	const searchFilter = buildOrganizationSearchFilter(trimmed);
+	const searchFilter = await buildOrganizationSearchFilter(trimmed);
 
 	if (!searchFilter) {
 		throw new HTTPException(400, {

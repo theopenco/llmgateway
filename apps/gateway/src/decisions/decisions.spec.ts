@@ -5,8 +5,9 @@ import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harne
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { cdb, db, eq, tables } from "@llmgateway/db";
+import { cdb, db, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import { getOrganizationSafetyIdentifier } from "@llmgateway/shared/safety-identifier";
 
 const QUESTIONS = [
 	{
@@ -120,14 +121,45 @@ describe("decisions", () => {
 		expect(JSON.stringify(log?.messages)).toContain("[image]");
 		expect(JSON.stringify(log?.messages)).not.toContain("iVBORw0KGgo");
 		// BYOK requests retain client attribution locally, but send none upstream.
-		const [apiKey] = await db
-			.select({ safetyIdentifier: tables.apiKey.safetyIdentifier })
-			.from(tables.apiKey)
-			.where(eq(tables.apiKey.id, "token-id-decisions-openai"));
-		expect(apiKey?.safetyIdentifier).toMatch(/^key_[0-9a-f]{32}$/);
 		expect(log?.upstreamRequest).not.toHaveProperty("safety_identifier");
 		expect(log?.params).toMatchObject({
 			safety_identifier: "client-controlled",
+		});
+	});
+
+	test("/v1/decisions forwards the organization safety_identifier on credits", async () => {
+		await seedApiKey("decisions-safety-on");
+		await harness.setProjectMode("credits");
+		await cdb.insert(tables.providerKey).values({
+			id: "managed-decisions-safety-on",
+			provider: "openai",
+			...encryptProviderKeyForStorage(
+				"openai-token",
+				"managed-decisions-safety-on",
+				null,
+			),
+			managed: true,
+			organizationId: null,
+			config: { baseUrl: harness.mockServerUrl },
+		});
+
+		const res = await postDecision("decisions-safety-on", {
+			model: "gpt-6-luna-decisions",
+			input: [
+				{
+					role: "user",
+					content: [{ type: "input_text", text: "Billing question." }],
+				},
+			],
+			questions: QUESTIONS,
+			safety_identifier: "client-controlled",
+		});
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "openai/gpt-6-luna-decisions");
+		expect(log?.upstreamRequest).toMatchObject({
+			safety_identifier: getOrganizationSafetyIdentifier("org-id"),
 		});
 	});
 

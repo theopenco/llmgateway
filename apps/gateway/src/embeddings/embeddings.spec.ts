@@ -10,6 +10,7 @@ import { waitForLogs } from "@/test-utils/test-helpers.js";
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import { getOrganizationSafetyIdentifier } from "@llmgateway/shared/safety-identifier";
 
 describe("embeddings", () => {
 	const harness = createGatewayApiTestHarness();
@@ -254,11 +255,6 @@ describe("embeddings", () => {
 			baseUrl: harness.mockServerUrl,
 		});
 
-		const [apiKey] = await db
-			.select({ safetyIdentifier: tables.apiKey.safetyIdentifier })
-			.from(tables.apiKey)
-			.where(eq(tables.apiKey.id, "token-id-embeddings-safety"));
-
 		const res = await app.request("/v1/embeddings", {
 			method: "POST",
 			headers: {
@@ -277,10 +273,54 @@ describe("embeddings", () => {
 		const embeddingLog = logs.find(
 			(log) => log.usedModel === "openai/text-embedding-3-small",
 		);
-		expect(apiKey?.safetyIdentifier).toMatch(/^key_[0-9a-f]{32}$/);
 		expect(embeddingLog?.upstreamRequest).not.toHaveProperty("user");
 		expect(embeddingLog?.params).toMatchObject({
 			safety_identifier: "client-controlled-user",
+		});
+	});
+
+	test("/v1/embeddings forwards the organization identifier as user on credits", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-embeddings-safety-on",
+			...hashApiKeyForStorage("real-token-embeddings-safety-on"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await harness.setProjectMode("credits");
+		await cdb.insert(tables.providerKey).values({
+			id: "managed-embeddings-safety-on",
+			provider: "openai",
+			...encryptProviderKeyForStorage(
+				"openai-token",
+				"managed-embeddings-safety-on",
+				null,
+			),
+			managed: true,
+			organizationId: null,
+			config: { baseUrl: harness.mockServerUrl },
+		});
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-embeddings-safety-on",
+			},
+			body: JSON.stringify({
+				model: "text-embedding-3-small",
+				input: "safety attribution on input",
+				user: "client-controlled-user",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const logs = await waitForLogs(1);
+		const embeddingLog = logs.find(
+			(log) => log.usedModel === "openai/text-embedding-3-small",
+		);
+		expect(embeddingLog?.upstreamRequest).toMatchObject({
+			user: getOrganizationSafetyIdentifier("org-id"),
 		});
 	});
 

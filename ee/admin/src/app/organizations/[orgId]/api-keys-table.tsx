@@ -142,7 +142,7 @@ export function ApiKeysTable({
 							<TableHead className="w-10" />
 							<TableHead>Token</TableHead>
 							<TableHead>ID</TableHead>
-							<TableHead>Safety identifier</TableHead>
+							<TableHead>Legacy safety identifier</TableHead>
 							<TableHead>Description</TableHead>
 							<TableHead>Project</TableHead>
 							<TableHead>Usage</TableHead>

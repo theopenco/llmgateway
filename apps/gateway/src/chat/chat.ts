@@ -288,6 +288,7 @@ import {
 	applyRoutingPreference,
 	type ResolvedRoutingConfig,
 } from "@llmgateway/shared/routing-config";
+import { getOrganizationSafetyIdentifier } from "@llmgateway/shared/safety-identifier";
 import {
 	DEFAULT_SMART_ROUTING_MODELS,
 	isSmartRoutingAvailable,
@@ -3386,7 +3387,9 @@ chat.openapi(completions, async (c) => {
 		mode: project.mode,
 		organizationId: project.organizationId,
 	};
-	const retrySafetyIdentifier = apiKey.safetyIdentifier;
+	const organizationSafetyIdentifier = getOrganizationSafetyIdentifier(
+		organization.id,
+	);
 	const retryOrganizationContext = {
 		id: organization.id,
 		credits: organization.credits,
@@ -9031,7 +9034,7 @@ chat.openapi(completions, async (c) => {
 			reasoning_context,
 			providerKey
 				? undefined
-				: forwardedSafetyIdentifier(managedKey, apiKey.safetyIdentifier),
+				: forwardedSafetyIdentifier(managedKey, organizationSafetyIdentifier),
 			getUsedProviderMapping(),
 			reasoning_mode,
 			providerCacheAutoTtl,
@@ -9242,7 +9245,7 @@ chat.openapi(completions, async (c) => {
 				prompt_cache_retention,
 				prompt_cache_options,
 				session_id: sessionId,
-				safetyIdentifier: retrySafetyIdentifier,
+				safetyIdentifier: organizationSafetyIdentifier,
 				effort,
 				webSearchTool: webSearchTool ?? cachedOnlyWebSearchTool,
 				image_config,

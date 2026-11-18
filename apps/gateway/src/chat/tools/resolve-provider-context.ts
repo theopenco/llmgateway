@@ -181,7 +181,7 @@ export interface ProviderContextOptions {
 	prompt_cache_retention: PromptCacheRetention | undefined;
 	prompt_cache_options: PromptCacheOptions | undefined;
 	session_id: string | undefined;
-	/** Opaque per-API-key identifier forwarded to providers for abuse attribution. */
+	/** Per-organization identifier forwarded to providers for abuse attribution. */
 	safetyIdentifier: string;
 	effort: "low" | "medium" | "high" | undefined;
 	webSearchTool: WebSearchTool | undefined;

@@ -325,7 +325,7 @@ export const completionsRequestSchema = z.object({
 		}),
 	safety_identifier: z.string().max(128).nullable().optional().openapi({
 		description:
-			"Opaque end-user identifier stored in log params.safety_identifier. Never forwarded upstream; credits requests use the fixed LLM Gateway API-key identifier instead.",
+			"Opaque end-user identifier stored in log params.safety_identifier. Never forwarded upstream; credits requests use LLM Gateway's fixed per-organization identifier instead.",
 	}),
 	user: z
 		.string()

@@ -84,6 +84,7 @@ import {
 	type VertexTokenType,
 } from "@llmgateway/models";
 import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
+import { getOrganizationSafetyIdentifier } from "@llmgateway/shared/safety-identifier";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { openAIErrorSchema } from "@/lib/error-schemas.js";
@@ -125,7 +126,7 @@ const embeddingRequestSchema = z.object({
 	}),
 	user: z.string().optional().openapi({
 		description:
-			"Opaque end-user identifier stored in log params.safety_identifier (up to 128 characters). Credits requests use LLM Gateway's fixed API-key identifier upstream; BYOK requests omit it.",
+			"Opaque end-user identifier stored in log params.safety_identifier (up to 128 characters). Credits requests use LLM Gateway's fixed per-organization identifier upstream; BYOK requests omit it.",
 	}),
 });
 
@@ -632,7 +633,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		organizationId: project.organizationId,
 	};
 	const retryOrganization = organization;
-	const safetyIdentifier = apiKey.safetyIdentifier;
+	const safetyIdentifier = getOrganizationSafetyIdentifier(organization.id);
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.

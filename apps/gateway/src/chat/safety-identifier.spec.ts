@@ -6,25 +6,50 @@ import { resetFailOnceCounter } from "@/test-utils/mock-openai-server.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { cdb, db, inArray, tables, eq } from "@llmgateway/db";
+import { cdb, db, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import { getOrganizationSafetyIdentifier } from "@llmgateway/shared/safety-identifier";
 
 afterEach(() => vi.unstubAllEnvs());
 
 describe("chat safety identifier", () => {
 	const harness = createGatewayApiTestHarness();
 
-	test("forwards the authenticating API key's identifier upstream", async () => {
+	test("forwards one organization-derived identifier for every key in the org", async () => {
 		await harness.setProjectMode("credits");
+		await db.insert(tables.organization).values({
+			id: "org-id-safety-other",
+			name: "Other Organization",
+			billingEmail: "user",
+			credits: "100",
+			retentionLevel: "retain",
+		});
+		await db.insert(tables.userOrganization).values({
+			id: "org-id-safety-other-member",
+			userId: "user-id",
+			organizationId: "org-id-safety-other",
+		});
+		await db.insert(tables.project).values({
+			id: "project-id-safety-other",
+			name: "Other Project",
+			organizationId: "org-id-safety-other",
+			mode: "credits",
+		});
 		const keys = [
-			{ id: "token-id-safety-a", token: "real-token-safety-a" },
-			{ id: "token-id-safety-b", token: "real-token-safety-b" },
+			{ id: "token-id-safety-a", token: "real-token-safety-a", org: "org-id" },
+			{ id: "token-id-safety-b", token: "real-token-safety-b", org: "org-id" },
+			{
+				id: "token-id-safety-c",
+				token: "real-token-safety-c",
+				org: "org-id-safety-other",
+			},
 		];
 		for (const key of keys) {
 			await db.insert(tables.apiKey).values({
 				id: key.id,
 				...hashApiKeyForStorage(key.token),
-				projectId: "project-id",
+				projectId:
+					key.org === "org-id" ? "project-id" : "project-id-safety-other",
 				description: "Test API Key",
 				createdBy: "user-id",
 			});
@@ -55,38 +80,27 @@ describe("chat safety identifier", () => {
 					model: "openai/gpt-4o-mini",
 					messages: [{ role: "user", content: `Hello from ${key.id}` }],
 					safety_identifier: "client-controlled",
+					user: "client-user",
 				}),
 			});
 			expect(res.status).toBe(200);
 		}
 
-		const stored = await db
-			.select({
-				id: tables.apiKey.id,
-				safetyIdentifier: tables.apiKey.safetyIdentifier,
-			})
-			.from(tables.apiKey)
-			.where(
-				inArray(
-					tables.apiKey.id,
-					keys.map((key) => key.id),
-				),
-			);
-		const identifiers = new Map(
-			stored.map((row) => [row.id, row.safetyIdentifier]),
+		const logs = await waitForLogs(3);
+		const forwarded = keys.map(
+			(key) =>
+				(
+					logs.find((entry) => entry.apiKeyId === key.id)?.upstreamRequest as
+						Record<string, unknown> | undefined
+				)?.safety_identifier,
 		);
-		for (const identifier of identifiers.values()) {
-			expect(identifier).toMatch(/^key_[0-9a-f]{32}$/);
-		}
-		expect(identifiers.get(keys[0].id)).not.toBe(identifiers.get(keys[1].id));
-
-		const logs = await waitForLogs(2);
-		for (const key of keys) {
-			const log = logs.find((entry) => entry.apiKeyId === key.id);
-			expect(log?.upstreamRequest).toMatchObject({
-				safety_identifier: identifiers.get(key.id),
-			});
-		}
+		expect(forwarded[0]).toBe(getOrganizationSafetyIdentifier("org-id"));
+		expect(forwarded[1]).toBe(forwarded[0]);
+		expect(forwarded[2]).toBe(
+			getOrganizationSafetyIdentifier("org-id-safety-other"),
+		);
+		expect(forwarded[2]).not.toBe(forwarded[0]);
+		expect(String(forwarded[0])).not.toContain("org-id");
 	});
 
 	test.each(["credits", "api-keys", "hybrid"] as const)(
@@ -142,10 +156,6 @@ describe("chat safety identifier", () => {
 			const json = await res.json();
 			expect(json.metadata?.routing?.[0]).toMatchObject({ succeeded: false });
 
-			const [apiKey] = await db
-				.select({ safetyIdentifier: tables.apiKey.safetyIdentifier })
-				.from(tables.apiKey)
-				.where(eq(tables.apiKey.id, "token-id-safety-retry"));
 			const logs = await waitForLogs(1);
 			const succeeded = logs.find(
 				(entry) =>
@@ -161,7 +171,7 @@ describe("chat safety identifier", () => {
 			} else {
 				expect(succeeded?.usedMode).toBe("credits");
 				expect(succeeded?.upstreamRequest).toMatchObject({
-					safety_identifier: apiKey?.safetyIdentifier,
+					safety_identifier: getOrganizationSafetyIdentifier("org-id"),
 				});
 			}
 		},
@@ -199,10 +209,6 @@ describe("safety identifier credential modes", () => {
 				baseUrl: harness.mockServerUrl,
 			});
 		}
-		const [key] = await db
-			.select()
-			.from(tables.apiKey)
-			.where(eq(tables.apiKey.id, "safety-mode-key"));
 		for (const client of ["user-a", "user-b"]) {
 			for (const path of [
 				"/v1/chat/completions",
@@ -244,7 +250,9 @@ describe("safety identifier credential modes", () => {
 		for (const log of logs) {
 			expect(log.usedMode).toBe(byok ? "api-keys" : "credits");
 			expect(log.upstreamRequest).toMatchObject(
-				byok ? {} : { safety_identifier: key.safetyIdentifier },
+				byok
+					? {}
+					: { safety_identifier: getOrganizationSafetyIdentifier("org-id") },
 			);
 			if (byok) {
 				expect(log.upstreamRequest).not.toHaveProperty("safety_identifier");

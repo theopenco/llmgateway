@@ -121,7 +121,7 @@ const decisionRequestSchema = z.object({
 	}),
 	safety_identifier: z.string().max(128).nullable().optional().openapi({
 		description:
-			"Opaque end-user identifier stored in log params.safety_identifier. Credits requests use LLM Gateway's fixed API-key identifier upstream; BYOK requests omit it.",
+			"Opaque end-user identifier stored in log params.safety_identifier. Credits requests use LLM Gateway's fixed per-organization identifier upstream; BYOK requests omit it.",
 	}),
 });
 

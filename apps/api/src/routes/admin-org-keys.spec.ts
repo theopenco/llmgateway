@@ -6,6 +6,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import { getOrganizationSafetyIdentifier } from "@llmgateway/shared/safety-identifier";
 
 const originalAdminEmails = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
@@ -144,6 +145,25 @@ describe("admin organization key listings", () => {
 
 			const search = await app.request(
 				`/admin/organizations?search=${encodeURIComponent(key.safetyIdentifier)}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(search.status).toBe(200);
+			const searchJson = await search.json();
+			expect(searchJson.organizations.map((o: { id: string }) => o.id)).toEqual(
+				[ORG_ID],
+			);
+		});
+
+		it("traces the organization safety identifier sent upstream to its org", async () => {
+			const details = await get("/settings", cookie);
+			expect(details.status).toBe(200);
+			const { organization } = await details.json();
+			expect(organization.providerSafetyIdentifier).toBe(
+				getOrganizationSafetyIdentifier(ORG_ID),
+			);
+
+			const search = await app.request(
+				`/admin/organizations?search=${encodeURIComponent(organization.providerSafetyIdentifier)}`,
 				{ headers: { Cookie: cookie } },
 			);
 			expect(search.status).toBe(200);
