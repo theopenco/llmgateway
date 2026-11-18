@@ -240,8 +240,17 @@ describe("usage notifications", () => {
 		]);
 		expect(send).toHaveBeenCalledTimes(1);
 		expect(send.mock.calls[0][0].text).toContain(
-			'test-provider/test-model show elevated upstream errors. Project "Test Project" used it',
+			'test-provider/test-model show elevated upstream errors. Project "Test Project" used it in the last 24 hours.',
 		);
+	});
+	it("skips provider issues for mappings not used in the last day", async () => {
+		await enable("provider_issue", "alert-owner", true);
+		await insertUsage();
+		await db
+			.update(tables.apiKeyHourlyModelStats)
+			.set({ hourTimestamp: daysFromNow(-2) });
+		await processNotifications(now);
+		expect(await db.query.notification.findMany()).toHaveLength(0);
 	});
 	it("retries failed email with the same idempotency key and checks current access", async () => {
 		await enable("budget", "alert-owner", true);
