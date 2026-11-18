@@ -45,7 +45,7 @@ const ROLE_RANK: Record<string, number> = {
 	developer: 3,
 };
 
-function isUsageColumn(column: MemberSortColumn): column is UsageColumn {
+export function isUsageColumn(column: MemberSortColumn): column is UsageColumn {
 	return USAGE_COLUMNS.includes(column);
 }
 

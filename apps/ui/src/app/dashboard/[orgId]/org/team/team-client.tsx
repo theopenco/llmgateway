@@ -102,7 +102,7 @@ import {
 	isProjectScopedRole,
 } from "@llmgateway/shared/organization-roles";
 
-import { nextMemberSort, sortMembers } from "./member-sort";
+import { nextMemberSort, sortMembers, isUsageColumn } from "./member-sort";
 import { OrganizationTeamsClient } from "./organization-teams-client";
 import { TeamTabs } from "./team-tabs";
 
@@ -893,9 +893,14 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		]),
 	);
 
-	// Heaviest spenders first until the admin picks a column.
+	// Heaviest spenders first until the admin picks a column. A usage sort is
+	// dropped when usage columns are hidden.
 	const memberSort: MemberSort | null =
-		selectedSort ?? (showUsage ? { column: "cost", direction: "desc" } : null);
+		selectedSort && (showUsage || !isUsageColumn(selectedSort.column))
+			? selectedSort
+			: showUsage
+				? { column: "cost", direction: "desc" }
+				: null;
 	const handleSort = (column: MemberSortColumn) =>
 		setSelectedSort(nextMemberSort(memberSort, column));
 	const sortedMembers = sortMembers(
