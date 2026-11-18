@@ -1,6 +1,7 @@
 "use client";
 
 import { Check } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useSessionStatus } from "@/hooks/useUser";
@@ -32,7 +33,7 @@ export function PricingPlans() {
 				router.push("https://docs.llmgateway.io");
 				return;
 			case "Enterprise":
-				router.push("/enterprise");
+				router.push("/enterprise#contact");
 				return;
 		}
 
@@ -166,12 +167,12 @@ export function PricingPlans() {
 						support.
 						<br />
 						Need a custom solution?{" "}
-						<a
-							href="mailto:contact@llmgateway.io"
+						<Link
+							href="/enterprise#contact"
 							className="text-primary hover:underline"
 						>
-							Contact our sales team
-						</a>
+							Book a call with our team
+						</Link>
 						.
 					</p>
 				</div>

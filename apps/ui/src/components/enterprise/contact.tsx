@@ -1,8 +1,8 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowRight, Info, Loader2, MailCheck } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowRight, CalendarCheck, Info, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -26,12 +26,12 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { Textarea } from "@/lib/components/textarea";
-import { countries } from "@/lib/countries";
 import { useApi } from "@/lib/fetch-client";
 import { usePostHog } from "@/lib/posthog";
 
-import { MARKETING_STATS } from "@llmgateway/shared";
+import { ENTERPRISE_BOOKING_URL, MARKETING_STATS } from "@llmgateway/shared";
 
+import { CalendlyInline } from "./calendly-inline";
 import { AirsideRedirect, ContactAudiencePicker } from "./contact-audience";
 
 import type { ContactAudience } from "./contact-audience";
@@ -40,14 +40,9 @@ import type { ContactAudience } from "./contact-audience";
 const NON_ENTERPRISE_SIZE = "1-5";
 
 const contactFormSchema = z.object({
-	name: z.string().min(2, "Name must be at least 2 characters"),
 	email: z.string().email("Invalid email address"),
-	country: z.string().min(1, "Please select a country"),
 	size: z.string().min(1, "Please select company size"),
-	deployment: z.enum(["self_host", "cloud", "not_sure"], {
-		message: "Please select a deployment preference",
-	}),
-	message: z.string().min(10, "Message must be at least 10 characters"),
+	message: z.string().max(5000).optional(),
 	honeypot: z.string().optional(),
 	timestamp: z.number().optional(),
 });
@@ -63,15 +58,13 @@ export function ContactFormEnterprise() {
 	const [submittedEmail, setSubmittedEmail] = useState("");
 	const [formLoadTime] = useState(() => Date.now());
 	const [audience, setAudience] = useState<ContactAudience>("company");
+	const startedRef = useRef(false);
 
 	const form = useForm<ContactFormData>({
 		resolver: zodResolver(contactFormSchema),
 		defaultValues: {
-			name: "",
 			email: "",
-			country: "",
 			size: "",
-			deployment: undefined,
 			message: "",
 			honeypot: "",
 			timestamp: formLoadTime,
@@ -85,31 +78,34 @@ export function ContactFormEnterprise() {
 		form.setValue("timestamp", formLoadTime);
 	}, [form, formLoadTime]);
 
+	const trackStart = () => {
+		if (startedRef.current) {
+			return;
+		}
+		startedRef.current = true;
+		posthog.capture("enterprise_contact_started");
+	};
+
 	const onSubmit = async (data: ContactFormData) => {
 		if (data.size === NON_ENTERPRISE_SIZE) {
 			return;
 		}
 		posthog.capture("enterprise_contact_submitted", {
-			country: data.country,
 			companySize: data.size,
-			deployment: data.deployment,
 		});
 		setIsSubmitting(true);
 		try {
-			const result = await submitContact.mutateAsync({ body: data });
+			const result = await submitContact.mutateAsync({
+				body: { ...data, message: data.message?.trim() || undefined },
+			});
 
 			if (result.success) {
 				posthog.capture("enterprise_contact_success", {
-					country: data.country,
 					companySize: data.size,
-					deployment: data.deployment,
 				});
 				setSubmittedEmail(data.email);
 				setIsSuccess(true);
 				form.reset();
-				toast.success("Check your inbox", {
-					description: "Confirm your email to book a call with our team.",
-				});
 			} else {
 				toast.error("Failed to send message", {
 					description: result.message ?? "Please try again later.",
@@ -133,32 +129,38 @@ export function ContactFormEnterprise() {
 				<div className="mx-auto max-w-4xl">
 					<div className="text-center mb-12">
 						<h2 className="mb-4 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl text-balance">
-							Get Started with Enterprise
+							Book a call with our team
 						</h2>
 						<p className="text-lg text-muted-foreground text-balance leading-relaxed max-w-2xl mx-auto">
-							Tell us about your needs and our team will reach out to discuss
-							how LLM Gateway can support your organization. Inference providers
-							listing their models start on Airside instead.
+							Two questions, then pick a time. You talk to the engineers who run
+							the gateway, and every plan starts with the 30-Day Production
+							Pilot. Inference providers listing their models start on Airside
+							instead.
 						</p>
 					</div>
 
 					<div className="rounded-2xl border border-border bg-card/50 backdrop-blur-sm p-8 sm:p-10 shadow-lg">
 						{isSuccess ? (
-							<div className="py-4 text-center">
-								<div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/20 mb-6">
-									<MailCheck className="w-8 h-8 text-green-600 dark:text-green-400" />
+							<div>
+								<div className="mb-8 text-center">
+									<div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/20 mb-6">
+										<CalendarCheck className="w-8 h-8 text-green-600 dark:text-green-400" />
+									</div>
+									<h3 className="text-2xl font-semibold mb-2">Pick a time</h3>
+									<p className="text-muted-foreground text-balance">
+										Choose a slot below. We also sent a confirmation link to{" "}
+										<span className="font-medium text-foreground">
+											{submittedEmail}
+										</span>
+										. Open it so your request reaches our team even if no slot
+										fits.
+									</p>
 								</div>
-								<h3 className="text-2xl font-semibold mb-2">
-									Confirm your email
-								</h3>
-								<p className="text-muted-foreground text-balance">
-									We sent a confirmation link to{" "}
-									<span className="font-medium text-foreground">
-										{submittedEmail}
-									</span>
-									. Open it to send your request to our team and book a call.
-								</p>
-								<div className="mt-6">
+								<CalendlyInline
+									url={ENTERPRISE_BOOKING_URL}
+									email={submittedEmail}
+								/>
+								<div className="mt-6 text-center">
 									<Button
 										onClick={() => setIsSuccess(false)}
 										variant="outline"
@@ -180,6 +182,7 @@ export function ContactFormEnterprise() {
 									<Form {...form}>
 										<form
 											onSubmit={form.handleSubmit(onSubmit)}
+											onFocusCapture={trackStart}
 											className="space-y-6"
 										>
 											{/* Honeypot field - hidden from users but visible to bots */}
@@ -208,31 +211,11 @@ export function ContactFormEnterprise() {
 											<div className="grid gap-6 sm:grid-cols-2">
 												<FormField
 													control={form.control}
-													name="name"
-													render={({ field }) => (
-														<FormItem>
-															<FormLabel>
-																Name <span className="text-destructive">*</span>
-															</FormLabel>
-															<FormControl>
-																<Input
-																	placeholder="John Doe"
-																	{...field}
-																	className="bg-background h-11"
-																/>
-															</FormControl>
-															<FormMessage />
-														</FormItem>
-													)}
-												/>
-
-												<FormField
-													control={form.control}
 													name="email"
 													render={({ field }) => (
 														<FormItem>
 															<FormLabel>
-																Company Email{" "}
+																Work Email{" "}
 																<span className="text-destructive">*</span>
 															</FormLabel>
 															<FormControl>
@@ -243,39 +226,6 @@ export function ContactFormEnterprise() {
 																	className="bg-background h-11"
 																/>
 															</FormControl>
-															<FormMessage />
-														</FormItem>
-													)}
-												/>
-											</div>
-
-											<div className="grid gap-6 sm:grid-cols-2">
-												<FormField
-													control={form.control}
-													name="country"
-													render={({ field }) => (
-														<FormItem>
-															<FormLabel>
-																Country{" "}
-																<span className="text-destructive">*</span>
-															</FormLabel>
-															<Select
-																onValueChange={field.onChange}
-																defaultValue={field.value}
-															>
-																<FormControl>
-																	<SelectTrigger className="w-full bg-background h-11">
-																		<SelectValue placeholder="Select country" />
-																	</SelectTrigger>
-																</FormControl>
-																<SelectContent>
-																	{countries.map((country) => (
-																		<SelectItem key={country} value={country}>
-																			{country}
-																		</SelectItem>
-																	))}
-																</SelectContent>
-															</Select>
 															<FormMessage />
 														</FormItem>
 													)}
@@ -359,53 +309,20 @@ export function ContactFormEnterprise() {
 
 											<FormField
 												control={form.control}
-												name="deployment"
-												render={({ field }) => (
-													<FormItem>
-														<FormLabel>
-															How do you plan to run LLMGateway?{" "}
-															<span className="text-destructive">*</span>
-														</FormLabel>
-														<Select
-															onValueChange={field.onChange}
-															defaultValue={field.value}
-														>
-															<FormControl>
-																<SelectTrigger className="w-full bg-background h-11">
-																	<SelectValue placeholder="Select deployment preference" />
-																</SelectTrigger>
-															</FormControl>
-															<SelectContent>
-																<SelectItem value="cloud">
-																	Cloud (managed)
-																</SelectItem>
-																<SelectItem value="self_host">
-																	Self-hosted
-																</SelectItem>
-																<SelectItem value="not_sure">
-																	Not sure yet
-																</SelectItem>
-															</SelectContent>
-														</Select>
-														<FormMessage />
-													</FormItem>
-												)}
-											/>
-
-											<FormField
-												control={form.control}
 												name="message"
 												render={({ field }) => (
 													<FormItem>
 														<FormLabel>
-															How can we help?{" "}
-															<span className="text-destructive">*</span>
+															Anything we should know?{" "}
+															<span className="text-muted-foreground font-normal">
+																(optional)
+															</span>
 														</FormLabel>
 														<FormControl>
 															<Textarea
-																placeholder="Tell us about your use case, requirements, or any questions you have..."
+																placeholder="Use case, providers, compliance needs, self-hosted or cloud..."
 																{...field}
-																className="min-h-32 bg-background resize-none"
+																className="min-h-24 bg-background resize-none"
 															/>
 														</FormControl>
 														<FormMessage />
@@ -415,8 +332,8 @@ export function ContactFormEnterprise() {
 
 											<div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:justify-between pt-2">
 												<p className="text-sm text-muted-foreground">
-													<span className="text-destructive">*</span> Required
-													fields
+													Pick a time on the next screen. NDA and DPA on
+													request.
 												</p>
 												<Button
 													type="submit"
@@ -431,7 +348,7 @@ export function ContactFormEnterprise() {
 														</>
 													) : (
 														<>
-															Submit Request
+															Book a call
 															<ArrowRight className="ml-2 h-4 w-4" />
 														</>
 													)}

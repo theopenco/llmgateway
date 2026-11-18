@@ -12,6 +12,7 @@ import { createRoute } from "@/utils/create-route.js";
 import { notifyEnterpriseContact } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { consumeRateLimit } from "@/utils/public-rate-limit.js";
+import { getCountryFromHeaders } from "@/utils/request-country.js";
 
 import { and, db, eq, inArray, tables } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
@@ -28,12 +29,12 @@ import type { ServerTypes } from "@/vars.js";
 export const publicContact = new OpenAPIHono<ServerTypes>();
 
 const contactFormSchema = z.object({
-	name: z.string().min(2, "Name must be at least 2 characters"),
+	name: z.string().min(2, "Name must be at least 2 characters").optional(),
 	email: z.string().email("Invalid email address"),
-	country: z.string().min(1, "Please select a country"),
+	country: z.string().min(1, "Please select a country").optional(),
 	size: z.string().min(1, "Please select company size"),
 	deployment: z.enum(["self_host", "cloud", "not_sure"]).optional(),
-	message: z.string().min(10, "Message must be at least 10 characters"),
+	message: z.string().max(5000).optional(),
 	honeypot: z.string().optional(),
 	timestamp: z.number().optional(),
 });
@@ -181,7 +182,14 @@ async function updateSubmissionStatus(
 }
 
 publicContact.openapi(submitEnterpriseContact, async (c) => {
-	const validatedData = c.req.valid("json");
+	const body = c.req.valid("json");
+	const validatedData = {
+		...body,
+		name: body.name ?? body.email.split("@")[0] ?? body.email,
+		country:
+			body.country ?? getCountryFromHeaders(c.req.raw.headers) ?? "Unknown",
+		message: body.message?.trim() ?? "",
+	};
 	const ipAddress = getClientIpFromContext(c);
 	const userAgent = c.req.header("User-Agent") ?? null;
 
@@ -402,7 +410,7 @@ function buildSalesEmailHtml(submission: Submission): string {
 
 					<div class="field">
 						<div class="label">Message:</div>
-						<div class="value" style="white-space: pre-wrap;">${escapeHtml(submission.message)}</div>
+						<div class="value" style="white-space: pre-wrap;">${escapeHtml(submission.message || "No message")}</div>
 					</div>
 				</div>
 			</body>

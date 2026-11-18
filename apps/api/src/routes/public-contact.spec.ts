@@ -117,6 +117,31 @@ test("confirming delivers to sales once, escaped, and returns the booking prefil
 	expect(html).not.toMatch(/<[bi]>/);
 });
 
+test("a submission with only an email and a size is stored with derived fields", async () => {
+	const response = await app.request("/public/contact/enterprise", {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			"x-client-region": "de",
+		},
+		body: JSON.stringify({ email: inquiry.email, size: "51-200" }),
+	});
+
+	expect(response.status).toBe(200);
+	expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
+	const row = await loadSubmission();
+	expect(row).toMatchObject({
+		name: "inquiry",
+		country: "DE",
+		message: "",
+		spamFilterStatus: "unconfirmed",
+	});
+
+	await confirm(signEnterpriseContactToken(row!.id));
+	const html: string = send.mock.calls[0][0].html;
+	expect(html).toContain("No message");
+});
+
 test("a failed sales delivery is retried on the next click", async () => {
 	await submit();
 	const row = await loadSubmission();

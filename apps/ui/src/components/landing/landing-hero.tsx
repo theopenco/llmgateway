@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { DashboardDemo } from "@/components/home/dashboard-demo";
+import { TrackedLink } from "@/components/home/tracked-link";
 import {
 	LandingStats,
 	LandingStatsView,
@@ -71,7 +72,7 @@ export function LandingHero() {
 								</p>
 							</div>
 
-							{/* Primary CTA - Maximum prominence */}
+							{/* Primary CTA, with the enterprise path right under it */}
 							<div className="animate-hero-enter hero-enter-delay-1 mt-8 md:mt-10 flex flex-col items-center gap-6">
 								{/* Primary CTA - ShimmerButton with glow */}
 								<div className="relative">
@@ -90,54 +91,17 @@ export function LandingHero() {
 									</AuthLink>
 								</div>
 
-								{/* Trust indicators */}
-								<div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
-									<span className="flex items-center gap-1.5">
-										<svg
-											className="size-4 text-green-500"
-											fill="currentColor"
-											viewBox="0 0 20 20"
-											aria-hidden="true"
-										>
-											<path
-												fillRule="evenodd"
-												d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-												clipRule="evenodd"
-											/>
-										</svg>
-										Bring your own keys — free forever
+								<TrackedLink
+									href="/enterprise"
+									location="home_hero"
+									cta="production_pilot"
+									className="group/pilot text-sm text-muted-foreground transition-colors hover:text-foreground"
+								>
+									Rolling out to a team?{" "}
+									<span className="font-medium text-foreground underline-offset-4 group-hover/pilot:underline">
+										Start a 30-Day Production Pilot →
 									</span>
-									<span className="flex items-center gap-1.5">
-										<svg
-											className="size-4 text-green-500"
-											fill="currentColor"
-											viewBox="0 0 20 20"
-											aria-hidden="true"
-										>
-											<path
-												fillRule="evenodd"
-												d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-												clipRule="evenodd"
-											/>
-										</svg>
-										No credit card required
-									</span>
-									<span className="flex items-center gap-1.5">
-										<svg
-											className="size-4 text-green-500"
-											fill="currentColor"
-											viewBox="0 0 20 20"
-											aria-hidden="true"
-										>
-											<path
-												fillRule="evenodd"
-												d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-												clipRule="evenodd"
-											/>
-										</svg>
-										Setup in 30 seconds
-									</span>
-								</div>
+								</TrackedLink>
 							</div>
 						</div>
 					</div>
