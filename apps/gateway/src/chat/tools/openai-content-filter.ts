@@ -255,7 +255,10 @@ function utf8Slice(bytes: Uint8Array, start: number, end: number): string {
 	while (end < bytes.length && end > start && (bytes[end]! & 0xc0) === 0x80) {
 		end--;
 	}
-	return new TextDecoder().decode(bytes.subarray(start, end));
+	// `ignoreBOM`: a U+FEFF at a chunk start is text, not a byte order mark.
+	return new TextDecoder("utf-8", { ignoreBOM: true }).decode(
+		bytes.subarray(start, end),
+	);
 }
 
 /**
@@ -327,10 +330,18 @@ export function buildOpenAIContentFilterTextChunks(
 			OPENAI_MODERATION_CHUNK_BYTES,
 		);
 	}
-	return chunkModerationText(
-		buildOpenAIContentFilterTextInput(messages),
-		OPENAI_MODERATION_CHUNK_BYTES,
-	).slice(-OPENAI_MODERATION_MAX_TEXT_CHUNKS);
+	const maxBytes =
+		OPENAI_MODERATION_CHUNK_BYTES * OPENAI_MODERATION_MAX_TEXT_CHUNKS;
+	const text = buildOpenAIContentFilterTextInput(messages);
+	const bytes = new TextEncoder().encode(text);
+	const newest =
+		bytes.length > maxBytes
+			? utf8Slice(bytes, bytes.length - maxBytes, bytes.length)
+			: text;
+	// Splits that back off a multi-byte character can add one chunk.
+	return chunkModerationText(newest, OPENAI_MODERATION_CHUNK_BYTES).slice(
+		-OPENAI_MODERATION_MAX_TEXT_CHUNKS,
+	);
 }
 
 function buildOpenAIContentFilterRequests(

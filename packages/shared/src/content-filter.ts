@@ -24,8 +24,9 @@ export type ContentFilterClassifier =
 
 /**
  * What the internal and OpenAI classifiers read.
- * - `full`: the whole conversation, split into as many chunks as their size
- *   limits need. Slow on long agent histories.
+ * - `full`: the whole conversation, split into chunks their size limits
+ *   accept: all of it for the internal classifier, the newest 256 KiB for
+ *   OpenAI. Slow on long agent histories.
  * - `latest_turn`: the system prompt plus the turn after the last assistant
  *   message.
  */

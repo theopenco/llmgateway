@@ -151,6 +151,15 @@ describe("chunkModerationText", () => {
 
 		expect(chunks).toEqual(["é", "é", "é", "é"]);
 	});
+
+	it("keeps a U+FEFF that starts a chunk", () => {
+		// U+FEFF is three bytes; the second chunk is exactly it.
+		expect(chunkModerationText("ab\uFEFFcd", 3)).toEqual([
+			"ab",
+			"\uFEFF",
+			"cd",
+		]);
+	});
 });
 
 describe("truncateMiddle", () => {
@@ -230,6 +239,7 @@ describe("buildOpenAIContentFilterTextChunks", () => {
 		);
 
 		expect(chunks).toHaveLength(64);
+		expect(chunks.join("")).toHaveLength(256 * 1024);
 		expect(chunks.join("")).not.toContain("first");
 		expect(chunks.at(-1)).toContain("user: new question");
 	});
