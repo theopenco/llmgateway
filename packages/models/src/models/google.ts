@@ -1216,7 +1216,10 @@ export const googleModels = [
 			{
 				providerId: "google-vertex",
 				externalId: "gemini-3.6-flash",
-				deactivatedAt: new Date("2026-11-19"),
+				// Vertex blocks new/inactive projects from 2026-11-19; existing active
+				// projects keep access until the full shutdown on 2027-01-28.
+				deprecatedAt: new Date("2026-11-19"),
+				deactivatedAt: new Date("2027-01-28"),
 				serviceTiers: ["flex", "priority"],
 				serviceTierRegions: ["global"],
 				// Introductory pricing through 2026-12-31; reverts to 1.5/7.5/0.15 on 2027-01-01.
