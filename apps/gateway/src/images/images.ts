@@ -30,6 +30,7 @@ import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import {
 	clientSafetyIdentifierFields,
 	getClientSafetyIdentifierParams,
+	formSafetyIdentifierFields,
 } from "@/lib/safety-identifier.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
@@ -1383,8 +1384,6 @@ async function parseMultipartEditsRequest(
 		"complexity",
 		"background",
 		"output_format",
-		"safety_identifier",
-		"user",
 	]) {
 		const field = body[name];
 		const value = Array.isArray(field) ? field[0] : field;
@@ -1418,6 +1417,13 @@ async function parseMultipartEditsRequest(
 				},
 			}),
 		};
+	}
+	for (const [name, value] of Object.entries(
+		formSafetyIdentifierFields(body),
+	)) {
+		if (typeof value === "string") {
+			rawRequest[name] = value;
+		}
 	}
 	const markupField = body["markup"];
 	const markupFile = Array.isArray(markupField) ? markupField[0] : markupField;

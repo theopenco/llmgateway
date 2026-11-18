@@ -57,6 +57,7 @@ import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import {
 	getClientSafetyIdentifierParams,
 	clientSafetyIdentifierFields,
+	formSafetyIdentifierFields,
 } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
@@ -402,10 +403,9 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 		(value): value is string => typeof value === "string" && value.length > 0,
 	);
 	// Only logged as params.safety_identifier; never forwarded upstream.
-	const clientSafetyParams = getClientSafetyIdentifierParams({
-		safety_identifier: firstString(formBody.safety_identifier),
-		user: firstString(formBody.user),
-	});
+	const clientSafetyParams = getClientSafetyIdentifierParams(
+		formSafetyIdentifierFields(formBody),
+	);
 
 	// Authenticate before model resolution so unauthenticated callers get a
 	// 401 instead of catalogue-dependent errors.

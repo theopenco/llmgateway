@@ -189,7 +189,7 @@ Choose a stable, opaque value for each end user and send it in the request body:
 | Realtime client secrets (`/v1/realtime/client_secrets`)                                        | `safety_identifier`; it replaces any value on the WebSocket URL of sessions using the secret |
 | AI SDK provider (`@ai-sdk/gateway`)                                                            | `providerOptions.gateway.user` or `providerOptions.llmgateway.safety_identifier`             |
 
-Batch requests run through these endpoints and use the same fields per request line.
+[Batch](/features/batch) request lines for chat completions, Responses, and embeddings use the same fields as those endpoints.
 
 For example, replace `your-model-id` with a model from the [models directory](https://llmgateway.io/models):
 
@@ -204,7 +204,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
   }'
 ```
 
-Use a non-empty value of at most **128 characters**. Where both are listed, legacy `user` is used when `safety_identifier` is absent or `null`. Longer `safety_identifier` values are rejected; longer `user` or `metadata.user_id` values are not recorded as safety identifiers.
+Use a non-empty value of at most **128 characters**. Where both are listed, legacy `user` is used when `safety_identifier` is absent or `null`. Longer `safety_identifier` values in a JSON body are rejected; longer `user` or `metadata.user_id` values, and longer values in a form field or WebSocket query parameter, are not recorded as safety identifiers.
 
 In both credits and bring-your-own-key mode, the client value is saved in request log metadata as `params.safety_identifier`, even without debug logging. Rejections before the body is parsed, such as early rate limits, may not include it. Reuse it for the same end user when correlating traffic or reporting requests to us. It remains metadata when prompt/completion retention is disabled and is subject to [metadata retention](/features/data-retention). Do not include personal data; it is not an authentication or authorization mechanism.
 

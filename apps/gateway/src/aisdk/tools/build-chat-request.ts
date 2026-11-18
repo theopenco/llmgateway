@@ -114,15 +114,6 @@ export function buildChatRequest({
 			: { type: "json_object" };
 	}
 
-	// Vercel AI Gateway's end-user field. The chat handler only logs it as
-	// params.safety_identifier; an explicit llmgateway option below wins.
-	Object.assign(
-		body,
-		getClientSafetyIdentifierParams({
-			user: options.providerOptions?.gateway?.user,
-		}),
-	);
-
 	const gatewayOptions = options.providerOptions?.llmgateway;
 	if (gatewayOptions) {
 		for (const [key, value] of Object.entries(gatewayOptions)) {
@@ -130,6 +121,17 @@ export function buildChatRequest({
 				continue;
 			}
 			body[key] = value;
+		}
+	}
+
+	// Vercel AI Gateway's end-user field, unless an explicit llmgateway
+	// safety_identifier is set. The chat handler only logs it.
+	if (body.safety_identifier === undefined || body.safety_identifier === null) {
+		const { safety_identifier } = getClientSafetyIdentifierParams({
+			user: options.providerOptions?.gateway?.user,
+		});
+		if (safety_identifier !== undefined) {
+			body.safety_identifier = safety_identifier;
 		}
 	}
 

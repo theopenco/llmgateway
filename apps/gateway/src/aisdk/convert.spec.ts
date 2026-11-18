@@ -480,6 +480,12 @@ describe("chat request building", () => {
 				llmgateway: { safety_identifier: "explicit" },
 			}),
 		).toBe("explicit");
+		expect(
+			build({
+				gateway: { user: "end-user" },
+				llmgateway: { safety_identifier: null },
+			}),
+		).toBe("end-user");
 	});
 });
 
