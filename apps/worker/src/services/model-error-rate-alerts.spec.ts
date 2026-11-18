@@ -28,6 +28,7 @@ const counts = {
 	mappingId: "m1",
 	modelId: "gpt-test",
 	providerId: "openai",
+	region: null,
 	logsCount: 100,
 	clientErrorsCount: 0,
 	gatewayErrorsCount: 0,

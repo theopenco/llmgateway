@@ -12,7 +12,6 @@ import {
 	deliverNotificationEmails,
 	isNearBudget,
 	processNotifications,
-	hasUpstreamIssues,
 } from "./notifications.js";
 
 const send = vi.hoisted(() => vi.fn().mockResolvedValue({ error: null }));
@@ -23,6 +22,10 @@ vi.mock("@llmgateway/shared/email", () => ({
 }));
 const now = new Date();
 const day = 86400000;
+function minutesAgo(minutes: number) {
+	const offset = minutes * 60000;
+	return new Date(now.getTime() - offset);
+}
 function daysFromNow(days: number) {
 	const offset = days * day;
 	return new Date(now.getTime() + offset);
@@ -33,6 +36,7 @@ beforeEach(async () => {
 	await db.delete(tables.notificationPreference);
 	await db.delete(tables.emailUnsubscribe);
 	await db.delete(tables.apiKeyHourlyModelStats);
+	await db.delete(tables.modelProviderMappingHistory);
 	await db.delete(tables.project);
 	await db.delete(tables.userOrganization);
 	await db.delete(tables.organization);
@@ -98,14 +102,27 @@ async function enable(
 		.values({ userId, type, inApp: true, email });
 }
 
+async function insertHistory(
+	mappingId: string,
+	modelId: string,
+	counts: Partial<typeof tables.modelProviderMappingHistory.$inferInsert> = {},
+) {
+	await db.insert(tables.modelProviderMappingHistory).values({
+		modelProviderMappingId: mappingId,
+		modelId,
+		providerId: "test-provider",
+		usedMode: "credits",
+		minuteTimestamp: minutesAgo(2),
+		logsCount: 100,
+		...counts,
+	});
+}
+
 async function insertUsage() {
 	await db.insert(tables.provider).values({
 		id: "test-provider",
 		name: "Test provider",
 		description: "Test provider",
-		logsCount: 100,
-		upstreamErrorsCount: 30,
-		statsUpdatedAt: now,
 	});
 	await db.insert(tables.model).values({ id: "test-model", family: "test" });
 	await db.insert(tables.modelProviderMapping).values({
@@ -114,10 +131,9 @@ async function insertUsage() {
 		providerId: "test-provider",
 		externalId: "test-model",
 		deactivatedAt: daysFromNow(7),
-		logsCount: 100,
+	});
+	await insertHistory("test-mapping", "test-model", {
 		upstreamErrorsCount: 30,
-		// Stale on purpose: unchanged mapping counters keep their old timestamp.
-		statsUpdatedAt: daysFromNow(-1),
 	});
 	await db.insert(tables.apiKeyHourlyModelStats).values({
 		projectId: "alert-project",
@@ -186,15 +202,18 @@ describe("usage notifications", () => {
 		await db
 			.update(tables.modelProviderMapping)
 			.set({ deactivatedAt: daysFromNow(31) });
+		// Errors older than the default 15m window no longer count.
 		await db
-			.update(tables.provider)
-			.set({ statsUpdatedAt: new Date(now.getTime() - day) });
+			.update(tables.modelProviderMappingHistory)
+			.set({ minuteTimestamp: minutesAgo(20) });
 		await processNotifications(now);
 		expect(await db.query.notification.findMany()).toHaveLength(0);
 		await db
 			.update(tables.modelProviderMapping)
 			.set({ deactivatedAt: daysFromNow(7) });
-		await db.update(tables.provider).set({ statsUpdatedAt: now });
+		await db
+			.update(tables.modelProviderMappingHistory)
+			.set({ minuteTimestamp: minutesAgo(2) });
 		await db
 			.update(tables.apiKeyHourlyModelStats)
 			.set({ hourTimestamp: daysFromNow(-31) });
@@ -224,8 +243,8 @@ describe("usage notifications", () => {
 			modelId: "other-model",
 			providerId: "test-provider",
 			externalId: "other-model",
-			logsCount: 100,
 		});
+		await insertHistory("other-mapping", "other-model");
 		await db.insert(tables.apiKeyHourlyModelStats).values({
 			projectId: "alert-project",
 			apiKeyId: "alert-key",
@@ -243,23 +262,74 @@ describe("usage notifications", () => {
 		]);
 		expect(send).toHaveBeenCalledTimes(1);
 		expect(send.mock.calls[0][0].text).toContain(
-			'test-provider/test-model show elevated upstream errors. Project "Test Project" used it in the last 24 hours.',
+			'30% of requests to test-provider/test-model failed over the last 15m (30 of 100). Project "Test Project" used it in the last 4h.',
 		);
 	});
-	it("skips provider issues for mappings not used in the last day", async () => {
-		await enable("provider_issue", "alert-owner", true);
+	it("skips provider issues for mappings not used within the usage window", async () => {
+		await enable("provider_issue");
 		await insertUsage();
 		await db
 			.update(tables.apiKeyHourlyModelStats)
-			.set({ hourTimestamp: daysFromNow(-2) });
+			.set({ hourTimestamp: minutesAgo(6 * 60) });
 		await processNotifications(now);
 		expect(await db.query.notification.findMany()).toHaveLength(0);
-		// The bucket started over a day ago, but it ends inside the window.
+		// The bucket started over 4h ago, but it ends inside the window.
 		await db
 			.update(tables.apiKeyHourlyModelStats)
-			.set({ hourTimestamp: new Date(now.getTime() - day - 1800000) });
+			.set({ hourTimestamp: minutesAgo(4.5 * 60) });
 		await processNotifications(now);
 		expect(await db.query.notification.findMany()).toHaveLength(1);
+		await db.delete(tables.notification);
+		await db
+			.update(tables.apiKeyHourlyModelStats)
+			.set({ hourTimestamp: minutesAgo(6 * 60) });
+		await db.update(tables.notificationPreference).set({ issueUsageHours: 24 });
+		await processNotifications(now);
+		expect(await db.query.notification.findMany()).toHaveLength(1);
+	});
+	it("applies the user's error window and threshold", async () => {
+		await enable("provider_issue");
+		await insertUsage();
+		await db
+			.update(tables.notificationPreference)
+			.set({ issueErrorRatePercent: 50 });
+		await processNotifications(now);
+		expect(await db.query.notification.findMany()).toHaveLength(0);
+		await db.update(tables.notificationPreference).set({
+			issueErrorRatePercent: 20,
+			issueWindowMinutes: 5,
+		});
+		await db
+			.update(tables.modelProviderMappingHistory)
+			.set({ minuteTimestamp: minutesAgo(10) });
+		await processNotifications(now);
+		expect(await db.query.notification.findMany()).toHaveLength(0);
+		await db
+			.update(tables.notificationPreference)
+			.set({ issueWindowMinutes: 15 });
+		await processNotifications(now);
+		expect(await db.query.notification.findMany()).toHaveLength(1);
+	});
+	it("ignores errors retried elsewhere, client errors and tiny samples", async () => {
+		await enable("provider_issue");
+		await insertUsage();
+		await db
+			.update(tables.modelProviderMappingHistory)
+			.set({ retriedUpstreamErrorsCount: 30 });
+		await processNotifications(now);
+		await db.update(tables.modelProviderMappingHistory).set({
+			retriedUpstreamErrorsCount: 0,
+			upstreamErrorsCount: 0,
+			clientErrorsCount: 50,
+		});
+		await processNotifications(now);
+		await db.update(tables.modelProviderMappingHistory).set({
+			logsCount: 10,
+			clientErrorsCount: 0,
+			upstreamErrorsCount: 10,
+		});
+		await processNotifications(now);
+		expect(await db.query.notification.findMany()).toHaveLength(0);
 	});
 	it("retries failed email with the same idempotency key and checks current access", async () => {
 		await enable("budget", "alert-owner", true);
@@ -382,29 +452,5 @@ describe("usage notifications", () => {
 				where: { userId: "alert-developer" },
 			}),
 		).toMatchObject({ email: false, emailSentAt: null });
-	});
-	it("does not treat client errors or tiny samples as provider incidents", () => {
-		const healthy = {
-			logsCount: 100,
-			cachedCount: 0,
-			upstreamErrorsCount: 0,
-			clientErrorsCount: 50,
-			statsUpdatedAt: now,
-		};
-		expect(hasUpstreamIssues(healthy, now)).toBe(false);
-		expect(
-			hasUpstreamIssues(
-				{
-					...healthy,
-					logsCount: 10,
-					clientErrorsCount: 0,
-					upstreamErrorsCount: 10,
-				},
-				now,
-			),
-		).toBe(false);
-		expect(
-			hasUpstreamIssues({ ...healthy, upstreamErrorsCount: 20 }, now),
-		).toBe(true);
 	});
 });

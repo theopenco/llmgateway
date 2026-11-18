@@ -30,22 +30,31 @@ import {
 	renderFooterText,
 	signUnsubscribeToken,
 } from "@llmgateway/shared/email-unsubscribe";
+import {
+	formatAlertWindow,
+	PROVIDER_ISSUE_MIN_REQUESTS,
+} from "@llmgateway/shared/provider-issue-alerts";
 
 import {
 	isOrgAlertRecipient,
 	processComplianceAlerts,
 } from "./compliance-alerts.js";
+import {
+	findMappingsOverThreshold,
+	queryMappingErrorCounts,
+} from "./model-error-rate-alerts.js";
 import { processModelPriceAlerts } from "./model-price-alerts.js";
 import { canReadEvent } from "./notification-scope.js";
 
+import type {
+	MappingErrorCounts,
+	MappingErrorRateHit,
+} from "./model-error-rate-alerts.js";
 import type { notificationPreference } from "@llmgateway/db";
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 const USAGE_WINDOW_MS = 30 * DAY;
-const HEALTH_FRESHNESS_MS = 10 * 60 * 1000;
-// Provider issue alerts only cover mappings used this recently.
-const ISSUE_USAGE_WINDOW_MS = DAY;
 // Keep retries inside the email provider’s 24-hour idempotency window.
 const EMAIL_RETRY_MS = 23 * 60 * 60 * 1000;
 type Preference = typeof notificationPreference.$inferSelect;
@@ -63,26 +72,6 @@ export function isNearBudget(
 		limit !== null &&
 		new Decimal(limit).gt(0) &&
 		new Decimal(usage).gte(new Decimal(limit).mul(threshold).div(100))
-	);
-}
-
-export function hasUpstreamIssues(
-	stats: {
-		logsCount: number;
-		upstreamErrorsCount: number;
-		clientErrorsCount: number;
-		cachedCount: number;
-		statsUpdatedAt: Date | null;
-	},
-	now: Date,
-): boolean {
-	const requests =
-		stats.logsCount - stats.cachedCount - stats.clientErrorsCount;
-	return (
-		!!stats.statsUpdatedAt &&
-		stats.statsUpdatedAt.getTime() >= now.getTime() - HEALTH_FRESHNESS_MS &&
-		requests >= 20 &&
-		stats.upstreamErrorsCount / requests >= 0.2
 	);
 }
 
@@ -121,19 +110,36 @@ export async function processNotifications(now = new Date()): Promise<void> {
 	const providers = await db.query.provider.findMany({
 		where: { status: "active" },
 	});
-	// Mapping rows keep their old statsUpdatedAt while counters are unchanged,
-	// so take freshness from the provider row the same stats run always writes.
-	const unhealthyMappings = (
-		await db.query.modelProviderMapping.findMany({
-			where: { status: "active", upstreamErrorsCount: { gt: 0 } },
-		})
-	).filter((m) => {
-		const owner = providers.find((p) => p.id === m.providerId);
-		return (
-			!!owner &&
-			hasUpstreamIssues({ ...m, statsUpdatedAt: owner.statsUpdatedAt }, now)
-		);
-	});
+	// Failing mappings per (window, threshold), shared by every user this run.
+	const countsByWindow = new Map<number, Promise<MappingErrorCounts[]>>();
+	const failingByRule = new Map<string, Promise<MappingErrorRateHit[]>>();
+	const failingMappings = (windowMinutes: number, errorRatePercent: number) => {
+		const ruleKey = `${windowMinutes}:${errorRatePercent}`;
+		let hits = failingByRule.get(ruleKey);
+		if (!hits) {
+			let counts = countsByWindow.get(windowMinutes);
+			if (!counts) {
+				counts = queryMappingErrorCounts(windowMinutes, {
+					now,
+					baseOnly: false,
+				});
+				countsByWindow.set(windowMinutes, counts);
+			}
+			hits = counts.then((rows) =>
+				findMappingsOverThreshold(
+					{
+						errorRatePercent,
+						minRequests: PROVIDER_ISSUE_MIN_REQUESTS,
+						// Count only failures callers saw, not attempts retried elsewhere.
+						includeRetriedErrors: false,
+					},
+					rows,
+				),
+			);
+			failingByRule.set(ruleKey, hits);
+		}
+		return hits;
+	};
 	for (const userId of userIds) {
 		const recipient = await db.query.user.findFirst({
 			where: { id: userId, status: "active" },
@@ -289,32 +295,42 @@ export async function processNotifications(now = new Date()): Promise<void> {
 					}
 				}
 			}
+			if (!health) {
+				continue;
+			}
 			const provider = providers.find((p) => p.id === used.provider);
-			// Judge health per mapping the caller used in the last day, so the alert
-			// names the affected model and skips unused or healthy ones.
+			// Only mappings the caller used within their chosen window are covered.
 			// Compare the bucket's end so a request just inside the window counts.
+			const usageWindowMs = health.issueUsageHours * HOUR;
 			const usedRecently =
 				!!used.lastUsedHour &&
-				used.lastUsedHour.getTime() + HOUR >
-					now.getTime() - ISSUE_USAGE_WINDOW_MS;
-			const mapping = unhealthyMappings.find(
+				used.lastUsedHour.getTime() + HOUR > now.getTime() - usageWindowMs;
+			if (!provider || !usedRecently) {
+				continue;
+			}
+			const hit = (
+				await failingMappings(
+					health.issueWindowMinutes,
+					health.issueErrorRatePercent,
+				)
+			).find(
 				(m) =>
-					usedRecently &&
 					m.modelId === used.model &&
 					m.providerId === used.provider &&
 					(m.region ?? "") === used.region,
 			);
-			if (health && provider && mapping) {
-				await recordEvent(userId, health, {
-					projectId: used.projectId,
-					apiKeyId: used.apiKeyId,
-					type: "provider_issue",
-					eventKey: `provider:${audience}:${mapping.id}:${now.toISOString().slice(0, 10)}`,
-					title: `${used.model} on ${provider.name} is experiencing errors`,
-					message: `Recent requests to ${used.provider}/${used.model}${mapping.region ? ` (${mapping.region})` : ""} show elevated upstream errors. ${projectLabel} used it in the last 24 hours. Check the provider status and consider another provider for this model while it recovers.`,
-					href: `/models/${encodeURIComponent(used.model)}/${encodeURIComponent(provider.id)}`,
-				});
+			if (!hit) {
+				continue;
 			}
+			await recordEvent(userId, health, {
+				projectId: used.projectId,
+				apiKeyId: used.apiKeyId,
+				type: "provider_issue",
+				eventKey: `provider:${audience}:${hit.mappingId}:${now.toISOString().slice(0, 10)}`,
+				title: `${used.model} on ${provider.name} is experiencing errors`,
+				message: `${Math.round(hit.errorRate)}% of requests to ${used.provider}/${used.model}${hit.region ? ` (${hit.region})` : ""} failed over the last ${formatAlertWindow(health.issueWindowMinutes)} (${hit.errorsCount} of ${hit.requestCount}). ${projectLabel} used it in the last ${formatAlertWindow(health.issueUsageHours * 60)}. Check the provider status and consider another provider for this model while it recovers.`,
+				href: `/models/${encodeURIComponent(used.model)}/${encodeURIComponent(provider.id)}`,
+			});
 		}
 	}
 	try {

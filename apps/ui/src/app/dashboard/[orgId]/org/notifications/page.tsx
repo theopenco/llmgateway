@@ -14,6 +14,7 @@ import { Switch } from "@/lib/components/switch";
 import { useApi } from "@/lib/fetch-client";
 
 import { PriceChangeScope } from "./price-change-scope";
+import { ProviderIssueSettings } from "./provider-issue-settings";
 
 import type { EmailCategory } from "@llmgateway/shared/email-unsubscribe";
 
@@ -34,7 +35,7 @@ const DESCRIPTIONS: Record<
 	provider_issue: {
 		title: "Provider issues",
 		description:
-			"Hear about elevated errors from providers you used in the last 30 days.",
+			"Hear when a model you recently used has a high error rate on its provider.",
 	},
 	model_available: {
 		title: "Compliance: models available",
@@ -159,6 +160,26 @@ export default function NotificationsPage() {
 															</select>
 														</label>
 													)}
+													{typeof preference.issueWindowMinutes === "number" &&
+														typeof preference.issueErrorRatePercent ===
+															"number" &&
+														typeof preference.issueUsageHours === "number" && (
+															<ProviderIssueSettings
+																value={{
+																	issueWindowMinutes:
+																		preference.issueWindowMinutes,
+																	issueErrorRatePercent:
+																		preference.issueErrorRatePercent,
+																	issueUsageHours: preference.issueUsageHours,
+																}}
+																disabled={busy}
+																onSave={(value) =>
+																	save.mutate({
+																		body: { ...preference, ...value },
+																	})
+																}
+															/>
+														)}
 													{preference.modelScope && (
 														<PriceChangeScope
 															key={preference.modelIds?.join(",")}
