@@ -462,6 +462,25 @@ describe("chat request building", () => {
 		expect(body.model).toBe("openai/gpt-5.6-terra");
 		expect(body.stream).toBe(false);
 	});
+
+	test("maps the AI Gateway end-user to the logged safety identifier", () => {
+		const build = (providerOptions: Record<string, Record<string, unknown>>) =>
+			buildChatRequest({
+				options: { prompt: basePrompt, providerOptions },
+				modelId: "m",
+				stream: false,
+				specVersion: 4,
+			}).body.safety_identifier;
+
+		expect(build({ gateway: { user: "end-user" } })).toBe("end-user");
+		expect(build({ gateway: { user: "a".repeat(129) } })).toBeUndefined();
+		expect(
+			build({
+				gateway: { user: "end-user" },
+				llmgateway: { safety_identifier: "explicit" },
+			}),
+		).toBe("explicit");
+	});
 });
 
 describe("non-streaming response conversion", () => {

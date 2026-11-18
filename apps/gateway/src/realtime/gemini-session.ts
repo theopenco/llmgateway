@@ -1234,6 +1234,7 @@ export class GeminiRealtimeProxySession {
 			requestedModel: this.requestedModel,
 			source: this.source,
 			userAgent: this.userAgent,
+			clientSafetyIdentifier: this.preflight.clientSafetyIdentifier,
 			code,
 			message,
 		});

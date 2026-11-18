@@ -13,7 +13,7 @@ describe("buildElevenLabsRealtimeQuery", () => {
 	it("drops gateway parameters and keeps extensions", () => {
 		const result = buildElevenLabsRealtimeQuery(
 			new URLSearchParams(
-				"model=scribe-v3-live&intent=transcription&no_verbatim=true&secondary_languages=de&secondary_languages=fr",
+				"model=scribe-v3-live&intent=transcription&safety_identifier=end-user&user=end-user&no_verbatim=true&secondary_languages=de&secondary_languages=fr",
 			),
 		);
 		expect(result.ok && result.query.toString()).toBe(

@@ -9,7 +9,7 @@ import type { InferSelectModel, tables } from "@llmgateway/db";
 export const clientSafetyIdentifierFields = {
 	safety_identifier: z.string().max(128).nullable().optional().openapi({
 		description:
-			"Opaque end-user identifier stored in log params.safety_identifier. Never forwarded upstream and never replaces LLM Gateway's per-organization identifier.",
+			"Opaque end-user identifier stored in log params.safety_identifier. Never forwarded upstream and never replaces LLM Gateway's provider-facing identifier.",
 		example: "app-user-42",
 	}),
 	user: z.string().nullable().optional().openapi({
