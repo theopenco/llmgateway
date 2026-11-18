@@ -42,8 +42,10 @@ export function getReportedFlaggedPayloadExpiry(
 
 export interface FlaggedPayloadImage {
 	type: "image";
-	/** Remote URL as the client sent it; unset for inline images. */
+	/** Remote URL without credentials, query or fragment; unset for inline images. */
 	url?: string;
+	/** SHA-256 of the full remote URL as sent. */
+	urlSha256?: string;
 	/** SHA-256 of the decoded inline bytes; the bytes are never stored. */
 	sha256?: string;
 	mimeType?: string;

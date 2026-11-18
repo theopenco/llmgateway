@@ -113,7 +113,7 @@ Data is retained for 30 days for all users, regardless of plan. After the retent
 
 The [gateway content filter](/resources/error-handling#gateway-content-filter) keeps an encrypted copy of requests its deciding classifier flags for child safety or sexual content, whether or not the request was blocked. This happens on every plan and independently of the retention level, so it also applies to Metadata Only, DevPass, and chat organizations.
 
-- **What is kept:** the request's messages, tool calls, and image URLs as sent. Inline images, audio, and files are reduced to a SHA-256 hash, type, size, and file name; their bytes are never stored. Conversations over about 1 MB are trimmed, oldest messages first.
+- **What is kept:** the request's messages and tool calls, and image URLs without credentials, query string, or fragment (plus a hash of the full URL). Inline images, audio, and files, including media inside tool calls and results, are reduced to a SHA-256 hash, type, size, and file name; their bytes are never stored. Conversations over about 1 MB are trimmed, oldest messages first.
 - **How long:** 90 days, then deleted automatically. A request reported to NCMEC is kept for one year after the report, as U.S. law requires.
 - **Who can see it:** only authorized LLM Gateway trust and safety staff. Copies are encrypted at the application level, never appear in your request logs or exports, and every access is recorded in an internal audit log.
 - **Zero data retention:** while a [ZDR policy](/features/compliance) is active, only requests flagged for child safety are kept.

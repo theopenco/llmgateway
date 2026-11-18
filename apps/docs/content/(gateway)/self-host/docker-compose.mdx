@@ -186,7 +186,9 @@ For rotation, prepend the same new secret to the comma-separated keyring on
 every service and retain the old entries while credentials and hashes still use
 them. Authentication checks every retained entry, while new hashes use the
 first entry. Removing an old entry makes its provider credentials undecryptable
-and its remaining hashes unusable.
+and its remaining hashes unusable. Preserved [flagged content](/features/data-retention#flagged-content)
+is encrypted with the same keyring and is not re-encrypted, so keep an old
+entry until those copies expire (up to a year after a report).
 
 ## Multiple API keys and load balancing
 

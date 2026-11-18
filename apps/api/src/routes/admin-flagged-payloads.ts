@@ -78,6 +78,7 @@ const payloadPartSchema = z.object({
 	type: z.string(),
 	text: z.string().optional(),
 	url: z.string().optional(),
+	urlSha256: z.string().optional(),
 	sha256: z.string().optional(),
 	mimeType: z.string().optional(),
 	bytes: z.number().optional(),

@@ -131,7 +131,9 @@ describe("buildFlaggedPayload", () => {
 					},
 					{
 						type: "image_url",
-						image_url: { url: "https://example.com/a.png" },
+						image_url: {
+							url: "https://user:secret@example.com/a.png?sig=token#frag",
+						},
 					},
 					{
 						type: "image",
@@ -146,6 +148,7 @@ describe("buildFlaggedPayload", () => {
 		];
 		const result = buildFlaggedPayload(messages);
 		expect(result.json.includes(imageBase64)).toBe(false);
+		expect(result.json.includes("secret")).toBe(false);
 		expect(result.truncated).toBe(false);
 		expect(result.imageCount).toBe(3);
 		const payload = JSON.parse(result.json) as FlaggedPayload;
@@ -158,12 +161,73 @@ describe("buildFlaggedPayload", () => {
 				bytes: imageBytes.length,
 				mimeType: "image/png",
 			},
-			{ type: "image", url: "https://example.com/a.png" },
+			{
+				type: "image",
+				url: "https://example.com/a.png",
+				urlSha256: createHash("sha256")
+					.update("https://user:secret@example.com/a.png?sig=token#frag")
+					.digest("hex"),
+			},
 			{
 				type: "image",
 				sha256: hash,
 				bytes: imageBytes.length,
 				mimeType: "image/jpeg",
+			},
+		]);
+	});
+
+	test("hashes media nested in tool inputs and results", () => {
+		const longBase64 = Buffer.alloc(2048, 7).toString("base64");
+		const result = buildFlaggedPayload([
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "tool_use",
+						id: "call-1",
+						name: "upload",
+						input: { file: `data:image/png;base64,${imageBase64}` },
+					},
+				],
+			},
+			{
+				role: "user",
+				content: [
+					{
+						type: "tool_result",
+						tool_use_id: "call-1",
+						content: [
+							{ type: "text", text: "tool says hi" },
+							{
+								type: "image",
+								source: {
+									type: "base64",
+									media_type: "image/png",
+									data: longBase64,
+								},
+							},
+						],
+					},
+				],
+			},
+		]);
+		expect(result.json.includes(imageBase64)).toBe(false);
+		expect(result.json.includes(longBase64)).toBe(false);
+		expect(result.json.includes("tool says hi")).toBe(true);
+		const payload = JSON.parse(result.json) as FlaggedPayload;
+		expect(payload.messages[0].content).toEqual([
+			{
+				type: "tool_use",
+				name: "upload",
+				input: {
+					file: {
+						type: "media",
+						sha256: createHash("sha256").update(imageBytes).digest("hex"),
+						bytes: imageBytes.length,
+						mimeType: "image/png",
+					},
+				},
 			},
 		]);
 	});
@@ -177,18 +241,18 @@ describe("buildFlaggedPayload", () => {
 		const result = buildFlaggedPayload(messages, 1000);
 		const payload = JSON.parse(result.json) as FlaggedPayload;
 		expect(result.truncated).toBe(true);
-		expect(result.bytes).toBeLessThanOrEqual(1100);
+		expect(result.bytes).toBeLessThanOrEqual(1000);
 		expect(payload.droppedMessages).toBe(1);
 		expect(payload.messages.at(-1)?.content).toBe("latest turn");
 	});
 
 	test("cuts a single message larger than the cap", () => {
-		const result = buildFlaggedPayload(
-			[{ role: "user", content: "x".repeat(5000) }],
-			1000,
-		);
-		expect(result.truncated).toBe(true);
-		expect(result.bytes).toBeLessThan(1300);
+		for (const content of ["x".repeat(5000), '"\\'.repeat(2500)]) {
+			const result = buildFlaggedPayload([{ role: "user", content }], 1000);
+			expect(result.truncated).toBe(true);
+			expect(result.bytes).toBeLessThanOrEqual(1000);
+			expect(JSON.parse(result.json).messages).toHaveLength(1);
+		}
 	});
 });
 

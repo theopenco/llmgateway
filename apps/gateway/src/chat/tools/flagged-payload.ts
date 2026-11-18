@@ -10,6 +10,7 @@ import {
 	getFlaggedPayloadExpiry,
 	MAX_FLAGGED_PAYLOAD_BYTES,
 	type FlaggedPayload,
+	type FlaggedPayloadImage,
 	type FlaggedPayloadMessage,
 	type FlaggedPayloadPart,
 } from "@llmgateway/shared/flagged-payload";
@@ -20,6 +21,24 @@ import type { TieredContentFilterPlan } from "./tiered-content-filter.js";
 import type { GatewayContentFilterEvaluation } from "@llmgateway/db";
 import type { BaseMessage, MessageContent } from "@llmgateway/models";
 import type { ContentFilterBlockGroup } from "@llmgateway/shared";
+
+/**
+ * A remote media URL without credentials, query or fragment (signed URLs carry
+ * tokens there), plus a hash of the full URL to match it against a report.
+ */
+function describeRemoteUrl(url: string): { url?: string; urlSha256: string } {
+	const urlSha256 = sha256(Buffer.from(url, "utf8"));
+	try {
+		const parsed = new URL(url);
+		return {
+			url: `${parsed.origin}${parsed.pathname}`.slice(0, MAX_URL_LENGTH),
+			urlSha256,
+		};
+	} catch {
+		// Not a parseable URL: keep only its hash.
+		return { urlSha256 };
+	}
+}
 
 export type FlaggedPayloadEndpoint = "chat" | "speech" | "videos";
 
@@ -32,6 +51,8 @@ export interface FlaggedPayloadOrigin {
 }
 
 const MAX_URL_LENGTH = 2048;
+// Room for the payload's JSON envelope around the messages.
+const PAYLOAD_ENVELOPE_BYTES = 256;
 
 /**
  * Groups of a deciding verdict whose payload is preserved: `csam` and `sexual`
@@ -69,10 +90,10 @@ function describeBase64(data: string): { sha256: string; bytes: number } {
 
 const DATA_URL = /^data:([^;,]*)((?:;[^;,]*)*),/;
 
-function describeImageUrl(url: string): FlaggedPayloadPart {
+function describeImageUrl(url: string): FlaggedPayloadImage {
 	const match = DATA_URL.exec(url);
 	if (!match) {
-		return { type: "image", url: url.slice(0, MAX_URL_LENGTH) };
+		return { type: "image", ...describeRemoteUrl(url) };
 	}
 	const body = url.slice(match[0].length);
 	// A percent-encoded (non-base64) data URL is hashed as sent.
@@ -85,6 +106,41 @@ function describeImageUrl(url: string): FlaggedPayloadPart {
 		bytes: bytes.length,
 		...(match[1] ? { mimeType: match[1] } : {}),
 	};
+}
+
+// Long unbroken base64 inside tool payloads (e.g. an Anthropic image block in
+// a tool result) is media, not text.
+const BASE64_RUN = /^[A-Za-z0-9+/_-]+={0,2}$/;
+const MIN_BASE64_MEDIA_LENGTH = 512;
+const MAX_SCRUB_DEPTH = 32;
+
+/**
+ * Tool inputs and results are free-form JSON that can embed media. Replace
+ * every data URL or long base64 string, at any depth, with its hash and size.
+ */
+export function scrubNestedMedia(value: unknown, depth = 0): unknown {
+	if (typeof value === "string") {
+		if (DATA_URL.test(value)) {
+			const { sha256: hash, bytes, mimeType } = describeImageUrl(value);
+			return { type: "media", sha256: hash, bytes, mimeType };
+		}
+		if (value.length >= MIN_BASE64_MEDIA_LENGTH && BASE64_RUN.test(value)) {
+			return { type: "media", ...describeBase64(value) };
+		}
+		return value;
+	}
+	if (depth >= MAX_SCRUB_DEPTH || value === null || typeof value !== "object") {
+		return depth >= MAX_SCRUB_DEPTH ? "[nested too deep]" : value;
+	}
+	if (Array.isArray(value)) {
+		return value.map((entry) => scrubNestedMedia(entry, depth + 1));
+	}
+	return Object.fromEntries(
+		Object.entries(value).map(([key, entry]) => [
+			key,
+			scrubNestedMedia(entry, depth + 1),
+		]),
+	);
 }
 
 function describePart(part: MessageContent): FlaggedPayloadPart {
@@ -115,9 +171,13 @@ function describePart(part: MessageContent): FlaggedPayloadPart {
 					: {}),
 			};
 		case "tool_use":
-			return { type: "tool_use", name: part.name, input: part.input };
+			return {
+				type: "tool_use",
+				name: part.name,
+				input: scrubNestedMedia(part.input),
+			};
 		case "tool_result":
-			return { type: "tool_result", content: part.content };
+			return { type: "tool_result", content: scrubNestedMedia(part.content) };
 		default:
 			return {
 				type: "other",
@@ -128,16 +188,12 @@ function describePart(part: MessageContent): FlaggedPayloadPart {
 
 /** File data arrives as a data URL or bare base64. */
 function describeImageUrlBytes(data: string) {
-	const described = describeImageUrl(
-		DATA_URL.test(data) ? data : `data:;base64,${data}`,
-	);
-	return described.type === "image"
-		? {
-				sha256: described.sha256,
-				bytes: described.bytes,
-				...(described.mimeType ? { mimeType: described.mimeType } : {}),
-			}
-		: {};
+	const {
+		sha256: hash,
+		bytes,
+		mimeType,
+	} = describeImageUrl(DATA_URL.test(data) ? data : `data:;base64,${data}`);
+	return { sha256: hash, bytes, ...(mimeType ? { mimeType } : {}) };
 }
 
 function describeMessage(message: BaseMessage): FlaggedPayloadMessage {
@@ -179,40 +235,44 @@ export function buildFlaggedPayload(
 	messages: BaseMessage[],
 	maxBytes = MAX_FLAGGED_PAYLOAD_BYTES,
 ): { json: string; bytes: number; truncated: boolean; imageCount: number } {
-	const described = messages.map(describeMessage);
-	const sizes = described.map(
-		(message) => Buffer.byteLength(JSON.stringify(message)) + 1,
-	);
-	let kept = 0;
+	const budget = maxBytes - PAYLOAD_ENVELOPE_BYTES;
+	// Newest first, so media in messages that will be dropped is never decoded.
+	const kept: FlaggedPayloadMessage[] = [];
 	let total = 0;
-	for (let i = described.length - 1; i >= 0; i--) {
-		if (kept > 0 && total + sizes[i] > maxBytes) {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const described = describeMessage(messages[i]);
+		const size = Buffer.byteLength(JSON.stringify(described)) + 1;
+		if (kept.length > 0 && total + size > budget) {
 			break;
 		}
-		total += sizes[i];
-		kept++;
+		total += size;
+		kept.unshift(described);
 	}
 	const payload: FlaggedPayload = {
 		version: 1,
-		messages: described.slice(described.length - kept),
-		droppedMessages: described.length - kept,
+		messages: kept,
+		droppedMessages: messages.length - kept.length,
 	};
 	let json = JSON.stringify(payload);
-	let truncated = payload.droppedMessages > 0;
-	if (Buffer.byteLength(json) > maxBytes) {
-		// One message alone exceeds the cap: keep its leading bytes as text.
-		json = JSON.stringify({
-			...payload,
-			messages: [
-				{
-					role: payload.messages[0]?.role ?? "user",
-					content: Buffer.from(JSON.stringify(payload.messages[0]))
-						.subarray(0, maxBytes)
-						.toString("utf8"),
-				},
-			],
-		} satisfies FlaggedPayload);
-		truncated = true;
+	const truncated = payload.droppedMessages > 0 || total > budget;
+	if (total > budget) {
+		// Only the newest message is kept and it alone is over the cap: keep its
+		// leading bytes as text, shrinking until escaping fits too.
+		const serialized = Buffer.from(JSON.stringify(kept[0]));
+		for (let cut = budget; ; cut = Math.floor(cut * 0.8)) {
+			json = JSON.stringify({
+				...payload,
+				messages: [
+					{
+						role: kept[0].role,
+						content: serialized.subarray(0, cut).toString("utf8"),
+					},
+				],
+			} satisfies FlaggedPayload);
+			if (Buffer.byteLength(json) <= maxBytes || cut === 0) {
+				break;
+			}
+		}
 	}
 	return {
 		json,

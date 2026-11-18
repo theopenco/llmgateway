@@ -46,6 +46,7 @@ function PartView({ part }: { part: Part }) {
 					{part.filename ? `, ${part.filename}` : ""}]
 					{part.sha256 ? <div>sha256 {part.sha256}</div> : null}
 					{part.url ? <div className="break-all">url {part.url}</div> : null}
+					{part.urlSha256 ? <div>url sha256 {part.urlSha256}</div> : null}
 					{part.fileId ? <div>file id {part.fileId}</div> : null}
 				</div>
 			);
