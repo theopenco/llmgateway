@@ -111,6 +111,7 @@ describe("resolveTieredContentFilterPlan", () => {
 			moderateImages: true,
 			blockGroups: null,
 			csamScoreThreshold: 0.01,
+			preserveFlaggedPayloads: true,
 		});
 	});
 
@@ -444,6 +445,7 @@ describe("buildGatewayContentFilterEvaluation", () => {
 		moderateImages: true,
 		blockGroups: null,
 		csamScoreThreshold: 0.01,
+		preserveFlaggedPayloads: true,
 	};
 	const violation = {
 		violation: true,

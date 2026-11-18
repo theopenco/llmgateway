@@ -1,15 +1,15 @@
 ---
 id: "3"
 slug: "sub-processors"
-date: "2026-08-19"
+date: "2026-11-18"
 title: "Sub-processors"
 description: "The complete, versioned list of sub-processors LLM Gateway uses to provide the Service, what each one processes, where it is located, and how we notify customers before the list changes."
 ---
 
 # Sub-processor List
 
-**Version:** 2026-08-19  
-**Last Updated:** August 19, 2026
+**Version:** 2026-11-18  
+**Last Updated:** November 18, 2026
 
 This page is the authoritative list of the sub-processors LLM Gateway engages to provide the Service. It is referenced by our [Privacy Policy](/legal/privacy) and by the Data Processing Addendum (DPA) we enter into with Enterprise customers.
 
@@ -27,8 +27,11 @@ These sub-processors are engaged for every customer, regardless of which AI mode
 | **Google Cloud (Google LLC / Google Cloud EMEA Ltd.)** | Application hosting, database, object storage, tracing | All platform data — account records, usage metadata, and (where retention is enabled) request and response content     | European Union, United States |
 | **Resend (Plus Five Five, Inc.)**                      | Transactional and product email delivery               | Email address, name, and the contents of the emails we send you (invoices, usage alerts, security and product notices) | United States                 |
 | **PostHog, Inc.**                                      | Product analytics and feature flags                    | Account identifier, email address, IP address, page views, in-product events and usage patterns                        | United States                 |
+| **OpenAI, L.L.C.** (moderation API)                    | Automated content screening for abuse                  | Text and images of requests sampled by the content filter; no account details                                          | United States                 |
 
 We do not engage sub-processors for advertising, profiling, or the sale or sharing of personal information. We do not sell personal data.
+
+The content screening sub-processor receives a request only when the gateway content filter samples it, and never when your organization's compliance policy excludes that provider. Our self-hosted classifier runs in our own infrastructure and is not a sub-processor.
 
 ---
 

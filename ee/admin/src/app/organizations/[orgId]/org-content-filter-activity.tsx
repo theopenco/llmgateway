@@ -101,12 +101,20 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 							moderated request; blocked is the subset actually rejected.
 						</CardDescription>
 					</div>
-					<Link
-						href="/content-filter"
-						className="text-xs text-muted-foreground underline-offset-2 hover:underline"
-					>
-						All organizations
-					</Link>
+					<div className="flex flex-col items-end gap-1">
+						<Link
+							href="/content-filter"
+							className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+						>
+							All organizations
+						</Link>
+						<Link
+							href={`/content-filter/flagged-payloads?orgId=${encodeURIComponent(orgId)}`}
+							className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+						>
+							Flagged payloads
+						</Link>
+					</div>
 				</div>
 			</CardHeader>
 			<CardContent className="px-2 pb-4 sm:px-6">

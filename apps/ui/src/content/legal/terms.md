@@ -1,7 +1,7 @@
 ---
 id: "1"
 slug: "terms"
-date: "2026-09-18"
+date: "2026-11-18"
 title: "Terms Of Use"
 description: "Terms of Use for LLM Gateway: account eligibility, billing and credits, AI outputs, acceptable use, warranties, liability, and dispute resolution."
 ---
@@ -9,7 +9,7 @@ description: "Terms of Use for LLM Gateway: account eligibility, billing and cre
 # Terms of Use
 
 **Effective Date:** June 11, 2026  
-**Last Updated:** October 9, 2026
+**Last Updated:** November 18, 2026
 
 Welcome to **LLM Gateway** (“we”, “our”, or “us”), operated by **Polar Lights LLC**, 16192 Coastal Highway, Lewes, DE 19958, United States. These Terms of Use (“Terms”) form a binding legal agreement between you (“you” or “Customer”) and LLM Gateway and govern your access to and use of the LLM Gateway platform, including our website **[llmgateway.io](https://llmgateway.io)**, APIs, SDKs, dashboards, and any related products or services (collectively, the “Service”).
 
@@ -80,7 +80,7 @@ Any service levels, support commitments, or uptime targets apply **only** if exp
 
 ## 5. Data and Privacy
 
-Your data is processed in accordance with our [Privacy Policy](https://llmgateway.io/privacy). Request data is stored as **Metadata Only** (usage statistics and pricing data) by default. Organizations on an Enterprise plan can additionally choose **Retain All Data** (request payloads and responses) under **Settings → Policies**. Organizations that are not on an Enterprise plan and that enabled Retain All Data before October 9, 2026 keep that setting until **November 8, 2026**, after which the hosted Service switches them to Metadata Only; it cannot be re-enabled without an Enterprise plan.
+Your data is processed in accordance with our [Privacy Policy](https://llmgateway.io/privacy). Request data is stored as **Metadata Only** (usage statistics and pricing data) by default. Organizations on an Enterprise plan can additionally choose **Retain All Data** (request payloads and responses) under **Settings → Policies**. Organizations that are not on an Enterprise plan and that enabled Retain All Data before October 9, 2026 keep that setting until **November 8, 2026**, after which the hosted Service switches them to Metadata Only; it cannot be re-enabled without an Enterprise plan. Independently of this setting, we may keep an encrypted copy of requests our content filter flags for child sexual exploitation or sexual content, as described in Section 6 and the Privacy Policy.
 
 By using the Service, you consent to the collection, processing, and transfer of data as described in the Privacy Policy. You are solely responsible for the data, prompts, and content you submit to the Service (“Customer Data”), including ensuring you have all rights and consents necessary to submit it and to have it processed by us and by the AI providers you select.
 
@@ -103,6 +103,8 @@ You agree **not to**, and not to permit any third party to:
 You are solely responsible for your use of the Service and any content you submit or generate. We may, but are not obligated to, monitor use of the Service and may remove content or suspend access for any suspected violation.
 
 **Content filtering and violation rates (effective October 15, 2026).** This paragraph takes effect on **October 15, 2026**; for subscription plans it applies only to billing periods beginning on or after that date. Requests may be screened by our own content filter or by an AI provider's moderation systems before or after dispatch. A single blocked request is not by itself a breach of these Terms. However, from that date, if we detect a **high rate or volume of content filter violations** on an account, organization, or group of related accounts, we may **rate-limit, restrict, suspend, or permanently terminate** access to the Service, in whole or in part, **with or without prior notice**. What counts as a high rate of violations, how it is measured, and what action we take are determined **solely at our discretion**. We are not obligated to warn you first, to explain the specific requests involved, or to provide an appeal, and no refund or credit is due for fees or credits affected by such action. Nothing in this paragraph limits any other suspension or termination right in Section 11.
+
+**Automated screening, flagged content, and child safety.** We screen requests with automated classifiers — our own self-hosted models and third-party moderation services listed on our [Sub-processor page](https://llmgateway.io/legal/sub-processors) — to detect content that violates these Terms. When the classifier that decides a request's outcome flags it for child sexual exploitation or sexual content, we may keep an encrypted copy of the request, whether or not the request was blocked and regardless of your organization's data retention setting; while a zero-data-retention policy is active, only requests flagged for child sexual exploitation are kept. Only authorized trust and safety personnel can review these copies, and every access is logged. They are deleted after **90 days** unless the law requires us to keep them longer — for example, for **one year after a report** to the National Center for Missing & Exploited Children (NCMEC) under 18 U.S.C. § 2258A. We report apparent child sexual abuse material to NCMEC, which may make it available to law enforcement, and we may report other unlawful content to law enforcement where the law requires or permits. We may make these reports, and preserve related account information, without notice to you. Automated classifiers make mistakes: a flag alone is not a finding that you violated these Terms.
 
 ---
 
@@ -166,7 +168,7 @@ We may **suspend or terminate** your access to all or part of the Service, with 
 
 We may suspend access **immediately and without prior notice** where we reasonably believe doing so is necessary to protect the Service, other users, or our providers. We are **not liable** to you for any suspension or termination made in accordance with these Terms.
 
-Upon termination, your right to use the Service ceases immediately, and stored data will be deleted in accordance with your retention settings and our Privacy Policy. Sections that by their nature should survive termination will survive (see Section 18).
+Upon termination, your right to use the Service ceases immediately, and stored data will be deleted in accordance with your retention settings and our Privacy Policy, except data we must keep by law, including flagged content preserved as described in Section 6. Sections that by their nature should survive termination will survive (see Section 18).
 
 ---
 

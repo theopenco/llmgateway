@@ -10,6 +10,7 @@ import {
 	getApiKeyHashSecrets,
 	getSecretKeyId,
 } from "./api-key-hash.js";
+import { decodeBase64UrlNoPad, encodeBase64UrlNoPad } from "./base64url.js";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_BYTES = 12;
@@ -24,20 +25,6 @@ const KEY_BYTES = 32;
 const FORMAT_PREFIX_V1 = "llmgw:v1:";
 const FORMAT_PREFIX_V2 = "llmgw:v2:";
 const HKDF_INFO_PROVIDER_KEY_TOKEN = "provider-key-token:v1";
-
-function decodeBase64UrlNoPad(input: string): Buffer {
-	const padded = input + "==".slice(0, (4 - (input.length % 4)) % 4);
-	const base64 = padded.replace(/-/g, "+").replace(/_/g, "/");
-	return Buffer.from(base64, "base64");
-}
-
-function encodeBase64UrlNoPad(buf: Buffer): string {
-	return buf
-		.toString("base64")
-		.replace(/\+/g, "-")
-		.replace(/\//g, "_")
-		.replace(/=+$/, "");
-}
 
 /**
  * Derives the provider-key data key from a gateway secret (an entry of the

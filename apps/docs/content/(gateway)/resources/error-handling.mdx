@@ -139,6 +139,8 @@ By default the filter only records its findings. When blocking is active, a requ
 
 A moderation outage never fails a request: if the moderation model is unavailable, the request goes through as normal.
 
+When the deciding classifier flags a request for child safety or sexual content, LLM Gateway keeps an encrypted copy of it for trust and safety review — whether or not it was blocked, for every plan, and regardless of your [data retention](/features/data-retention#flagged-content) setting. Apparent child sexual abuse material is reported to NCMEC. See Section 6 of the [Terms of Use](https://llmgateway.io/legal/terms).
+
 An occasional block is not a problem. From October 15, 2026, a high rate or volume of content filter violations can get the account rate-limited, restricted, suspended, or terminated at our discretion — see Section 6 of the [Terms of Use](https://llmgateway.io/legal/terms).
 
 <Callout type="info">

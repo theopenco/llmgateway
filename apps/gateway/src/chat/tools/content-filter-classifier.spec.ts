@@ -84,6 +84,7 @@ const PLAN: TieredContentFilterPlan = {
 	moderateImages: true,
 	blockGroups: null,
 	csamScoreThreshold: 0.01,
+	preserveFlaggedPayloads: true,
 };
 
 describe("runContentFilterClassifier", () => {

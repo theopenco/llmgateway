@@ -50,6 +50,7 @@ export interface ContentFilterSettingsInput {
 	moderateImages: boolean;
 	blockGroups: ("csam" | "sexual" | "cyber")[] | null;
 	csamScoreThreshold: number;
+	preserveFlaggedPayloads: boolean;
 }
 
 export async function getContentFilterSettings() {

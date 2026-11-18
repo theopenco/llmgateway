@@ -49,11 +49,13 @@ const privacyCards: SummaryCard[] = [
 		body: (
 			<>
 				Out of the box we store usage metadata only — tokens, cost, latency and
-				which provider was used — never the content of your prompts or
-				responses. Enterprise organizations can optionally turn on full request
-				retention under{" "}
+				which provider was used — not the content of your prompts or responses.
+				Enterprise organizations can optionally turn on full request retention
+				under{" "}
 				<span className="text-foreground font-medium">Settings → Policies</span>
-				.
+				. Requests our content filter flags for child safety or sexual content
+				are kept encrypted for up to 90 days, longer if the law requires, and
+				apparent child sexual abuse material is reported to NCMEC.
 			</>
 		),
 	},
@@ -62,9 +64,10 @@ const privacyCards: SummaryCard[] = [
 		title: "AI requests are sent anonymously",
 		body: (
 			<>
-				When we route a request to a provider, it is forwarded without any link
-				to your LLM Gateway account. Providers receive the request on its own
-				and cannot connect it back to your identity.
+				When we route a request to a provider, it is forwarded without your
+				account details. On our own provider credentials it may carry an opaque
+				per-API-key identifier for abuse reports, which only we can map back to
+				your key.
 			</>
 		),
 	},

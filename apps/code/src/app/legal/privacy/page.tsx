@@ -23,7 +23,7 @@ export default function PrivacyPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> August 20, 2026
+				<strong>Last Updated:</strong> November 18, 2026
 			</p>
 			<LegalSummary variant="privacy" />
 			<p>
@@ -112,6 +112,13 @@ export default function PrivacyPage() {
 				unaffected. Payloads may also be held transiently in memory or cache
 				while a request is being processed.
 			</p>
+			<p>
+				<strong>Exception — flagged content.</strong> As described in the Base
+				Policy, requests our content filter flags for child sexual exploitation
+				or sexual content may be kept as an encrypted copy, readable only by
+				authorized trust and safety personnel, for up to 90 days, or longer
+				where the law requires (for example, one year after a report to NCMEC).
+			</p>
 			<h3>c. Cookies and Local Storage</h3>
 			<p>
 				We use first-party cookies and local storage to keep you signed in,
@@ -185,9 +192,10 @@ export default function PrivacyPage() {
 				</li>
 				<li>
 					<strong>Request payloads</strong> — not retained; prompts and
-					responses are discarded once the request completes. The one exception
-					is the Responses API described in Section&nbsp;1b, whose stored
-					responses are kept for up to 30 days and then deleted
+					responses are discarded once the request completes. The exceptions are
+					the Responses API described in Section&nbsp;1b, whose stored responses
+					are kept for up to 30 days and then deleted, and flagged content, kept
+					as described in Section&nbsp;1b and the Base Policy
 				</li>
 				<li>
 					<strong>Logs and audit trails</strong> — kept for security and

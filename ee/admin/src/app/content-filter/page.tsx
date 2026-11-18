@@ -262,6 +262,11 @@ export default async function ContentFilterPage({
 							Moderation errors
 						</Link>
 					</Button>
+					<Button asChild variant="outline" size="sm">
+						<Link href="/content-filter/flagged-payloads">
+							Flagged payloads
+						</Link>
+					</Button>
 				</div>
 			</header>
 

@@ -110,6 +110,16 @@
 			"import": "./dist/mask-token.js",
 			"default": "./dist/mask-token.js"
 		},
+		"./flagged-payload": {
+			"types": "./dist/flagged-payload.d.ts",
+			"import": "./dist/flagged-payload.js",
+			"default": "./dist/flagged-payload.js"
+		},
+		"./flagged-payload-crypto": {
+			"types": "./dist/flagged-payload-crypto.d.ts",
+			"import": "./dist/flagged-payload-crypto.js",
+			"default": "./dist/flagged-payload-crypto.js"
+		},
 		"./provider-key-crypto": {
 			"types": "./dist/provider-key-crypto.d.ts",
 			"import": "./dist/provider-key-crypto.js",

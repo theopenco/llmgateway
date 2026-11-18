@@ -128,6 +128,9 @@ export const contentFilterSettingsSchema = z.object({
 	// OpenAI `sexual/minors` score above which a request matches `csam` at
 	// every tier, far below the general thresholds.
 	csamScoreThreshold: z.number().min(0).max(1).default(0.01),
+	// Whether requests the deciding classifier flags for `csam` or `sexual`
+	// keep an encrypted copy of their payload for trust & safety review.
+	preserveFlaggedPayloads: z.boolean().default(true),
 });
 
 export type ContentFilterSettings = z.infer<typeof contentFilterSettingsSchema>;

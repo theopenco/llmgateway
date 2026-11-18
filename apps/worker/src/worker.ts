@@ -81,6 +81,7 @@ import {
 	modelVerificationConcurrency,
 } from "./services/daily-model-verifications.js";
 import { checkFailingCredentialAlerts } from "./services/failing-credential-alerts.js";
+import { cleanupExpiredFlaggedPayloads } from "./services/flagged-payload-retention.js";
 import {
 	runFollowUpEmailsLoop,
 	canSendFollowUp,
@@ -2905,6 +2906,14 @@ async function runDataRetentionLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
+				try {
+					await cleanupExpiredFlaggedPayloads(new Date(), isStopRequested);
+				} catch (error) {
+					logger.error(
+						"Error deleting expired flagged content filter payloads",
+						error instanceof Error ? error : new Error(String(error)),
+					);
+				}
 				await enforceRetentionPlanGating();
 				await cleanupExpiredLogData();
 

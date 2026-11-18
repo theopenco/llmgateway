@@ -72,6 +72,7 @@ interface ContentFilterSettingsFormProps {
 		moderateImages: boolean;
 		blockGroups: BlockGroup[] | null;
 		csamScoreThreshold: number;
+		preserveFlaggedPayloads: boolean;
 		providers: ContentFilterProvider[];
 	};
 }
@@ -112,6 +113,9 @@ export function ContentFilterSettingsForm({
 	);
 	const [csamThreshold, setCsamThreshold] = useState(
 		String(settings.csamScoreThreshold),
+	);
+	const [preserveFlaggedPayloads, setPreserveFlaggedPayloads] = useState(
+		settings.preserveFlaggedPayloads,
 	);
 	const [providerIds, setProviderIds] = useState<string[]>(() =>
 		settings.providers.filter((p) => p.enabled).map((p) => p.id),
@@ -198,6 +202,7 @@ export function ContentFilterSettingsForm({
 					moderateImages,
 					blockGroups: limitGroups ? blockGroups : null,
 					csamScoreThreshold,
+					preserveFlaggedPayloads,
 					providerIds,
 				},
 			},
@@ -368,6 +373,33 @@ export function ContentFilterSettingsForm({
 					child-safety violation at every tier, independent of the tier
 					thresholds.
 				</p>
+			</div>
+
+			<div className="flex items-center gap-3">
+				<Switch
+					id="content-filter-preserve-flagged"
+					checked={preserveFlaggedPayloads}
+					disabled={pending || readOnly}
+					onCheckedChange={(checked) => {
+						setSaved(false);
+						setPreserveFlaggedPayloads(checked);
+					}}
+				/>
+				<div className="space-y-0.5">
+					<Label htmlFor="content-filter-preserve-flagged">
+						Preserve flagged payloads
+					</Label>
+					<p className="text-xs text-muted-foreground">
+						Keeps an encrypted copy of requests the deciding classifier flags
+						for child safety or sexual content, for every organization and
+						whether or not they are blocked, for 90 days (one year after an
+						NCMEC report). Only child safety is kept under zero data retention.{" "}
+						<Link href="/content-filter/flagged-payloads" className="underline">
+							Review flagged payloads
+						</Link>
+						.
+					</p>
+				</div>
 			</div>
 
 			<div className="space-y-2">

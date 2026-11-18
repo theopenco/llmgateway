@@ -54,6 +54,8 @@ export interface TieredContentFilterPlan {
 	blockGroups: ContentFilterBlockGroup[] | null;
 	/** `sexual/minors` score that matches `csam` at every level. */
 	csamScoreThreshold: number;
+	/** Whether a `csam` or `sexual` flag keeps an encrypted copy of the payload. */
+	preserveFlaggedPayloads: boolean;
 }
 
 export interface TieredContentFilterEvaluation {
@@ -204,6 +206,10 @@ export async function resolveTieredContentFilterPlan(
 		csamScoreThreshold:
 			settings.csamScoreThreshold ??
 			DEFAULT_CONTENT_FILTER_SETTINGS.csamScoreThreshold,
+		// Optional: settings cached by the previous release lack this field.
+		preserveFlaggedPayloads:
+			settings.preserveFlaggedPayloads ??
+			DEFAULT_CONTENT_FILTER_SETTINGS.preserveFlaggedPayloads,
 	};
 }
 

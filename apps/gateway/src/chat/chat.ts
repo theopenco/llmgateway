@@ -7671,6 +7671,11 @@ chat.openapi(completions, async (c) => {
 			imagesAllowed: openAiContentFilterAllowed,
 			classifierAllowed: contentFilterClassifierAllowed,
 			existing: envContentFilterResult,
+			origin: {
+				endpoint: "chat",
+				model: usedInternalModel,
+				zeroDataRetention: zeroDataRetentionEnabled,
+			},
 		});
 		tieredContentFilter = started.outcome;
 		pendingTieredContentFilter = started.pending;

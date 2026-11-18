@@ -52,6 +52,29 @@ export async function getContentFilterErrors(
 	return data ?? null;
 }
 
+export async function getFlaggedPayloads(query: {
+	organizationId?: string;
+	reported?: "true" | "false";
+	limit: number;
+	offset: number;
+}) {
+	const $api = await createServerApiClient();
+	const { data, response } = await $api.GET(
+		"/admin/content-filter/flagged-payloads",
+		{ params: { query } },
+	);
+	return { data: data ?? null, status: response.status };
+}
+
+export async function getFlaggedPayload(id: string) {
+	const $api = await createServerApiClient();
+	const { data, response } = await $api.GET(
+		"/admin/content-filter/flagged-payloads/{id}",
+		{ params: { path: { id } } },
+	);
+	return { data: data ?? null, status: response.status };
+}
+
 export async function getContentFilterFocusOrganizations(
 	window: ContentFilterViolationsWindow,
 	usedProvider: string,

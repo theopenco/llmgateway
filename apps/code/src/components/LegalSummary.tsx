@@ -79,7 +79,9 @@ const termsCards: SummaryCard[] = [
 			<>
 				We store per-agent metadata — tokens, cost, model and routing — to power
 				your dashboard. Requests and responses aren&rsquo;t retained, except
-				stateful Responses API requests, kept up to 30 days.
+				stateful Responses API requests, kept up to 30 days, and requests our
+				content filter flags for child safety or sexual content, kept encrypted
+				for up to 90 days or longer if the law requires.
 			</>
 		),
 	},
@@ -116,7 +118,10 @@ const privacyCards: SummaryCard[] = [
 			<>
 				We log tokens, cost, latency, model, provider and which coding tool sent
 				the request. Your prompts and the model&rsquo;s responses aren&rsquo;t
-				retained, and there is no setting to turn payload storage on.
+				retained, and there is no setting to turn payload storage on. Requests
+				our content filter flags for child safety or sexual content are the
+				exception: they are kept encrypted for up to 90 days, longer if the law
+				requires.
 			</>
 		),
 	},
