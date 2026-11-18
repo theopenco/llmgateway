@@ -7155,8 +7155,8 @@ describe("api", () => {
 
 				const body = JSON.parse(String(init?.body ?? "{}"));
 				expect(body.model).toBe("omni-moderation-latest");
-				expect(typeof body.input).toBe("string");
-				expect(body.input).toContain("I want to attack someone.");
+				expect(Array.isArray(body.input)).toBe(true);
+				expect(body.input.join("")).toContain("I want to attack someone.");
 
 				return new Response(
 					JSON.stringify({

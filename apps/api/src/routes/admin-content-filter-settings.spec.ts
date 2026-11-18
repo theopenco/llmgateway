@@ -62,12 +62,17 @@ describe("admin content filter settings", () => {
 				devPassEnforceProviderIds: ["anthropic", "anthropic"],
 				enforceSampleRatePercent: 10,
 				enforceEnterprise: false,
+				openaiScope: "full",
 			}),
 		});
 
 		expect(res.status).toBe(200);
 		const body = await res.json();
-		expect(body).toMatchObject({ sampleRatePercent: 25, enforce: true });
+		expect(body).toMatchObject({
+			sampleRatePercent: 25,
+			enforce: true,
+			openaiScope: "full",
+		});
 		expect(
 			body.providers
 				.filter((p: { enabled: boolean }) => p.enabled)
@@ -97,6 +102,7 @@ describe("admin content filter settings", () => {
 			classifier: "openai",
 			shadowClassifiers: [],
 			internalScope: "full",
+			openaiScope: "full",
 			moderateImages: true,
 			blockGroups: null,
 			csamScoreThreshold: 0.01,

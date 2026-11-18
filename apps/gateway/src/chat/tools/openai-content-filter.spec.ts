@@ -3,9 +3,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { logger } from "@llmgateway/logger";
 
 import {
+	buildLatestTurnModerationText,
 	buildOpenAIContentFilterImageInputs,
+	buildOpenAIContentFilterTextChunks,
 	buildOpenAIContentFilterTextInput,
 	checkOpenAIContentFilter,
+	chunkModerationText,
+	truncateMiddle,
 } from "./openai-content-filter.js";
 
 import type * as CachedQueries from "@/lib/cached-queries.js";
@@ -135,6 +139,102 @@ describe("buildOpenAIContentFilterImageInputs", () => {
 	});
 });
 
+describe("chunkModerationText", () => {
+	it("keeps a prompt under the limit whole", () => {
+		expect(chunkModerationText("hello", 10)).toEqual(["hello"]);
+		expect(chunkModerationText("", 10)).toEqual([]);
+	});
+
+	it("never splits a multi-byte character", () => {
+		// "é" is two bytes, so a 3-byte limit fits one per chunk.
+		const chunks = chunkModerationText("éééé", 3);
+
+		expect(chunks).toEqual(["é", "é", "é", "é"]);
+	});
+});
+
+describe("truncateMiddle", () => {
+	it("keeps text under the limit whole", () => {
+		expect(truncateMiddle("hello", 10)).toBe("hello");
+	});
+
+	it("keeps the start and the end without splitting a character", () => {
+		const text = `start ${"é".repeat(100)} end`;
+		const truncated = truncateMiddle(text, 40);
+
+		expect(new TextEncoder().encode(truncated).length).toBeLessThanOrEqual(40);
+		expect(truncated.startsWith("start")).toBe(true);
+		expect(truncated.endsWith(" end")).toBe(true);
+		expect(truncated).not.toContain("\uFFFD");
+	});
+});
+
+describe("buildLatestTurnModerationText", () => {
+	it("sends the system prompt and only the turn after the last assistant message", () => {
+		const prompt = buildLatestTurnModerationText(
+			[
+				{ role: "system", content: "be helpful" },
+				{ role: "user", content: "old question" },
+				{ role: "assistant", content: "old answer" },
+				{ role: "user", content: "new question" },
+			],
+			1_000,
+		);
+
+		expect(prompt).toBe("system: be helpful\n\nuser: new question");
+	});
+
+	it("fits one request and gives the latest turn the budget first", () => {
+		const prompt = buildLatestTurnModerationText(
+			[
+				{ role: "system", content: "s".repeat(500) },
+				{ role: "user", content: `ask ${"x".repeat(500)} this` },
+			],
+			200,
+		);
+
+		expect(new TextEncoder().encode(prompt).length).toBeLessThanOrEqual(200);
+		expect(prompt.startsWith("user: ask")).toBe(true);
+		expect(prompt.endsWith("this")).toBe(true);
+	});
+});
+
+describe("buildOpenAIContentFilterTextChunks", () => {
+	const longTurn = "x".repeat(10_000);
+
+	it("reads only the latest turn, in chunks under the token limit", () => {
+		const chunks = buildOpenAIContentFilterTextChunks(
+			[
+				{ role: "user", content: "old question" },
+				{ role: "assistant", content: "old answer" },
+				{ role: "user", content: longTurn },
+			],
+			"latest_turn",
+		);
+
+		expect(chunks).toHaveLength(3);
+		expect(chunks.join("")).toBe(`user: ${longTurn}`);
+		for (const chunk of chunks) {
+			expect(new TextEncoder().encode(chunk).length).toBeLessThanOrEqual(4096);
+		}
+	});
+
+	it("reads the whole conversation, keeping the newest chunks past the cap", () => {
+		const chunks = buildOpenAIContentFilterTextChunks(
+			[
+				{ role: "user", content: `first ${"a".repeat(300_000)}` },
+				{ role: "assistant", content: "old answer" },
+				{ role: "user", content: "new question" },
+			],
+			"full",
+		);
+
+		expect(chunks).toHaveLength(64);
+		expect(chunks.join("")).not.toContain("first");
+		expect(chunks.at(-1)).toContain("user: new question");
+	});
+});
+
 describe("checkOpenAIContentFilter", () => {
 	const originalOpenAIKey = process.env.LLM_OPENAI_API_KEY;
 	const originalThreshold =
@@ -227,11 +327,12 @@ describe("checkOpenAIContentFilter", () => {
 		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
 			const body = JSON.parse(String(init?.body ?? "{}")) as {
 				model: string;
-				input: string | Array<{ image_url?: { url: string } }>;
+				input: Array<string | { image_url?: { url: string } }>;
 			};
 			requestBodies.push(body);
 
-			if (typeof body.input === "string") {
+			const [first] = body.input;
+			if (typeof first === "string") {
 				return new Response(
 					JSON.stringify({
 						id: "modr-text",
@@ -254,7 +355,7 @@ describe("checkOpenAIContentFilter", () => {
 				);
 			}
 
-			const imageUrl = body.input[0]?.image_url?.url;
+			const imageUrl = first?.image_url?.url;
 			return new Response(
 				JSON.stringify({
 					id: `modr-${imageUrl}`,
@@ -320,7 +421,7 @@ describe("checkOpenAIContentFilter", () => {
 		expect(requestBodies).toEqual([
 			{
 				model: "omni-moderation-latest",
-				input: "user: Please inspect these images.",
+				input: ["user: Please inspect these images."],
 			},
 			{
 				model: "omni-moderation-latest",
@@ -393,6 +494,56 @@ describe("checkOpenAIContentFilter", () => {
 			},
 		]);
 		expect(result.results.some((entry) => entry.flagged)).toBe(true);
+	});
+
+	it("scores long text in chunks and flags a violation in any of them", async () => {
+		process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+		const inputs: string[][] = [];
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+			const body = JSON.parse(String(init?.body ?? "{}")) as {
+				input: string[];
+			};
+			inputs.push(body.input);
+			return new Response(
+				JSON.stringify({
+					model: "omni-moderation-latest",
+					results: body.input.map((chunk) => {
+						const hit = chunk.includes("VIOLATION");
+						return {
+							flagged: hit,
+							categories: { violence: hit },
+							category_scores: { violence: hit ? 0.99 : 0.01 },
+						};
+					}),
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			);
+		});
+		const messages = [
+			{ role: "user" as const, content: "old VIOLATION question" },
+			{ role: "assistant" as const, content: "old answer" },
+			{ role: "user" as const, content: `${"x".repeat(9_000)} VIOLATION` },
+		];
+		const context = {
+			requestId: "request-id",
+			organizationId: "org-id",
+			projectId: "project-id",
+			apiKeyId: "api-key-id",
+		};
+
+		const latest = await checkOpenAIContentFilter(messages, context);
+		const full = await checkOpenAIContentFilter(messages, context, undefined, {
+			scope: "full",
+		});
+
+		// One call each; the latest turn alone runs past one chunk.
+		expect(inputs).toHaveLength(2);
+		expect(inputs[0]).toHaveLength(3);
+		expect(inputs[0]!.join("")).not.toContain("old VIOLATION question");
+		expect(inputs[1]!.join("")).toContain("old VIOLATION question");
+		expect(latest.flagged).toBe(true);
+		expect(latest.results).toHaveLength(3);
+		expect(full.flagged).toBe(true);
 	});
 
 	it("ignores upstream flagged when category scores stay at or below 0.75", async () => {
@@ -602,9 +753,9 @@ describe("checkOpenAIContentFilter", () => {
 
 		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
 			const body = JSON.parse(String(init?.body ?? "{}")) as {
-				input: unknown;
+				input: unknown[];
 			};
-			if (typeof body.input === "string") {
+			if (typeof body.input[0] === "string") {
 				return new Response(
 					JSON.stringify({
 						model: "omni-moderation-latest",

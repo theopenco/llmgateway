@@ -140,6 +140,8 @@ interface ContentFilterRunOptions {
 	imagesAllowed: boolean;
 	/** What the internal classifier reads. Defaults to the whole conversation. */
 	internalScope?: ContentFilterInternalScope;
+	/** What OpenAI moderation reads of the text. Defaults to the latest turn. */
+	openaiScope?: ContentFilterInternalScope;
 }
 
 /**
@@ -185,6 +187,7 @@ async function runClassifierChecks(
 			messages,
 			context,
 			requestSignal,
+			{ scope: options.openaiScope },
 		);
 		return { ...result, classifier };
 	}
@@ -292,6 +295,7 @@ export async function evaluateContentFilterWithClassifiers(options: {
 			{
 				imagesAllowed: options.imagesAllowed && plan.moderateImages,
 				internalScope: plan.internalScope,
+				openaiScope: plan.openaiScope,
 			},
 		);
 	}
@@ -352,6 +356,7 @@ export async function runShadowContentFilters(
 				{
 					imagesAllowed: options.imagesAllowed && plan.moderateImages,
 					internalScope: plan.internalScope,
+					openaiScope: plan.openaiScope,
 				},
 			);
 		}),

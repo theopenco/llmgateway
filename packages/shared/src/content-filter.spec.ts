@@ -20,6 +20,7 @@ describe("parseContentFilterSettings", () => {
 			classifier: "openai",
 			shadowClassifiers: [],
 			internalScope: "full",
+			openaiScope: "latest_turn",
 			moderateImages: true,
 			blockGroups: null,
 			csamScoreThreshold: 0.01,
@@ -49,6 +50,7 @@ describe("parseContentFilterSettings", () => {
 			classifier: "openai",
 			shadowClassifiers: [],
 			internalScope: "full",
+			openaiScope: "latest_turn",
 			moderateImages: true,
 			blockGroups: null,
 			csamScoreThreshold: 0.01,
@@ -64,6 +66,12 @@ describe("parseContentFilterSettings", () => {
 				}),
 			),
 		).toMatchObject({ classifier: "internal", internalScope: "latest_turn" });
+	});
+
+	test("reads the OpenAI scope", () => {
+		expect(
+			parseContentFilterSettings(JSON.stringify({ openaiScope: "full" })),
+		).toMatchObject({ openaiScope: "full" });
 	});
 
 	test("ignores the removed shadowClassifier field on stored settings", () => {
