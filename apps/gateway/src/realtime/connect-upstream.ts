@@ -275,6 +275,7 @@ export function discardUpstream(upstream: WebSocket): void {
 	});
 	upstream.terminate();
 }
+
 /** The provider's client request id header, when it takes one. */
 function clientRequestIdHeaders(
 	providerId: Provider,
