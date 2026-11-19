@@ -1216,8 +1216,10 @@ export const googleModels = [
 			{
 				providerId: "google-vertex",
 				externalId: "gemini-3.6-flash",
-				// Vertex blocks new/inactive projects from 2026-11-19; existing active
-				// projects keep access until the full shutdown on 2027-01-28.
+				// Vertex only: public retirement date is 2026-11-19 (new/inactive
+				// projects get 404), but Google's notice keeps active projects
+				// working until 2027-01-28 (still serving 2026-11-19). The AI
+				// Studio mapping has no shutdown date announced.
 				deprecatedAt: new Date("2026-11-19"),
 				deactivatedAt: new Date("2027-01-28"),
 				serviceTiers: ["flex", "priority"],
