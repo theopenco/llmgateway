@@ -34,6 +34,14 @@ Foundry with the deployment name `Decision-1`, then add the Azure key and
 resource in LLMGateway. The gateway calls the resource's Foundry host
 (`https://<resource>.services.ai.azure.com`).
 
+`gpt-6-luna-decisions` is also served by Azure. With your own Azure key, deploy
+`gpt-6-luna` under the deployment name `gpt-6-luna` in a region where Azure
+enables decisions for it; the same deployment then serves chat and decisions.
+Not every region does (East US 2 serves chat but rejects decisions), so check
+Microsoft's
+[Decisions API guide](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/decisions)
+before deploying.
+
 Browse all decision models on the
 [models page](https://llmgateway.io/models?filters=1).
 

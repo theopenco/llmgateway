@@ -1623,6 +1623,16 @@ mockOpenAIServer.post("/providers/microsoft/v1/systemone", async (c) => {
 	return await mockOpenAIServer.fetch(forwarded);
 });
 
+// Azure serves OpenAI Decisions under /openai on the resource host.
+mockOpenAIServer.post("/openai/v1/decisions", async (c) => {
+	const forwarded = new Request(new URL("/v1/decisions", c.req.url), {
+		method: "POST",
+		headers: c.req.raw.headers,
+		body: await c.req.text(),
+	});
+	return await mockOpenAIServer.fetch(forwarded);
+});
+
 // OpenAI Decisions: POST /v1/decisions takes an ordered array of named
 // predicate/choice/score questions and answers in the same order. Rejects the
 // TypeSafe shape so specs prove the gateway translated the request.
@@ -1694,7 +1704,10 @@ mockOpenAIServer.post("/v1/decisions", async (c) => {
 		answers,
 		usage: {
 			input_tokens: 300,
-			input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+			// CACHE_HIT reports a partly cached prompt so specs can check cache billing.
+			input_tokens_details: JSON.stringify(body.input).includes("CACHE_HIT")
+				? { cached_tokens: 200, cache_write_tokens: 50 }
+				: { cached_tokens: 0, cache_write_tokens: 0 },
 			output_tokens: 0,
 			output_tokens_details: { reasoning_tokens: 0 },
 			total_tokens: 300,

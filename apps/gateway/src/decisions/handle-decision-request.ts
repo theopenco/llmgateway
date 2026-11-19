@@ -100,11 +100,21 @@ import type { Context } from "hono";
 const LOAD_BODY_TIMEOUT_MS = 30_000;
 
 /**
- * The wire format a decision mapping speaks upstream. OpenAI and every Airside
- * carrier serve the OpenAI-compatible `POST /v1/decisions`; TypeSafe and Azure
- * (Microsoft-Decision-1) speak TypeSafe's System One.
+ * The wire format a decision mapping speaks upstream. OpenAI, Azure's OpenAI
+ * models and every Airside carrier serve the OpenAI-compatible Decisions API;
+ * TypeSafe and Azure's Microsoft-Decision-1 speak TypeSafe's System One.
  */
 export type DecisionWireFormat = "openai" | "system-one";
+
+function staticDecisionWireFormat(
+	providerId: string,
+	model: ModelDefinition,
+): DecisionWireFormat {
+	return providerId === "openai" ||
+		(providerId === "azure" && model.family === "openai")
+		? "openai"
+		: "system-one";
+}
 
 interface DecisionMappingMatch {
 	mapping: ProviderModelMapping;
@@ -186,7 +196,7 @@ function staticDecisionCandidates(
 				mapping: candidate,
 				modelDef: model,
 				modelDefId: model.id,
-				wireFormat: candidate.providerId === "openai" ? "openai" : "system-one",
+				wireFormat: staticDecisionWireFormat(candidate.providerId, model),
 				airside: false,
 			});
 		}
@@ -326,6 +336,10 @@ export interface NormalizedDecisionResponse {
 	body: Record<string, unknown>;
 	inputTokens: number | null;
 	outputTokens: number | null;
+	/** Input tokens read from the prompt cache, part of `inputTokens`. */
+	cachedTokens?: number | null;
+	/** Input tokens written to the prompt cache, part of `inputTokens`. */
+	cacheWriteTokens?: number | null;
 	/** Answers kept on the log entry. */
 	logContent: unknown;
 }
@@ -736,8 +750,8 @@ export async function handleDecisionRequest(
 			providerKey: providerKeyInner,
 			managedKey: managedKeyInner,
 		};
-		// Azure has no fixed host: a credential names its resource, and the
-		// decision route lives on that resource's Foundry host.
+		// Azure has no fixed host: a credential names its resource, and both
+		// decision routes live on that resource's Foundry host.
 		const azureResource =
 			providerId === "azure"
 				? (providerKeyInner?.options?.azure_resource ??
@@ -746,8 +760,8 @@ export async function handleDecisionRequest(
 						variant: envVariant,
 					}))
 				: undefined;
-		// The decision route only exists on the Foundry host, so a resource wins
-		// over an Azure base URL, which points at the OpenAI-compatible surface.
+		// System One only exists on the Foundry host, so a resource wins over an
+		// Azure base URL, which points at the OpenAI-compatible surface.
 		const resolvedBaseUrl =
 			(azureResource ? toAzureFoundryBaseUrl(azureResource) : undefined) ??
 			providerKeyInner?.baseUrl ??
@@ -1254,14 +1268,41 @@ export async function handleDecisionRequest(
 			);
 			const inputPrice = pricingTier?.inputPrice ?? decisionMapping.inputPrice;
 			const priceMultiplier = new Decimal(1).minus(discount);
+			// Cache reads and writes are part of the input count. A mapping without
+			// a cache price bills them at the input rate.
+			const cachedPrice =
+				pricingTier?.cachedInputPrice ?? decisionMapping.cachedInputPrice;
+			const cacheWritePrice =
+				pricingTier?.cacheWriteInputPrice ??
+				decisionMapping.cacheWriteInputPrice;
+			const cachedTokens =
+				cachedPrice !== undefined && !estimatedInput
+					? Math.min(normalized.cachedTokens ?? 0, inputTokens)
+					: 0;
+			const cacheWriteTokens =
+				cacheWritePrice !== undefined && !estimatedInput
+					? Math.min(
+							normalized.cacheWriteTokens ?? 0,
+							inputTokens - cachedTokens,
+						)
+					: 0;
+			const uncachedTokens = inputTokens - cachedTokens - cacheWriteTokens;
+			const cachedInputCost = new Decimal(cachedPrice ?? "0")
+				.times(cachedTokens)
+				.times(priceMultiplier)
+				.toNumber();
 			const inputCost = new Decimal(inputPrice ?? "0")
-				.times(inputTokens)
+				.times(uncachedTokens)
+				.plus(new Decimal(cacheWritePrice ?? "0").times(cacheWriteTokens))
 				.times(priceMultiplier)
 				.toNumber();
 			const requestCostNum = new Decimal(decisionMapping.requestPrice ?? "0")
 				.times(priceMultiplier)
 				.toNumber();
-			const cost = new Decimal(inputCost).plus(requestCostNum).toNumber();
+			const cost = new Decimal(inputCost)
+				.plus(cachedInputCost)
+				.plus(requestCostNum)
+				.toNumber();
 
 			routingAttempts.push(
 				buildRoutingAttempt(
@@ -1301,14 +1342,14 @@ export async function handleDecisionRequest(
 						outputTokens !== null ? outputTokens.toString() : null,
 					totalTokens: (inputTokens + (outputTokens ?? 0)).toString(),
 					reasoningTokens: null,
-					cachedTokens: null,
+					cachedTokens: cachedTokens > 0 ? cachedTokens.toString() : null,
 					hasError: false,
 					streamed: false,
 					canceled: false,
 					errorDetails: null,
 					inputCost,
 					outputCost: 0,
-					cachedInputCost: 0,
+					cachedInputCost,
 					requestCost: requestCostNum,
 					webSearchCost: 0,
 					imageInputTokens: null,
@@ -1335,6 +1376,7 @@ export async function handleDecisionRequest(
 			return c.json(
 				withUsageCost(normalized.body, cost, {
 					input_cost: inputCost,
+					cached_input_cost: cachedInputCost,
 					request_cost: requestCostNum,
 				}),
 			);

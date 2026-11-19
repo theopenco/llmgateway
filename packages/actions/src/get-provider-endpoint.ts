@@ -257,20 +257,24 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 };
 
 /**
- * Path of a provider's typed-decision API, relative to its base URL. OpenAI
- * serves its own Decisions API; Azure serves Microsoft-Decision-1 on the
- * Foundry resource behind a TypeSafe-compatible System One route; TypeSafe
- * serves System One at the root.
+ * Path of a provider's typed-decision API, relative to its base URL. The
+ * OpenAI-compatible Decisions API is `/v1/decisions`, which Azure serves for
+ * its OpenAI models under `/openai`. System One: Azure serves
+ * Microsoft-Decision-1 on the Foundry resource behind a TypeSafe-compatible
+ * route; TypeSafe serves it at the root.
  */
-export function getDecisionsUpstreamPath(provider: ProviderId): string {
-	switch (provider) {
-		case "openai":
-			return "/v1/decisions";
-		case "azure":
-			return "/providers/microsoft/v1/systemone";
-		default:
-			return "/v1/systemone";
+export function getDecisionsUpstreamPath(
+	provider: string,
+	wireFormat: "openai" | "system-one" = provider === "openai"
+		? "openai"
+		: "system-one",
+): string {
+	if (wireFormat === "openai") {
+		return provider === "azure" ? "/openai/v1/decisions" : "/v1/decisions";
 	}
+	return provider === "azure"
+		? "/providers/microsoft/v1/systemone"
+		: "/v1/systemone";
 }
 
 /**
