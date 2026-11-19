@@ -5,6 +5,7 @@ import Link from "next/link";
 import Papa from "papaparse";
 import { useId, useRef, useState } from "react";
 
+import { TrackedLink } from "@/components/home/tracked-link";
 import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
 import {
@@ -530,6 +531,15 @@ function AuditResults({
 					<AuthLink href="/signup">Start for free</AuthLink>
 				</Button>
 				<Button asChild variant="outline">
+					<TrackedLink
+						href="/enterprise#contact"
+						location="savings_audit_result"
+						cta="review_with_engineer"
+					>
+						Review this with an engineer
+					</TrackedLink>
+				</Button>
+				<Button asChild variant="ghost">
 					<Link href="/migration">Read the migration guides</Link>
 				</Button>
 			</div>

@@ -92,11 +92,55 @@ describe("notifications API", () => {
 			budgetThreshold: null,
 			modelScope: "used",
 			modelIds: [],
+			issueWindowMinutes: null,
+			issueErrorRatePercent: null,
+			issueUsageHours: null,
+		});
+		expect(
+			preferences.find(
+				(p: { category: string }) => p.category === "provider_issue",
+			),
+		).toMatchObject({
+			issueWindowMinutes: 15,
+			issueErrorRatePercent: 30,
+			issueUsageHours: 4,
 		});
 		const invalid = await app.request("/notifications/preferences", {
 			method: "PUT",
 			headers: headers(),
 			body: JSON.stringify({ ...value, budgetThreshold: 101 }),
+		});
+		expect(invalid.status).toBe(400);
+	});
+	it("saves provider issue settings and rejects unlisted values", async () => {
+		const value = {
+			category: "provider_issue",
+			inApp: true,
+			email: false,
+			budgetThreshold: null,
+			issueWindowMinutes: 5,
+			issueErrorRatePercent: 50,
+			issueUsageHours: 1,
+		};
+		const saved = await app.request("/notifications/preferences", {
+			method: "PUT",
+			headers: headers(),
+			body: JSON.stringify(value),
+		});
+		expect(saved.status).toBe(200);
+		expect(
+			await db.query.notificationPreference.findFirst({
+				where: { type: "provider_issue" },
+			}),
+		).toMatchObject({
+			issueWindowMinutes: 5,
+			issueErrorRatePercent: 50,
+			issueUsageHours: 1,
+		});
+		const invalid = await app.request("/notifications/preferences", {
+			method: "PUT",
+			headers: headers(),
+			body: JSON.stringify({ ...value, issueWindowMinutes: 7 }),
 		});
 		expect(invalid.status).toBe(400);
 	});

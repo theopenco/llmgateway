@@ -9,6 +9,7 @@ import {
 	reportTrackedKeySuccess,
 } from "@/lib/api-key-health.js";
 import { logRealtimeClientError } from "@/lib/client-error-log.js";
+import { getClientSafetyIdentifierParams } from "@/lib/safety-identifier.js";
 
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -276,6 +277,13 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 			let token = headerToken;
 			let requestedModel = url.searchParams.get("model") ?? undefined;
 			let source = extractSource(req);
+			// Only logged as params.safety_identifier, never sent upstream. A
+			// client secret's minted value replaces it below.
+			let clientSafetyIdentifier = getClientSafetyIdentifierParams({
+				safety_identifier:
+					url.searchParams.get("safety_identifier") ?? undefined,
+				user: url.searchParams.get("user") ?? undefined,
+			}).safety_identifier;
 			// Client errors are logged against the caller's key once it is known,
 			// like HTTP rejections; 5xx responses are gateway faults.
 			const reject = async (status: number, code: string, message: string) => {
@@ -287,6 +295,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 						requestedModel,
 						source,
 						userAgent: req.headers["user-agent"],
+						clientSafetyIdentifier,
 						customHeaders: customHeadersFrom(Object.entries(req.headers)),
 						message,
 						cause: code,
@@ -404,6 +413,8 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				secretTranscriptionModel = record.transcriptionModel;
 				pinnedInstructions = record.instructions;
 				pinnedVoice = record.voice;
+				clientSafetyIdentifier =
+					record.safetyIdentifier ?? clientSafetyIdentifier;
 			}
 
 			// Full preflight runs against the WebSocket request's actual client IP:
@@ -416,6 +427,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 					requestedModel,
 					intent,
 					clientIp: extractClientIp(req),
+					clientSafetyIdentifier,
 				});
 			} catch (error) {
 				if (error instanceof RealtimeConnectError) {

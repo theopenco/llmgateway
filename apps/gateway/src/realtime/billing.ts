@@ -201,6 +201,10 @@ export async function recordRealtimeResponse(
 			.values({
 				id: shortid(),
 				requestId: `${input.sessionId}:${input.responseId}`,
+				params:
+					preflight.clientSafetyIdentifier !== undefined
+						? { safety_identifier: preflight.clientSafetyIdentifier }
+						: null,
 				organizationId: preflight.project.organizationId,
 				projectId: preflight.project.id,
 				apiKeyId: preflight.apiKey.id,
@@ -367,6 +371,10 @@ export async function recordRealtimeTranscription(
 			.values({
 				id: shortid(),
 				requestId: `${input.sessionId}:${input.itemId}:${input.contentIndex}`,
+				params:
+					preflight.clientSafetyIdentifier !== undefined
+						? { safety_identifier: preflight.clientSafetyIdentifier }
+						: null,
 				organizationId: preflight.project.organizationId,
 				projectId: preflight.project.id,
 				apiKeyId: preflight.apiKey.id,

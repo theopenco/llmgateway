@@ -109,6 +109,7 @@ const clientSecretRequestSchema = z
 	.object({
 		expires_after: expiresAfterSchema.optional(),
 		session: clientSecretSessionSchema,
+		safety_identifier: z.string().min(1).max(128).optional(),
 	})
 	.strict();
 
@@ -257,6 +258,7 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 				instructions: null,
 				voice: null,
 				source,
+				safetyIdentifier: body.safety_identifier ?? null,
 				ttlSeconds,
 			});
 		} catch (error) {
@@ -369,6 +371,7 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 			instructions,
 			voice,
 			source,
+			safetyIdentifier: body.safety_identifier ?? null,
 			ttlSeconds,
 		});
 	} catch (error) {

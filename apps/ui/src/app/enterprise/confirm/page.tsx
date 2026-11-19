@@ -96,7 +96,11 @@ function ConfirmCard() {
 				{done ? (
 					<CalendlyInline
 						url={ENTERPRISE_BOOKING_URL}
-						name={confirm.data.name}
+						name={
+							confirm.data.name === confirm.data.email
+								? undefined
+								: confirm.data.name
+						}
 						email={confirm.data.email}
 					/>
 				) : invalidLink ? (

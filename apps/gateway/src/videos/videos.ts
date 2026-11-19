@@ -63,6 +63,10 @@ import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing
 import { markRequestLogged } from "@/lib/request-log-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
+import {
+	clientSafetyIdentifierFields,
+	getClientSafetyIdentifierParams,
+} from "@/lib/safety-identifier.js";
 import { assertSpendLimit, recordSpend } from "@/lib/spend-limit.js";
 import { clientFacingUpstreamErrorMessage } from "@/lib/stealth-provider-errors.js";
 import {
@@ -518,6 +522,7 @@ const createVideoRequestSchema = z
 				},
 			],
 		}),
+		...clientSafetyIdentifierFields,
 	})
 	.superRefine((value, ctx) => {
 		const hasCallbackUrl = value.callback_url !== undefined;
@@ -5247,9 +5252,14 @@ async function insertVideoClientErrorLog(options: {
 	};
 }): Promise<void> {
 	const responseText = options.message;
+	const clientSafetyParams = getClientSafetyIdentifierParams(options.request);
 	await db.insert(tables.log).values({
 		requestId: options.requestId,
 		apiOrigin: "videos",
+		params:
+			clientSafetyParams.safety_identifier !== undefined
+				? clientSafetyParams
+				: null,
 		organizationId: options.organization.id,
 		projectId: options.project.id,
 		apiKeyId: options.apiKey.id,
@@ -6099,6 +6109,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 			normalizedModel,
 		);
 		const storedContentFilterEvaluation = contentFilterEvaluation;
+		const clientSafetyParams = getClientSafetyIdentifierParams(request);
 		const created = await db
 			.insert(tables.videoJob)
 			.values({
@@ -6154,6 +6165,13 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					llmgateway_input_image_count: inputImageCount,
 					llmgateway_reference_video_count: referenceVideoInputs.length,
 					llmgateway_reserved_spend_usd: reservedSpendUsd,
+					// Carried onto the job's log row (params) by the worker.
+					...(clientSafetyParams.safety_identifier !== undefined
+						? {
+								llmgateway_safety_identifier:
+									clientSafetyParams.safety_identifier,
+							}
+						: {}),
 					// Carried onto the job's log row by the worker at finalization.
 					...(storedContentFilterEvaluation
 						? {

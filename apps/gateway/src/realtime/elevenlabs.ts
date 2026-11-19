@@ -52,7 +52,12 @@ const NON_OPENAI_EVENT_PARAMS = new Set([
 ]);
 
 /** Query parameters the gateway itself consumes; never forwarded. */
-const GATEWAY_PARAMS = new Set(["model", "intent"]);
+const GATEWAY_PARAMS = new Set([
+	"model",
+	"intent",
+	"safety_identifier",
+	"user",
+]);
 
 /**
  * Add-ons ElevenLabs bills as a per-hour surcharge (or prices separately)

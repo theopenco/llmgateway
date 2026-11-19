@@ -80,6 +80,9 @@ export default function Home() {
 					<ControlPlane />
 				</Suspense>
 				<Suspense>
+					<EnterpriseCTA />
+				</Suspense>
+				<Suspense>
 					<ProductFamily />
 				</Suspense>
 				<Suspense>
@@ -96,9 +99,6 @@ export default function Home() {
 				</Suspense>
 				<Suspense>
 					<Faq />
-				</Suspense>
-				<Suspense>
-					<EnterpriseCTA />
 				</Suspense>
 				<Suspense>
 					<CallToAction />

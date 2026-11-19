@@ -340,4 +340,44 @@ describe("transcriptions", () => {
 		expect(log?.content).toBeNull();
 		expect(log?.messages).toBeNull();
 	});
+
+	test("/v1/audio/transcriptions logs the client safety identifier without forwarding it", async () => {
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+		await seedKeys("real-token-stt-safety", "token-id-stt-safety");
+
+		const form = buildForm("grok-stt-1-0");
+		form.append("safety_identifier", "stt-end-user");
+		form.append("user", "spoofed-user");
+		const res = await app.request("/v1/audio/transcriptions", {
+			method: "POST",
+			headers: { Authorization: "Bearer real-token-stt-safety" },
+			body: form,
+		});
+
+		expect(res.status).toBe(200);
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.apiKeyId === "token-id-stt-safety");
+		expect(log?.params?.safety_identifier).toBe("stt-end-user");
+	});
+
+	test("/v1/audio/transcriptions logs the client safety identifier on a rejection", async () => {
+		await seedKeys("real-token-stt-safety-400", "token-id-stt-safety-400");
+
+		const form = buildForm("no-such-transcription-model");
+		form.append("user", "stt-rejected-user");
+		const res = await app.request("/v1/audio/transcriptions", {
+			method: "POST",
+			headers: { Authorization: "Bearer real-token-stt-safety-400" },
+			body: form,
+		});
+
+		expect(res.status).toBe(400);
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.apiKeyId === "token-id-stt-safety-400");
+		expect(log?.finishReason).toBe("client_error");
+		expect(log?.params?.safety_identifier).toBe("stt-rejected-user");
+	});
 });

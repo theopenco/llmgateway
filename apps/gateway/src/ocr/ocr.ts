@@ -54,6 +54,7 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { clientSafetyIdentifierFields } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
@@ -111,6 +112,7 @@ const ocrDocumentSchema = z
 
 const ocrRequestSchema = z
 	.object({
+		...clientSafetyIdentifierFields,
 		model: z.string().openapi({
 			description: "ID of the OCR model to use.",
 			example: "mistral-ocr-latest",
@@ -375,7 +377,13 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 		);
 	}
 
-	const { model: requestedModel, ...ocrParams } = validationResult.data;
+	// The end-user identifier is only logged (from the raw body), never sent.
+	const {
+		model: requestedModel,
+		safety_identifier: _safetyIdentifier,
+		user: _user,
+		...ocrParams
+	} = validationResult.data;
 
 	// Authenticate before model resolution so unauthenticated callers get a
 	// 401 instead of catalogue-dependent errors.

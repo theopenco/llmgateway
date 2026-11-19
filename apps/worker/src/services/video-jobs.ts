@@ -941,6 +941,17 @@ function getStoredVideoDebugPayload(
 	return null;
 }
 
+// The client's end-user identifier, stamped by the gateway at submission.
+function getStoredSafetyIdentifier(job: VideoJobRecord): string | undefined {
+	for (const candidate of getVideoMetadataCandidates(job)) {
+		const value = candidate.llmgateway_safety_identifier;
+		if (typeof value === "string" && value.length > 0) {
+			return value;
+		}
+	}
+	return undefined;
+}
+
 // Stamped by the gateway at submission when the tiered content filter sampled
 // the request; surfaces on the log row so violations aggregate per org.
 function getStoredContentFilterEvaluation(
@@ -1710,6 +1721,7 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				: UnifiedFinishReason.UPSTREAM_ERROR;
 			const contentFilterEvaluation =
 				getStoredContentFilterEvaluation(jobToLog);
+			const safetyIdentifier = getStoredSafetyIdentifier(jobToLog);
 
 			const logValues: LogInsertData = {
 				id: logId,
@@ -1774,6 +1786,10 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				],
 				mode: jobToLog.mode,
 				usedMode: jobToLog.usedMode,
+				params:
+					safetyIdentifier !== undefined
+						? { safety_identifier: safetyIdentifier }
+						: null,
 				routingMetadata: jobToLog.routingMetadata ?? null,
 				rawRequest: getStoredVideoDebugPayload(
 					jobToLog,

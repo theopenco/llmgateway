@@ -136,6 +136,15 @@ This applies to both routing modes:
 
 Each block is recorded as a **security event** so administrators can review what was rejected and why.
 
+## Web search engines
+
+When a model without native web search gets a `web_search` tool, LLM Gateway sends your latest user message to a [search engine](/features/web-search#gateway-run-search). Your policies apply to that engine with the same rules as a provider:
+
+- **Perplexity** is checked as the Perplexity provider: blocking or not allowing Perplexity also stops its searches.
+- **Exa** is checked against its own data policy: it may retain queries and use them for training. Provider lists address it as `exa`, so a provider allow list blocks it.
+
+A search the policy rejects is skipped and not billed. With `tool_choice: {"type": "web_search"}`, the request fails with a `403` instead. Native web search is part of the provider serving the request, which the policy already covers.
+
 ## Custom providers
 
 [Custom providers](/features/custom-providers) point at infrastructure your organization operates itself (for example, models hosted in your own cloud account), so they have no entry in the provider catalogue and no published data policy. Under any enabled compliance policy they are therefore **blocked by default** — the same fail-closed rule that applies to catalogue providers with unknown attributes.
@@ -175,13 +184,21 @@ LLM Gateway keeps **your end-user identifier** separate from **its provider-faci
 
 Choose a stable, opaque value for each end user and send it in the request body:
 
-| Endpoint                                                             | Request field       |
-| -------------------------------------------------------------------- | ------------------- |
-| Chat completions (`/v1/chat/completions`)                            | `safety_identifier` |
-| Responses (`/v1/responses`) and compaction (`/v1/responses/compact`) | `safety_identifier` |
-| Decisions (`/v1/decisions`)                                          | `safety_identifier` |
-| Native Messages (`/v1/messages`)                                     | `metadata.user_id`  |
-| Embeddings (`/v1/embeddings`)                                        | `user`              |
+| Endpoint                                                                                       | Request field                                                                                |
+| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Chat completions (`/v1/chat/completions`)                                                      | `safety_identifier` or `user`                                                                |
+| Responses (`/v1/responses`)                                                                    | `safety_identifier` or `user`                                                                |
+| Responses compaction (`/v1/responses/compact`) and decisions (`/v1/decisions`)                 | `safety_identifier`                                                                          |
+| Native Messages (`/v1/messages`)                                                               | `metadata.user_id`                                                                           |
+| Embeddings (`/v1/embeddings`)                                                                  | `user`                                                                                       |
+| Images (`/v1/images/generations`, `/v1/images/edits`) and videos (`/v1/videos`)                | `safety_identifier` or `user`                                                                |
+| Audio (`/v1/audio/speech`, `/v1/audio/transcriptions` as a form field)                         | `safety_identifier` or `user`                                                                |
+| Moderations (`/v1/moderations`), OCR (`/v1/ocr`), rerank (`/v1/rerank`), search (`/v1/search`) | `safety_identifier` or `user`                                                                |
+| Realtime WebSocket (`/v1/realtime`)                                                            | `safety_identifier` or `user` query parameter                                                |
+| Realtime client secrets (`/v1/realtime/client_secrets`)                                        | `safety_identifier`; it replaces any value on the WebSocket URL of sessions using the secret |
+| AI SDK provider (`@ai-sdk/gateway`)                                                            | `providerOptions.gateway.user` or `providerOptions.llmgateway.safety_identifier`             |
+
+[Batch](/features/batch) request lines for chat completions, Responses, and embeddings use the same fields as those endpoints.
 
 For example, replace `your-model-id` with a model from the [models directory](https://llmgateway.io/models):
 
@@ -196,7 +213,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
   }'
 ```
 
-Use a non-empty value of at most **128 characters**. Chat completions also accepts legacy `user` when `safety_identifier` is absent or `null`. Longer `safety_identifier` values are rejected; longer `user` or `metadata.user_id` values are not recorded as safety identifiers.
+Use a non-empty value of at most **128 characters**. Where both are listed, legacy `user` is used when `safety_identifier` is absent or `null`. Longer `safety_identifier` values in a JSON body are rejected; longer `user` or `metadata.user_id` values, and longer values in a form field or WebSocket query parameter, are not recorded as safety identifiers.
 
 In both credits and bring-your-own-key mode, the client value is saved in request log metadata as `params.safety_identifier`, even without debug logging. Rejections before the body is parsed, such as early rate limits, may not include it. Reuse it for the same end user when correlating traffic or reporting requests to us. It remains metadata when prompt/completion retention is disabled and is subject to [metadata retention](/features/data-retention). Do not include personal data; it is not an authentication or authorization mechanism.
 

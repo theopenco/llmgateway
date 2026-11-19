@@ -3,6 +3,7 @@
 import { Check } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+import { TrackedLink } from "@/components/home/tracked-link";
 import { useSessionStatus } from "@/hooks/useUser";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -32,7 +33,7 @@ export function PricingPlans() {
 				router.push("https://docs.llmgateway.io");
 				return;
 			case "Enterprise":
-				router.push("/enterprise");
+				router.push("/enterprise#contact");
 				return;
 		}
 
@@ -166,12 +167,14 @@ export function PricingPlans() {
 						support.
 						<br />
 						Need a custom solution?{" "}
-						<a
-							href="mailto:contact@llmgateway.io"
+						<TrackedLink
+							href="/enterprise#contact"
+							location="pricing_footer"
+							cta="book_a_call"
 							className="text-primary hover:underline"
 						>
-							Contact our sales team
-						</a>
+							Book a call with our team
+						</TrackedLink>
 						.
 					</p>
 				</div>

@@ -510,6 +510,7 @@ describe("videos", () => {
 				size: "1280x720",
 				seconds: 5,
 				audio: false,
+				safety_identifier: "video-end-user",
 			}),
 		});
 
@@ -525,6 +526,10 @@ describe("videos", () => {
 		expect(videoJob?.upstreamCreateResponse).not.toHaveProperty(
 			"llmgateway_upstream_request",
 		);
+		// The end-user identifier is metadata, kept for the worker's log row.
+		expect(videoJob?.upstreamCreateResponse).toMatchObject({
+			llmgateway_safety_identifier: "video-end-user",
+		});
 	});
 
 	test("/v1/videos uploads AtlasCloud image-to-video frame inputs", async () => {

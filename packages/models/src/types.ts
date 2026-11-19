@@ -68,6 +68,15 @@ export interface ImageContent {
 	};
 }
 
+/** Anthropic Messages API document block, lowered from a `file` part. */
+export interface DocumentContent {
+	type: "document";
+	source:
+		| { type: "base64"; media_type: string; data: string }
+		| { type: "text"; media_type: "text/plain"; data: string };
+	title?: string;
+}
+
 export interface InputAudioContent {
 	type: "input_audio";
 	input_audio: {
@@ -136,6 +145,7 @@ export type MessageContent =
 	| TextContent
 	| ImageUrlContent
 	| ImageContent
+	| DocumentContent
 	| InputAudioContent
 	| FileContent
 	| ToolUseContent

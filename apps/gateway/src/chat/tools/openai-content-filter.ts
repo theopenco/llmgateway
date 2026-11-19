@@ -20,6 +20,7 @@ import type {
 	ContentFilterModerationError,
 } from "@llmgateway/db";
 import type { BaseMessage, MessageContent } from "@llmgateway/models";
+import type { ContentFilterInternalScope } from "@llmgateway/shared";
 
 export interface GatewayContentFilterContext {
 	requestId: string;
@@ -43,7 +44,7 @@ interface OpenAIModerationTextPart {
 type OpenAIModerationInputPart =
 	OpenAIModerationImagePart | OpenAIModerationTextPart;
 
-type OpenAIModerationInput = string | OpenAIModerationInputPart[];
+type OpenAIModerationInput = string | string[] | OpenAIModerationInputPart[];
 
 interface OpenAIModerationRequest {
 	kind: "text" | "image";
@@ -90,6 +91,17 @@ const OPENAI_MODERATION_TIMEOUT_MS = 60_000;
 const OPENAI_MODERATION_MAX_ATTEMPTS = 2;
 const OPENAI_MODERATION_RETRY_DELAY_MS = 100;
 const DEFAULT_OPENAI_MODERATION_SCORE_THRESHOLD = 0.75;
+/**
+ * Bytes per text input. omni-moderation scores input past 4,096 tokens as all
+ * zeros, without an error, so text goes in as an array of chunks, each scored
+ * on its own. Base64 and minified JSON run up to ~0.75 tokens per byte, so
+ * 4 KiB stays under the limit for any text.
+ */
+const OPENAI_MODERATION_CHUNK_BYTES = 4_096;
+/** Byte budget of the latest turn, the same as the internal classifier's. */
+const OPENAI_MODERATION_LATEST_TURN_MAX_BYTES = 65_536;
+/** Chunk cap when reading the whole conversation: the newest 256 KiB. */
+const OPENAI_MODERATION_MAX_TEXT_CHUNKS = 64;
 
 function getOpenAIModerationScoreThreshold(): number {
 	const envValue = process.env.LLM_CONTENT_FILTER_OPENAI_SCORE_THRESHOLD;
@@ -209,17 +221,141 @@ export function buildOpenAIContentFilterImageInputs(
 	return inputs;
 }
 
+/**
+ * Split text into pieces of at most `maxBytes` UTF-8 bytes, for a classifier
+ * that refuses or silently misreads longer input. Splits never cut through a
+ * multi-byte character.
+ */
+export function chunkModerationText(text: string, maxBytes: number): string[] {
+	const bytes = new TextEncoder().encode(text);
+	if (bytes.length <= maxBytes) {
+		return text.length > 0 ? [text] : [];
+	}
+
+	const chunks: string[] = [];
+	let start = 0;
+	while (start < bytes.length) {
+		const end = Math.min(start + maxBytes, bytes.length);
+		const chunk = utf8Slice(bytes, start, end);
+		if (chunk.length === 0) {
+			break;
+		}
+		chunks.push(chunk);
+		start += new TextEncoder().encode(chunk).length;
+	}
+	return chunks;
+}
+
+function utf8Slice(bytes: Uint8Array, start: number, end: number): string {
+	// Move both edges off UTF-8 continuation bytes (0b10xxxxxx) so no
+	// character is cut in half.
+	while (start < end && (bytes[start]! & 0xc0) === 0x80) {
+		start++;
+	}
+	while (end < bytes.length && end > start && (bytes[end]! & 0xc0) === 0x80) {
+		end--;
+	}
+	// `ignoreBOM`: a U+FEFF at a chunk start is text, not a byte order mark.
+	return new TextDecoder("utf-8", { ignoreBOM: true }).decode(
+		bytes.subarray(start, end),
+	);
+}
+
+/**
+ * Fit text into `maxBytes`, keeping its start and its end: an instruction can
+ * sit on either side of a pasted document or tool output.
+ */
+export function truncateMiddle(text: string, maxBytes: number): string {
+	const bytes = new TextEncoder().encode(text);
+	if (bytes.length <= maxBytes) {
+		return text;
+	}
+	if (maxBytes <= 0) {
+		return "";
+	}
+	const head = Math.floor(maxBytes / 4);
+	const tail = maxBytes - head - 1;
+	return `${utf8Slice(bytes, 0, head)}\n${utf8Slice(bytes, bytes.length - tail, bytes.length)}`;
+}
+
+/**
+ * The system prompt plus the latest turn (everything after the last assistant
+ * message), within `maxBytes`. Earlier turns were already screened when they
+ * were the latest one, and re-sending a long agent history on every request is
+ * slow — it also dilutes the verdict, since benign padding can suppress a
+ * block. The latest turn gets the byte budget first.
+ */
+export function buildLatestTurnModerationText(
+	messages: BaseMessage[],
+	maxBytes: number,
+): string {
+	let lastAssistant = -1;
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i]!.role === "assistant") {
+			lastAssistant = i;
+			break;
+		}
+	}
+	const latest = buildOpenAIContentFilterTextInput(
+		messages.slice(lastAssistant + 1).filter((m) => m.role !== "system"),
+	);
+	const system = buildOpenAIContentFilterTextInput(
+		messages.filter((m) => m.role === "system"),
+	);
+	const separator = "\n\n";
+	const latestText = truncateMiddle(latest, maxBytes);
+	const remaining =
+		maxBytes -
+		new TextEncoder().encode(latestText).length -
+		new TextEncoder().encode(separator).length;
+	const systemText = truncateMiddle(system, remaining);
+	return [systemText, latestText].filter(Boolean).join(separator);
+}
+
+/**
+ * The text chunks one moderation call scores. `latest_turn` reads what the
+ * internal classifier reads; `full` reads the whole conversation, keeping the
+ * newest chunks when it runs past the cap.
+ */
+export function buildOpenAIContentFilterTextChunks(
+	messages: BaseMessage[],
+	scope: ContentFilterInternalScope,
+): string[] {
+	if (scope === "latest_turn") {
+		return chunkModerationText(
+			buildLatestTurnModerationText(
+				messages,
+				OPENAI_MODERATION_LATEST_TURN_MAX_BYTES,
+			),
+			OPENAI_MODERATION_CHUNK_BYTES,
+		);
+	}
+	const maxBytes =
+		OPENAI_MODERATION_CHUNK_BYTES * OPENAI_MODERATION_MAX_TEXT_CHUNKS;
+	const text = buildOpenAIContentFilterTextInput(messages);
+	const bytes = new TextEncoder().encode(text);
+	const newest =
+		bytes.length > maxBytes
+			? utf8Slice(bytes, bytes.length - maxBytes, bytes.length)
+			: text;
+	// Splits that back off a multi-byte character can add one chunk.
+	return chunkModerationText(newest, OPENAI_MODERATION_CHUNK_BYTES).slice(
+		-OPENAI_MODERATION_MAX_TEXT_CHUNKS,
+	);
+}
+
 function buildOpenAIContentFilterRequests(
 	messages: BaseMessage[],
+	scope: ContentFilterInternalScope,
 ): OpenAIModerationRequest[] {
 	const requests: OpenAIModerationRequest[] = [];
-	const textInput = buildOpenAIContentFilterTextInput(messages);
+	const textChunks = buildOpenAIContentFilterTextChunks(messages, scope);
 	const imageInputs = buildOpenAIContentFilterImageInputs(messages);
 
-	if (textInput.length > 0) {
+	if (textChunks.length > 0) {
 		requests.push({
 			kind: "text",
-			input: textInput,
+			input: textChunks,
 		});
 	}
 
@@ -492,13 +628,17 @@ export async function checkOpenAIContentFilter(
 		 * only, so it delegates just the image parts here.
 		 */
 		kinds?: ("text" | "image")[];
+		/** What the text check reads. Images are always read whole. */
+		scope?: ContentFilterInternalScope;
 	},
 ): Promise<OpenAIContentFilterCheckResult> {
 	const startTime = Date.now();
 	const kinds = options?.kinds ?? ["text", "image"];
-	const moderationRequests = buildOpenAIContentFilterRequests(messages).filter(
-		(request) => kinds.includes(request.kind),
-	);
+	const scope = options?.scope ?? "latest_turn";
+	const moderationRequests = buildOpenAIContentFilterRequests(
+		messages,
+		scope,
+	).filter((request) => kinds.includes(request.kind));
 	const imageInputs = kinds.includes("image")
 		? buildOpenAIContentFilterImageInputs(messages)
 		: [];
@@ -569,6 +709,10 @@ export async function checkOpenAIContentFilter(
 			hasImages: imageInputs.length > 0,
 			requestCount: moderationRequests.length,
 			imageRequestCount: imageInputs.length,
+			scope,
+			textChunkCount: moderationRequests.find(
+				(request) => request.kind === "text",
+			)?.input.length,
 			flaggedCategories: getFlaggedCategories(results),
 			results,
 		});

@@ -8095,6 +8095,11 @@ export const notificationPreference = snakeCase.table(
 			.notNull()
 			.default("used"),
 		modelIds: json().$type<string[]>().notNull().default([]),
+		// `provider_issue` only: error-rate window, threshold, and how recently
+		// the mapping must have been used to be covered.
+		issueWindowMinutes: integer().notNull().default(15),
+		issueErrorRatePercent: integer().notNull().default(30),
+		issueUsageHours: integer().notNull().default(4),
 	},
 	(table) => [unique().on(table.userId, table.type)],
 );

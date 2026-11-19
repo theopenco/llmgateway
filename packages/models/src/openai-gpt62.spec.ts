@@ -66,3 +66,27 @@ describe.each(cases)("$name", ({ id, name, short, long }) => {
 		expect(supportsOpenAIExplicitPromptCache(id)).toBe(true);
 	});
 });
+
+describe.each(cases)("$name on Azure", ({ id, short, long }) => {
+	const mapping = models
+		.find((entry) => entry.id === id)
+		?.providers.find((entry) => entry.providerId === "azure");
+
+	it("mirrors the OpenAI capabilities and prices without service tiers", () => {
+		expect(mapping).toMatchObject({
+			externalId: id,
+			test: "skip",
+			contextSize: 1050000,
+			maxOutput: 128000,
+			supportsResponsesApi: true,
+			reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+			...rates(short),
+			pricingTiers: [
+				{ upToTokens: 272000, ...rates(short) },
+				{ upToTokens: Infinity, ...rates(long) },
+			],
+		});
+		expect(mapping).not.toHaveProperty("serviceTiers");
+		expect(mapping).not.toHaveProperty("reasoningModes");
+	});
+});

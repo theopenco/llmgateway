@@ -18,6 +18,7 @@ import {
 	parseModelErrorRateAlertsSettings,
 	postDiscordWebhook,
 } from "@llmgateway/shared";
+import { formatAlertWindow } from "@llmgateway/shared/provider-issue-alerts";
 
 import type {
 	DiscordWebhookPayload,
@@ -33,7 +34,9 @@ export interface MappingErrorCounts {
 	mappingId: string;
 	modelId: string;
 	providerId: string;
+	region: string | null;
 	logsCount: number;
+	cachedCount: number;
 	clientErrorsCount: number;
 	gatewayErrorsCount: number;
 	upstreamErrorsCount: number;
@@ -47,9 +50,14 @@ export interface MappingErrorRateHit extends MappingErrorCounts {
 	errorRate: number;
 }
 
+type ThresholdRule = Pick<
+	ModelErrorRateAlertRule,
+	"errorRatePercent" | "minRequests" | "includeRetriedErrors"
+>;
+
 /** Drops retried attempts from both sides of the ratio when the rule ignores them. */
 function countsForRule(
-	rule: ModelErrorRateAlertRule,
+	rule: Pick<ModelErrorRateAlertRule, "includeRetriedErrors">,
 	row: MappingErrorCounts,
 ): MappingErrorCounts {
 	if (rule.includeRetriedErrors) {
@@ -69,7 +77,7 @@ function countsForRule(
 
 /** Mappings at or above the rule's error rate with enough traffic to judge. */
 export function findMappingsOverThreshold(
-	rule: ModelErrorRateAlertRule,
+	rule: ThresholdRule,
 	rows: MappingErrorCounts[],
 ): MappingErrorRateHit[] {
 	const hits: MappingErrorRateHit[] = [];
@@ -90,13 +98,6 @@ export function findMappingsOverThreshold(
 	);
 }
 
-function formatWindow(minutes: number): string {
-	if (minutes % 60 === 0) {
-		return `${minutes / 60}h`;
-	}
-	return `${minutes}m`;
-}
-
 export function buildAlertPayload(
 	rule: ModelErrorRateAlertRule,
 	hits: MappingErrorRateHit[],
@@ -104,7 +105,7 @@ export function buildAlertPayload(
 ): DiscordWebhookPayload {
 	const listed = hits.slice(0, MAX_LISTED_MAPPINGS);
 	const lines = [
-		`${hits.length} model ${hits.length === 1 ? "mapping is" : "mappings are"} at or above ${rule.errorRatePercent}% errors over the last ${formatWindow(rule.windowMinutes)} (min ${rule.minRequests} requests, credit traffic only${rule.includeRetriedErrors ? "" : ", retried errors excluded"}).`,
+		`${hits.length} model ${hits.length === 1 ? "mapping is" : "mappings are"} at or above ${rule.errorRatePercent}% errors over the last ${formatAlertWindow(rule.windowMinutes)} (min ${rule.minRequests} requests, credit traffic only${rule.includeRetriedErrors ? "" : ", retried errors excluded"}).`,
 	];
 	if (hits.length > listed.length) {
 		lines.push(`+${hits.length - listed.length} more not listed.`);
@@ -132,18 +133,31 @@ export function buildAlertPayload(
 	};
 }
 
-async function queryMappingErrorCounts(
+/**
+ * Credit-traffic error counts per active mapping over the last
+ * `windowMinutes`. `baseOnly` drops regional mappings.
+ */
+export async function queryMappingErrorCounts(
 	windowMinutes: number,
+	{
+		now = new Date(),
+		baseOnly = true,
+	}: { now?: Date; baseOnly?: boolean } = {},
 ): Promise<MappingErrorCounts[]> {
 	const mph = modelProviderMappingHistory;
+	// Start on a minute boundary so the bucket holding the window's first
+	// requests is included rather than dropped.
 	const windowMs = windowMinutes * MINUTE_MS;
-	const windowStart = new Date(Date.now() - windowMs);
+	const start = now.getTime() - windowMs;
+	const windowStart = new Date(start - (start % MINUTE_MS));
 	const rows = await db
 		.select({
 			mappingId: mph.modelProviderMappingId,
 			modelId: mph.modelId,
 			providerId: mph.providerId,
+			region: modelProviderMapping.region,
 			logsCount: sql<string>`coalesce(sum(${mph.logsCount}), 0)::bigint`,
+			cachedCount: sql<string>`coalesce(sum(${mph.cachedCount}), 0)::bigint`,
 			clientErrorsCount: sql<string>`coalesce(sum(${mph.clientErrorsCount}), 0)::bigint`,
 			gatewayErrorsCount: sql<string>`coalesce(sum(${mph.gatewayErrorsCount}), 0)::bigint`,
 			upstreamErrorsCount: sql<string>`coalesce(sum(${mph.upstreamErrorsCount}), 0)::bigint`,
@@ -151,17 +165,17 @@ async function queryMappingErrorCounts(
 			retriedUpstreamErrorsCount: sql<string>`coalesce(sum(${mph.retriedUpstreamErrorsCount}), 0)::bigint`,
 		})
 		.from(mph)
-		// Base mappings only, and none already taken out of service: the window
-		// can still hold the failures that led to the deactivation.
+		// None already taken out of service: the window can still hold the
+		// failures that led to the deactivation.
 		.innerJoin(
 			modelProviderMapping,
 			and(
 				eq(modelProviderMapping.id, mph.modelProviderMappingId),
 				eq(modelProviderMapping.status, "active"),
-				isNull(modelProviderMapping.region),
+				baseOnly ? isNull(modelProviderMapping.region) : undefined,
 				or(
 					isNull(modelProviderMapping.deactivatedAt),
-					gt(modelProviderMapping.deactivatedAt, new Date()),
+					gt(modelProviderMapping.deactivatedAt, now),
 				),
 			),
 		)
@@ -172,13 +186,20 @@ async function queryMappingErrorCounts(
 				eq(mph.usedMode, "credits"),
 			),
 		)
-		.groupBy(mph.modelProviderMappingId, mph.modelId, mph.providerId);
+		.groupBy(
+			mph.modelProviderMappingId,
+			mph.modelId,
+			mph.providerId,
+			modelProviderMapping.region,
+		);
 
 	return rows.map((row) => ({
 		mappingId: row.mappingId,
 		modelId: row.modelId,
 		providerId: row.providerId,
+		region: row.region,
 		logsCount: Number(row.logsCount),
+		cachedCount: Number(row.cachedCount),
 		clientErrorsCount: Number(row.clientErrorsCount),
 		gatewayErrorsCount: Number(row.gatewayErrorsCount),
 		upstreamErrorsCount: Number(row.upstreamErrorsCount),

@@ -72,6 +72,7 @@ async function createJob(
 		hasVideoInput?: boolean;
 		duration?: number;
 		requestedResolution?: string;
+		safetyIdentifier?: string;
 	} = {},
 ) {
 	const provider = options.provider ?? "bytedance";
@@ -104,6 +105,9 @@ async function createJob(
 			llmgateway_requested_size: "1280x720",
 			llmgateway_requested_resolution: options.requestedResolution ?? "720p",
 			llmgateway_requested_duration_seconds: options.duration ?? 4,
+			...(options.safetyIdentifier !== undefined && {
+				llmgateway_safety_identifier: options.safetyIdentifier,
+			}),
 			llmgateway_upstream_request: {
 				resolution: options.resolution ?? "720p",
 				generate_audio: options.includeAudio ?? true,
@@ -147,6 +151,20 @@ describe("video job token billing", () => {
 		expect(logs).toHaveLength(1);
 		expect(logs[0].completionTokens).toBe("120001");
 		expect(logs[0].cost).toBeCloseTo(0.840007, 6);
+		expect(logs[0].params).toBeNull();
+	});
+
+	test("carries the client safety identifier onto the log", async () => {
+		await createJob({ safetyIdentifier: "video-end-user" });
+		respond({
+			status: "succeeded",
+			resolution: "720p",
+			duration: 4,
+			usage: { completion_tokens: 1000 },
+		});
+		const { logs } = await pollAndRead();
+		expect(logs).toHaveLength(1);
+		expect(logs[0].params).toEqual({ safety_identifier: "video-end-user" });
 	});
 });
 

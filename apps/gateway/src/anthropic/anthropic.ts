@@ -1025,7 +1025,7 @@ anthropic.openapi(messages, async (c) => {
 				});
 			}
 
-			// Handle any remaining text content as a user message, preserving
+			// Handle any remaining text and documents as a user message, preserving
 			// cache_control markers the same way the generic text path below does.
 			const textBlocks = message.content.filter(
 				(block) => block.type === "text",
@@ -1035,16 +1035,30 @@ anthropic.openapi(messages, async (c) => {
 			);
 			const textContent = textBlocks.map((block) => block.text).join("");
 
-			if (hasAnyCacheControl) {
+			const hasDocument = message.content.some(
+				(block) => block.type === "document",
+			);
+
+			if (hasAnyCacheControl || hasDocument) {
 				openaiMessages.push({
 					role: "user",
-					content: textBlocks.map((block) => ({
-						type: "text",
-						text: block.text,
-						...(block.cache_control && {
-							cache_control: block.cache_control,
-						}),
-					})),
+					content: message.content.flatMap((block): unknown[] => {
+						if (block.type === "document") {
+							return [documentBlockToFilePart(block)];
+						}
+						if (block.type !== "text" || (hasDocument && !block.text)) {
+							return [];
+						}
+						return [
+							{
+								type: "text",
+								text: block.text,
+								...(block.cache_control && {
+									cache_control: block.cache_control,
+								}),
+							},
+						];
+					}),
 				});
 			} else if (textContent) {
 				openaiMessages.push({
@@ -1136,6 +1150,9 @@ anthropic.openapi(messages, async (c) => {
 								url: `data:${block.source.media_type};base64,${block.source.data}`,
 							},
 						};
+					}
+					if (block.type === "document") {
+						return documentBlockToFilePart(block);
 					}
 					return block;
 				});
@@ -2449,6 +2466,38 @@ anthropic.openapi(messages, async (c) => {
 
 	return c.json(anthropicResponse);
 });
+
+/**
+ * Lower a document block to the internal `file` part. A url or file-id
+ * source would have the provider fetch content the gateway never saw, so only
+ * inline sources are accepted.
+ */
+function documentBlockToFilePart(block: {
+	source: { type: string; media_type?: unknown; data?: unknown };
+	title?: string | null;
+}) {
+	const { source } = block;
+	let fileData: string | undefined;
+	if (typeof source.data === "string") {
+		if (source.type === "base64" && typeof source.media_type === "string") {
+			fileData = `data:${source.media_type};base64,${source.data}`;
+		} else if (source.type === "text") {
+			fileData = `data:text/plain;base64,${Buffer.from(source.data, "utf8").toString("base64")}`;
+		}
+	}
+	if (!fileData) {
+		throw new HTTPException(400, {
+			message: `Document source type "${source.type}" is not supported. Send the document inline with a "base64" or "text" source.`,
+		});
+	}
+	return {
+		type: "file",
+		file: {
+			...(block.title && { filename: block.title }),
+			file_data: fileData,
+		},
+	};
+}
 
 interface AnthropicImageBlock {
 	type: "image";

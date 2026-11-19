@@ -27,6 +27,11 @@ import { parseApiToken } from "@/lib/extract-api-token.js";
 import { imageFormatFromBase64 } from "@/lib/image-format.js";
 import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import {
+	clientSafetyIdentifierFields,
+	getClientSafetyIdentifierParams,
+	formSafetyIdentifierFields,
+} from "@/lib/safety-identifier.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
 import { parseDataUrl, processImageUrl } from "@llmgateway/actions";
@@ -126,6 +131,7 @@ const imageGenerationsRequestSchema = z
 					"Processing tier for the request, forwarded to the underlying chat completion. `flex` and `priority` are only accepted for provider/model mappings that support the tier; an unsupported tier returns a 400 `unsupported_service_tier` error.",
 				example: "flex",
 			}),
+		...clientSafetyIdentifierFields,
 	})
 	.superRefine(validateImageAnimation);
 
@@ -140,6 +146,7 @@ interface ImageClientErrorLogRequest {
 	quality?: string;
 	aspect_ratio?: string;
 	moderation?: string;
+	safety_identifier?: string;
 }
 
 interface ImageClientErrorLogContext {
@@ -531,6 +538,7 @@ function buildImageClientErrorLogRequest(
 		quality: getStringProperty(body, "quality"),
 		aspect_ratio: getStringProperty(body, "aspect_ratio"),
 		moderation: getStringProperty(body, "moderation"),
+		...getClientSafetyIdentifierParams(body),
 	};
 }
 
@@ -674,6 +682,7 @@ async function logImageClientError(
 					debugMode: false,
 					userAgent: c.req.header("user-agent"),
 					imageConfig,
+					rawRequest: { safety_identifier: request.safety_identifier },
 				}),
 				duration: Date.now() - startedAt,
 				timeToFirstToken: null,
@@ -996,6 +1005,8 @@ images.openapi(generations, async (c): Promise<any> => {
 		],
 		// Do not stream - we need the full response to extract images
 		stream: false,
+		// Logged by the chat handler; never forwarded upstream.
+		...getClientSafetyIdentifierParams(request),
 	};
 
 	if (request.service_tier) {
@@ -1176,6 +1187,7 @@ const imageEditsRequestSchema = z
 					"Processing tier for the request, forwarded to the underlying chat completion. `flex` and `priority` are only accepted for provider/model mappings that support the tier; an unsupported tier returns a 400 `unsupported_service_tier` error.",
 				example: "flex",
 			}),
+		...clientSafetyIdentifierFields,
 	})
 	.superRefine(validateImageAnimation);
 
@@ -1406,6 +1418,13 @@ async function parseMultipartEditsRequest(
 			}),
 		};
 	}
+	for (const [name, value] of Object.entries(
+		formSafetyIdentifierFields(body),
+	)) {
+		if (typeof value === "string") {
+			rawRequest[name] = value;
+		}
+	}
 	const markupField = body["markup"];
 	const markupFile = Array.isArray(markupField) ? markupField[0] : markupField;
 	if (markupFile !== undefined) {
@@ -1554,6 +1573,8 @@ async function processImageEdit(
 			},
 		],
 		stream: false,
+		// Logged by the chat handler; never forwarded upstream.
+		...getClientSafetyIdentifierParams(request),
 	};
 
 	if (request.service_tier) {

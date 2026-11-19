@@ -69,6 +69,7 @@ import {
 } from "@/lib/logs.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { trackPendingWork } from "@/lib/pending-work.js";
+import { clientSafetyIdentifierFields } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 import { usageCost } from "@/lib/usage-cost.js";
@@ -125,6 +126,7 @@ function isElevenLabsVoiceAccessDenied(body: unknown): boolean {
 }
 
 const speechRequestSchema = z.object({
+	...clientSafetyIdentifierFields,
 	model: z.string().openapi({
 		description: "ID of the speech generation (text-to-speech) model to use.",
 		example: "gemini-2.5-flash-preview-tts",
