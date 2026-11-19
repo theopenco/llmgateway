@@ -596,7 +596,7 @@ test("new provider signs up and claims by email domain", async ({ page }) => {
 		.getByTestId("carrier-base-url-input")
 		.fill("https://api.deepseek.com/v1");
 	await expect(page.getByTestId("carrier-base-url-hint")).toContainText(
-		"Base URL only",
+		"Remove /v1",
 	);
 	await expect(page.getByTestId("confirm-register-carrier")).toBeDisabled();
 	await page
