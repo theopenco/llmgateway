@@ -136,6 +136,15 @@ This applies to both routing modes:
 
 Each block is recorded as a **security event** so administrators can review what was rejected and why.
 
+## Web search engines
+
+When a model without native web search gets a `web_search` tool, LLM Gateway sends your latest user message to a [search engine](/features/web-search#gateway-run-search). Your policies apply to that engine with the same rules as a provider:
+
+- **Perplexity** is checked as the Perplexity provider: blocking or not allowing Perplexity also stops its searches.
+- **Exa** is checked against its own data policy: it may retain queries and use them for training. Provider lists address it as `exa`, so a provider allow list blocks it.
+
+A search the policy rejects is skipped and not billed. With `tool_choice: {"type": "web_search"}`, the request fails with a `403` instead. Native web search is part of the provider serving the request, which the policy already covers.
+
 ## Custom providers
 
 [Custom providers](/features/custom-providers) point at infrastructure your organization operates itself (for example, models hosted in your own cloud account), so they have no entry in the provider catalogue and no published data policy. Under any enabled compliance policy they are therefore **blocked by default** — the same fail-closed rule that applies to catalogue providers with unknown attributes.

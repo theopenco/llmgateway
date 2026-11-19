@@ -72,21 +72,21 @@ export function buildWebSearchQuery(messages: BaseMessage[]): string | null {
 /**
  * Why the gateway must not run its own search for this request, or null.
  * - `tool_choice: "none"` disables every tool, search included.
- * - A compliance policy is evaluated against the routed provider only, so the
- *   search engine, a further third party, never received a verdict.
+ * - The organization's or API key's compliance policy rejects the search
+ *   engine, which receives the query like a provider would.
  * - A request on the caller's own provider key (BYOK) searches only with
  *   credits: the worker charges that search to credits, since it runs on the
  *   platform's search account.
  */
 export function internalWebSearchSkipReason(args: {
 	toolChoice: unknown;
-	compliancePolicyActive: boolean;
+	engineCompliant: boolean;
 	unfundedByokSearch: boolean;
 }): "tool_choice_none" | "compliance_policy" | "unfunded_byok_search" | null {
 	if (args.toolChoice === "none") {
 		return "tool_choice_none";
 	}
-	if (args.compliancePolicyActive) {
+	if (!args.engineCompliant) {
 		return "compliance_policy";
 	}
 	if (args.unfundedByokSearch) {

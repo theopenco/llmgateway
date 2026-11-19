@@ -113,15 +113,15 @@ describe("injectWebSearchResults", () => {
 test("internalWebSearchSkipReason", () => {
 	const base = {
 		toolChoice: undefined,
-		compliancePolicyActive: false,
+		engineCompliant: true,
 		unfundedByokSearch: false,
 	};
 	expect(internalWebSearchSkipReason({ ...base, toolChoice: "none" })).toBe(
 		"tool_choice_none",
 	);
-	expect(
-		internalWebSearchSkipReason({ ...base, compliancePolicyActive: true }),
-	).toBe("compliance_policy");
+	expect(internalWebSearchSkipReason({ ...base, engineCompliant: false })).toBe(
+		"compliance_policy",
+	);
 	expect(
 		internalWebSearchSkipReason({ ...base, unfundedByokSearch: true }),
 	).toBe("unfunded_byok_search");

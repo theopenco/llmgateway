@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 
+import { getProviderDefinition, type ProviderDefinition } from "./providers.js";
 import {
 	formatWebSearchEngine,
+	getWebSearchEngineComplianceFailures,
+	getWebSearchEngineDataPolicy,
 	isGatewayWebSearch,
 	resolveGatewayWebSearchEngine,
 	supportsWebSearch,
@@ -59,4 +62,81 @@ test("formatWebSearchEngine names gateway engines and providers", () => {
 	expect(formatWebSearchEngine("exa")).toBe("Exa");
 	expect(formatWebSearchEngine("perplexity")).toBe("Perplexity");
 	expect(formatWebSearchEngine("not-a-provider")).toBe("not-a-provider");
+});
+
+describe("web search engine compliance", () => {
+	test("a disabled policy allows every engine", () => {
+		expect(
+			getWebSearchEngineComplianceFailures("exa", { enabled: false }),
+		).toEqual([]);
+	});
+
+	test("Perplexity search follows the Perplexity provider", () => {
+		const policy = { enabled: true, blockedProviders: ["perplexity"] };
+		expect(getWebSearchEngineComplianceFailures("perplexity", policy)).toEqual([
+			"blockedProviders",
+		]);
+		expect(
+			getWebSearchEngineComplianceFailures("perplexity", {
+				enabled: true,
+				blockApiTraining: true,
+				requireSoc2Type2: true,
+				allowedCountries: ["US"],
+			}),
+		).toEqual([]);
+		expect(
+			getWebSearchEngineComplianceFailures("perplexity", {
+				enabled: true,
+				zeroDataRetention: true,
+			}),
+		).toEqual(["zeroDataRetention"]);
+	});
+
+	test("Perplexity search uses the effective provider definition", () => {
+		const perplexity = getProviderDefinition("perplexity")!;
+		const providers: ProviderDefinition[] = [
+			{ ...perplexity, headquarters: "DE" },
+		];
+		expect(getWebSearchEngineDataPolicy("perplexity", providers)).toEqual({
+			dataPolicy: perplexity.dataPolicy,
+			headquarters: "DE",
+		});
+		expect(
+			getWebSearchEngineComplianceFailures(
+				"perplexity",
+				{ enabled: true, allowedCountries: ["US"] },
+				providers,
+			),
+		).toEqual(["allowedCountries"]);
+	});
+
+	test("Exa is checked by its own data policy and engine id", () => {
+		expect(
+			getWebSearchEngineComplianceFailures("exa", {
+				enabled: true,
+				blockApiTraining: true,
+				zeroDataRetention: true,
+			}),
+		).toEqual(["blockApiTraining", "zeroDataRetention"]);
+		expect(
+			getWebSearchEngineComplianceFailures("exa", {
+				enabled: true,
+				requireSoc2Type2: true,
+				requireGdpr: true,
+				allowedCountries: ["US"],
+			}),
+		).toEqual([]);
+		expect(
+			getWebSearchEngineComplianceFailures("exa", {
+				enabled: true,
+				blockedProviders: ["exa"],
+			}),
+		).toEqual(["blockedProviders"]);
+		expect(
+			getWebSearchEngineComplianceFailures("exa", {
+				enabled: true,
+				allowedProviders: ["openai"],
+			}),
+		).toEqual(["allowedProviders"]);
+	});
 });
