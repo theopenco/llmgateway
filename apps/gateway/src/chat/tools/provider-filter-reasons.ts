@@ -8,7 +8,7 @@ import {
 	type RoutingExclusionReason,
 } from "@llmgateway/shared";
 
-import { providerSupportsAnthropicSafeguards } from "./anthropic-safeguards.js";
+import { mappingSupportsAnthropicSafeguards } from "./anthropic-safeguards.js";
 
 import type {
 	ProviderModelMapping,
@@ -237,7 +237,7 @@ export function getProviderFilterReasons(
 
 	if (
 		options.anthropicSafeguards &&
-		!providerSupportsAnthropicSafeguards(provider.providerId)
+		!mappingSupportsAnthropicSafeguards(provider)
 	) {
 		reasons.push(exclusionReason("anthropic_safeguards"));
 	}

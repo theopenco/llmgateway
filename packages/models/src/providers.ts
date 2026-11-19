@@ -259,7 +259,10 @@ export interface ProviderDefinition {
 	env: ProviderEnvConfig;
 	// Whether the provider supports request cancellation
 	cancellation?: boolean;
-	/** The gateway can forward Anthropic server-side safeguard review on this provider. */
+	/**
+	 * The gateway can forward Anthropic server-side safeguard review on this
+	 * provider's Claude mappings.
+	 */
 	anthropicSafeguards?: boolean;
 	// Color used for UI representation (hex code)
 	color?: string;
@@ -1017,6 +1020,7 @@ export const providers: ProviderDefinition[] = [
 			},
 		},
 		cancellation: true,
+		anthropicSafeguards: true,
 		color: "#FF9900",
 		website: "https://aws.amazon.com/bedrock",
 		statusPageUrl: "https://health.aws.amazon.com/health/status",
