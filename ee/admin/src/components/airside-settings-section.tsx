@@ -234,8 +234,10 @@ function EditDetailsDialog({
 							value={baseUrl}
 							onChange={(e) => setBaseUrl(e.target.value)}
 							aria-invalid={baseUrlHasEndpointPath || undefined}
+							aria-describedby="airside-base-url-hint"
 						/>
 						<p
+							id="airside-base-url-hint"
 							className={
 								baseUrlHasEndpointPath
 									? "text-xs text-destructive"

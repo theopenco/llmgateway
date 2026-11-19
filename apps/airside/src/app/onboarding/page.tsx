@@ -928,7 +928,8 @@ function OnboardingContent() {
 												path, but we append{" "}
 												<span className="font-mono">/v1/chat/completions</span>{" "}
 												ourselves, so preflight and traffic fail. Contact us to
-												change it to the bare API host.
+												drop <span className="font-mono">/v1</span> and anything
+												after it, keeping any path prefix before it.
 											</div>
 										) : null}
 										<div className="text-muted-foreground mt-1 text-xs">
