@@ -77,6 +77,8 @@ import {
 	getAzureFoundryBaseUrl,
 	getProviderDefaultBaseUrl,
 	getProviderHeaders,
+	getUpstreamRequestId,
+	createUpstreamClientRequestId,
 	providerKeyLabel,
 	readProviderKey,
 } from "@llmgateway/actions";
@@ -855,6 +857,7 @@ export async function handleDecisionRequest(
 			const providerKeyId = attempt.providerKey?.id;
 			const keyLabel = providerKeyLabel(attempt.providerKey);
 			const usedProviderKey = { id: providerKeyId, label: keyLabel };
+			const upstreamClientRequestId = createUpstreamClientRequestId(providerId);
 			const baseLogEntry = createLogEntry({
 				requestId,
 				project,
@@ -879,6 +882,7 @@ export async function handleDecisionRequest(
 				userAgent,
 				rawRequest: rawBody,
 				upstreamRequest: attempt.requestBody,
+				upstreamClientRequestId,
 			});
 
 			let upstreamResponse: Response;
@@ -897,6 +901,7 @@ export async function handleDecisionRequest(
 							...upstreamRequest.headers,
 							...getProviderHeaders(providerId, attempt.usedToken, {
 								requestId,
+								clientRequestId: upstreamClientRequestId,
 							}),
 						},
 						body: JSON.stringify(attempt.requestBody),
@@ -1087,6 +1092,11 @@ export async function handleDecisionRequest(
 				}
 			}
 
+			const upstreamRequestId = getUpstreamRequestId(
+				providerId,
+				upstreamResponse.headers,
+			);
+
 			if (!upstreamResponse.ok) {
 				const status = upstreamResponse.status;
 				if (attempt.envVarName !== undefined) {
@@ -1140,6 +1150,7 @@ export async function handleDecisionRequest(
 					{
 						...baseLogEntry,
 						id: willRetry ? attemptLogId : finalLogId,
+						upstreamRequestId,
 						routingMetadata: buildRoutingMetadata(
 							usedApiKeyHash,
 							credentialSource,
@@ -1326,6 +1337,7 @@ export async function handleDecisionRequest(
 				{
 					...baseLogEntry,
 					id: finalLogId,
+					upstreamRequestId,
 					routingMetadata: buildRoutingMetadata(
 						usedApiKeyHash,
 						credentialSource,

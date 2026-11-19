@@ -4,6 +4,8 @@ import {
 	type VertexTokenType,
 } from "@llmgateway/models";
 
+import { getUpstreamClientRequestIdHeader } from "./upstream-request-id.js";
+
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
 export interface ProviderHeaderOptions {
@@ -31,6 +33,11 @@ export interface ProviderHeaderOptions {
 	 * Priority PayGo). Other values and other providers ignore this.
 	 */
 	serviceTier?: string;
+	/**
+	 * Per-attempt id from `createUpstreamClientRequestId`, sent in the
+	 * provider's client request id header. Ignored for providers without one.
+	 */
+	clientRequestId?: string | null;
 }
 
 /**
@@ -44,6 +51,10 @@ export function getProviderHeaders(
 	const requestIdHeader: Record<string, string> = {};
 	if (options?.requestId) {
 		requestIdHeader["x-request-id"] = options.requestId;
+	}
+	const clientRequestIdHeader = getUpstreamClientRequestIdHeader(provider);
+	if (options?.clientRequestId && clientRequestIdHeader) {
+		requestIdHeader[clientRequestIdHeader] = options.clientRequestId;
 	}
 
 	switch (provider) {

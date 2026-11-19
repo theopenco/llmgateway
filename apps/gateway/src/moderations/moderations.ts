@@ -56,6 +56,8 @@ import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
 import {
 	getProviderDefaultBaseUrl,
 	getProviderHeaders,
+	getUpstreamRequestId,
+	createUpstreamClientRequestId,
 	readProviderKey,
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
@@ -706,6 +708,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 	try {
 		while (true) {
+			const upstreamClientRequestId = createUpstreamClientRequestId("openai");
 			let upstreamResponse: Response;
 			let upstreamText: string;
 			let duration: number;
@@ -722,7 +725,10 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 						redirect: "error",
 						headers: {
 							"Content-Type": "application/json",
-							...getProviderHeaders("openai", usedToken, { requestId }),
+							...getProviderHeaders("openai", usedToken, {
+								requestId,
+								clientRequestId: upstreamClientRequestId,
+							}),
 						},
 						body: JSON.stringify(requestBody),
 						signal: fetchSignal,
@@ -751,6 +757,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 					{
 						...baseLogEntry,
 						id: willRetry ? shortid() : finalLogId,
+						upstreamClientRequestId,
 						duration,
 						timeToFirstToken: null,
 						timeToFirstReasoningToken: null,
@@ -851,6 +858,11 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				}
 			}
 
+			const upstreamRequestId = getUpstreamRequestId(
+				"openai",
+				upstreamResponse.headers,
+			);
+
 			if (!upstreamResponse.ok) {
 				if (envVarName !== undefined) {
 					reportKeyError(
@@ -884,6 +896,8 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 					{
 						...baseLogEntry,
 						id: willRetry ? shortid() : finalLogId,
+						upstreamClientRequestId,
+						upstreamRequestId,
 						duration,
 						timeToFirstToken: null,
 						timeToFirstReasoningToken: null,
@@ -964,6 +978,8 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				{
 					...baseLogEntry,
 					id: finalLogId,
+					upstreamClientRequestId,
+					upstreamRequestId,
 					duration,
 					timeToFirstToken: null,
 					timeToFirstReasoningToken: null,

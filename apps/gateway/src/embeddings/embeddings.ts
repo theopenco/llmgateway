@@ -85,6 +85,8 @@ import {
 	getOpenAiV1Prefix,
 	getProviderDefaultBaseUrl,
 	getProviderHeaders,
+	getUpstreamRequestId,
+	createUpstreamClientRequestId,
 	managedCredentialOptions,
 	providerKeyLabel,
 	readProviderKey,
@@ -1024,7 +1026,10 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	}
 	let attempt: EmbeddingAttempt = initialResult.attempt;
 
-	const describeAttempt = (current: EmbeddingAttempt) => {
+	const describeAttempt = (
+		current: EmbeddingAttempt,
+		upstreamClientRequestId?: string,
+	) => {
 		const usedApiKeyHash = getApiKeyFingerprint(current.usedToken);
 		// BYOK only when the organization's own key served the attempt; a
 		// platform-managed credential is LLM Gateway's key and bills as credits.
@@ -1062,6 +1067,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				userAgent,
 				rawRequest: rawBody,
 				upstreamRequest: current.requestBody,
+				upstreamClientRequestId,
 			}),
 		};
 	};
@@ -1221,6 +1227,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	try {
 		while (true) {
 			const attemptLogId = shortid();
+			const upstreamClientRequestId = createUpstreamClientRequestId(providerId);
 			const {
 				usedApiKeyHash,
 				credentialSource,
@@ -1228,7 +1235,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				keyLabel,
 				usedProviderKey,
 				baseLogEntry,
-			} = describeAttempt(attempt);
+			} = describeAttempt(attempt, upstreamClientRequestId);
 
 			let upstreamResponse: Response;
 			let upstreamText = "";
@@ -1248,6 +1255,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 							...getProviderHeaders(providerId, attempt.usedToken, {
 								requestId,
 								tokenType: attempt.vertexTokenType,
+								clientRequestId: upstreamClientRequestId,
 							}),
 						},
 						body: JSON.stringify(attempt.requestBody),
@@ -1443,6 +1451,11 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				}
 			}
 
+			const upstreamRequestId = getUpstreamRequestId(
+				providerId,
+				upstreamResponse.headers,
+			);
+
 			if (!upstreamResponse.ok) {
 				const status = upstreamResponse.status;
 				if (attempt.envVarName !== undefined) {
@@ -1496,6 +1509,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					{
 						...baseLogEntry,
 						id: willRetry ? attemptLogId : finalLogId,
+						upstreamRequestId,
 						routingMetadata: buildEmbeddingRoutingMetadata(
 							usedApiKeyHash,
 							credentialSource,
@@ -1770,6 +1784,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				{
 					...baseLogEntry,
 					id: finalLogId,
+					upstreamRequestId,
 					routingMetadata: buildEmbeddingRoutingMetadata(
 						usedApiKeyHash,
 						credentialSource,
