@@ -63,6 +63,8 @@ export interface RealtimePreflightInput {
 	 */
 	intent?: string;
 	clientIp?: string;
+	/** The caller's end-user identifier, only logged as params.safety_identifier. */
+	clientSafetyIdentifier?: string;
 	/** Secret minting checks availability without selecting an upstream account. */
 	advanceRoundRobin?: boolean;
 }
@@ -109,6 +111,8 @@ export interface RealtimePreflightResult {
 	 * can re-evaluate IP-scoped IAM rules.
 	 */
 	clientIp: string | undefined;
+	/** The caller's end-user identifier, logged on every row of the session. */
+	clientSafetyIdentifier: string | undefined;
 	/**
 	 * Stable, privacy-preserving identifier forwarded upstream via the
 	 * OpenAI-Safety-Identifier header; undefined when the managed credential
@@ -497,6 +501,7 @@ async function runRealtimePreflightInner(
 			providerKeyAllowsModel((providerKey ?? managedKey)?.allowedModels, id),
 		),
 		clientIp: input.clientIp,
+		clientSafetyIdentifier: input.clientSafetyIdentifier,
 		safetyIdentifier: forwardedSafetyIdentifier(
 			managedKey,
 			apiKey.safetyIdentifier,

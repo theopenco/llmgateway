@@ -53,6 +53,8 @@ describe("image generation upstream streaming", () => {
 		frameCount?: unknown;
 		frameDuration?: unknown;
 		markup?: unknown;
+		user?: unknown;
+		safetyIdentifier?: unknown;
 	}> = [];
 	let failOpenai = false;
 	let imageBase64Prefix = "";
@@ -126,6 +128,8 @@ describe("image generation upstream streaming", () => {
 				frameCount: body.frame_count,
 				frameDuration: body.frame_duration_ms,
 				markup: body.markup,
+				user: body.user,
+				safetyIdentifier: body.safety_identifier,
 			});
 			if (endpoint === "edits") {
 				expect(multipart).toBe(true);
@@ -772,6 +776,57 @@ describe("image generation upstream streaming", () => {
 		}
 		expect(upstreamRequests).toHaveLength(0);
 	});
+
+	test.each(["generations", "edits", "edits-multipart"])(
+		"%s logs the client safety identifier without forwarding it",
+		async (endpoint) => {
+			const requestId = randomUUID();
+			const fields = {
+				model: "openai/gpt-image-2",
+				prompt: "A blue circle",
+				safety_identifier: "image-end-user",
+				user: "spoofed-user",
+			};
+			let body: string | FormData;
+			if (endpoint === "edits-multipart") {
+				const form = new FormData();
+				for (const [key, value] of Object.entries(fields)) {
+					form.append(key, value);
+				}
+				form.append(
+					"image",
+					new File([pngBytes], "in.png", { type: "image/png" }),
+				);
+				body = form;
+			} else {
+				body = JSON.stringify({
+					...fields,
+					...(endpoint === "edits" && { images: [{ image_url: inputImage }] }),
+				});
+			}
+			const res = await app.request(
+				`/v1/images/${endpoint === "generations" ? "generations" : "edits"}`,
+				{
+					method: "POST",
+					headers: {
+						...(typeof body === "string" && {
+							"Content-Type": "application/json",
+						}),
+						Authorization: "Bearer test-token",
+						"x-request-id": requestId,
+						"x-no-fallback": "true",
+					},
+					body,
+				},
+			);
+			expect(res.status, await res.text()).toBe(200);
+			expect(upstreamRequests).toHaveLength(1);
+			expect(upstreamRequests[0].user).toBeUndefined();
+			expect(upstreamRequests[0].safetyIdentifier).toBeUndefined();
+			const log = await waitForLogByRequestId(requestId);
+			expect(log.params?.safety_identifier).toBe("image-end-user");
+		},
+	);
 
 	test("forwards raster output_format and output_compression on generations", async () => {
 		const res = await app.request("/v1/images/generations", {

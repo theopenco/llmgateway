@@ -155,7 +155,30 @@ describe("realtime client secrets route", () => {
 		await mint({});
 
 		expect(mocks.createClientSecret).toHaveBeenCalledWith(
-			expect.objectContaining({ instructions: null, voice: null }),
+			expect.objectContaining({
+				instructions: null,
+				voice: null,
+				safetyIdentifier: null,
+			}),
+		);
+	});
+
+	it("stores the end-user safety identifier on the secret", async () => {
+		const response = await realtimeClientSecretsRoute.request(
+			"/client_secrets",
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					session: { type: "realtime", model: "gpt-realtime-mini" },
+					safety_identifier: "app-user-42",
+				}),
+			},
+		);
+
+		expect(response.status).toBe(200);
+		expect(mocks.createClientSecret).toHaveBeenCalledWith(
+			expect.objectContaining({ safetyIdentifier: "app-user-42" }),
 		);
 	});
 

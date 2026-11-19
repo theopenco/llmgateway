@@ -108,6 +108,7 @@ describe("realtime preflight with managed credentials", () => {
 		const preflight = await runRealtimePreflight({
 			token: "real-token",
 			requestedModel: "gpt-realtime",
+			clientSafetyIdentifier: "realtime-end-user",
 		});
 		const session = await createRealtimeSessionRecord(
 			preflight,
@@ -158,6 +159,9 @@ describe("realtime preflight with managed credentials", () => {
 		});
 		expect(row?.providerDiscountPercent).toBeCloseTo(0.05);
 		expect(row?.providerMarginPercent).toBeCloseTo(0.25);
+		// Logged only; the upstream header carries the API key's identifier.
+		expect(row?.params).toEqual({ safety_identifier: "realtime-end-user" });
+		expect(preflight.safetyIdentifier).not.toBe("realtime-end-user");
 	});
 });
 describe("realtime round-robin credential selection", () => {

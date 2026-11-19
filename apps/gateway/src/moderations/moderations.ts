@@ -48,6 +48,7 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { clientSafetyIdentifierFields } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
@@ -186,6 +187,7 @@ const moderationResponseSchema = z
 	});
 
 const moderationRequestSchema = z.object({
+	...clientSafetyIdentifierFields,
 	input: moderationInputSchema,
 	model: z
 		.string()
