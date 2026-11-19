@@ -13,6 +13,7 @@ import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
+import { extractBedrockSafeguardResults } from "./anthropic-safeguards.js";
 import { estimateTokens } from "./estimate-tokens.js";
 import { isGoogleOutputImagePart } from "./extract-images.js";
 import {
@@ -291,6 +292,12 @@ export function parseProviderResponse(
 				cacheCreation5mTokens = cacheDetails.cacheCreation5mTokens;
 				cacheCreation1hTokens = cacheDetails.cacheCreation1hTokens;
 			}
+
+			// Safeguard verdicts, requested via additionalModelResponseFieldPaths
+			// when the request carried `safeguards` (Claude Code auto mode).
+			anthropicSafeguardResults =
+				extractBedrockSafeguardResults(json.additionalModelResponseFields) ??
+				null;
 
 			// Extract tool calls if present
 			const toolUseBlocks = contentBlocks.filter((block: any) => block.toolUse);

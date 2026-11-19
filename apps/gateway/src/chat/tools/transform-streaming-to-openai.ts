@@ -12,6 +12,7 @@ import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getProviderDefinition } from "@llmgateway/models";
 
+import { extractBedrockSafeguardResults } from "./anthropic-safeguards.js";
 import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
 import { extractImages, isGoogleOutputImagePart } from "./extract-images.js";
 import {
@@ -1724,6 +1725,10 @@ export function transformStreamingToOpenai(
 				) {
 					finishReason = "content_filter";
 				}
+				// Safeguard verdicts (Claude Code auto mode) arrive on messageStop.
+				const safeguardResults = extractBedrockSafeguardResults(
+					data.additionalModelResponseFields,
+				);
 
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
@@ -1733,7 +1738,9 @@ export function transformStreamingToOpenai(
 					choices: [
 						{
 							index: 0,
-							delta: {},
+							delta: safeguardResults
+								? { anthropic_safeguard_results: safeguardResults }
+								: {},
 							finish_reason: finishReason,
 						},
 					],

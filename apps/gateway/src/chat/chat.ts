@@ -305,6 +305,7 @@ import {
 	applyAnthropicSafeguards,
 	extractAnthropicSafeguards,
 	isSafeguardBeta,
+	mappingSupportsAnthropicSafeguards,
 	providerSupportsAnthropicSafeguards,
 } from "./tools/anthropic-safeguards.js";
 import { buildRoutingAttempt } from "./tools/build-routing-attempt.js";
@@ -4199,7 +4200,7 @@ chat.openapi(completions, async (c) => {
 
 	const rejectUnsupportedSafeguards = async (): Promise<never> => {
 		const message =
-			"No compatible provider is available for the requested Anthropic safeguards. Use Anthropic or remove safeguards (in Claude Code, set CLAUDE_CODE_AUTO_MODE_SERVER=0 to use billed client-side classifier requests).";
+			"No compatible provider is available for the requested Anthropic safeguards. Use Claude on Anthropic or Amazon Bedrock, or remove safeguards (in Claude Code, set CLAUDE_CODE_AUTO_MODE_SERVER=0 to use billed client-side classifier requests).";
 		await logGatewayRejection({
 			message,
 			statusCode: 400,
@@ -4216,7 +4217,7 @@ chat.openapi(completions, async (c) => {
 			return;
 		}
 		const supportsSafeguards = (provider: ProviderModelMapping) =>
-			providerSupportsAnthropicSafeguards(provider.providerId);
+			mappingSupportsAnthropicSafeguards(provider);
 		const eligible = iamFilteredModelProviders.filter(supportsSafeguards);
 		recordPreRoutingDrops(
 			iamFilteredModelProviders,
@@ -6662,7 +6663,7 @@ chat.openapi(completions, async (c) => {
 		let routingMetadataProviders = allModelProviders.filter(
 			(provider) =>
 				(!anthropicSafeguards ||
-					providerSupportsAnthropicSafeguards(provider.providerId)) &&
+					mappingSupportsAnthropicSafeguards(provider)) &&
 				(isCustomAutoRoutingMapping(provider) ||
 					isProviderMappingAllowedByRestriction(
 						organization.providerAccessRestriction,
@@ -10127,6 +10128,7 @@ chat.openapi(completions, async (c) => {
 
 						applyAnthropicSafeguards(
 							usedProvider,
+							transportProvider,
 							requestBody,
 							headers,
 							anthropicSafeguards,
@@ -14605,6 +14607,7 @@ chat.openapi(completions, async (c) => {
 
 			applyAnthropicSafeguards(
 				usedProvider,
+				transportProvider,
 				requestBody,
 				headers,
 				anthropicSafeguards,
