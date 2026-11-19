@@ -171,7 +171,7 @@ const credentialSchema = z.object({
 	allowedModels: z.array(z.string()).nullable(),
 	/** Whether the daily model sync may append newly served models. */
 	modelSyncEnabled: z.boolean(),
-	/** Whether requests served by this credential send the API key's safety identifier upstream. */
+	/** Whether requests served by this credential send the organization's safety identifier upstream. */
 	forwardSafetyIdentifier: z.boolean(),
 	/** Request and token caps; the credential leaves rotation while at one. */
 	...providerKeyRateLimitsOutputShape,

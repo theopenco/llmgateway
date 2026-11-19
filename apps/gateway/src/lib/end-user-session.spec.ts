@@ -99,7 +99,6 @@ function makeSessionApiKey(models?: string[]): GatewayApiKey {
 		currentPeriodStartedAt: null,
 		projectId: "project-1",
 		createdBy: "user-1",
-		safetyIdentifier: "key_test",
 		providerCompliancePolicy: null,
 		endUserSession: {
 			id: "session-1",

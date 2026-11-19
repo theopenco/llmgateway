@@ -348,7 +348,7 @@ describe("safety identifier credential modes", () => {
 		expect(log?.upstreamRequest).not.toHaveProperty("safety_identifier");
 	});
 
-	test("/v1/responses logs legacy user without overriding the API key identifier", async () => {
+	test("/v1/responses logs legacy user without overriding the organization identifier", async () => {
 		await harness.setProjectMode("credits");
 		vi.stubEnv("LLM_OPENAI_API_KEY", "test-token");
 		vi.stubEnv("LLM_OPENAI_BASE_URL", harness.mockServerUrl);
@@ -380,13 +380,9 @@ describe("safety identifier credential modes", () => {
 		const log = logs.find(
 			(entry) => entry.apiKeyId === "token-id-safety-responses-user",
 		);
-		const [apiKey] = await db
-			.select({ safetyIdentifier: tables.apiKey.safetyIdentifier })
-			.from(tables.apiKey)
-			.where(eq(tables.apiKey.id, "token-id-safety-responses-user"));
 		expect(log?.params?.safety_identifier).toBe("responses-end-user");
 		expect(log?.upstreamRequest).toMatchObject({
-			safety_identifier: apiKey?.safetyIdentifier,
+			safety_identifier: await getOrganizationSafetyIdentifier("org-id"),
 		});
 		expect(log?.upstreamRequest).not.toHaveProperty("user");
 	});

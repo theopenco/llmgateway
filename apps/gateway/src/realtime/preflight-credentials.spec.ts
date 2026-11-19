@@ -158,7 +158,7 @@ describe("realtime preflight with managed credentials", () => {
 		});
 		expect(row?.providerDiscountPercent).toBeCloseTo(0.05);
 		expect(row?.providerMarginPercent).toBeCloseTo(0.25);
-		// Logged only; the upstream header carries the API key's identifier.
+		// Logged only; the upstream header carries the organization's identifier.
 		expect(row?.params).toEqual({ safety_identifier: "realtime-end-user" });
 		expect(preflight.safetyIdentifier).not.toBe("realtime-end-user");
 	});

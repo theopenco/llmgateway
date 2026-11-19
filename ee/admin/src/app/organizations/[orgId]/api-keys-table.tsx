@@ -142,7 +142,6 @@ export function ApiKeysTable({
 							<TableHead className="w-10" />
 							<TableHead>Token</TableHead>
 							<TableHead>ID</TableHead>
-							<TableHead>Legacy safety identifier</TableHead>
 							<TableHead>Description</TableHead>
 							<TableHead>Project</TableHead>
 							<TableHead>Usage</TableHead>
@@ -155,7 +154,7 @@ export function ApiKeysTable({
 						{apiKeys.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={10}
+									colSpan={9}
 									className="h-24 text-center text-muted-foreground"
 								>
 									{akStatus === "all"
@@ -195,9 +194,6 @@ export function ApiKeysTable({
 											</TableCell>
 											<TableCell>
 												<CopyableId id={apiKey.id} />
-											</TableCell>
-											<TableCell>
-												<CopyableId id={apiKey.safetyIdentifier} />
 											</TableCell>
 											<TableCell className="max-w-[200px] truncate">
 												{apiKey.description ?? "—"}
@@ -245,7 +241,7 @@ export function ApiKeysTable({
 										{isOpen && ruleCount > 0 && (
 											<TableRow className="bg-muted/30 hover:bg-muted/30">
 												<TableCell />
-												<TableCell colSpan={9} className="py-3">
+												<TableCell colSpan={8} className="py-3">
 													<div className="space-y-2">
 														<div className="text-xs font-medium text-muted-foreground">
 															IAM Rules ({ruleCount})

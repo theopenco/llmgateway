@@ -1954,19 +1954,11 @@ export const apiKey = snakeCase.table(
 		createdBy: text()
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
-		// Legacy per-key abuse-attribution identifier. No longer forwarded: the
-		// gateway sends `organization.safety_identifier`. Kept, unique, so abuse
-		// reports quoting an older value still map back to exactly one API key.
-		safetyIdentifier: text()
-			.notNull()
-			.default(sql`'key_' || replace(gen_random_uuid()::text, '-', '')`),
 	},
 	(table) => [
 		index("api_key_project_id_idx").on(table.projectId),
 		index("api_key_created_by_idx").on(table.createdBy),
 		index("api_key_key_type_expires_at_idx").on(table.keyType, table.expiresAt),
-		// Reverse lookup for provider abuse reports, which quote the identifier.
-		uniqueIndex("api_key_safety_identifier_uidx").on(table.safetyIdentifier),
 		uniqueIndex("api_key_end_user_customer_wallet_unique")
 			.on(table.endCustomerWalletId)
 			.where(
