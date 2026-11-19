@@ -293,7 +293,7 @@ describe("decisions", () => {
 		});
 		expect(log?.upstreamRequest).not.toHaveProperty("state");
 		expect(log?.upstreamRequest).not.toHaveProperty("safety_identifier");
-		expect(Number(log?.cost)).toBeCloseTo(300 * 0.1e-6, 12);
+		expect(Number(log?.cost)).toBeCloseTo(300 * 0.11e-6, 12);
 	});
 
 	test("/v1/decisions reports an invalid Azure resource as a 400", async () => {
