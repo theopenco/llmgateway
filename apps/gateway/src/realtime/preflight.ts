@@ -25,7 +25,10 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 
-import { readProviderKey } from "@llmgateway/actions";
+import {
+	createUpstreamClientRequestId,
+	readProviderKey,
+} from "@llmgateway/actions";
 import { providerKeyAllowsModel } from "@llmgateway/db";
 import { getRequestedModelAlias } from "@llmgateway/models";
 
@@ -119,6 +122,12 @@ export interface RealtimePreflightResult {
 	 * turns forwarding off.
 	 */
 	safetyIdentifier: string | undefined;
+	/**
+	 * Gateway-generated id sent in the provider's client request id header on
+	 * the upstream handshake and logged on every row of the session; null when
+	 * the provider takes none.
+	 */
+	upstreamClientRequestId?: string | null;
 }
 
 export function getAvailableCredits(organization: Organization): number {
@@ -505,6 +514,9 @@ async function runRealtimePreflightInner(
 		safetyIdentifier: forwardedSafetyIdentifier(
 			managedKey,
 			apiKey.safetyIdentifier,
+		),
+		upstreamClientRequestId: createUpstreamClientRequestId(
+			match.mapping.providerId as Provider,
 		),
 	};
 }

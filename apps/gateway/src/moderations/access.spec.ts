@@ -91,8 +91,10 @@ vi.mock("@/chat/tools/retry-with-fallback.js", () => ({
 }));
 vi.mock("@/lib/fetch-provider.js", () => ({ fetchProvider: vi.fn() }));
 vi.mock("@llmgateway/actions", () => ({
+	createUpstreamClientRequestId: vi.fn(() => null),
 	getProviderDefaultBaseUrl: vi.fn(),
 	getProviderHeaders: vi.fn(),
+	getUpstreamRequestId: vi.fn(() => null),
 	readProviderKey: vi.fn(),
 }));
 vi.mock("@llmgateway/db", () => ({ shortid: () => "request-id" }));
