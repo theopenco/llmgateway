@@ -355,7 +355,7 @@ export interface DecisionEndpoint {
 	hasBoxQuestion?: boolean;
 	/**
 	 * Throw an HTTPException(400) for input the provider can't take.
-	 * `safetyIdentifier` is the authenticating API key's abuse-attribution id.
+	 * `safetyIdentifier` is the organization's abuse-attribution id.
 	 */
 	buildUpstreamRequest: (
 		providerId: string,
@@ -541,10 +541,11 @@ export async function handleDecisionRequest(
 	// Translate only once the caller is allowed to use the model, so a denied
 	// caller sees the access error rather than an input error. Translation runs
 	// before the rate-limit check, so an invalid request uses no slot.
+	const organizationSafetyIdentifier = organization.safetyIdentifier;
 	const upstreamRequest = endpoint.buildUpstreamRequest(
 		providerId,
 		upstreamModel,
-		apiKey.safetyIdentifier,
+		organizationSafetyIdentifier,
 		wireFormat,
 	);
 	let upstreamBody = upstreamRequest.body;
@@ -611,14 +612,14 @@ export async function handleDecisionRequest(
 		...(routingAttempts.length > 0 ? { routing: routingAttempts } : {}),
 	});
 
-	// The body carries the API key's safety identifier; a managed credential
-	// with forwarding turned off gets it without one.
-	const keySafetyIdentifier = apiKey.safetyIdentifier;
+	// The body carries the organization's safety identifier; a managed
+	// credential with forwarding turned off gets it without one.
 	function bodyForCredential(
 		managedKey: InferSelectModel<typeof tables.providerKey> | undefined,
 	): Record<string, unknown> {
 		if (
-			forwardedSafetyIdentifier(managedKey, keySafetyIdentifier) !== undefined
+			forwardedSafetyIdentifier(managedKey, organizationSafetyIdentifier) !==
+			undefined
 		) {
 			return upstreamBody;
 		}

@@ -125,7 +125,7 @@ const embeddingRequestSchema = z.object({
 	}),
 	user: z.string().optional().openapi({
 		description:
-			"Opaque end-user identifier stored in log params.safety_identifier (up to 128 characters). Credits requests use LLM Gateway's fixed API-key identifier upstream; BYOK requests omit it.",
+			"Opaque end-user identifier stored in log params.safety_identifier (up to 128 characters). Credits requests use LLM Gateway's fixed per-organization identifier upstream; BYOK requests omit it.",
 	}),
 });
 
@@ -632,7 +632,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		organizationId: project.organizationId,
 	};
 	const retryOrganization = organization;
-	const safetyIdentifier = apiKey.safetyIdentifier;
+	const safetyIdentifier = organization.safetyIdentifier;
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.

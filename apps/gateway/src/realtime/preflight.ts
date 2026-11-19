@@ -504,7 +504,7 @@ async function runRealtimePreflightInner(
 		clientSafetyIdentifier: input.clientSafetyIdentifier,
 		safetyIdentifier: forwardedSafetyIdentifier(
 			managedKey,
-			apiKey.safetyIdentifier,
+			organization.safetyIdentifier,
 		),
 	};
 }

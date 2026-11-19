@@ -183,7 +183,6 @@ describe("client safety identifier metadata", () => {
 			apiKey: {
 				id: "key-id",
 				projectId: "project-id",
-				safetyIdentifier: "key_fixed",
 			} as GatewayApiKey,
 			usedModel: "openai/gpt-4o-mini",
 			usedProvider: "openai",

@@ -135,15 +135,14 @@ describe("admin organization key listings", () => {
 			expect(json.counts.all).toBe(4);
 		});
 
-		it("traces a provider abuse report's safety identifier to its key", async () => {
-			const res = await get("/api-keys", cookie);
-			const json = await res.json();
-			const [key] = json.apiKeys as { id: string; safetyIdentifier: string }[];
-			expect(key.id).toBe("ak-active");
-			expect(key.safetyIdentifier).toMatch(/^key_[0-9a-f]{32}$/);
+		it("traces the organization safety identifier sent upstream to its org", async () => {
+			const details = await get("/settings", cookie);
+			expect(details.status).toBe(200);
+			const { organization } = await details.json();
+			expect(organization.safetyIdentifier).toMatch(/^org_[0-9a-f]{32}$/);
 
 			const search = await app.request(
-				`/admin/organizations?search=${encodeURIComponent(key.safetyIdentifier)}`,
+				`/admin/organizations?search=${encodeURIComponent(organization.safetyIdentifier)}`,
 				{ headers: { Cookie: cookie } },
 			);
 			expect(search.status).toBe(200);

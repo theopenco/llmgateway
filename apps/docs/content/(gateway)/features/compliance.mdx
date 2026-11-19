@@ -178,7 +178,7 @@ Create a Slack [incoming webhook](https://api.slack.com/messaging/webhooks) for 
 
 ## Safety identifiers
 
-LLM Gateway keeps **your end-user identifier** separate from **its provider-facing API-key identifier**. Sending an identifier helps correlate your users’ requests in gateway logs; it does not let you choose or override the identifier sent to providers.
+LLM Gateway keeps **your end-user identifier** separate from **its provider-facing organization identifier**. Sending an identifier helps correlate your users’ requests in gateway logs; it does not let you choose or override the identifier sent to providers.
 
 ### Send an end-user identifier
 
@@ -219,9 +219,9 @@ In both credits and bring-your-own-key mode, the client value is saved in reques
 
 ### What providers receive
 
-LLM Gateway generates an opaque, random identifier once per gateway API key. It contains no personal data or API-key secret. Requests using the same API key share this provider-facing identifier even if they have different client `safety_identifier` values. It is not derived from your client value and cannot be overridden by it.
+LLM Gateway generates an opaque, random identifier once per organization. It is not your organization ID, reveals no API key, and contains no personal data. Every request from the organization shares this provider-facing identifier, across all of its projects and API keys and after key rotation, even if requests carry different client `safety_identifier` values. It is not derived from your client value and cannot be overridden by it.
 
-- **Credits:** upstream APIs that support abuse attribution receive the fixed gateway API-key identifier when forwarding is enabled on the gateway-managed credential, mapped to the field or header their API expects. Your client identifier is not forwarded as their safety identifier.
+- **Credits:** upstream APIs that support abuse attribution receive the fixed organization identifier when forwarding is enabled on the gateway-managed credential, mapped to the field or header their API expects. Your client identifier is not forwarded as their safety identifier.
 - **Bring your own key (BYOK):** neither the gateway identifier nor your client identifier is sent as a provider safety identifier.
 - **Hybrid:** the credential used on each attempt determines the behavior, including retries and fallback. An attempt using your provider key follows BYOK behavior; one using LLM Gateway’s credentials follows credits behavior.
 

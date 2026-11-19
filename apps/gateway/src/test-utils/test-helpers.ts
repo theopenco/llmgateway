@@ -17,6 +17,20 @@ import { and, db, inArray, tables, eq, sql } from "@llmgateway/db";
  * carry their own TTL and are namespaced per response id, so leaving them
  * behind cannot leak into another test.
  */
+/** The organization's provider-facing safety identifier, as stored. */
+export async function getOrganizationSafetyIdentifier(
+	organizationId: string,
+): Promise<string> {
+	const [row] = await db
+		.select({ safetyIdentifier: tables.organization.safetyIdentifier })
+		.from(tables.organization)
+		.where(eq(tables.organization.id, organizationId));
+	if (!row) {
+		throw new Error(`organization ${organizationId} not found`);
+	}
+	return row.safetyIdentifier;
+}
+
 export async function clearCache() {
 	let cursor = "0";
 	do {

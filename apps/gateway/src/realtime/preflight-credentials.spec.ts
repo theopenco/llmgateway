@@ -3,9 +3,10 @@ import { describe, expect, test } from "vitest";
 
 import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
+import { getOrganizationSafetyIdentifier } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { cdb, db, eq, tables } from "@llmgateway/db";
+import { cdb, db, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import {
@@ -65,11 +66,9 @@ describe("realtime preflight with managed credentials", () => {
 		// Health failures must attribute to the credential actually sent.
 		expect(result.trackedKeyHealthId).toBe("managed-openai");
 		expect(result.envVarName).toBeUndefined();
-		const [apiKey] = await db
-			.select({ safetyIdentifier: tables.apiKey.safetyIdentifier })
-			.from(tables.apiKey)
-			.where(eq(tables.apiKey.id, "token-id"));
-		expect(result.safetyIdentifier).toBe(apiKey?.safetyIdentifier);
+		expect(result.safetyIdentifier).toBe(
+			await getOrganizationSafetyIdentifier("org-id"),
+		);
 		// A managed credential is the platform's own key: the org is billed for
 		// the session exactly as it was on the env-var path.
 		expect(result.usedMode).toBe("credits");
@@ -159,7 +158,7 @@ describe("realtime preflight with managed credentials", () => {
 		});
 		expect(row?.providerDiscountPercent).toBeCloseTo(0.05);
 		expect(row?.providerMarginPercent).toBeCloseTo(0.25);
-		// Logged only; the upstream header carries the API key's identifier.
+		// Logged only; the upstream header carries the organization's identifier.
 		expect(row?.params).toEqual({ safety_identifier: "realtime-end-user" });
 		expect(preflight.safetyIdentifier).not.toBe("realtime-end-user");
 	});

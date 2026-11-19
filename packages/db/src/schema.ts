@@ -277,10 +277,11 @@ export const organization = snakeCase.table(
 		// small base64 data URL (raster image only, resized client-side) so no
 		// object storage is needed. Null = no logo, UI falls back to initials.
 		logo: text(),
-		// Opaque, random per-organization identifier that was forwarded to
-		// providers as the abuse-attribution identifier before the per-key
-		// `api_key.safety_identifier` replaced it. Kept, unique, so abuse reports
-		// quoting an older value still map back to exactly one organization.
+		// Opaque, random per-organization identifier forwarded to providers as the
+		// abuse-attribution identifier (OpenAI `safety_identifier`, Anthropic
+		// `metadata.user_id`), stable across API keys and key rotation. Unique, so
+		// a provider abuse report maps back to exactly one organization. Not the
+		// org id, which appears in dashboard URLs and API responses.
 		safetyIdentifier: text()
 			.notNull()
 			.default(sql`'org_' || replace(gen_random_uuid()::text, '-', '')`),
@@ -1953,21 +1954,11 @@ export const apiKey = snakeCase.table(
 		createdBy: text()
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
-		// Opaque, random per-key identifier forwarded to providers as the
-		// abuse-attribution identifier (OpenAI `safety_identifier`, Anthropic
-		// `metadata.user_id`), so a provider abuse report maps back to exactly one
-		// API key. Not the key id, which appears in dashboard URLs and API
-		// responses. Database-generated so every insert path gets one.
-		safetyIdentifier: text()
-			.notNull()
-			.default(sql`'key_' || replace(gen_random_uuid()::text, '-', '')`),
 	},
 	(table) => [
 		index("api_key_project_id_idx").on(table.projectId),
 		index("api_key_created_by_idx").on(table.createdBy),
 		index("api_key_key_type_expires_at_idx").on(table.keyType, table.expiresAt),
-		// Reverse lookup for provider abuse reports, which quote the identifier.
-		uniqueIndex("api_key_safety_identifier_uidx").on(table.safetyIdentifier),
 		uniqueIndex("api_key_end_user_customer_wallet_unique")
 			.on(table.endCustomerWalletId)
 			.where(
