@@ -30,6 +30,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import { providerBaseUrlHasEndpointPath } from "@llmgateway/shared";
 import {
 	AIRSIDE_BILLING_MODE_DESCRIPTIONS,
 	AIRSIDE_BILLING_MODE_LABELS,
@@ -173,6 +174,7 @@ function EditDetailsDialog({
 		"/admin/airside/companies/{id}",
 	);
 	const saving = claimMutation.isPending || companyMutation.isPending;
+	const baseUrlHasEndpointPath = providerBaseUrlHasEndpointPath(baseUrl);
 
 	async function save() {
 		const trimmedName = name.trim();
@@ -231,12 +233,23 @@ function EditDetailsDialog({
 							id="airside-base-url"
 							value={baseUrl}
 							onChange={(e) => setBaseUrl(e.target.value)}
+							aria-invalid={baseUrlHasEndpointPath || undefined}
+							aria-describedby="airside-base-url-hint"
 						/>
-						{!isCustom && (
-							<p className="text-xs text-muted-foreground">
-								Used after the static provider definition is removed.
-							</p>
-						)}
+						<p
+							id="airside-base-url-hint"
+							className={
+								baseUrlHasEndpointPath
+									? "text-xs text-destructive"
+									: "text-xs text-muted-foreground"
+							}
+						>
+							{baseUrlHasEndpointPath
+								? "Remove /v1 and any endpoint path — the gateway appends /v1/chat/completions itself."
+								: "Base URL only, without /v1 — the gateway appends /v1/chat/completions itself."}
+							{!isCustom &&
+								" Used after the static provider definition is removed."}
+						</p>
 					</div>
 					{isCustom && (
 						<div className="space-y-1">
@@ -313,7 +326,10 @@ function EditDetailsDialog({
 					<Button variant="outline" onClick={() => onOpenChange(false)}>
 						Cancel
 					</Button>
-					<Button disabled={saving} onClick={() => void save()}>
+					<Button
+						disabled={saving || baseUrlHasEndpointPath}
+						onClick={() => void save()}
+					>
 						{saving ? "Saving…" : "Save"}
 					</Button>
 				</DialogFooter>
