@@ -90,6 +90,11 @@
 			"import": "./dist/api-key-hash.js",
 			"default": "./dist/api-key-hash.js"
 		},
+		"./provider-issue-alerts": {
+			"types": "./dist/provider-issue-alerts.d.ts",
+			"import": "./dist/provider-issue-alerts.js",
+			"default": "./dist/provider-issue-alerts.js"
+		},
 		"./email-unsubscribe": {
 			"types": "./dist/email-unsubscribe.d.ts",
 			"import": "./dist/email-unsubscribe.js",
