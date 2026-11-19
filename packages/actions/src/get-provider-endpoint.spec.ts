@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+	getDecisionsUpstreamPath,
 	getProviderDefaultBaseUrl,
 	getProviderEndpoint,
 	resolveAzureBaseUrl,
@@ -1792,3 +1793,19 @@ it(
 	"preserves embedded slash runs while trimming only the Azure URL suffix",
 	azureSlashRuns,
 );
+
+describe("getDecisionsUpstreamPath", () => {
+	it("routes each decision wire format to its provider path", () => {
+		expect(getDecisionsUpstreamPath("openai")).toBe("/v1/decisions");
+		expect(getDecisionsUpstreamPath("azure", "openai")).toBe(
+			"/openai/v1/decisions",
+		);
+		expect(getDecisionsUpstreamPath("azure")).toBe(
+			"/providers/microsoft/v1/systemone",
+		);
+		expect(getDecisionsUpstreamPath("typesafe")).toBe("/v1/systemone");
+		expect(getDecisionsUpstreamPath("custom-carrier", "openai")).toBe(
+			"/v1/decisions",
+		);
+	});
+});

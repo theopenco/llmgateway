@@ -3928,6 +3928,33 @@ export const openaiModels = [
 				jsonOutput: false,
 				decisions: true,
 			},
+			{
+				test: "skip",
+				providerId: "azure",
+				externalId: "gpt-6-luna",
+				inputPrice: "0.1e-6",
+				outputPrice: "0",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "0.1e-6",
+						outputPrice: "0",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "0.2e-6",
+						outputPrice: "0",
+					},
+				],
+				contextSize: 1050000,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				decisions: true,
+			},
 		],
 	},
 	{

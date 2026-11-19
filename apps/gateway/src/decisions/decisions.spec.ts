@@ -257,6 +257,45 @@ describe("decisions", () => {
 		expect(Number(log?.cost)).toBeCloseTo(441 * 0.042e-6, 12);
 	});
 
+	test("/v1/decisions serves gpt-6-luna-decisions via Azure's OpenAI route", async () => {
+		await seedApiKey("decisions-azure-luna");
+		await seedProviderKey("decisions-azure-luna", "azure");
+
+		const res = await postDecision("decisions-azure-luna", {
+			model: "azure/gpt-6-luna-decisions",
+			input: "Our integration returns 500s.",
+			questions: QUESTIONS,
+			safety_identifier: "client-controlled",
+		});
+
+		const json = await res.json();
+		expect(res.status, JSON.stringify(json)).toBe(200);
+		expect(json.model).toBe("azure/gpt-6-luna-decisions");
+		expect(json.answers).toEqual([
+			expect.objectContaining({
+				type: "choice",
+				name: "department",
+				choice: "billing",
+			}),
+			{ type: "predicate", name: "urgency", probability: 0.92 },
+			expect.objectContaining({ type: "score", name: "severity", score: 2 }),
+		]);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "azure/gpt-6-luna-decisions");
+		expect(log?.hasError).toBe(false);
+		expect(log?.apiOrigin).toBe("decisions");
+		expect(log?.usedModelMapping).toBe("gpt-6-luna");
+		// The OpenAI body is forwarded as-is, not translated to System One.
+		expect(log?.upstreamRequest).toMatchObject({
+			model: "gpt-6-luna",
+			input: "Our integration returns 500s.",
+		});
+		expect(log?.upstreamRequest).not.toHaveProperty("state");
+		expect(log?.upstreamRequest).not.toHaveProperty("safety_identifier");
+		expect(Number(log?.cost)).toBeCloseTo(300 * 0.1e-6, 12);
+	});
+
 	test("/v1/decisions reports an invalid Azure resource as a 400", async () => {
 		await seedApiKey("decisions-azure-bad-resource");
 		await db.insert(tables.providerKey).values({

@@ -100,11 +100,21 @@ import type { Context } from "hono";
 const LOAD_BODY_TIMEOUT_MS = 30_000;
 
 /**
- * The wire format a decision mapping speaks upstream. OpenAI and every Airside
- * carrier serve the OpenAI-compatible `POST /v1/decisions`; TypeSafe and Azure
- * (Microsoft-Decision-1) speak TypeSafe's System One.
+ * The wire format a decision mapping speaks upstream. OpenAI, Azure's OpenAI
+ * models and every Airside carrier serve the OpenAI-compatible Decisions API;
+ * TypeSafe and Azure's Microsoft-Decision-1 speak TypeSafe's System One.
  */
 export type DecisionWireFormat = "openai" | "system-one";
+
+function staticDecisionWireFormat(
+	providerId: string,
+	model: ModelDefinition,
+): DecisionWireFormat {
+	return providerId === "openai" ||
+		(providerId === "azure" && model.family === "openai")
+		? "openai"
+		: "system-one";
+}
 
 interface DecisionMappingMatch {
 	mapping: ProviderModelMapping;
@@ -186,7 +196,7 @@ function staticDecisionCandidates(
 				mapping: candidate,
 				modelDef: model,
 				modelDefId: model.id,
-				wireFormat: candidate.providerId === "openai" ? "openai" : "system-one",
+				wireFormat: staticDecisionWireFormat(candidate.providerId, model),
 				airside: false,
 			});
 		}
@@ -735,8 +745,8 @@ export async function handleDecisionRequest(
 			providerKey: providerKeyInner,
 			managedKey: managedKeyInner,
 		};
-		// Azure has no fixed host: a credential names its resource, and the
-		// decision route lives on that resource's Foundry host.
+		// Azure has no fixed host: a credential names its resource, and both
+		// decision routes live on that resource's Foundry host.
 		const azureResource =
 			providerId === "azure"
 				? (providerKeyInner?.options?.azure_resource ??
@@ -745,8 +755,8 @@ export async function handleDecisionRequest(
 						variant: envVariant,
 					}))
 				: undefined;
-		// The decision route only exists on the Foundry host, so a resource wins
-		// over an Azure base URL, which points at the OpenAI-compatible surface.
+		// System One only exists on the Foundry host, so a resource wins over an
+		// Azure base URL, which points at the OpenAI-compatible surface.
 		const resolvedBaseUrl =
 			(azureResource ? toAzureFoundryBaseUrl(azureResource) : undefined) ??
 			providerKeyInner?.baseUrl ??
