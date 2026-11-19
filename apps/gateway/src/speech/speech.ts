@@ -81,9 +81,11 @@ import {
 
 import { RedirectError } from "@llmgateway/actions";
 import {
+	createUpstreamClientRequestId,
 	getGoogleVertexPublisherModelPath,
 	getOpenAiV1Prefix,
 	getProviderHeaders,
+	getUpstreamRequestId,
 	managedCredentialOptions,
 	providerKeyLabel,
 	readProviderKey,

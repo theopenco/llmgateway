@@ -2814,8 +2814,9 @@ export const log = snakeCase.table(
 		// Gateway-generated id sent upstream with this attempt (OpenAI
 		// `X-Client-Request-Id`, Azure `x-ms-client-request-id`), so a provider
 		// report quoting it maps to this row. Null when the provider takes none.
-		// Unindexed: look it up bounded by created_at, e.g.
-		// `WHERE created_at BETWEEN $from AND $to AND upstream_client_request_id = $id`.
+		// Unindexed (rare manual lookups vs an insert per request): bound the
+		// lookup by created_at around the report's timestamp, which uses
+		// log_created_at_used_model_used_provider_idx.
 		upstreamClientRequestId: text(),
 		// The provider's own request id from the response (`x-request-id`).
 		upstreamRequestId: text(),

@@ -61,7 +61,10 @@ vi.mock("@/lib/iam.js", () => ({
 	validateRequestModelAccess: vi.fn(async () => ({ allowed: true })),
 	throwIamException: vi.fn(),
 }));
-vi.mock("@llmgateway/actions", () => ({ readProviderKey: vi.fn() }));
+vi.mock("@llmgateway/actions", () => ({
+	createUpstreamClientRequestId: vi.fn(() => null),
+	readProviderKey: vi.fn(),
+}));
 vi.mock("@llmgateway/db", async () => ({
 	getEffectiveProviders: async () =>
 		(await import("@llmgateway/models")).providers,

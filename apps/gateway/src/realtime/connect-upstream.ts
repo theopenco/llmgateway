@@ -5,6 +5,7 @@ import {
 	getCredentialSetting,
 } from "@/chat/tools/resolve-platform-credential.js";
 
+import { getUpstreamClientRequestIdHeader } from "@llmgateway/actions";
 import {
 	assertSafeUserUrl,
 	isProviderUrlGuardEnabled,
@@ -127,7 +128,10 @@ export function resolveUpstreamTarget(
 		}
 		return {
 			url: `${baseUrl.replace(/^http/, "ws")}/openai/v1/realtime?${query}`,
-			headers: { "api-key": preflight.upstreamToken },
+			headers: {
+				"api-key": preflight.upstreamToken,
+				...clientRequestIdHeaders(providerId, preflight),
+			},
 		};
 	}
 
@@ -136,6 +140,7 @@ export function resolveUpstreamTarget(
 		url: `${baseUrl.replace(/^http/, "ws")}/v1/realtime?${query}`,
 		headers: {
 			Authorization: `Bearer ${preflight.upstreamToken}`,
+			...clientRequestIdHeaders(providerId, preflight),
 			...(preflight.usedMode === "credits" &&
 				preflight.safetyIdentifier !== undefined && {
 					"OpenAI-Safety-Identifier": preflight.safetyIdentifier,
@@ -269,4 +274,14 @@ export function discardUpstream(upstream: WebSocket): void {
 		// This socket is being thrown away; nothing left to report.
 	});
 	upstream.terminate();
+}
+/** The provider's client request id header, when it takes one. */
+function clientRequestIdHeaders(
+	providerId: Provider,
+	preflight: RealtimePreflightResult,
+): Record<string, string> {
+	const header = getUpstreamClientRequestIdHeader(providerId);
+	return header && preflight.upstreamClientRequestId
+		? { [header]: preflight.upstreamClientRequestId }
+		: {};
 }
