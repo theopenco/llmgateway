@@ -23,11 +23,12 @@ export type ContentFilterClassifier =
 	(typeof CONTENT_FILTER_CLASSIFIERS)[number];
 
 /**
- * What the internal classifier reads.
- * - `full`: the whole conversation, split into as many requests as its size
- *   limit needs. Slow on long agent histories.
+ * What the internal and OpenAI classifiers read.
+ * - `full`: the whole conversation, split into chunks their size limits
+ *   accept: all of it for the internal classifier, the newest 256 KiB for
+ *   OpenAI. Slow on long agent histories.
  * - `latest_turn`: the system prompt plus the turn after the last assistant
- *   message, in one request.
+ *   message.
  */
 export const CONTENT_FILTER_INTERNAL_SCOPES = ["full", "latest_turn"] as const;
 
@@ -108,6 +109,9 @@ export const contentFilterSettingsSchema = z.object({
 	// Share of a blocking provider's requests checked in blocking mode. The
 	// rest are monitored log-only at `sampleRatePercent`.
 	enforceSampleRatePercent: z.number().min(0).max(100).default(100),
+	// Extra blocking providers for DevPass orgs only, on top of
+	// `enforceProviderIds`.
+	devPassEnforceProviderIds: z.array(z.string()).default([]),
 	// Enterprise orgs stay log-only unless this is also on.
 	enforceEnterprise: z.boolean().default(false),
 	// Classifier whose scores decide the outcome.
@@ -117,6 +121,8 @@ export const contentFilterSettingsSchema = z.object({
 	// Their verdicts are recorded, never enforced. The deciding one is skipped.
 	shadowClassifiers: z.array(z.enum(CONTENT_FILTER_CLASSIFIERS)).default([]),
 	internalScope: z.enum(CONTENT_FILTER_INTERNAL_SCOPES).default("full"),
+	// What OpenAI moderation reads of the text; images are always read whole.
+	openaiScope: z.enum(CONTENT_FILTER_INTERNAL_SCOPES).default("latest_turn"),
 	// Whether a text-only classifier (jev, internal) hands image parts to
 	// OpenAI moderation. Off leaves images unmoderated.
 	moderateImages: z.boolean().default(true),

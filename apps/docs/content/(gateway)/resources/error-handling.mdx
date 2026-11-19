@@ -129,7 +129,7 @@ Requests routed to some providers may be screened by LLM Gateway's own content f
 
 Content that sexualizes minors is held to a much lower threshold that applies at every tier. Blocking can be limited to specific policy areas, such as child safety, sexual content, and cyber abuse; findings outside them are only recorded.
 
-By default the filter only records its findings. When blocking is active, a request over its tier's thresholds is rejected before dispatch and the response makes clear that the gateway filter, not the provider, stopped it:
+By default the filter only records its findings. Blocking can be active for some providers only, and DevPass organizations can be blocked on more providers than other organizations. When blocking is active, a request over its tier's thresholds is rejected before dispatch and the response makes clear that the gateway filter, not the provider, stopped it:
 
 - **Chat Completions** (and the Responses endpoint): HTTP `200` with `finish_reason: "content_filter"`. The assistant message content explains that the request was blocked by LLM Gateway's content filter and how to contact support. Streaming responses send one chunk carrying that content and finish reason, then `[DONE]`.
 - **Messages** (`/v1/messages`): `stop_reason: "refusal"` with the same explanation as the text content.

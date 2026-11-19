@@ -6,6 +6,7 @@ import { EnterpriseCapabilities } from "@/components/enterprise/capabilities";
 import { FeaturesEnterprise } from "@/components/enterprise/features";
 import { HeroEnterprise } from "@/components/enterprise/hero";
 import { InfrastructureAsCodeEnterprise } from "@/components/enterprise/iac";
+import { EnterpriseInlineCTA } from "@/components/enterprise/inline-cta";
 import { OpenSourceEnterprise } from "@/components/enterprise/open-source";
 import { PricingEnterprise } from "@/components/enterprise/pricing";
 import { ProcurementEnterprise } from "@/components/enterprise/procurement";
@@ -92,6 +93,11 @@ export default function EnterprisePage() {
 			</Suspense>
 			<TrustBarEnterprise />
 			<SecurityEnterprise />
+			<EnterpriseInlineCTA
+				location="enterprise_after_security"
+				title="Bring your security checklist to the call"
+				description="SOC 2 Type II report, DPA and security questionnaires, answered by the engineers who run the gateway."
+			/>
 			<SupportEnterprise />
 			<EnterpriseCapabilities />
 			<UptimeVisualization />
@@ -101,6 +107,11 @@ export default function EnterprisePage() {
 			<Suspense fallback={<TestimonialsFallback />}>
 				<Testimonials />
 			</Suspense>
+			<EnterpriseInlineCTA
+				location="enterprise_after_testimonials"
+				title="Start with a 30-Day Production Pilot"
+				description="Live traffic in week one, controls on in week two, and a decision gate at day 30."
+			/>
 			<PricingEnterprise />
 			<CommittedUse location="enterprise_committed_use" />
 			<InfrastructureAsCodeEnterprise />

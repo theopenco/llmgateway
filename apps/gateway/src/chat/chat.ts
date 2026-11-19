@@ -5663,7 +5663,8 @@ chat.openapi(completions, async (c) => {
 					messages as BaseMessage[],
 					contentFilterContext,
 					c.req.raw.signal,
-					{ imagesAllowed: openAiContentFilterAllowed },
+					// The env filter has always read the whole conversation.
+					{ imagesAllowed: openAiContentFilterAllowed, openaiScope: "full" },
 				)
 			: null;
 	const contentFilterMatched =

@@ -59,14 +59,20 @@ describe("admin content filter settings", () => {
 				sampleRatePercent: 25,
 				enforce: true,
 				enforceProviderIds: ["openai", "openai"],
+				devPassEnforceProviderIds: ["anthropic", "anthropic"],
 				enforceSampleRatePercent: 10,
 				enforceEnterprise: false,
+				openaiScope: "full",
 			}),
 		});
 
 		expect(res.status).toBe(200);
 		const body = await res.json();
-		expect(body).toMatchObject({ sampleRatePercent: 25, enforce: true });
+		expect(body).toMatchObject({
+			sampleRatePercent: 25,
+			enforce: true,
+			openaiScope: "full",
+		});
 		expect(
 			body.providers
 				.filter((p: { enabled: boolean }) => p.enabled)
@@ -78,6 +84,11 @@ describe("admin content filter settings", () => {
 				.filter((p: { enforced: boolean }) => p.enforced)
 				.map((p: { id: string }) => p.id),
 		).toEqual(["openai"]);
+		expect(
+			body.providers
+				.filter((p: { devPassEnforced: boolean }) => p.devPassEnforced)
+				.map((p: { id: string }) => p.id),
+		).toEqual(["anthropic"]);
 		expect(body.enforceSampleRatePercent).toBe(10);
 		expect(await getContentFilterSettings()).toEqual({
 			enabled: true,
@@ -85,15 +96,45 @@ describe("admin content filter settings", () => {
 			sampleRatePercent: 25,
 			enforce: true,
 			enforceProviderIds: ["openai"],
+			devPassEnforceProviderIds: ["anthropic"],
 			enforceSampleRatePercent: 10,
 			enforceEnterprise: false,
 			classifier: "openai",
 			shadowClassifiers: [],
 			internalScope: "full",
+			openaiScope: "full",
 			moderateImages: true,
 			blockGroups: null,
 			csamScoreThreshold: 0.01,
 		});
+	});
+
+	test("keeps the DevPass providers when a save omits them", async () => {
+		const save = (extra: Record<string, unknown>) =>
+			app.request("/admin/settings/content-filter", {
+				method: "PUT",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					enabled: true,
+					providerIds: [],
+					sampleRatePercent: 100,
+					enforce: false,
+					enforceEnterprise: false,
+					...extra,
+				}),
+			});
+
+		expect(
+			(await save({ devPassEnforceProviderIds: ["anthropic"] })).status,
+		).toBe(200);
+		expect((await save({})).status).toBe(200);
+		expect(
+			(await getContentFilterSettings()).devPassEnforceProviderIds,
+		).toEqual(["anthropic"]);
+		expect((await save({ devPassEnforceProviderIds: [] })).status).toBe(200);
+		expect(
+			(await getContentFilterSettings()).devPassEnforceProviderIds,
+		).toEqual([]);
 	});
 
 	test("stores shadow classifiers without the deciding one", async () => {
@@ -148,6 +189,20 @@ describe("admin content filter settings", () => {
 			},
 		);
 		expect(unknownEnforced.status).toBe(400);
+
+		const unknownDevPass = await app.request("/admin/settings/content-filter", {
+			method: "PUT",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				enabled: true,
+				providerIds: [],
+				sampleRatePercent: 100,
+				enforce: false,
+				devPassEnforceProviderIds: ["not-a-provider"],
+				enforceEnterprise: false,
+			}),
+		});
+		expect(unknownDevPass.status).toBe(400);
 
 		const rate = await app.request("/admin/settings/content-filter", {
 			method: "PUT",
