@@ -8,8 +8,10 @@ import type { ProviderModelMapping } from "@llmgateway/models";
 // `safeguard_results` (on the final `message_delta` when streaming). The
 // /v1/messages layer lowers requests to the chat completions shape, which has
 // nowhere to carry either half, so they ride on `anthropic_safeguards` and are
-// restored here for providers that run the review. Without them Claude Code falls back
-// to its own classifier requests, which bill as ordinary token usage.
+// restored here for providers that run the review: as-is on Messages API
+// transports, inside the model request fields on Bedrock Converse. Without them
+// Claude Code falls back to its own classifier requests, which bill as ordinary
+// token usage.
 // https://code.claude.com/docs/en/auto-mode-classifier-billing
 
 // Beta families that pair with the `safeguards` field, matched by family and

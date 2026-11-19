@@ -306,7 +306,6 @@ import {
 	extractAnthropicSafeguards,
 	isSafeguardBeta,
 	mappingSupportsAnthropicSafeguards,
-	providerSupportsAnthropicSafeguards,
 } from "./tools/anthropic-safeguards.js";
 import { buildRoutingAttempt } from "./tools/build-routing-attempt.js";
 import {
@@ -4229,11 +4228,12 @@ chat.openapi(completions, async (c) => {
 		expandedIamFilteredModelProviders =
 			expandedIamFilteredModelProviders.filter(supportsSafeguards);
 		// Auto/smart reach this check after resolving a real provider. Custom
-		// transports cannot forward safeguards and must not bypass this guard.
+		// transports and non-Claude mappings of a supporting provider cannot
+		// forward safeguards and must not bypass this guard.
 		if (
 			eligible.length === 0 ||
 			(usedProvider !== undefined &&
-				!providerSupportsAnthropicSafeguards(usedProvider))
+				!eligible.some((provider) => provider.providerId === usedProvider))
 		) {
 			await rejectUnsupportedSafeguards();
 		}
