@@ -165,6 +165,7 @@ describe("GPT-5.6 and GPT-6 on Azure", () => {
 			"gpt-5.6-terra",
 			"gpt-6-astra",
 			"gpt-6-luna",
+			"gpt-6-luna-decisions",
 			"gpt-6-sol",
 		]);
 	});
