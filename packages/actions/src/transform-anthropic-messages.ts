@@ -119,13 +119,15 @@ function toAnthropicDocument(part: FileContent): DocumentContent {
 		};
 	}
 	if (mimeType.startsWith("text/")) {
+		const text = Buffer.from(parsed.data, "base64").toString("utf8");
+		if (!text.trim()) {
+			throw new InvalidFileContentError(
+				"Invalid file_data: the text document is empty.",
+			);
+		}
 		return {
 			type: "document",
-			source: {
-				type: "text",
-				media_type: "text/plain",
-				data: Buffer.from(parsed.data, "base64").toString("utf8"),
-			},
+			source: { type: "text", media_type: "text/plain", data: text },
 			...(title && { title }),
 		};
 	}
