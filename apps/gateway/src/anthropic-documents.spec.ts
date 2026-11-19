@@ -166,6 +166,28 @@ describe("document input on Anthropic", () => {
 		expect(captured).toHaveLength(0);
 	});
 
+	test("/v1/messages rejects an empty document", async () => {
+		await setup();
+
+		const res = await post("/v1/messages", {
+			messages: [
+				{
+					role: "user",
+					content: [
+						{
+							type: "document",
+							source: { type: "text", media_type: "text/plain", data: "" },
+						},
+						{ type: "text", text: "Summarize." },
+					],
+				},
+			],
+		});
+
+		expect(res.status).toBe(400);
+		expect(captured).toHaveLength(0);
+	});
+
 	test("/v1/messages forwards document blocks", async () => {
 		await setup();
 

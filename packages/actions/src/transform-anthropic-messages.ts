@@ -104,7 +104,7 @@ function toAnthropicDocument(part: FileContent): DocumentContent {
 		);
 	}
 	const parsed = parseFileDataUrl(part.file.file_data);
-	if (!parsed) {
+	if (!parsed?.data) {
 		throw new InvalidFileContentError(
 			"Invalid file_data: expected a base64-encoded data URL (e.g. 'data:application/pdf;base64,...').",
 		);
