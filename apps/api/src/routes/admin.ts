@@ -6532,6 +6532,7 @@ const contentFilterSettingsResponseSchema = z
 		moderateImages: z.boolean(),
 		blockGroups: z.array(z.enum(CONTENT_FILTER_BLOCK_GROUPS)).nullable(),
 		csamScoreThreshold: z.number(),
+		preserveFlaggedPayloads: z.boolean(),
 		providers: z.array(
 			z.object({
 				id: z.string(),
@@ -6600,6 +6601,7 @@ admin.openapi(getContentFilterSettingsRoute, async (c) => {
 		moderateImages: settings.moderateImages,
 		blockGroups: settings.blockGroups,
 		csamScoreThreshold: settings.csamScoreThreshold,
+		preserveFlaggedPayloads: settings.preserveFlaggedPayloads,
 		providers: listContentFilterProviders(settings),
 	});
 });
@@ -6625,6 +6627,7 @@ admin.openapi(updateContentFilterSettingsRoute, async (c) => {
 		moderateImages: settings.moderateImages,
 		blockGroups: settings.blockGroups,
 		csamScoreThreshold: settings.csamScoreThreshold,
+		preserveFlaggedPayloads: settings.preserveFlaggedPayloads,
 		providers: listContentFilterProviders(settings),
 	});
 });

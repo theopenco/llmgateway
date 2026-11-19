@@ -24,6 +24,7 @@ describe("parseContentFilterSettings", () => {
 			moderateImages: true,
 			blockGroups: null,
 			csamScoreThreshold: 0.01,
+			preserveFlaggedPayloads: true,
 		});
 		expect(parseContentFilterSettings(null)).toEqual(
 			DEFAULT_CONTENT_FILTER_SETTINGS,
@@ -54,6 +55,7 @@ describe("parseContentFilterSettings", () => {
 			moderateImages: true,
 			blockGroups: null,
 			csamScoreThreshold: 0.01,
+			preserveFlaggedPayloads: true,
 		});
 	});
 

@@ -9,6 +9,7 @@ import { getModelIdsByProvider } from "@llmgateway/shared";
 import { syncProviderKeyModels } from "./provider-key-model-sync.js";
 
 import type { ProviderKeyModelProbeResult } from "@llmgateway/actions";
+import type { ProviderKeyModelSyncMetadata } from "@llmgateway/db";
 
 const originalHashSecret = process.env.GATEWAY_API_KEY_HASH_SECRET;
 const bedrockModels = getModelIdsByProvider().get("aws-bedrock") ?? [];
@@ -108,9 +109,11 @@ describe("syncProviderKeyModels", () => {
 		const [entry] = await historyOf(id);
 		expect(entry?.action).toBe("provider_key.models_synced");
 		expect(entry?.userId).toBeNull();
-		expect(entry?.metadata?.added).toEqual([workingModel]);
-		expect(entry?.metadata?.probed).toBe(bedrockModels.length - 1);
-		expect(entry?.metadata?.failed).toContainEqual({
+		const metadata = entry?.metadata as
+			ProviderKeyModelSyncMetadata | null | undefined;
+		expect(metadata?.added).toEqual([workingModel]);
+		expect(metadata?.probed).toBe(bedrockModels.length - 1);
+		expect(metadata?.failed).toContainEqual({
 			model: bedrockModels[2],
 			statusCode: 404,
 			error: "model not enabled",

@@ -9,6 +9,7 @@ import {
 } from "vitest";
 
 import { app } from "@/app.js";
+import { waitForPendingWork } from "@/lib/pending-work.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import { readAll, waitForLogByRequestId } from "@/test-utils/test-helpers.js";
 
@@ -16,6 +17,7 @@ import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
 import { GATEWAY_CONTENT_FILTER_MESSAGE } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import { decryptFlaggedPayload } from "@llmgateway/shared/flagged-payload-crypto";
 
 const MODERATION_URL = "https://api.openai.com/v1/moderations";
 const INTERNAL_CLASSIFIER_URL = "https://classifier.test";
@@ -345,6 +347,61 @@ describe("tiered gateway content filter", () => {
 			matchedCategories: ["sexual/minors"],
 			matchedGroups: ["csam"],
 		});
+	});
+
+	test("preserves the payload of csam and sexual flags only", async () => {
+		await harness.setContentFilterSettings({ providerIds: ["llmgateway"] });
+		const flaggedRows = async (requestId: string) =>
+			await db
+				.select()
+				.from(tables.contentFilterFlaggedPayload)
+				.where(eq(tables.contentFilterFlaggedPayload.requestId, requestId));
+
+		// Log-only: the verdict never blocked, but the payload is still kept.
+		moderation([
+			{ flagged: false, category_scores: { "sexual/minors": 0.02 } },
+		]);
+		const res = await chat("tier-preserve-csam");
+		expect((await res.json()).choices[0].finish_reason).toBe("stop");
+		await waitForLogByRequestId("tier-preserve-csam");
+		await vi.waitFor(async () =>
+			expect(await flaggedRows("tier-preserve-csam")).toHaveLength(1),
+		);
+		const [row] = await flaggedRows("tier-preserve-csam");
+		expect(row).toMatchObject({
+			organizationId: "org-id",
+			projectId: "project-id",
+			apiKeyId: "token-id",
+			endpoint: "chat",
+			action: "logged",
+			matchedGroups: ["csam"],
+		});
+		expect(row.payloadCiphertext.includes("Tell me a story")).toBe(false);
+		const payload = JSON.parse(
+			decryptFlaggedPayload(row.payloadCiphertext, row.id, "org-id"),
+		);
+		expect(payload.messages).toEqual([
+			{ role: "user", content: "Tell me a story tier-preserve-csam" },
+		]);
+
+		// The insert is detached from the log: drain it before asserting absence.
+		moderation(violent);
+		await chat("tier-preserve-violent");
+		await waitForLogByRequestId("tier-preserve-violent");
+		await waitForPendingWork(10_000);
+		expect(await flaggedRows("tier-preserve-violent")).toHaveLength(0);
+
+		await harness.setContentFilterSettings({
+			providerIds: ["llmgateway"],
+			preserveFlaggedPayloads: false,
+		});
+		moderation([
+			{ flagged: false, category_scores: { "sexual/minors": 0.02 } },
+		]);
+		await chat("tier-preserve-off");
+		await waitForLogByRequestId("tier-preserve-off");
+		await waitForPendingWork(10_000);
+		expect(await flaggedRows("tier-preserve-off")).toHaveLength(0);
 	});
 
 	test("streams the block as a single content_filter chunk", async () => {

@@ -1215,6 +1215,11 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 			signal: c.req.raw.signal,
 			imagesAllowed: classifierAllowed("openai"),
 			classifierAllowed,
+			origin: {
+				endpoint: "speech",
+				model: modelDefId,
+				zeroDataRetention: compliancePolicy?.zeroDataRetention === true,
+			},
 		});
 		tieredContentFilter = started.outcome;
 		pendingTieredContentFilter = started.pending;

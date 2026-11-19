@@ -25,7 +25,7 @@ export default function TermsPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> November 10, 2026
+				<strong>Last Updated:</strong> November 18, 2026
 			</p>
 			<LegalSummary variant="terms" />
 			<p>
@@ -472,7 +472,9 @@ export default function TermsPage() {
 				information — is stored to power your dashboard, usage reporting, and
 				per-tool insights. Request payloads and responses are not retained on
 				DevPass, except for stateful Responses API requests, which are stored
-				for up to 30 days so response chaining works.
+				for up to 30 days so response chaining works, and requests our content
+				filter flags for child sexual exploitation or sexual content, which may
+				be preserved as described in Section&nbsp;6 of the Base Terms.
 			</p>
 			<hr />
 			<h2>6. Contact</h2>

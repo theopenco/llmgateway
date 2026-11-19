@@ -73,6 +73,13 @@ for them. Their verdicts land in the evaluation's `shadows` and in the hourly
 stats under role `shadow`. Compare classifiers by grouping on `classifier`,
 not role.
 
+A deciding verdict matching `csam` or `sexual` (only `csam` under ZDR) stores
+an encrypted copy of the request in `content_filter_flagged_payload`, never in
+`log`, detached from the request (`chat/tools/flagged-payload.ts`). Every
+`startTieredContentFilter` caller passes an `origin`. Only full-access admins
+read the table, through `/admin/content-filter/flagged-payloads`, and each
+access writes `platform_audit_log`.
+
 Every classifier fails open. OpenAI moderation retries a network error or 5xx
 once and logs the retried attempt at `warn`. Final failures log at
 `contentFilterErrorLogLevel`: `warn` for a 4xx other than 401/403, else `error`.

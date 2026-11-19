@@ -39,6 +39,7 @@ const RESET_TABLES = [
 	tables.contentFilterHourlyApiKeyStats,
 	tables.contentFilterHourlyModelStats,
 	tables.contentFilterHourlyStats,
+	tables.contentFilterFlaggedPayload,
 	tables.systemSetting,
 	// Routing reads uptime/latency from a 60-minute history window, so metric
 	// rows a test seeds (e.g. a 0%-uptime provider) must not leak into later

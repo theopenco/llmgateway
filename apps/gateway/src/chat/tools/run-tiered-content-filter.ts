@@ -8,7 +8,9 @@ import {
 	runShadowContentFilters,
 	withShadowVerdicts,
 } from "./content-filter-classifier.js";
+import { preserveFlaggedContentFilterPayload } from "./flagged-payload.js";
 
+import type { FlaggedPayloadOrigin } from "./flagged-payload.js";
 import type { GatewayContentFilterResponse } from "@llmgateway/db";
 
 export type TieredContentFilterOutcome = Awaited<
@@ -35,6 +37,8 @@ export interface StartedTieredContentFilter {
 export async function startTieredContentFilter(
 	options: Parameters<typeof evaluateContentFilterWithClassifiers>[0] & {
 		signal: AbortSignal;
+		/** Recorded when a flagged payload is preserved. */
+		origin: FlaggedPayloadOrigin;
 	},
 ): Promise<StartedTieredContentFilter> {
 	const { plan, context } = options;
@@ -43,6 +47,16 @@ export async function startTieredContentFilter(
 			...options,
 			signal,
 		});
+		if (outcome) {
+			// Detached: never delays or fails the request.
+			preserveFlaggedContentFilterPayload({
+				plan,
+				evaluation: outcome.evaluation,
+				messages: options.messages,
+				context,
+				origin: options.origin,
+			});
+		}
 		if (outcome?.evaluation.violation) {
 			logger.debug("gateway_content_filter_tier", {
 				requestId: context.requestId,

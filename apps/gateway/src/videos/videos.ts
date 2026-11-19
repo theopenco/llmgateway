@@ -5612,6 +5612,12 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 			signal: c.req.raw.signal,
 			imagesAllowed: classifierAllowed("openai"),
 			classifierAllowed,
+			// Zero data retention rejects video requests before this point.
+			origin: {
+				endpoint: "videos",
+				model: normalizedModel,
+				zeroDataRetention: false,
+			},
 		});
 		contentFilterEvaluation = started.outcome?.evaluation ?? null;
 		pendingContentFilterEvaluation =

@@ -98,6 +98,12 @@ function isStaffRedactedKey(key: string): boolean {
 	return STAFF_REDACTED_KEY.test(key) && !STAFF_VISIBLE_KEYS.has(key);
 }
 
+// Full-access admins only, reads included: preserved customer payloads flagged
+// by the content filter.
+const ADMIN_ONLY_ROUTES: RegExp[] = [
+	/^\/content-filter\/flagged-payloads(\/.*)?$/,
+];
+
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export function isAdminRequestAllowed(
@@ -107,6 +113,9 @@ export function isAdminRequestAllowed(
 ): boolean {
 	if (role === "admin") {
 		return true;
+	}
+	if (ADMIN_ONLY_ROUTES.some((pattern) => pattern.test(path))) {
+		return false;
 	}
 	const upperMethod = method.toUpperCase();
 	if (READ_METHODS.has(upperMethod)) {

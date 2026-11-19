@@ -4843,6 +4843,55 @@ export const contentFilterHourlyErrorStats = snakeCase.table(
 	],
 );
 
+// Encrypted copy of a request the deciding content filter classifier flagged
+// for `csam` or `sexual`, kept for trust & safety review and NCMEC reports
+// independently of the organization's retention level. Never in `log`. The
+// worker deletes a row once `expiresAt` passes: 90 days after it was flagged,
+// or one year after it was reported. Ids are soft references so a legal hold
+// survives organization, project or key deletion. Read only through the
+// full-access admin API, which writes a platform audit entry per access.
+export const contentFilterFlaggedPayload = snakeCase.table(
+	"content_filter_flagged_payload",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		requestId: text().notNull(),
+		organizationId: text().notNull(),
+		projectId: text().notNull(),
+		apiKeyId: text().notNull(),
+		// Gateway endpoint family that ran the filter: chat, speech or videos.
+		endpoint: text().notNull(),
+		provider: text().notNull(),
+		model: text(),
+		classifier: text().notNull(),
+		tier: integer().notNull(),
+		level: text().notNull(),
+		// "blocked" or "logged".
+		action: text().notNull(),
+		matchedGroups: jsonb().$type<string[]>().notNull(),
+		matchedCategories: jsonb().$type<string[]>().notNull(),
+		categoryScores: jsonb().$type<Record<string, number>>().notNull(),
+		// AES-256-GCM over the FlaggedPayload JSON; see flagged-payload-crypto.
+		payloadCiphertext: text().notNull(),
+		payloadBytes: integer().notNull(),
+		payloadTruncated: boolean().notNull().default(false),
+		imageCount: integer().notNull().default(0),
+		expiresAt: timestamp().notNull(),
+		reportedAt: timestamp(),
+		reportReference: text(),
+		reportedByUserId: text(),
+	},
+	(table) => [
+		index("content_filter_flagged_payload_org_created_at_idx").on(
+			table.organizationId,
+			table.createdAt,
+		),
+		index("content_filter_flagged_payload_created_at_idx").on(table.createdAt),
+		index("content_filter_flagged_payload_expires_at_idx").on(table.expiresAt),
+		index("content_filter_flagged_payload_request_id_idx").on(table.requestId),
+	],
+);
+
 // Audit Log - Enterprise feature for tracking all API actions
 export const auditLogActions = [
 	// Organization
@@ -5146,6 +5195,10 @@ export const dataStream = snakeCase.table(
 export const platformAuditLogActions = [
 	// Daily worker run that enables newly working models on a managed credential.
 	"provider_key.models_synced",
+	// Trust & safety access to preserved content filter payloads.
+	"content_filter_flagged_payload.list",
+	"content_filter_flagged_payload.view",
+	"content_filter_flagged_payload.report",
 ] as const;
 
 export type PlatformAuditLogAction = (typeof platformAuditLogActions)[number];
@@ -5162,6 +5215,14 @@ export interface ProviderKeyModelSyncMetadata {
 	failed: { model: string; statusCode?: number; error?: string }[];
 }
 
+/** Metadata of a `content_filter_flagged_payload.*` entry. */
+export interface FlaggedPayloadAuditMetadata {
+	actorEmail: string;
+	organizationId?: string;
+	filters?: Record<string, string | number | boolean>;
+	reportReference?: string;
+}
+
 /**
  * Platform-wide counterpart of `audit_log` for resources no organization owns,
  * such as managed provider credentials.
@@ -5176,7 +5237,9 @@ export const platformAuditLog = snakeCase.table(
 		action: text({ enum: platformAuditLogActions }).notNull(),
 		resourceType: text().notNull(),
 		resourceId: text(),
-		metadata: jsonb().$type<ProviderKeyModelSyncMetadata>(),
+		metadata: jsonb().$type<
+			ProviderKeyModelSyncMetadata | FlaggedPayloadAuditMetadata
+		>(),
 	},
 	(table) => [
 		index("platform_audit_log_resource_idx").on(

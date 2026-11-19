@@ -2964,14 +2964,18 @@ adminProviderCredentials.openapi(modelSyncHistory, async (c) => {
 		.limit(60);
 
 	return c.json({
-		entries: rows.map((row) => ({
-			id: row.id,
-			createdAt: row.createdAt,
-			probed: row.metadata?.probed ?? 0,
-			skipped: row.metadata?.skipped ?? 0,
-			added: row.metadata?.added ?? [],
-			failed: row.metadata?.failed ?? [],
-		})),
+		entries: rows.map((row) => {
+			const metadata =
+				row.metadata && "probed" in row.metadata ? row.metadata : null;
+			return {
+				id: row.id,
+				createdAt: row.createdAt,
+				probed: metadata?.probed ?? 0,
+				skipped: metadata?.skipped ?? 0,
+				added: metadata?.added ?? [],
+				failed: metadata?.failed ?? [],
+			};
+		}),
 	});
 });
 
