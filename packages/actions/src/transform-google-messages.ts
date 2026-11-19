@@ -191,7 +191,7 @@ export function parseGoogleUpstreamDocumentError(
  * Delegates to `parseDataUrl` so the (potentially multi-megabyte) base64 body
  * is never scanned or copied by a regex — only the short header is parsed.
  */
-function parseFileDataUrl(
+export function parseFileDataUrl(
 	fileData: string,
 ): { mimeType: string; data: string } | null {
 	const parsed = parseDataUrl(fileData);
