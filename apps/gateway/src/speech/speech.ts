@@ -1139,7 +1139,10 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 
 	let attempt: SpeechAttempt = await resolveAttempt();
 
-	const describeAttempt = (current: SpeechAttempt) => {
+	const describeAttempt = (
+		current: SpeechAttempt,
+		upstreamClientRequestId?: string | null,
+	) => {
 		// BYOK only when the organization's own key served the attempt; a
 		// platform-managed credential is LLM Gateway's key and bills as credits.
 		const credentialSource: RoutingCredentialSource = current.providerKey
@@ -1176,6 +1179,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 				userAgent,
 				rawRequest: rawBody,
 				upstreamRequest: current.requestBody,
+				upstreamClientRequestId,
 			}),
 		};
 	};
@@ -1343,6 +1347,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 	try {
 		while (true) {
 			const attemptLogId = shortid();
+			const upstreamClientRequestId = createUpstreamClientRequestId(providerId);
 			const {
 				usedApiKeyHash,
 				credentialSource,
@@ -1350,7 +1355,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 				keyLabel,
 				usedProviderKey,
 				baseLogEntry,
-			} = describeAttempt(attempt);
+			} = describeAttempt(attempt, upstreamClientRequestId);
 
 			let upstreamResponse: Response;
 			const fetchSignal = createCombinedSignal(controller);
@@ -1369,6 +1374,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 							...getProviderHeaders(providerId, attempt.usedToken, {
 								requestId,
 								tokenType: attempt.vertexTokenType,
+								clientRequestId: upstreamClientRequestId,
 							}),
 						},
 						body: JSON.stringify(attempt.requestBody),
@@ -1539,6 +1545,10 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 			}
 
 			const duration = Date.now() - startedAt;
+			const upstreamRequestId = getUpstreamRequestId(
+				providerId,
+				upstreamResponse.headers,
+			);
 
 			if (!upstreamResponse.ok) {
 				const upstreamText = await upstreamResponse.text();
@@ -1609,6 +1619,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 					{
 						...baseLogEntry,
 						id: willRetry ? attemptLogId : finalLogId,
+						upstreamRequestId,
 						routingMetadata: buildSpeechRoutingMetadata(
 							usedApiKeyHash,
 							credentialSource,
@@ -1828,6 +1839,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 								{
 									...baseLogEntry,
 									id: finalLogId,
+									upstreamRequestId,
 									routingMetadata: buildSpeechRoutingMetadata(
 										usedApiKeyHash,
 										credentialSource,
@@ -1981,6 +1993,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 						{
 							...baseLogEntry,
 							id: finalLogId,
+							upstreamRequestId,
 							routingMetadata: buildSpeechRoutingMetadata(
 								usedApiKeyHash,
 								credentialSource,
@@ -2075,6 +2088,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 					{
 						...baseLogEntry,
 						id: finalLogId,
+						upstreamRequestId,
 						routingMetadata: buildSpeechRoutingMetadata(
 							usedApiKeyHash,
 							credentialSource,
@@ -2187,6 +2201,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 					{
 						...baseLogEntry,
 						id: finalLogId,
+						upstreamRequestId,
 						routingMetadata: buildSpeechRoutingMetadata(
 							usedApiKeyHash,
 							credentialSource,
@@ -2309,6 +2324,7 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 				{
 					...baseLogEntry,
 					id: finalLogId,
+					upstreamRequestId,
 					routingMetadata: buildSpeechRoutingMetadata(
 						usedApiKeyHash,
 						credentialSource,

@@ -2806,6 +2806,14 @@ export const log = snakeCase.table(
 		upstreamRequest: jsonb(),
 		upstreamResponse: jsonb(),
 		traceId: text(),
+		// Gateway-generated id sent upstream with this attempt (OpenAI
+		// `X-Client-Request-Id`, Azure `x-ms-client-request-id`), so a provider
+		// report quoting it maps to this row. Null when the provider takes none.
+		// Unindexed: look it up bounded by created_at, e.g.
+		// `WHERE created_at BETWEEN $from AND $to AND upstream_client_request_id = $id`.
+		upstreamClientRequestId: text(),
+		// The provider's own request id from the response (`x-request-id`).
+		upstreamRequestId: text(),
 		dataRetentionCleanedUp: boolean().default(false),
 		dataStorageCost: decimal().notNull().default("0"),
 		params: json().$type<{
