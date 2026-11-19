@@ -296,6 +296,47 @@ describe("decisions", () => {
 		expect(Number(log?.cost)).toBeCloseTo(300 * 0.11e-6, 12);
 	});
 
+	test("/v1/decisions bills Azure prompt-cache reads and writes at their own rates", async () => {
+		await seedApiKey("decisions-azure-cache");
+		await seedProviderKey("decisions-azure-cache", "azure");
+
+		const res = await postDecision("decisions-azure-cache", {
+			model: "azure/gpt-6-luna-decisions",
+			input: "CACHE_HIT Our integration returns 500s.",
+			questions: QUESTIONS,
+		});
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "azure/gpt-6-luna-decisions");
+		expect(log?.cachedTokens).toBe("200");
+		// 200 cached reads, 50 cache writes and 50 uncached input tokens.
+		const cachedCost = 200 * 0.011e-6;
+		const writeCost = 50 * 0.1375e-6;
+		const uncachedCost = 50 * 0.11e-6;
+		expect(Number(log?.cachedInputCost)).toBeCloseTo(cachedCost, 12);
+		expect(Number(log?.cost)).toBeCloseTo(
+			cachedCost + writeCost + uncachedCost,
+			12,
+		);
+	});
+
+	test("/v1/decisions bills cached input at the input rate when the mapping has no cache price", async () => {
+		await seedApiKey("decisions-openai-cache");
+		await seedProviderKey("decisions-openai-cache", "openai");
+
+		const res = await postDecision("decisions-openai-cache", {
+			model: "openai/gpt-6-luna-decisions",
+			input: "CACHE_HIT Our integration returns 500s.",
+			questions: QUESTIONS,
+		});
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "openai/gpt-6-luna-decisions");
+		expect(Number(log?.cost)).toBeCloseTo(300 * 0.1e-6, 12);
+	});
+
 	test("/v1/decisions reports an invalid Azure resource as a 400", async () => {
 		await seedApiKey("decisions-azure-bad-resource");
 		await db.insert(tables.providerKey).values({

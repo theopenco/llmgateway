@@ -199,9 +199,15 @@ function readUsage(upstream: Record<string, unknown>) {
 		upstream.usage && typeof upstream.usage === "object"
 			? (upstream.usage as Record<string, unknown>)
 			: {};
+	const details =
+		usage.input_tokens_details && typeof usage.input_tokens_details === "object"
+			? (usage.input_tokens_details as Record<string, unknown>)
+			: {};
 	return {
 		inputTokens: tokenCount(usage.input_tokens),
 		outputTokens: tokenCount(usage.output_tokens),
+		cachedTokens: tokenCount(details.cached_tokens),
+		cacheWriteTokens: tokenCount(details.cache_write_tokens),
 	};
 }
 

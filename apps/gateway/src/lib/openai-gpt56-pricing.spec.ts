@@ -196,9 +196,15 @@ describe("GPT-5.6 and GPT-6 on Azure", () => {
 			(e) => e.modelId === "gpt-6-luna-decisions",
 		);
 		expect(entry?.provider.inputPrice).toBe("0.11e-6");
-		expect(entry?.provider.pricingTiers?.map((t) => t.inputPrice)).toEqual([
-			"0.11e-6",
-			"0.22e-6",
+		expect(
+			entry?.provider.pricingTiers?.map((t) => [
+				t.inputPrice,
+				t.cachedInputPrice,
+				t.cacheWriteInputPrice,
+			]),
+		).toEqual([
+			["0.11e-6", "0.011e-6", "0.1375e-6"],
+			["0.22e-6", "0.022e-6", "0.275e-6"],
 		]);
 	});
 

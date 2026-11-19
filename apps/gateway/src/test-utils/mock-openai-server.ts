@@ -1704,7 +1704,10 @@ mockOpenAIServer.post("/v1/decisions", async (c) => {
 		answers,
 		usage: {
 			input_tokens: 300,
-			input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+			// CACHE_HIT reports a partly cached prompt so specs can check cache billing.
+			input_tokens_details: JSON.stringify(body.input).includes("CACHE_HIT")
+				? { cached_tokens: 200, cache_write_tokens: 50 }
+				: { cached_tokens: 0, cache_write_tokens: 0 },
 			output_tokens: 0,
 			output_tokens_details: { reasoning_tokens: 0 },
 			total_tokens: 300,
