@@ -1025,7 +1025,7 @@ anthropic.openapi(messages, async (c) => {
 				});
 			}
 
-			// Handle any remaining text content as a user message, preserving
+			// Handle any remaining text and documents as a user message, preserving
 			// cache_control markers the same way the generic text path below does.
 			const textBlocks = message.content.filter(
 				(block) => block.type === "text",
@@ -1035,16 +1035,30 @@ anthropic.openapi(messages, async (c) => {
 			);
 			const textContent = textBlocks.map((block) => block.text).join("");
 
-			if (hasAnyCacheControl) {
+			const hasDocument = message.content.some(
+				(block) => block.type === "document",
+			);
+
+			if (hasAnyCacheControl || hasDocument) {
 				openaiMessages.push({
 					role: "user",
-					content: textBlocks.map((block) => ({
-						type: "text",
-						text: block.text,
-						...(block.cache_control && {
-							cache_control: block.cache_control,
-						}),
-					})),
+					content: message.content.flatMap((block): unknown[] => {
+						if (block.type === "document") {
+							return [documentBlockToFilePart(block)];
+						}
+						if (block.type !== "text" || (hasDocument && !block.text)) {
+							return [];
+						}
+						return [
+							{
+								type: "text",
+								text: block.text,
+								...(block.cache_control && {
+									cache_control: block.cache_control,
+								}),
+							},
+						];
+					}),
 				});
 			} else if (textContent) {
 				openaiMessages.push({

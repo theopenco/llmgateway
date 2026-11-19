@@ -10,7 +10,7 @@ LLMGateway supports sending documents (PDFs and other file types) to document-ca
 
 ## Document-Capable Models
 
-Document input is supported on Google Gemini models (Google AI Studio and Google Vertex AI) and on Anthropic Claude models (Anthropic, Google Vertex AI, and Azure). You can find document-capable models on the [models page with the document filter](https://llmgateway.io/models?filters=1&document=true).
+Find document-capable models and the providers that serve them on the [models page with the document filter](https://llmgateway.io/models?filters=1&document=true).
 
 On the Anthropic-compatible [`/v1/messages`](/features/anthropic-endpoint) endpoint, send the document as a `document` block with a `base64` or `text` source instead. Other source types return `400`.
 
@@ -70,7 +70,7 @@ The accepted MIME types depend on the target model. Gemini models commonly suppo
 - `text/markdown`
 - `text/xml`
 
-Claude models read `application/pdf` and any `text/*` type, which is sent as plain text.
+Claude models read `application/pdf` and any UTF-8 encoded `text/*` type, which is sent as plain text.
 
 If the upstream provider rejects the MIME type, the gateway surfaces a `400` error including the unsupported MIME type and the provider it was sent to. To use a different file type, encode the file with the matching MIME type in the data URL prefix.
 

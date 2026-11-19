@@ -186,6 +186,33 @@ describe("document input on Anthropic", () => {
 		expect(upstreamDocuments()).toEqual([pdfDocument, textDocument]);
 	});
 
+	test("/v1/messages keeps a document sent next to a tool result", async () => {
+		await setup();
+
+		const res = await post("/v1/messages", {
+			messages: [
+				{ role: "user", content: "Fetch the report." },
+				{
+					role: "assistant",
+					content: [
+						{ type: "tool_use", id: "toolu_0", name: "fetch", input: {} },
+					],
+				},
+				{
+					role: "user",
+					content: [
+						{ type: "tool_result", tool_use_id: "toolu_0", content: "ok" },
+						pdfDocument,
+						{ type: "text", text: "Summarize." },
+					],
+				},
+			],
+		});
+
+		expect(res.status).toBe(200);
+		expect(upstreamDocuments()).toEqual([pdfDocument]);
+	});
+
 	test("/v1/messages rejects a document the gateway cannot inline", async () => {
 		await setup();
 
