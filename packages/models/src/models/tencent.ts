@@ -222,6 +222,26 @@ export const tencentModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 			},
+			{
+				providerId: "together-ai",
+				externalId: "tencent/Hy4",
+				inputPrice: "0.834e-6",
+				cachedInputPrice: "0.042e-6",
+				outputPrice: "2.501e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 1000000,
+				// Above 1 the model reasons in a loop until max_tokens without
+				// producing any content.
+				maxTemperature: 1,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
 		],
 	},
 	{
