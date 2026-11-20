@@ -25,6 +25,30 @@ export interface ContextWindowModel {
 
 const MAX_ROWS = 100;
 
+type Fit = "yes" | "no" | "unknown";
+
+const FIT_LABELS: Record<Fit, string> = {
+	yes: "Yes",
+	no: "No",
+	unknown: "Unknown output limit",
+};
+
+// A model with no recorded output limit may still have one, so a request that
+// reserves output cannot be confirmed to fit.
+function fitFor(
+	model: ContextWindowModel,
+	needed: number,
+	outputTokens: number,
+): Fit {
+	if (needed > model.contextSize) {
+		return "no";
+	}
+	if (model.maxOutput === 0) {
+		return outputTokens > 0 ? "unknown" : "yes";
+	}
+	return outputTokens <= model.maxOutput ? "yes" : "no";
+}
+
 export function ContextWindowTable({
 	models,
 	text,
@@ -48,13 +72,8 @@ export function ContextWindowTable({
 				model.name.toLowerCase().includes(normalizedQuery) ||
 				model.id.toLowerCase().includes(normalizedQuery),
 		)
-		.map((model) => ({
-			...model,
-			fits:
-				needed <= model.contextSize &&
-				(model.maxOutput === 0 || outputTokens <= model.maxOutput),
-		}));
-	const fitting = rows.filter((row) => row.fits).length;
+		.map((model) => ({ ...model, fit: fitFor(model, needed, outputTokens) }));
+	const fitting = rows.filter((row) => row.fit === "yes").length;
 	const visible = rows.slice(0, MAX_ROWS);
 
 	return (
@@ -98,12 +117,12 @@ export function ContextWindowTable({
 								</TableCell>
 								<TableCell
 									className={
-										row.fits
+										row.fit === "yes"
 											? "font-medium text-emerald-600 dark:text-emerald-400"
 											: "text-muted-foreground"
 									}
 								>
-									{row.fits ? "Yes" : "No"}
+									{FIT_LABELS[row.fit]}
 								</TableCell>
 							</TableRow>
 						))}

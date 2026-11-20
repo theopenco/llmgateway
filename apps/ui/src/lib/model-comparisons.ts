@@ -1,3 +1,5 @@
+import { Decimal } from "decimal.js";
+
 import { perMillion } from "@/lib/discount";
 
 import {
@@ -12,6 +14,7 @@ import { formatNumber } from "@llmgateway/shared/number-format";
 const SEPARATOR = "-vs-";
 const FLAGSHIP_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 const BLEND_INPUT_SHARE = 3;
+const TOKENS_PER_MILLION = 1e6;
 
 // Families whose flagship models are paired with each other. Order sets which
 // model comes first in a featured slug.
@@ -64,6 +67,11 @@ const providerNameById = new Map(
 );
 
 function toComparisonModel(model: ModelDefinition): ComparisonModel | null {
+	// Comparison pages describe chat models; embedding, image and other
+	// outputs use different endpoints and pricing units.
+	if (!(model.output ?? ["text"]).includes("text")) {
+		return null;
+	}
 	const mappings = expandAllProviderRegions(model.providers).filter(
 		(mapping) => !isMappingDeactivated(mapping),
 	);
@@ -259,9 +267,13 @@ export function workloadCost(
 	inputTokens: number,
 	outputTokens: number,
 ): number {
-	const inputCost = (inputTokens / 1e6) * model.inputPrice;
-	const outputCost = (outputTokens / 1e6) * model.outputPrice;
-	return inputCost + outputCost;
+	return new Decimal(inputTokens)
+		.div(TOKENS_PER_MILLION)
+		.mul(model.inputPrice)
+		.plus(
+			new Decimal(outputTokens).div(TOKENS_PER_MILLION).mul(model.outputPrice),
+		)
+		.toNumber();
 }
 
 export function blendedPrice(
@@ -299,8 +311,13 @@ export function buildComparisonSummary(
 	const leftBlend = blendedPrice(left);
 	const rightBlend = blendedPrice(right);
 	let priceSentence: string;
-	if (leftBlend === rightBlend) {
+	if (
+		left.inputPrice === right.inputPrice &&
+		left.outputPrice === right.outputPrice
+	) {
 		priceSentence = `${left.name} and ${right.name} cost the same: ${formatUsd(left.inputPrice)} per 1M input tokens and ${formatUsd(left.outputPrice)} per 1M output tokens.`;
+	} else if (leftBlend === rightBlend) {
+		priceSentence = `${left.name} and ${right.name} cost the same on a workload with ${BLEND_INPUT_SHARE} input tokens per output token, at different rates: ${formatUsd(left.inputPrice)} input and ${formatUsd(left.outputPrice)} output per 1M tokens for ${left.name}, against ${formatUsd(right.inputPrice)} and ${formatUsd(right.outputPrice)} for ${right.name}.`;
 	} else {
 		const [cheap, dear, wins] =
 			leftBlend < rightBlend

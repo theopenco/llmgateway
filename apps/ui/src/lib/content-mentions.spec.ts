@@ -22,6 +22,14 @@ describe("content mentions", () => {
 		expect(mentionsModel(content, base)).toBe(false);
 	});
 
+	it("matches a model id or provider name that ends a sentence", () => {
+		const mentions = getContentMentions(`Use ${base}. It runs on OpenAI.`);
+		expect(mentions.models.map((link) => link.href)).toContain(
+			`/models/${encodeURIComponent(base)}`,
+		);
+		expect(mentions.providers.map((link) => link.label)).toContain("OpenAI");
+	});
+
 	it("links a model named by id", () => {
 		const mentions = getContentMentions(`Requests go to ${base} by default.`);
 		expect(mentions.models.map((link) => link.href)).toContain(

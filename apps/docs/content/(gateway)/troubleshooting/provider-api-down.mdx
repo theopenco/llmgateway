@@ -36,9 +36,9 @@ curl https://api.llmgateway.io/v1/chat/completions \
   }'
 ```
 
-Failover does not run when you pin a provider with a prefix (`openai/gpt-4o`), when you send `X-No-Fallback: true`, or when no other provider serves the model. See [Automatic Retry & Fallback](/features/routing#automatic-retry--fallback) for the full rules.
+Failover does not run when you pin a provider with a prefix (`openai/gpt-4o`), when you send `X-No-Fallback: true`, or when no other provider serves the model. A streaming response that has already sent output is not retried either: a later failure ends the stream, so your client must handle partial output. See [Automatic Retry & Fallback](/features/routing#automatic-retry--fallback) for the full rules.
 
-If every provider fails, the gateway returns an error in the OpenAI format with `type` `upstream_error` or `gateway_error`. The upstream status code is recorded in the request log, not passed through. See [LLM Gateway API Errors](/resources/error-handling#upstream-provider-errors).
+If every provider fails, the gateway returns an error in the OpenAI format with `type` `upstream_error` or `gateway_error`, or HTTP `504` with `type` `upstream_timeout` when the upstream timed out. The upstream status code is recorded in the request log, not passed through. See [LLM Gateway API Errors](/resources/error-handling#upstream-provider-errors).
 
 ## Keep a single outage from reaching your users
 

@@ -32,18 +32,17 @@ const MAX_MODELS = 8;
 const MAX_PROVIDERS = 6;
 const MAX_COMPARISONS = 4;
 // Characters that continue a model id or name, so "gpt-4o" does not match
-// inside "gpt-4o-mini".
-const BOUNDARY = "[A-Za-z0-9.-]";
+// inside "gpt-4o-mini" or "gpt-4o.1". A period that ends a sentence is not a
+// continuation.
+const BEFORE = "[A-Za-z0-9.-]";
+const AFTER = "[A-Za-z0-9-]|\\.[A-Za-z0-9]";
 
 function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function bounded(term: string, flags: string): RegExp {
-	return new RegExp(
-		`(?<!${BOUNDARY})${escapeRegExp(term)}(?!${BOUNDARY})`,
-		flags,
-	);
+	return new RegExp(`(?<!${BEFORE})${escapeRegExp(term)}(?!${AFTER})`, flags);
 }
 
 const candidates: Candidate[] = (() => {

@@ -7,9 +7,9 @@ summary: "A deep dive into the routing, retry, and failover systems that keep LL
 categories: ["Engineering"]
 faqs:
   - question: "How does LLM provider failover work?"
-    answer: "When a request to one provider fails, the gateway retries it on a different provider that serves the same model, within the same API call. The client receives a successful response instead of the error."
+    answer: "When a request to one provider fails, the gateway retries it on a different provider that serves the same model, within the same API call. If a retry succeeds, the client receives a successful response instead of the error."
   - question: "How does LLM Gateway choose a provider for a request?"
-    answer: "For a request without a provider prefix, the gateway scores the available providers on weighted factors instead of rotating through them, and sends the request to the best-scoring one."
+    answer: "For a request without a provider prefix, the gateway scores the available providers on weighted factors instead of rotating through them, and usually sends the request to the best-scoring one. A small share of requests goes to other providers to keep their scores current."
 image:
   src: "/blog/how-we-handle-llm-provider-failover.png"
   alt: "How We Handle LLM Provider Failover at Scale"

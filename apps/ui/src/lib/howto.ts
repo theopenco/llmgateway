@@ -14,8 +14,13 @@ const STEP_HEADING = /^### \d+\. (.+)$/;
 export function extractHowToSteps(markdown: string): HowToStep[] {
 	const steps: HowToStep[] = [];
 	const lines = markdown.split("\n");
+	let inFence = false;
 	for (let i = 0; i < lines.length; i++) {
-		const heading = lines[i].match(STEP_HEADING);
+		if (lines[i].startsWith("```")) {
+			inFence = !inFence;
+			continue;
+		}
+		const heading = inFence ? null : lines[i].match(STEP_HEADING);
 		if (!heading) {
 			continue;
 		}

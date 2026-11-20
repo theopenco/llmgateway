@@ -68,7 +68,7 @@ export const glossaryTerms: GlossaryTerm[] = [
 		sections: [
 			{
 				heading: "Why it matters",
-				text: "A larger window lets you send whole documents, long conversations, or a full codebase in one request. It also raises cost, because every token in the window is billed as input on each call.",
+				text: "A larger window lets you send whole documents, long conversations, or a full codebase in one request. Filling it raises cost, because every input token you send is billed on each call.",
 			},
 			{
 				heading: "The same model can have different windows",

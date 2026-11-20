@@ -10,14 +10,14 @@ An OpenAI `429` error means the request was refused before the model ran. There 
 
 ## Tell the two 429 errors apart
 
-| Error `code`          | Typical message                                                               | Cause                                                        | Retrying helps    |
-| --------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------ | ----------------- |
-| `rate_limit_exceeded` | `Rate limit reached for ... on requests per min` or `tokens per min`          | Too many requests or tokens in the current window (RPM, TPM) | Yes, after a wait |
-| `insufficient_quota`  | `You exceeded your current quota, please check your plan and billing details` | The account has no credit left or reached its monthly budget | No                |
+| Error `code`          | Typical message                                                               | Cause                                                                     | Retrying helps    |
+| --------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ----------------- |
+| `rate_limit_exceeded` | `Rate limit reached for ... on requests per min` or `tokens per min`          | Too many requests or tokens in the current window (per minute or per day) | Yes, after a wait |
+| `insufficient_quota`  | `You exceeded your current quota, please check your plan and billing details` | The account has no credit left or reached its monthly budget              | No                |
 
 ## Fix a rate limit (`rate_limit_exceeded`)
 
-1. **Retry with exponential backoff and jitter.** Rate limits reset within a minute. Wait, then retry, doubling the wait each time.
+1. **Retry with exponential backoff and jitter.** The error message names the limit you exceeded. Per-minute limits reset within a minute: wait, then retry, doubling the wait each time. A daily limit does not reset until the next day, so retrying sooner will not help.
 2. **Lower `max_tokens`.** OpenAI counts the requested output tokens against the tokens-per-minute limit before the response is generated.
 3. **Reduce concurrency.** Queue requests instead of sending a burst.
 4. **Move work that is not urgent to the Batch API,** which has a separate limit.
@@ -65,9 +65,9 @@ curl https://api.llmgateway.io/v1/chat/completions \
   }'
 ```
 
-Failover does not run when you pin a provider with a prefix (`openai/gpt-4o`), when you send `X-No-Fallback: true`, or when no other provider serves the model. See [Automatic Retry & Fallback](/features/routing#automatic-retry--fallback) for the full rules.
+Failover does not run when you pin a provider with a prefix (`openai/gpt-4o`), when you send `X-No-Fallback: true`, or when no other provider serves the model. A streaming response that has already sent output is not retried either: a later failure ends the stream, so your client must handle partial output. See [Automatic Retry & Fallback](/features/routing#automatic-retry--fallback) for the full rules.
 
-If every provider fails, the gateway returns an error in the OpenAI format with `type` `upstream_error` or `gateway_error`. The upstream status code is recorded in the request log, not passed through. See [LLM Gateway API Errors](/resources/error-handling#upstream-provider-errors).
+If every provider fails, the gateway returns an error in the OpenAI format with `type` `upstream_error` or `gateway_error`, or HTTP `504` with `type` `upstream_timeout` when the upstream timed out. The upstream status code is recorded in the request log, not passed through. See [LLM Gateway API Errors](/resources/error-handling#upstream-provider-errors).
 
 <Callout type="info">
 	A `429` with `type` `rate_limit_error` and `code` `rate_limit_exceeded` that

@@ -38,6 +38,22 @@ describe("extractHowToSteps", () => {
 		]);
 	});
 
+	it("ignores numbered headings inside code fences", () => {
+		expect(
+			extractHowToSteps(
+				[
+					"```md",
+					"### 1. Example",
+					"```",
+					"",
+					"### 1. Real",
+					"",
+					"Do it.",
+				].join("\n"),
+			),
+		).toEqual([{ name: "Real", text: "Do it." }]);
+	});
+
 	it("ignores unnumbered headings", () => {
 		expect(extractHowToSteps("### Overview\n\nText.")).toEqual([]);
 	});

@@ -74,7 +74,7 @@ export function ModelPricingSection({
 								: ""
 						}`}
 				{tiered
-					? " Some providers charge more above a prompt-size threshold; the provider table lists every tier."
+					? " Some providers charge more above a prompt-size threshold; prices here are base-tier rates, and the Providers tab shows the tiers."
 					: ""}
 			</p>
 			<div className="overflow-x-auto rounded-lg border">
@@ -148,6 +148,7 @@ export function ModelPricingSection({
 					<div className="mt-8">
 						<ModelCostCalculator
 							modelName={modelName}
+							tiered={tiered}
 							providers={rows.map((row) => ({
 								key: row.key,
 								label: row.label,

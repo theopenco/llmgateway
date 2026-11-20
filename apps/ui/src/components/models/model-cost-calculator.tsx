@@ -1,5 +1,6 @@
 "use client";
 
+import { Decimal } from "decimal.js";
 import { useId, useState } from "react";
 
 import { Input } from "@/lib/components/input";
@@ -28,9 +29,11 @@ function toCount(value: string): number {
 export function ModelCostCalculator({
 	modelName,
 	providers,
+	tiered,
 }: {
 	modelName: string;
 	providers: CostCalculatorProvider[];
+	tiered: boolean;
 }) {
 	const id = useId();
 	const [providerKey, setProviderKey] = useState(providers[0]?.key ?? "");
@@ -49,7 +52,7 @@ export function ModelCostCalculator({
 		toCount(inputTokens),
 		toCount(outputTokens),
 	);
-	const monthly = perRequest * toCount(requests);
+	const monthly = new Decimal(perRequest).mul(toCount(requests)).toNumber();
 
 	const fields = [
 		{
@@ -126,6 +129,12 @@ export function ModelCostCalculator({
 					</dd>
 				</div>
 			</dl>
+			{tiered && (
+				<p className="mt-3 text-sm text-muted-foreground">
+					The estimate uses base-tier prices. Prompts above a provider&apos;s
+					size threshold cost more.
+				</p>
+			)}
 		</div>
 	);
 }

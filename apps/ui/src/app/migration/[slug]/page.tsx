@@ -7,6 +7,7 @@ import { notFound } from "next/navigation";
 import { CopyPromptButton } from "@/app/migration/[slug]/copy-prompt-button";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { buildHowToSchema, extractHowToSteps } from "@/lib/howto";
+import { serializeJsonLd } from "@/lib/json-ld";
 import { getMigrationPrompt } from "@/lib/migration-prompts";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
@@ -83,7 +84,7 @@ export default async function MigrationPage({ params }: MigrationPageProps) {
 						type="application/ld+json"
 						// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 						dangerouslySetInnerHTML={{
-							__html: JSON.stringify(structuredData),
+							__html: serializeJsonLd(structuredData),
 						}}
 					/>
 					<nav className="max-w-4xl mx-auto mb-8" aria-label="Breadcrumb">

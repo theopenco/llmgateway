@@ -7,7 +7,7 @@ summary: "A practical guide to forecasting LLM costs: the token formula, real-wo
 categories: ["Guides"]
 faqs:
   - question: "How do you estimate LLM token costs?"
-    answer: "Providers charge a price per million input tokens and a price per million output tokens. Multiply your average input and output tokens per request by those prices, then by your request volume."
+    answer: "Providers charge a price per million input tokens and a price per million output tokens. Divide your average input and output tokens per request by one million, multiply each by its price, add the two, then multiply by your request volume."
   - question: "What numbers do I need to estimate LLM costs?"
     answer: "You need the average input tokens per request, including the system prompt and any retrieved context, the average output tokens per request, and the number of requests you expect."
 image:
