@@ -1,0 +1,89 @@
+---
+title: Fix the Anthropic 529 Overloaded Error
+description: What the Anthropic "overloaded_error" (HTTP 529) means, why it is not a rate limit on your account, and how to retry or fail over to another Claude provider.
+icon: ServerCrash
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+An Anthropic `529` response with `"type": "overloaded_error"` means Anthropic's API is temporarily short of capacity across all customers. It is not caused by your request, and it is not a limit on your account. The request is safe to retry.
+
+```json
+{
+	"type": "error",
+	"error": {
+		"type": "overloaded_error",
+		"message": "Overloaded"
+	}
+}
+```
+
+## 529 overloaded is not 429 rate limited
+
+| Status | `error.type`       | Meaning                                               | What to do                                    |
+| ------ | ------------------ | ----------------------------------------------------- | --------------------------------------------- |
+| `529`  | `overloaded_error` | Anthropic's API is overloaded for everyone            | Retry with backoff, or use another provider   |
+| `429`  | `rate_limit_error` | Your account exceeded its request or token rate limit | Slow down, or ask Anthropic for higher limits |
+
+## Fix it
+
+1. **Retry with exponential backoff and jitter.** Overload usually clears within seconds to minutes. The official Anthropic SDKs retry a small number of times on their own; raise `max_retries` for batch jobs.
+2. **Do not retry in a tight loop.** Immediate retries from many clients keep the API overloaded.
+3. **Use streaming for long responses.** A stream that has started is less likely to be dropped than a long non-streaming request.
+4. **Route to another provider that serves the same Claude model,** so the request does not depend on one API.
+
+```python
+import random
+import time
+
+from openai import OpenAI, RateLimitError, InternalServerError
+
+client = OpenAI(
+    base_url="https://api.llmgateway.io/v1",
+    api_key="YOUR_LLM_GATEWAY_API_KEY",
+)
+
+
+def complete(messages, model, attempts=5):
+    for attempt in range(attempts):
+        try:
+            return client.chat.completions.create(model=model, messages=messages)
+        except (RateLimitError, InternalServerError):
+            if attempt == attempts - 1:
+                raise
+            time.sleep(min(2**attempt, 30) + random.random())
+```
+
+## Let the gateway fail over for you
+
+Send the request with a model ID and no provider prefix. When the upstream provider returns a `429`, a `5xx`, or times out, LLM Gateway retries the same request on another provider that serves the model, inside the same API call. Your application receives the successful response.
+
+```bash
+curl https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-sonnet-4-5",
+    "messages": [{ "role": "user", "content": "Hello" }]
+  }'
+```
+
+Failover does not run when you pin a provider with a prefix (`anthropic/claude-sonnet-4-5`), when you send `X-No-Fallback: true`, or when no other provider serves the model. See [Automatic Retry & Fallback](/features/routing#automatic-retry--fallback) for the full rules.
+
+If every provider fails, the gateway returns an error in the OpenAI format with `type` `upstream_error` or `gateway_error`. The upstream status code is recorded in the request log, not passed through. See [LLM Gateway API Errors](/resources/error-handling#upstream-provider-errors).
+
+<Callout type="info">
+	On the Anthropic-compatible `/v1/messages` endpoint, LLM Gateway returns
+	errors in Anthropic's native format. See [LLM Gateway API
+	Errors](/resources/error-handling#anthropic-endpoint).
+</Callout>
+
+## Check whether Anthropic is having an incident
+
+The [Anthropic status page](https://llmgateway.io/status/anthropic) shows official incidents next to the uptime LLM Gateway measures on real traffic.
+
+## Related
+
+- [What to do when an LLM provider API is down](/troubleshooting/provider-api-down)
+- [LLM Gateway API Errors](/resources/error-handling)
+- [Routing](/features/routing)
