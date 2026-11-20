@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 
+import { BlogMentionsList } from "@/components/blog/blog-mentions-list";
 import { CompareFaq } from "@/components/compare/compare-faq";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
@@ -7,6 +8,7 @@ import { adaptProviderMapping } from "@/components/models/adapt-model";
 import { Hero } from "@/components/providers/hero";
 import { ProviderModelsGrid } from "@/components/providers/provider-models-grid";
 import { ProviderStatsRow } from "@/components/providers/provider-stats-row";
+import { DataAsOf } from "@/components/seo/data-as-of";
 import { JsonLd } from "@/components/seo/json-ld";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { pageTitle } from "@/lib/page-title";
@@ -88,7 +90,8 @@ async function renderDynamicProviderPage(id: string) {
 				<ProviderStatsRow providerId={id} />
 				<section className="py-12 bg-background">
 					<div className="container mx-auto px-4">
-						<h2 className="text-3xl font-bold mb-8">Available Models</h2>
+						<h2 className="text-3xl font-bold mb-2">Available Models</h2>
+						<DataAsOf className="mb-8" />
 						<ProviderModelsGrid models={providerModels} />
 					</div>
 				</section>
@@ -339,8 +342,16 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 
 				<section className="py-12 bg-background">
 					<div className="container mx-auto px-4">
-						<h2 className="text-3xl font-bold mb-8">Available Models</h2>
+						<h2 className="text-3xl font-bold mb-2">Available Models</h2>
+						<DataAsOf className="mb-8" />
 						<ProviderModelsGrid models={providerModels} />
+						<div className="mt-12">
+							<BlogMentionsList
+								kind="provider"
+								id={provider.id}
+								name={provider.name}
+							/>
+						</div>
 					</div>
 				</section>
 				<CompareFaq

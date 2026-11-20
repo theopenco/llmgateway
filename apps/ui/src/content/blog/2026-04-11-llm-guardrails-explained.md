@@ -5,6 +5,11 @@ date: 2026-04-11
 title: "LLM Guardrails Explained: Prompt Injection, PII Detection & Content Moderation"
 summary: "What LLM guardrails are, why they matter in production, and how to implement content safety without building it yourself."
 categories: ["Guides"]
+faqs:
+  - question: "What are LLM guardrails?"
+    answer: "Guardrails are automated rules that scan LLM requests before they reach the model. They sit between your application and the provider and check for security threats, sensitive data, and policy violations."
+  - question: "What is prompt injection?"
+    answer: "Prompt injection is an attack in which a user embeds instructions in their input to override your system instructions, for example asking the model to ignore its previous instructions and reveal the system prompt."
 image:
   src: "/blog/llm-guardrails-explained.png"
   alt: "LLM Guardrails Explained: Prompt Injection, PII Detection & Content Moderation"

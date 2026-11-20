@@ -23,6 +23,7 @@ import {
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { BlogMentionsList } from "@/components/blog/blog-mentions-list";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { adaptModel } from "@/components/models/adapt-model";
@@ -34,6 +35,10 @@ import {
 	TryInLoungeLink,
 } from "@/components/models/model-cta-button";
 import { ModelFaqSection } from "@/components/models/model-faq";
+import {
+	ModelPricingSection,
+	type ModelPricingRow,
+} from "@/components/models/model-pricing-section";
 import { ModelRating } from "@/components/models/model-rating";
 import { ModelSectionTabs } from "@/components/models/model-section-tabs";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
@@ -41,6 +46,7 @@ import { ModelUsageStats } from "@/components/models/model-usage-stats";
 import { ProviderComparisonTable } from "@/components/models/provider-comparison-table";
 import { RelatedModels } from "@/components/models/related-models";
 import { VirtualModelBanner } from "@/components/models/virtual-model-banner";
+import { DataAsOf } from "@/components/seo/data-as-of";
 import { JsonLd } from "@/components/seo/json-ld";
 import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
@@ -51,6 +57,7 @@ import {
 	perMillion,
 } from "@/lib/discount";
 import { fetchModelDiscounts, fetchProviders } from "@/lib/fetch-models";
+import { blendedPrice } from "@/lib/model-comparisons";
 import { buildFaqSchema, buildModelFaqs } from "@/lib/model-faq";
 import { getCheapestOgMapping } from "@/lib/model-og";
 import { isLoungeChatModel } from "@/lib/model-utils";
@@ -595,6 +602,32 @@ export default async function ModelPage({ params }: PageProps) {
 			}),
 		});
 	}
+	const pricingRows: ModelPricingRow[] =
+		hideTokenInfo || imageOutput
+			? []
+			: visibleProviders
+					.flatMap((p) => {
+						const inputPrice = perMillion(p.inputPrice);
+						const outputPrice = perMillion(p.outputPrice);
+						if (inputPrice === null || outputPrice === null) {
+							return [];
+						}
+						const cachedInputPrice = perMillion(p.cachedInputPrice);
+						return [
+							{
+								key: `${p.providerId}:${p.region ?? ""}`,
+								label: `${p.providerInfo?.name ?? p.providerId}${p.region ? ` (${p.region})` : ""}`,
+								inputPrice: applyDiscount(inputPrice, p.discount),
+								outputPrice: applyDiscount(outputPrice, p.discount),
+								cachedInputPrice:
+									cachedInputPrice === null
+										? null
+										: applyDiscount(cachedInputPrice, p.discount),
+								contextSize: p.contextSize ?? 0,
+							},
+						];
+					})
+					.sort((a, b) => blendedPrice(a) - blendedPrice(b));
 	const stabilityBadge = getStabilityBadgeProps(modelDef.stability);
 	const pageSections: ModelSection[] = [
 		{
@@ -614,6 +647,24 @@ export default async function ModelPage({ params }: PageProps) {
 				</section>
 			),
 		},
+		...(pricingRows.length > 0
+			? [
+					{
+						id: "pricing",
+						label: "Pricing",
+						content: (
+							<section>
+								<ModelPricingSection
+									modelId={canonicalName}
+									modelName={modelDef.name ?? modelDef.id}
+									rows={pricingRows}
+									tiered={isTiered}
+								/>
+							</section>
+						),
+					},
+				]
+			: []),
 		{
 			id: "performance",
 			label: "Performance",
@@ -643,8 +694,13 @@ export default async function ModelPage({ params }: PageProps) {
 			id: "related",
 			label: "Related models",
 			content: (
-				<section>
+				<section className="space-y-10">
 					<RelatedModels modelDef={modelDef} />
+					<BlogMentionsList
+						kind="model"
+						id={canonicalName}
+						name={modelDef.name ?? modelDef.id}
+					/>
 				</section>
 			),
 		},
@@ -658,7 +714,7 @@ export default async function ModelPage({ params }: PageProps) {
 			<Navbar />
 			<div className="min-h-screen bg-background pt-24 md:pt-32 pb-16">
 				<div className="container mx-auto px-4 py-8">
-					<div className="mb-6">
+					<div className="mb-6 flex flex-wrap items-center justify-between gap-2">
 						<Link
 							href="/models"
 							className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
@@ -666,6 +722,7 @@ export default async function ModelPage({ params }: PageProps) {
 							<ArrowLeft className="mr-2 h-4 w-4" />
 							Back to all models
 						</Link>
+						<DataAsOf />
 					</div>
 					<VirtualModelBanner
 						target={modelDef.virtualModelTarget}
@@ -826,7 +883,7 @@ export async function generateMetadata({
 		return {};
 	}
 
-	const title = `${model.name ?? model.id} — Pricing, Providers & Benchmarks`;
+	const title = `${model.name ?? model.id} API Pricing, Providers & Benchmarks`;
 	const pitch = `Use ${model.name ?? model.id} via one OpenAI-compatible API with live per-token pricing across providers.`;
 	const shortPitch = "Live per-token pricing across providers via one API.";
 	const description = !model.description

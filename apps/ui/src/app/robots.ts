@@ -1,4 +1,8 @@
+import { AI_CRAWLER_USER_AGENTS } from "@llmgateway/shared/ai-crawlers";
+
 import type { MetadataRoute } from "next";
+
+const disallow = ["/dashboard", "/dashboard/", "/api", "/api/"];
 
 export default function robots(): MetadataRoute.Robots {
 	return {
@@ -13,8 +17,9 @@ export default function robots(): MetadataRoute.Robots {
 				// indexed URLs stuck as "Indexed, though blocked by robots.txt".
 				// A bare "/ref" entry would also prefix-block the public
 				// /referrals page and referral link previews on X/LinkedIn/Slack.
-				disallow: ["/dashboard", "/dashboard/", "/api", "/api/"],
+				disallow,
 			},
+			{ userAgent: AI_CRAWLER_USER_AGENTS, allow: "/", disallow },
 		],
 		sitemap: "https://llmgateway.io/sitemap.xml",
 	};

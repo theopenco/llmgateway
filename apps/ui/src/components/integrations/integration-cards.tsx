@@ -41,7 +41,7 @@ interface Integration {
 	badge?: string;
 }
 
-const integrations: Integration[] = [
+export const integrations: Integration[] = [
 	{
 		name: "Oh My Pi",
 		description:

@@ -5,6 +5,11 @@ date: 2025-04-12
 title: Introducing LLM Gateway
 summary: One API for 280+ models across 35+ providers. Route requests, track costs, and switch models without changing your code.
 categories: ["Announcements"]
+faqs:
+  - question: "What is LLM Gateway?"
+    answer: "LLM Gateway is an open-source API gateway that sits between your applications and LLM providers. One integration gives you access to models from many providers, with a dashboard that shows what each request costs."
+  - question: "Do I need to rewrite my code to use LLM Gateway?"
+    answer: "No. If you already use the OpenAI SDK, keep your code and change the base URL and API key. Every call is then tracked with its cost, latency, and token usage."
 image:
   src: "/blog/blog-introducing-llm-gateway.png"
   alt: "LLM Gateway"

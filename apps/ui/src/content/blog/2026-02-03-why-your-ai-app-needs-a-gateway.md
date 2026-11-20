@@ -5,6 +5,11 @@ date: 2026-02-03
 title: "Why Your AI App Needs a Gateway Layer"
 summary: "What an LLM gateway does, why it matters, and how it lets you ship AI features faster by abstracting away provider complexity."
 categories: ["Guides"]
+faqs:
+  - question: "Why does an AI app need a gateway layer?"
+    answer: "A gateway handles the operational work of using LLM providers so you can focus on features. It gives you one API for every provider, routes requests to suitable models, caches repeated requests, and shows cost and latency per model, project, and API key."
+  - question: "What is an LLM gateway?"
+    answer: "An LLM gateway is a unified API layer between your application and providers such as OpenAI, Anthropic, and Google. You integrate once with the gateway instead of with each provider's SDK."
 image:
   src: "/blog/why-your-ai-app-needs-a-gateway.png"
   alt: "Why Your AI App Needs a Gateway Layer"

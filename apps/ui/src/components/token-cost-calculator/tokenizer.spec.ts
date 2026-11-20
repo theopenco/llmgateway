@@ -17,6 +17,10 @@ describe("countTokens (o200k_base)", () => {
 		);
 	});
 
+	it("counts special-token strings as ordinary text", () => {
+		expect(countTokens("before <|endoftext|> after")).toBeGreaterThan(2);
+	});
+
 	it("counts code more densely than plain prose of equal length", () => {
 		const code = "function add(a, b) {\n  return a + b;\n}";
 		expect(countTokens(code)).toBeGreaterThan(0);

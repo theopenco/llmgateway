@@ -15,7 +15,9 @@ export function countTokens(text: string): number {
 	if (!text) {
 		return 0;
 	}
-	return encode(text).length;
+	// Pasted text can contain special-token strings such as "<|endoftext|>";
+	// count them as ordinary text instead of letting the encoder throw.
+	return encode(text, { disallowedSpecial: new Set() }).length;
 }
 
 export function countWords(text: string): number {

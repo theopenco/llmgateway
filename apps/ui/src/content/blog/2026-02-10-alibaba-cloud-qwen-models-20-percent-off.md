@@ -5,6 +5,11 @@ date: 2026-02-10
 title: "20% Off All Alibaba Cloud Qwen Models on LLM Gateway"
 summary: "LLM Gateway partners with Alibaba Cloud to bring you 20% off 26 Qwen AI models — including Qwen3 Max, Qwen3 Coder, QwQ reasoning, vision-language, and image generation models."
 categories: ["Announcements"]
+faqs:
+  - question: "What did the Alibaba Cloud partnership announce?"
+    answer: "On February 10, 2026, LLM Gateway announced a 20% discount on Alibaba Cloud Qwen models. Discounts change over time, so check the model pages for current prices."
+  - question: "Did the Qwen discount need a promo code?"
+    answer: "No. The post says the discount was applied automatically to every request."
 image:
   src: "/blog/alibaba-announcement.png"
   alt: "20% Off All Alibaba Cloud Qwen Models on LLM Gateway"

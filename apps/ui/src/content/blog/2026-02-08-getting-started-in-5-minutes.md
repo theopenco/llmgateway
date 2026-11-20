@@ -5,6 +5,11 @@ date: 2026-02-08
 title: "Getting Started with LLM Gateway in 5 Minutes"
 summary: "A step-by-step guide to making your first LLM API request through LLM Gateway — from signup to seeing results in your dashboard."
 categories: ["Guides"]
+faqs:
+  - question: "How do I get started with LLM Gateway?"
+    answer: "Sign in to the dashboard, create a project, and copy its API key. Then point your OpenAI-compatible requests at https://api.llmgateway.io/v1 with that key."
+  - question: "Does LLM Gateway support streaming?"
+    answer: "Yes. Pass stream: true in a request and the gateway returns the response as an event stream."
 image:
   src: "/blog/getting-started-in-5-minutes.png"
   alt: "Getting Started with LLM Gateway in 5 Minutes"

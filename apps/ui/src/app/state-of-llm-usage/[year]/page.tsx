@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { CompareFaq } from "@/components/compare/compare-faq";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
+import { CiteThis } from "@/components/seo/cite-this";
 import { JsonLd } from "@/components/seo/json-ld";
 import { AuthLink } from "@/components/shared/auth-link";
 import { PrintReportButton } from "@/components/usage-report/print-button";
@@ -532,6 +533,9 @@ export default async function StateOfLlmUsagePage({ params }: PageProps) {
 								across providers, so read shares as a view of that audience
 								rather than of the whole market.
 							</p>
+							<CiteThis
+								citation={`LLM Gateway, "${title}", ${period}. ${url}`}
+							/>
 						</div>
 					</Section>
 
