@@ -164,6 +164,8 @@ export {
 	isDayString,
 	isNaiveDateTimeString,
 	shiftDayKey,
+	startOfWeekDayKey,
+	thisWeekDayKeyRange,
 } from "./lib/format-date.js";
 
 export {

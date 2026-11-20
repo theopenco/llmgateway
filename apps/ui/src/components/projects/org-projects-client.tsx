@@ -79,9 +79,6 @@ import {
 import type { Project } from "@/lib/types";
 import type { Route } from "next";
 
-/** Day offset of the default window's start: today plus the 29 days before. */
-const DEFAULT_RANGE_OFFSET = 29;
-
 const DAY_MS = 86_400_000;
 
 /** Longer windows (e.g. "All time") read better as "in period" than "2000d". */
@@ -227,7 +224,7 @@ export function OrgProjectsClient() {
 		timeZone,
 		markGenerated,
 		shouldApplyDefaults,
-	} = useZonedRangeDefaults(DEFAULT_RANGE_OFFSET);
+	} = useZonedRangeDefaults();
 
 	const role = selectedOrganization?.role as OrganizationRole | undefined;
 	const canEdit = canManageProject(role);

@@ -327,6 +327,25 @@ export function shiftDayKey(dayKey: string, days: number): string {
 	)}-${pad(shifted.getUTCDate())}`;
 }
 
+/** The Monday of the week a "YYYY-MM-DD" key falls in. */
+export function startOfWeekDayKey(dayKey: string): string {
+	const [year, month, day] = dayKey.split("-").map(Number);
+	const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+	return shiftDayKey(dayKey, -((weekday + 6) % 7));
+}
+
+/** The default window of every analytics date picker: Monday of the current
+ *  week through today, as day keys in `timeZone`. It matches the picker's
+ *  "This week" preset, so the control names the window instead of showing two
+ *  bare dates. */
+export function thisWeekDayKeyRange(
+	now: Date,
+	timeZone: string,
+): { from: string; to: string } {
+	const to = formatDayKey(now, timeZone);
+	return { from: startOfWeekDayKey(to), to };
+}
+
 /** Whether `value` is a real "YYYY-MM-DD" calendar day. */
 export function isDayKey(value: string | null | undefined): value is string {
 	if (!value || !DAY_RE.test(value)) {
