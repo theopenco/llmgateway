@@ -230,7 +230,7 @@ export const tencentModels = [
 				outputPrice: "2.501e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
-				maxOutput: 1048576,
+				maxOutput: 1000000,
 				// Above 1 the model reasons in a loop until max_tokens without
 				// producing any content.
 				maxTemperature: 1,
