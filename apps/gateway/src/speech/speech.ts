@@ -1046,7 +1046,12 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 					skippedIncompatible = true;
 					continue;
 				}
-				if (skippedIncompatible) {
+				// Running out of credentials after a skip is the configuration
+				// problem; a credit or plan error is still the caller's answer.
+				const isCreditError =
+					error instanceof HTTPException &&
+					(error.status === 402 || error.status === 403);
+				if (skippedIncompatible && !isCreditError) {
 					throw new HTTPException(500, {
 						message: interactionsCredentialError,
 					});

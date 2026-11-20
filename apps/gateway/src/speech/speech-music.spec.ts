@@ -7,7 +7,7 @@ import { getLastVertexMusicRequest } from "@/test-utils/mock-openai-server.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("music generation on /v1/audio/speech", () => {
@@ -243,6 +243,22 @@ describe("music generation on /v1/audio/speech", () => {
 				"Bearer google-oauth-token",
 			);
 		}
+	});
+
+	test("Lyria 3 keeps the credit error after skipping an API-key credential", async () => {
+		await harness.setProjectMode("hybrid");
+		await harness.setOrganizationCredits("0");
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+		await seedVertexKey("music-lyria-3-no-credits");
+
+		const res = await createMusic("music-lyria-3-no-credits", {
+			model: "lyria-3-clip-preview",
+			input: "A short lo-fi beat",
+		});
+		expect(res.status).toBe(402);
 	});
 
 	test("Lyria 3 refuses an API-key Vertex credential", async () => {
