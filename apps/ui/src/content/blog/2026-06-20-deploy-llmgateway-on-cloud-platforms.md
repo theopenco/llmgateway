@@ -5,6 +5,11 @@ date: 2026-06-20
 title: "How to Deploy LLM Gateway on Cloud Platforms"
 summary: "What it takes to run LLM Gateway in production on AWS, GCP, or Azure — the components you need, how they fit together, and why Kubernetes is the path we recommend once you outgrow a single box."
 categories: ["Guides"]
+faqs:
+  - question: "How do I deploy LLM Gateway in production?"
+    answer: "Run the stateless application services as containers and keep the stateful stores, PostgreSQL and Redis, separate. That split lets the application services scale independently."
+  - question: "Should I run PostgreSQL and Redis in containers in production?"
+    answer: "No. Use your cloud provider's managed PostgreSQL and Redis services, which handle backups and failover for you."
 image:
   src: "/blog/deploy-llmgateway-on-cloud-platforms.png"
   alt: "LLM Gateway deployed across AWS, GCP, and Azure"

@@ -363,6 +363,33 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/token-counter"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch
+									>
+										Token Counter
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/context-window-checker"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch
+									>
+										Context Window Checker
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/glossary"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch
+									>
+										Glossary
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/savings-audit"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 									>

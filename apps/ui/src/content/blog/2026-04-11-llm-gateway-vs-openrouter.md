@@ -6,6 +6,11 @@ updatedAt: "2026-11-10"
 title: "LLM Gateway vs OpenRouter: Fees, Models, Self-Hosting"
 summary: "LLM Gateway vs OpenRouter side by side: platform fees, bring-your-own-keys, model coverage, self-hosting, guardrails and routing, plus where OpenRouter is the better pick."
 categories: ["Guides"]
+faqs:
+  - question: "What is the difference between LLM Gateway and OpenRouter?"
+    answer: "Both give developers one API for many LLM providers. LLM Gateway is open source under AGPLv3 and can be self-hosted, and it lets you route requests through your own provider keys."
+  - question: "Can LLM Gateway be self-hosted?"
+    answer: "Yes. LLM Gateway is open source under AGPLv3, so you can run the platform on your own infrastructure."
 image:
   src: "/blog/llm-gateway-vs-openrouter.png"
   alt: "LLM Gateway vs OpenRouter: Fees, Models, Self-Hosting"

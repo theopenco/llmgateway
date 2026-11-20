@@ -5,6 +5,11 @@ date: 2026-04-24
 title: "How to Estimate LLM Token Costs Before You Ship"
 summary: "A practical guide to forecasting LLM costs: the token formula, real-world examples across GPT-5.4, Claude, and Gemini, and a free calculator to run the numbers."
 categories: ["Guides"]
+faqs:
+  - question: "How do you estimate LLM token costs?"
+    answer: "Providers charge a price per million input tokens and a price per million output tokens. Multiply your average input and output tokens per request by those prices, then by your request volume."
+  - question: "What numbers do I need to estimate LLM costs?"
+    answer: "You need the average input tokens per request, including the system prompt and any retrieved context, the average output tokens per request, and the number of requests you expect."
 image:
   src: "/blog/how-to-estimate-llm-token-costs.png"
   alt: "How to Estimate LLM Token Costs Before You Ship"

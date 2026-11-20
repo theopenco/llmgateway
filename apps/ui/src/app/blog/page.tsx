@@ -96,7 +96,10 @@ export async function generateMetadata() {
 		authors: authors.length ? authors : undefined,
 		description:
 			"News, tutorials, and deep-dives from the LLM Gateway team on AI gateways, model routing, LLM costs, model comparisons, and shipping production AI apps.",
-		alternates: { canonical: "/blog" },
+		alternates: {
+			canonical: "/blog",
+			types: { "application/rss+xml": "/blog/rss.xml" },
+		},
 		openGraph: {
 			title: "Blog — News, Tutorials, and Deep-Dives",
 			description:

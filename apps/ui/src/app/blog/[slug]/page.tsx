@@ -4,9 +4,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { ContentMentions } from "@/components/blog/content-mentions";
 import { ContentConversionRail } from "@/components/content-conversion-rail";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { blogAuthorSlug } from "@/lib/blog-authors";
 import { serializeJsonLd } from "@/lib/json-ld";
 import { pageTitle } from "@/lib/page-title";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
@@ -15,7 +17,7 @@ import { plainTextFromMarkdown } from "@/lib/utils/plain-text";
 import { CopyMarkdownButton } from "./copy-markdown-button";
 
 import type { Blog } from "content-collections";
-import type { Metadata } from "next";
+import type { Metadata, Route } from "next";
 
 /**
  * The rendered page appends the `faqs` frontmatter as its own section, so the
@@ -58,7 +60,12 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 		datePublished: entry.date,
 		dateModified: entry.updatedAt ?? entry.date,
 		author: entry.author
-			? { "@type": "Person", ...entry.author }
+			? {
+					"@type": "Person",
+					name: entry.author.name,
+					url: `https://llmgateway.io/blog/author/${blogAuthorSlug(entry.author.name)}`,
+					...(entry.author.url ? { sameAs: [entry.author.url] } : {}),
+				}
 			: {
 					"@type": "Organization",
 					name: "LLM Gateway",
@@ -178,12 +185,17 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 									)}
 									<p className="text-sm">
 										By{" "}
-										{entry.author?.url ? (
-											<a href={entry.author.url} rel="author">
+										{entry.author ? (
+											<Link
+												href={
+													`/blog/author/${blogAuthorSlug(entry.author.name)}` as Route
+												}
+												rel="author"
+											>
 												{entry.author.name}
-											</a>
+											</Link>
 										) : (
-											(entry.author?.name ?? "LLM Gateway")
+											"LLM Gateway"
 										)}
 									</p>
 									<time dateTime={entry.date} className="text-sm italic">
@@ -255,6 +267,8 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 									</dl>
 								</section>
 							) : null}
+
+							<ContentMentions content={entry.content} />
 						</article>
 					</div>
 				</main>

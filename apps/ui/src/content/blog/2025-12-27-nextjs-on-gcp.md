@@ -5,6 +5,11 @@ date: 2025-12-27
 title: Deploying Next.js on GCP
 summary: How we deploy our Next.js apps on Google Cloud Platform without relying on Vercel.
 categories: ["Engineering"]
+faqs:
+  - question: "Can you self-host Next.js on Google Cloud?"
+    answer: "Yes. LLM Gateway runs its Next.js apps as containers on a Kubernetes cluster on GCP. Each service is deployed as a separate container, and Kubernetes scales them based on resource usage."
+  - question: "How do you prepare a Next.js app for self-hosting?"
+    answer: "Enable standalone output mode in the Next.js config, which bundles the app into a self-contained folder with its dependencies. Then build it into a Docker image and deploy the container."
 image:
   src: "/blog/blog-nextjs-on-gcp.png"
   alt: "Deploying Next.js on GCP"

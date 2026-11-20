@@ -6,6 +6,7 @@ import { notFound } from "next/navigation";
 
 import { CopyPromptButton } from "@/app/migration/[slug]/copy-prompt-button";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { buildHowToSchema, extractHowToSteps } from "@/lib/howto";
 import { getMigrationPrompt } from "@/lib/migration-prompts";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
@@ -51,6 +52,20 @@ export default async function MigrationPage({ params }: MigrationPageProps) {
 		},
 	};
 
+	const howToSteps = extractHowToSteps(migration.content);
+	const structuredData =
+		howToSteps.length > 1
+			? [
+					jsonLd,
+					buildHowToSchema({
+						name: migration.title,
+						description: migration.description,
+						url: `https://llmgateway.io/migration/${slug}`,
+						steps: howToSteps,
+					}),
+				]
+			: jsonLd;
+
 	const formatDate = (date: string) =>
 		new Date(date).toLocaleDateString("en-US", {
 			year: "numeric",
@@ -68,7 +83,7 @@ export default async function MigrationPage({ params }: MigrationPageProps) {
 						type="application/ld+json"
 						// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 						dangerouslySetInnerHTML={{
-							__html: JSON.stringify(jsonLd),
+							__html: JSON.stringify(structuredData),
 						}}
 					/>
 					<nav className="max-w-4xl mx-auto mb-8" aria-label="Breadcrumb">

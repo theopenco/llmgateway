@@ -5,6 +5,11 @@ date: 2026-05-26
 title: "What Is LLM Orchestration? Patterns, Tools & When You Need One"
 summary: "LLM orchestration is the layer that coordinates models, providers, and steps into one reliable workflow. A practical guide to the patterns, the tools, and when you need an LLM orchestrator."
 categories: ["Guides"]
+faqs:
+  - question: "What is LLM orchestration?"
+    answer: "LLM orchestration is the coordination of models, providers, and steps so that one user request becomes a dependable, observable, cost-controlled result."
+  - question: "What is the difference between LLM orchestration and an LLM gateway?"
+    answer: "A gateway is the infrastructure: a single OpenAI-compatible endpoint that routes requests to providers. Orchestration is the logic that decides which models and steps a request goes through."
 image:
   src: "/blog/what-is-llm-orchestration.png"
   alt: "What Is LLM Orchestration? Patterns, Tools & When You Need One"
