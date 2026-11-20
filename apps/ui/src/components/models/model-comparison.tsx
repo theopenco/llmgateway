@@ -206,6 +206,10 @@ const MODEL_COLUMNS =
 const SELECTOR_GRID = `grid grid-cols-1 gap-4 ${MODEL_COLUMNS}`;
 const ROW_GRID = `grid grid-cols-2 gap-x-4 ${MODEL_COLUMNS}`;
 
+// "View <model name> details" can be wider than a model column, so the label
+// wraps inside the button instead of pushing the page sideways.
+const WRAPPING_BUTTON = "h-auto min-h-8 max-w-full whitespace-normal text-left";
+
 const PLACEHOLDER: ReactNode = <span className="text-muted-foreground">—</span>;
 
 function pickMostUnstableStability(
@@ -850,7 +854,12 @@ export function ModelComparison() {
 							<div className="flex flex-wrap items-center gap-2">
 								{leftModel && (
 									<>
-										<Button asChild size="sm" variant="outline">
+										<Button
+											asChild
+											size="sm"
+											variant="outline"
+											className={WRAPPING_BUTTON}
+										>
 											<Link
 												href={`/models/${encodeURIComponent(leftModel.id)}`}
 											>
@@ -918,7 +927,12 @@ export function ModelComparison() {
 							<div className="flex flex-wrap items-center gap-2">
 								{rightModel && (
 									<>
-										<Button asChild size="sm" variant="outline">
+										<Button
+											asChild
+											size="sm"
+											variant="outline"
+											className={WRAPPING_BUTTON}
+										>
 											<Link
 												href={`/models/${encodeURIComponent(rightModel.id)}`}
 											>
@@ -951,7 +965,7 @@ export function ModelComparison() {
 							<div role="row" className={cn(ROW_GRID, "border-b px-2 pb-3")}>
 								<div
 									role="columnheader"
-									className="hidden font-medium text-muted-foreground md:block"
+									className="sr-only font-medium text-muted-foreground md:not-sr-only"
 								>
 									Feature
 								</div>

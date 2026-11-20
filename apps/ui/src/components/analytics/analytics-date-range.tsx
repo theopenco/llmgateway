@@ -44,11 +44,14 @@ export function getAnalyticsRange(
 		return { fromStr: defaultFrom, toStr: defaultTo };
 	}
 
-	const thisWeek = thisWeekDayKeyRange(new Date(), timeZone);
-	return {
-		fromStr: searchFrom ?? thisWeek.from,
-		toStr: searchTo ?? thisWeek.to,
-	};
+	// Half a range from the URL can end before the default starts, so only a
+	// complete pair overrides the default.
+	if (!searchFrom || !searchTo) {
+		const thisWeek = thisWeekDayKeyRange(new Date(), timeZone);
+		return { fromStr: thisWeek.from, toStr: thisWeek.to };
+	}
+
+	return { fromStr: searchFrom, toStr: searchTo };
 }
 
 interface AnalyticsDateRangeProps {

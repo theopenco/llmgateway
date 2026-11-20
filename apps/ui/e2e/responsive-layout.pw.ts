@@ -6,6 +6,11 @@ import type { Page } from "@playwright/test";
 // Add a page here when it gains a chart, a table, or a multi-column grid.
 const pages = [
 	{ path: "/models/compare", ready: "Model comparison" },
+	// Long model names: the widest labels the comparison has to fit.
+	{
+		path: "/models/compare?left=google-ai-studio_gemini-2.5-flash-native-audio-preview-12-2025&right=xai_grok-4-20-beta-0309-non-reasoning",
+		ready: "Model comparison",
+	},
 	{ path: "/rankings", ready: "Models shown in the token volume chart" },
 ];
 
