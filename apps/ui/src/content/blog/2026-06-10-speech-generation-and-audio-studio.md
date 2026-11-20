@@ -5,6 +5,11 @@ date: 2026-06-10
 title: "Speech Generation Is Live: ElevenLabs, OpenAI & Gemini TTS Through One API"
 summary: "Nine text-to-speech models from ElevenLabs, OpenAI, and Google are now one OpenAI-compatible API call away — plus a new Audio Studio in the Playground to compare voices and models side by side."
 categories: ["Announcements"]
+faqs:
+  - question: "Does LLM Gateway support text-to-speech?"
+    answer: "Yes. The speech endpoint is a drop-in replacement for OpenAI's audio API, with models from ElevenLabs, OpenAI, and Gemini behind it."
+  - question: "Which audio formats can the speech endpoint return?"
+    answer: "Depending on the model: mp3, wav, opus, aac, flac, or raw pcm."
 image:
   src: "/blog/speech-generation-and-audio-studio.png"
   alt: "Sound waves flowing out of a single API endpoint into multiple speech models"

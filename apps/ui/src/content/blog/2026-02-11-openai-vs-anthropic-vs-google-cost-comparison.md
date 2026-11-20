@@ -5,6 +5,11 @@ date: 2026-02-11
 title: "OpenAI vs Anthropic vs Google: Real Cost Comparison 2026"
 summary: "Side-by-side pricing comparison of GPT-5, Claude Opus 4.8, and Gemini 2.5 Pro with real cost calculations for production workloads."
 categories: ["Guides"]
+faqs:
+  - question: "How do you compare LLM provider costs?"
+    answer: "Compare input and output prices per million tokens within the same tier: flagship, mid-tier, and budget. Then apply them to your own request shape, for example 1,000 input and 500 output tokens per request."
+  - question: "Are the prices in this comparison current?"
+    answer: "The figures were pulled in February 2026. Provider prices change often, so check the model pages or the token cost calculator for current rates."
 image:
   src: "/blog/openai-vs-anthropic-vs-google-cost-comparison.png"
   alt: "OpenAI vs Anthropic vs Google: Real Cost Comparison 2026"
