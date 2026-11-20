@@ -385,6 +385,8 @@ export const minimaxModels = [
 			{
 				providerId: "novita",
 				externalId: "minimax/minimax-m2.7",
+				deprecatedAt: new Date("2026-12-03"),
+				deactivatedAt: new Date("2026-12-10T00:00:00Z"),
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.06e-6",
 				outputPrice: "1.2e-6",
@@ -495,6 +497,8 @@ export const minimaxModels = [
 			{
 				providerId: "novita",
 				externalId: "minimax/minimax-m2.5",
+				deprecatedAt: new Date("2026-12-03"),
+				deactivatedAt: new Date("2026-12-10T00:00:00Z"),
 				inputPrice: "0.3e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "1.2e-6",
