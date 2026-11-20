@@ -185,6 +185,9 @@ interface SpeechErrorBody {
 	};
 }
 
+/** The selected credential cannot call the model's upstream API. */
+class IncompatibleCredentialError extends Error {}
+
 /** Vertex `:predict` response of Lyria 2: one WAV clip per prediction. */
 interface VertexMusicPredictResponse {
 	predictions?: { audioContent?: unknown; mimeType?: unknown }[];
@@ -954,6 +957,8 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 			: isInteractionsMusic
 				? {
 						model: upstreamModel,
+						// Lyria 3 is only available in stateless interactions.
+						store: false,
 						input: [
 							{
 								type: "user_input",
@@ -1027,7 +1032,32 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 		requestBody: Record<string, unknown>;
 	}
 
+	const interactionsCredentialError = `${modelDefId} requires a Google Vertex OAuth credential with a project ID; API keys are not accepted by the Vertex Interactions API.`;
+
+	/** Skips credentials the model's upstream API cannot use, so a pool that
+	 *  mixes API-key and OAuth Vertex credentials still serves the request. */
 	async function resolveAttempt(): Promise<SpeechAttempt> {
+		let skippedIncompatible = false;
+		for (let tries = 0; tries < 20; tries++) {
+			try {
+				return await resolveAttemptOnce();
+			} catch (error) {
+				if (error instanceof IncompatibleCredentialError) {
+					skippedIncompatible = true;
+					continue;
+				}
+				if (skippedIncompatible) {
+					throw new HTTPException(500, {
+						message: interactionsCredentialError,
+					});
+				}
+				throw error;
+			}
+		}
+		throw new HTTPException(500, { message: interactionsCredentialError });
+	}
+
+	async function resolveAttemptOnce(): Promise<SpeechAttempt> {
 		let providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 		let managedKey: InferSelectModel<typeof tables.providerKey> | undefined;
 		let usedToken: string | undefined;
@@ -1205,9 +1235,12 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 			if (isInteractionsMusic) {
 				// The Interactions API is project-scoped and rejects API keys.
 				if (vertexTokenType !== "oauth" || !vertexProjectId) {
-					throw new HTTPException(500, {
-						message: `${modelDefId} requires a Google Vertex OAuth credential with a project ID; API keys are not accepted by the Vertex Interactions API.`,
+					failedKeys.remember(providerId, undefined, {
+						envVarName,
+						configIndex,
+						providerKeyId: providerKey?.id ?? managedKey?.id,
 					});
+					throw new IncompatibleCredentialError();
 				}
 				upstreamUrl = `${resolvedBaseUrl}/v1/projects/${vertexProjectId}/locations/${vertexRegion}/interactions`;
 			} else {

@@ -3287,6 +3287,18 @@ mockOpenAIServer.post(
 			authorization: c.req.header("Authorization"),
 			body,
 		};
+		if (body.store !== false) {
+			return c.json(
+				{
+					error: {
+						code: 400,
+						message: "This model is only available with store=false.",
+						status: "INVALID_ARGUMENT",
+					},
+				},
+				400,
+			);
+		}
 		return c.json({
 			id: "interaction-1",
 			status: "completed",

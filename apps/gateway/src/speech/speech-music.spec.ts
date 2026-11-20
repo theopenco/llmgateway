@@ -144,6 +144,7 @@ describe("music generation on /v1/audio/speech", () => {
 		expect(upstream?.authorization?.startsWith("Bearer ")).toBe(true);
 		expect(upstream?.body).toEqual({
 			model: "lyria-3-pro-preview",
+			store: false,
 			input: [
 				{
 					type: "user_input",
@@ -210,6 +211,38 @@ describe("music generation on /v1/audio/speech", () => {
 		});
 		expect(res.status).toBe(400);
 		expect((await res.json()).error.code).toBe("unsupported_parameter");
+	});
+
+	test("Lyria 3 skips an API-key credential when an OAuth one is in the pool", async () => {
+		await seedVertexKey("music-lyria-3-pool");
+		const oauthKeyId = "provider-key-music-lyria-3-pool-oauth";
+		await db.insert(tables.providerKey).values({
+			id: oauthKeyId,
+			...encryptProviderKeyForStorage(
+				"google-oauth-token",
+				oauthKeyId,
+				"org-id",
+			),
+			provider: "google-vertex",
+			organizationId: "org-id",
+			baseUrl: harness.mockServerUrl,
+			options: {
+				google_vertex_project_id: "test-project",
+				google_vertex_token_type: "oauth",
+			},
+		});
+
+		// Whichever credential is drawn first, the request is served by OAuth.
+		for (let i = 0; i < 4; i++) {
+			const res = await createMusic("music-lyria-3-pool", {
+				model: "lyria-3-clip-preview",
+				input: `A short lo-fi beat, take ${i}`,
+			});
+			expect(res.status).toBe(200);
+			expect(getLastVertexMusicRequest()?.authorization).toBe(
+				"Bearer google-oauth-token",
+			);
+		}
 	});
 
 	test("Lyria 3 refuses an API-key Vertex credential", async () => {
