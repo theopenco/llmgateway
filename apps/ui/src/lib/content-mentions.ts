@@ -92,6 +92,8 @@ interface MentionCounts {
 	providers: Map<string, { label: string; count: number }>;
 }
 
+// Keyed by post body; capped so unexpected callers cannot grow it unbounded.
+const MAX_CACHED_CONTENTS = 500;
 const countsByContent = new Map<string, MentionCounts>();
 
 function countMentions(content: string): MentionCounts {
@@ -100,6 +102,9 @@ function countMentions(content: string): MentionCounts {
 		return cached;
 	}
 	const counts: MentionCounts = { models: new Map(), providers: new Map() };
+	if (countsByContent.size >= MAX_CACHED_CONTENTS) {
+		countsByContent.clear();
+	}
 	countsByContent.set(content, counts);
 	const lowered = content.toLowerCase();
 	let remaining = content;

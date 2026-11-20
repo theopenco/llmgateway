@@ -289,8 +289,8 @@ export default async function ModelPairComparisonPage({ params }: PageProps) {
 							</Table>
 						</div>
 						<p className="mt-3 text-sm text-muted-foreground">
-							Prices are the lowest list price across the providers LLM Gateway
-							routes to.
+							Prices are list prices from the cheapest provider LLM Gateway
+							routes to for each model.
 							{tiered
 								? " Some providers charge more above a prompt-size threshold; the model pages list every tier."
 								: ""}

@@ -54,6 +54,8 @@ def complete(messages, model, attempts=5):
             time.sleep(min(2**attempt, 30) + random.random())
 ```
 
+The example calls LLM Gateway's OpenAI-compatible endpoint. With a provider's own SDK, catch that SDK's rate-limit and server-error exceptions instead.
+
 ## Let the gateway fail over for you
 
 Send the request with a model ID and no provider prefix. When the upstream provider returns a `429`, a `5xx`, or times out, LLM Gateway retries the same request on another provider that serves the model, inside the same API call. Your application receives the successful response.

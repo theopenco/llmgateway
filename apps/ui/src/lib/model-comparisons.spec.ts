@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { models } from "@llmgateway/models";
+
 import {
 	buildComparisonSummary,
 	canonicalComparisonSlug,
@@ -17,6 +19,10 @@ describe("model comparisons", () => {
 		expect(featuredComparisons.every((p) => p.left.id !== p.right.id)).toBe(
 			true,
 		);
+	});
+
+	it("can split every slug on its separator", () => {
+		expect(models.some((model) => model.id.includes("-vs-"))).toBe(false);
 	});
 
 	it("resolves both orders of a pair to one canonical slug", () => {

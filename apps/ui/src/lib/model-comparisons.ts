@@ -63,22 +63,31 @@ const providerNameById = new Map(
 	providerDefinitions.map((provider) => [provider.id as string, provider.name]),
 );
 
-function minPrice(values: Array<number | null>): number | null {
-	const prices = values.filter(
-		(value): value is number => value !== null && Number.isFinite(value),
-	);
-	return prices.length > 0 ? Math.min(...prices) : null;
-}
-
 function toComparisonModel(model: ModelDefinition): ComparisonModel | null {
 	const mappings = expandAllProviderRegions(model.providers).filter(
 		(mapping) => !isMappingDeactivated(mapping),
 	);
-	const inputPrice = minPrice(mappings.map((m) => perMillion(m.inputPrice)));
-	const outputPrice = minPrice(mappings.map((m) => perMillion(m.outputPrice)));
-	if (inputPrice === null || outputPrice === null) {
+	const priced = mappings.flatMap((m) => {
+		const inputPrice = perMillion(m.inputPrice);
+		const outputPrice = perMillion(m.outputPrice);
+		return inputPrice === null || outputPrice === null
+			? []
+			: [
+					{
+						inputPrice,
+						outputPrice,
+						cachedInputPrice: perMillion(m.cachedInputPrice),
+					},
+				];
+	});
+	if (priced.length === 0) {
 		return null;
 	}
+	// All three prices come from one provider, the cheapest overall, so the
+	// page never quotes a combination no provider charges.
+	const cheapest = priced.reduce((best, candidate) =>
+		blendedPrice(candidate) < blendedPrice(best) ? candidate : best,
+	);
 	return {
 		id: model.id,
 		name: model.name ?? model.id,
@@ -90,11 +99,7 @@ function toComparisonModel(model: ModelDefinition): ComparisonModel | null {
 				mappings.map((m) => providerNameById.get(m.providerId) ?? m.providerId),
 			),
 		),
-		inputPrice,
-		outputPrice,
-		cachedInputPrice: minPrice(
-			mappings.map((m) => perMillion(m.cachedInputPrice)),
-		),
+		...cheapest,
 		contextSize: Math.max(...mappings.map((m) => m.contextSize ?? 0)),
 		maxOutput: Math.max(...mappings.map((m) => m.maxOutput ?? 0)),
 		vision: mappings.some((m) => m.vision),

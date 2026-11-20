@@ -45,6 +45,8 @@ def complete(messages, model, attempts=5):
             time.sleep(min(2**attempt, 30) + random.random())
 ```
 
+The example calls LLM Gateway's OpenAI-compatible endpoint. With a provider's own SDK, catch that SDK's rate-limit and server-error exceptions instead.
+
 ## Fix a quota error (`insufficient_quota`)
 
 Retrying will not help. Add credit or raise the monthly budget in your OpenAI billing settings, and check that the API key belongs to the organization and project you expect.
