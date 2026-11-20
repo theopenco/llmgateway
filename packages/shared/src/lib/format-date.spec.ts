@@ -10,6 +10,8 @@ import {
 	isDayKey,
 	isNaiveDateTimeString,
 	shiftDayKey,
+	startOfWeekDayKey,
+	thisWeekDayKeyRange,
 } from "./format-date.js";
 import {
 	DEFAULT_TIME_ZONE_PREFERENCE,
@@ -298,6 +300,40 @@ describe("shiftDayKey", () => {
 		// Spans a US spring-forward transition — a Date-based shift in a local
 		// zone can land an hour short and roll back a day.
 		expect(shiftDayKey("2026-03-09", -6)).toBe("2026-03-03");
+	});
+});
+
+describe("startOfWeekDayKey", () => {
+	it("returns the Monday of the week", () => {
+		expect(startOfWeekDayKey("2026-11-20")).toBe("2026-11-16");
+		expect(startOfWeekDayKey("2026-11-16")).toBe("2026-11-16");
+		expect(startOfWeekDayKey("2026-11-22")).toBe("2026-11-16");
+	});
+
+	it("crosses month and year boundaries", () => {
+		expect(startOfWeekDayKey("2026-12-01")).toBe("2026-11-30");
+		expect(startOfWeekDayKey("2027-01-01")).toBe("2026-12-28");
+	});
+});
+
+describe("thisWeekDayKeyRange", () => {
+	it("runs from Monday through today in the display zone", () => {
+		expect(
+			thisWeekDayKeyRange(new Date("2026-11-20T12:00:00Z"), "UTC"),
+		).toEqual({ from: "2026-11-16", to: "2026-11-20" });
+	});
+
+	it("is a single day on a Monday", () => {
+		expect(
+			thisWeekDayKeyRange(new Date("2026-11-16T12:00:00Z"), "UTC"),
+		).toEqual({ from: "2026-11-16", to: "2026-11-16" });
+	});
+
+	it("uses the zone's calendar day, not UTC's", () => {
+		// Sunday evening in New York is already Monday in UTC.
+		expect(
+			thisWeekDayKeyRange(new Date("2026-11-23T02:00:00Z"), "America/New_York"),
+		).toEqual({ from: "2026-11-16", to: "2026-11-22" });
 	});
 });
 
