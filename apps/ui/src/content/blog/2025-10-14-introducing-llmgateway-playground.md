@@ -7,7 +7,7 @@ summary: Compare GPT-5, Claude, Gemini, and 280+ other models side by side. Gene
 categories: ["Announcements"]
 faqs:
   - question: "What is LLM Gateway Chat?"
-    answer: "LLM Gateway Chat is a playground for testing any model in the LLM Gateway catalogue from one interface, without separate accounts or API keys for each provider."
+    answer: "LLM Gateway Chat is a playground for testing chat, vision, and image models from the LLM Gateway catalogue in one interface, without separate accounts or API keys for each provider."
   - question: "Can I test image generation and vision models in the playground?"
     answer: "Yes. Select an image model to generate images inline, or drag images and documents into a conversation for vision models to analyze."
 image:

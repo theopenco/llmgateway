@@ -7,7 +7,7 @@ summary: "Nine text-to-speech models from ElevenLabs, OpenAI, and Google are now
 categories: ["Announcements"]
 faqs:
   - question: "Does LLM Gateway support text-to-speech?"
-    answer: "Yes. The speech endpoint is a drop-in replacement for OpenAI's audio API, with models from ElevenLabs, OpenAI, and Gemini behind it."
+    answer: "Yes. The speech endpoint follows the request format of OpenAI's audio API, with models from ElevenLabs, OpenAI, and Gemini behind it. Streaming speech output is not supported."
   - question: "Which audio formats can the speech endpoint return?"
     answer: "Depending on the model: mp3, wav, opus, aac, flac, or raw pcm."
 image:
