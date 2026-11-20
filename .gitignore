@@ -26,6 +26,7 @@ llmgateway_data
 !apps/docs/app/llms-full.txt
 !apps/ui/scripts/fonts/requirements.txt
 !apps/ui/src/app/.well-known/security.txt
+!apps/ui/src/app/indexnow-key.txt
 docker-compose-override-*.yml
 benchmark_results.json
 benchmark-*.json
