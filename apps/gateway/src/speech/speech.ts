@@ -162,6 +162,16 @@ const speechRequestSchema = z.object({
 			"Optional style/delivery instructions prepended to the input as a natural-language directive (e.g. 'Say cheerfully').",
 		example: "Say in a warm, friendly tone",
 	}),
+	negative_prompt: z.string().min(1).optional().openapi({
+		description:
+			"Music models only: what to keep out of the generated music. Supported by `lyria-002`.",
+		example: "vocals, slow tempo",
+	}),
+	seed: z.number().int().min(0).optional().openapi({
+		description:
+			"Music models only: seed for reproducible output. Supported by `lyria-002`.",
+		example: 12345,
+	}),
 });
 
 type SpeechRequest = z.infer<typeof speechRequestSchema>;
@@ -173,6 +183,54 @@ interface SpeechErrorBody {
 		param: string | null;
 		code: string;
 	};
+}
+
+/** Vertex `:predict` response of Lyria 2: one WAV clip per prediction. */
+interface VertexMusicPredictResponse {
+	predictions?: { audioContent?: unknown; mimeType?: unknown }[];
+}
+
+/** Vertex Interactions API response of Lyria 3: lyrics and description text
+ *  steps, then a step carrying the encoded song. */
+interface VertexMusicInteractionResponse {
+	steps?: {
+		content?: { type?: unknown; mime_type?: unknown; data?: unknown }[];
+	}[];
+}
+
+/** The generated clip of a Lyria response, whichever Vertex API served it. */
+export function extractVertexMusicAudio(
+	api: NonNullable<ProviderModelMapping["musicGenerationApi"]>,
+	body: unknown,
+): { data: string; mimeType: string | undefined } | undefined {
+	if (!body || typeof body !== "object") {
+		return undefined;
+	}
+	if (api === "vertex-predict") {
+		const prediction = (body as VertexMusicPredictResponse).predictions?.[0];
+		return typeof prediction?.audioContent === "string" &&
+			prediction.audioContent
+			? {
+					data: prediction.audioContent,
+					mimeType:
+						typeof prediction.mimeType === "string"
+							? prediction.mimeType
+							: undefined,
+				}
+			: undefined;
+	}
+	for (const step of (body as VertexMusicInteractionResponse).steps ?? []) {
+		for (const part of step.content ?? []) {
+			if (part.type === "audio" && typeof part.data === "string" && part.data) {
+				return {
+					data: part.data,
+					mimeType:
+						typeof part.mime_type === "string" ? part.mime_type : undefined,
+				};
+			}
+		}
+	}
+	return undefined;
 }
 
 /** Minimal shape of a Gemini `generateContent` response part. */
@@ -248,6 +306,9 @@ const SUPPORTED_PROVIDERS = new Set([
 // Response formats Gemini can satisfy. Gemini emits raw PCM, so the gateway can
 // only return PCM directly or wrapped in a WAV container.
 const GOOGLE_RESPONSE_FORMATS = new Set(["wav", "pcm"]);
+
+// Lyria 3 returns an encoded MP3 the gateway passes through unchanged.
+const VERTEX_INTERACTIONS_MUSIC_FORMATS = new Set(["mp3"]);
 
 // OpenAI's speech endpoint returns the audio already encoded in the requested
 // format, so all of its formats pass straight through.
@@ -620,6 +681,9 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 	const isElevenLabs = providerId === "elevenlabs";
 	const isAlibaba = providerId === "alibaba";
 	const isGoogleVertex = providerId === "google-vertex";
+	// Lyria music models are served by Vertex APIs other than generateContent.
+	const musicApi = isGoogleVertex ? mapping.musicGenerationApi : undefined;
+	const isInteractionsMusic = musicApi === "vertex-interactions";
 	// OpenAI and ElevenLabs both return audio already encoded in the requested
 	// format and bill independently of Gemini's inline-PCM path.
 	const isEncodedPassthrough = isOpenAI || isElevenLabs;
@@ -650,32 +714,58 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 
 	const responseFormat =
 		request.response_format ??
-		(isEncodedPassthrough && !isGroq ? "mp3" : "wav");
-	const allowedFormats = isGroq
-		? GROQ_RESPONSE_FORMATS
-		: isOpenAI
-			? OPENAI_RESPONSE_FORMATS
-			: isElevenLabs
-				? ELEVENLABS_RESPONSE_FORMATS
-				: isAlibaba
-					? ALIBABA_RESPONSE_FORMATS
-					: GOOGLE_RESPONSE_FORMATS;
+		((isEncodedPassthrough && !isGroq) || isInteractionsMusic ? "mp3" : "wav");
+	const allowedFormats = isInteractionsMusic
+		? VERTEX_INTERACTIONS_MUSIC_FORMATS
+		: isGroq
+			? GROQ_RESPONSE_FORMATS
+			: isOpenAI
+				? OPENAI_RESPONSE_FORMATS
+				: isElevenLabs
+					? ELEVENLABS_RESPONSE_FORMATS
+					: isAlibaba
+						? ALIBABA_RESPONSE_FORMATS
+						: GOOGLE_RESPONSE_FORMATS;
 	if (!allowedFormats.has(responseFormat)) {
 		return c.json(
 			{
 				error: {
-					message: isGroq
-						? `Unsupported response_format '${responseFormat}'. Groq speech models only support 'wav'.`
-						: isOpenAI
-							? `Unsupported response_format '${responseFormat}'.`
-							: isElevenLabs
-								? `Unsupported response_format '${responseFormat}'. ElevenLabs supports 'mp3', 'wav', 'pcm' and 'opus'.`
-								: isAlibaba
-									? `Unsupported response_format '${responseFormat}'. Qwen TTS models only support 'wav'.`
-									: `Unsupported response_format '${responseFormat}'. Gemini speech models only support 'wav' and 'pcm'.`,
+					message: isInteractionsMusic
+						? `Unsupported response_format '${responseFormat}'. ${modelDefId} only supports 'mp3'.`
+						: musicApi
+							? `Unsupported response_format '${responseFormat}'. ${modelDefId} only supports 'wav' and 'pcm'.`
+							: isGroq
+								? `Unsupported response_format '${responseFormat}'. Groq speech models only support 'wav'.`
+								: isOpenAI
+									? `Unsupported response_format '${responseFormat}'.`
+									: isElevenLabs
+										? `Unsupported response_format '${responseFormat}'. ElevenLabs supports 'mp3', 'wav', 'pcm' and 'opus'.`
+										: isAlibaba
+											? `Unsupported response_format '${responseFormat}'. Qwen TTS models only support 'wav'.`
+											: `Unsupported response_format '${responseFormat}'. Gemini speech models only support 'wav' and 'pcm'.`,
 					type: "invalid_request_error",
 					param: "response_format",
 					code: "unsupported_response_format",
+				},
+			} satisfies SpeechErrorBody,
+			400,
+		);
+	}
+
+	const musicOnlyParam =
+		request.negative_prompt !== undefined
+			? "negative_prompt"
+			: request.seed !== undefined
+				? "seed"
+				: undefined;
+	if (musicOnlyParam && musicApi !== "vertex-predict") {
+		return c.json(
+			{
+				error: {
+					message: `'${musicOnlyParam}' is not supported by model ${modelDefId}.`,
+					type: "invalid_request_error",
+					param: musicOnlyParam,
+					code: "unsupported_parameter",
 				},
 			} satisfies SpeechErrorBody,
 			400,
@@ -847,57 +937,81 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 					: request.input,
 			};
 
-	const upstreamRequestBody: Record<string, unknown> = isOpenAI
-		? {
-				model: upstreamModel,
-				input: request.input,
-				voice,
-				response_format: responseFormat,
-				...(request.speed !== undefined && !isGroq
-					? { speed: request.speed }
-					: {}),
-				// `instructions` and SSE streaming only apply to gpt-4o-mini-tts;
-				// tts-1/tts-1-hd reject both.
-				...(useSse && request.instructions
-					? { instructions: request.instructions }
-					: {}),
-				...(useSse ? { stream_format: "sse" } : {}),
-			}
-		: isElevenLabs
+	const upstreamRequestBody: Record<string, unknown> =
+		musicApi === "vertex-predict"
 			? {
-					// The voice id is encoded in the URL path; the output format is a
-					// query param. `speed` is forwarded via voice_settings when set.
-					text: request.input,
-					model_id: upstreamModel,
-					...(request.speed !== undefined
-						? { voice_settings: { speed: request.speed } }
-						: {}),
+					instances: [
+						{
+							prompt: request.input,
+							...(request.negative_prompt
+								? { negative_prompt: request.negative_prompt }
+								: {}),
+							...(request.seed !== undefined ? { seed: request.seed } : {}),
+						},
+					],
+					parameters: {},
 				}
-			: isAlibaba
+			: isInteractionsMusic
 				? {
-						// DashScope SpeechSynthesizer shape: format and sample rate live
-						// inside `input`. Language is auto-detected; `instructions` and
-						// `speed` have no upstream equivalent on Qwen-Audio-TTS, matching
-						// the tts-1 behavior of forwarding only what the model accepts.
 						model: upstreamModel,
-						input: {
-							text: request.input,
-							voice,
-							format: responseFormat,
-							sample_rate: 24000,
-						},
-					}
-				: {
-						contents: [{ role: "user", parts: [googleTextPart] }],
-						generationConfig: {
-							responseModalities: ["AUDIO"],
-							speechConfig: {
-								voiceConfig: {
-									prebuiltVoiceConfig: { voiceName: voice },
-								},
+						input: [
+							{
+								type: "user_input",
+								content: [{ type: "text", text: request.input }],
 							},
-						},
-					};
+						],
+					}
+				: isOpenAI
+					? {
+							model: upstreamModel,
+							input: request.input,
+							voice,
+							response_format: responseFormat,
+							...(request.speed !== undefined && !isGroq
+								? { speed: request.speed }
+								: {}),
+							// `instructions` and SSE streaming only apply to gpt-4o-mini-tts;
+							// tts-1/tts-1-hd reject both.
+							...(useSse && request.instructions
+								? { instructions: request.instructions }
+								: {}),
+							...(useSse ? { stream_format: "sse" } : {}),
+						}
+					: isElevenLabs
+						? {
+								// The voice id is encoded in the URL path; the output format is a
+								// query param. `speed` is forwarded via voice_settings when set.
+								text: request.input,
+								model_id: upstreamModel,
+								...(request.speed !== undefined
+									? { voice_settings: { speed: request.speed } }
+									: {}),
+							}
+						: isAlibaba
+							? {
+									// DashScope SpeechSynthesizer shape: format and sample rate live
+									// inside `input`. Language is auto-detected; `instructions` and
+									// `speed` have no upstream equivalent on Qwen-Audio-TTS, matching
+									// the tts-1 behavior of forwarding only what the model accepts.
+									model: upstreamModel,
+									input: {
+										text: request.input,
+										voice,
+										format: responseFormat,
+										sample_rate: 24000,
+									},
+								}
+							: {
+									contents: [{ role: "user", parts: [googleTextPart] }],
+									generationConfig: {
+										responseModalities: ["AUDIO"],
+										speechConfig: {
+											voiceConfig: {
+												prebuiltVoiceConfig: { voiceName: voice },
+											},
+										},
+									},
+								};
 
 	interface SpeechAttempt {
 		providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
@@ -1088,7 +1202,17 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 				vertexTokenType === "oauth"
 					? ""
 					: `?key=${encodeURIComponent(usedToken)}`;
-			upstreamUrl = `${resolvedBaseUrl}${getGoogleVertexPublisherModelPath(upstreamModel, vertexProjectId, vertexRegion)}:generateContent${vertexAuthQuery}`;
+			if (isInteractionsMusic) {
+				// The Interactions API is project-scoped and rejects API keys.
+				if (vertexTokenType !== "oauth" || !vertexProjectId) {
+					throw new HTTPException(500, {
+						message: `${modelDefId} requires a Google Vertex OAuth credential with a project ID; API keys are not accepted by the Vertex Interactions API.`,
+					});
+				}
+				upstreamUrl = `${resolvedBaseUrl}/v1/projects/${vertexProjectId}/locations/${vertexRegion}/interactions`;
+			} else {
+				upstreamUrl = `${resolvedBaseUrl}${getGoogleVertexPublisherModelPath(upstreamModel, vertexProjectId, vertexRegion)}:${musicApi === "vertex-predict" ? "predict" : "generateContent"}${vertexAuthQuery}`;
+			}
 		} else {
 			upstreamUrl = `${resolvedBaseUrl}/v1beta/models/${upstreamModel}:generateContent?key=${encodeURIComponent(usedToken)}`;
 		}
@@ -2154,8 +2278,15 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 			// Extract the audio payload from the Gemini response.
 			const parts = upstreamJson.candidates?.[0]?.content?.parts ?? [];
 			const audioPart = parts.find(hasInlineAudio);
-			const base64Audio: string | undefined = audioPart?.inlineData.data;
-			const audioMimeType: string | undefined = audioPart?.inlineData.mimeType;
+			const musicAudio = musicApi
+				? extractVertexMusicAudio(musicApi, upstreamJson)
+				: undefined;
+			const base64Audio: string | undefined = musicApi
+				? musicAudio?.data
+				: audioPart?.inlineData.data;
+			const audioMimeType: string | undefined = musicApi
+				? musicAudio?.mimeType
+				: audioPart?.inlineData.mimeType;
 
 			if (!base64Audio) {
 				const finishReason =
@@ -2256,13 +2387,18 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 			const wavPcm = extractWavPcm(audio);
 			const pcm = wavPcm ?? audio;
 			const sampleRate = parseSampleRate(audioMimeType);
-			const out =
-				responseFormat === "pcm"
+			const out = isInteractionsMusic
+				? audio
+				: responseFormat === "pcm"
 					? pcm
 					: wavPcm
 						? audio
 						: pcmToWav(pcm, sampleRate);
-			const contentType = responseFormat === "pcm" ? "audio/pcm" : "audio/wav";
+			const contentType = isInteractionsMusic
+				? "audio/mpeg"
+				: responseFormat === "pcm"
+					? "audio/pcm"
+					: "audio/wav";
 
 			const usage = upstreamJson.usageMetadata ?? {};
 			const promptTokens =
@@ -2341,7 +2477,9 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 					imageInputCost: null,
 					imageOutputCost: null,
 					cost,
-					estimatedCost: promptTokens === null || audioOutputTokens === null,
+					// Music is priced per generated clip, so no token usage is exact.
+					estimatedCost:
+						!musicApi && (promptTokens === null || audioOutputTokens === null),
 					discount: null,
 					pricingTier: null,
 					dataStorageCost: calculateDataStorageCost(

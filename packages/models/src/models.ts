@@ -861,6 +861,15 @@ export interface ProviderModelMapping {
 	 */
 	speechGenerations?: boolean;
 	/**
+	 * Set on music generation mappings, which /v1/audio/speech also serves:
+	 * the request `input` is the music prompt. Names the upstream API, since
+	 * music models do not use the provider's speech API. `vertex-predict` is
+	 * the publisher model `:predict` call (one WAV clip per prediction);
+	 * `vertex-interactions` is the project-scoped Interactions API, which
+	 * returns an encoded MP3 and only accepts OAuth credentials.
+	 */
+	musicGenerationApi?: "vertex-predict" | "vertex-interactions";
+	/**
 	 * Whether this model uses the dedicated realtime WebSocket API.
 	 * When true, sessions are served by the gateway's /v1/realtime endpoint
 	 * (server-to-server WebSocket proxy) rather than /v1/chat/completions.

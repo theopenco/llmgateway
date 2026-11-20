@@ -2,7 +2,7 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 
-import type { Context } from "hono";
+import type { Context, Next } from "hono";
 
 // Create a mock OpenAI API server
 export const mockOpenAIServer = new Hono();
@@ -3229,6 +3229,88 @@ const vertexPublisherModelHandler = async (
 		},
 	});
 };
+
+let lastVertexMusicRequest:
+	| { path: string; authorization: string | undefined; body: unknown }
+	| undefined;
+
+export function getLastVertexMusicRequest() {
+	return lastVertexMusicRequest;
+}
+
+// Lyria 2: one base64 WAV clip per prediction. A prompt containing
+// "NO_AUDIO" returns no predictions, as a filtered prompt does.
+const vertexMusicPredictHandler = async (c: Context, next: Next) => {
+	// Other `:predict` models fall through to the generic publisher handler.
+	if (!new URL(c.req.url).pathname.endsWith("/lyria-002:predict")) {
+		return await next();
+	}
+	const body = await c.req.json();
+	lastVertexMusicRequest = {
+		path: new URL(c.req.url).pathname,
+		authorization: c.req.header("Authorization"),
+		body,
+	};
+	if (String(body.instances?.[0]?.prompt).includes("NO_AUDIO")) {
+		return c.json({ predictions: [] });
+	}
+	const pcm = Buffer.alloc(16, 1);
+	return c.json({
+		predictions: [
+			{
+				audioContent: Buffer.concat([wavHeader(pcm.length), pcm]).toString(
+					"base64",
+				),
+				mimeType: "audio/wav",
+			},
+		],
+		model: "publishers/google/models/lyria-002",
+		modelDisplayName: "Lyria 2",
+	});
+};
+mockOpenAIServer.post(
+	"/v1/projects/:project/locations/:location/publishers/google/models/:model\\:predict",
+	vertexMusicPredictHandler,
+);
+mockOpenAIServer.post(
+	"/v1/publishers/google/models/:model\\:predict",
+	vertexMusicPredictHandler,
+);
+
+// Lyria 3: the Interactions API returns text steps, then the encoded song.
+mockOpenAIServer.post(
+	"/v1/projects/:project/locations/:location/interactions",
+	async (c) => {
+		const body = await c.req.json();
+		lastVertexMusicRequest = {
+			path: new URL(c.req.url).pathname,
+			authorization: c.req.header("Authorization"),
+			body,
+		};
+		return c.json({
+			id: "interaction-1",
+			status: "completed",
+			steps: [
+				{
+					type: "model_output",
+					content: [{ type: "text", text: "Lyrics" }],
+				},
+				{
+					type: "model_output",
+					content: [
+						{
+							type: "audio",
+							mime_type: "audio/mpeg",
+							data: Buffer.from("ID3-mock-song").toString("base64"),
+						},
+					],
+				},
+			],
+			object: "interaction",
+			model: body.model,
+		});
+	},
+);
 
 mockOpenAIServer.post(
 	"/v1/projects/:project/locations/:location/publishers/google/models/*",

@@ -179,6 +179,42 @@ Orpheus V1 English offers six voices: `troy` (default), `autumn`, `diana`,
 Saudi-dialect voices: `fahad` (default), `abdullah`, `sultan`, `lulwa`, `noura`,
 and `aisha`. Groq limits Orpheus `input` to 200 characters per request.
 
+## Music generation
+
+Google's Lyria music models on Vertex AI are served by the same endpoint: `input`
+is the music prompt, and the response is the generated clip. They are billed a
+flat price per generated clip; see the
+[models page](https://llmgateway.io/models?filters=1&audioGeneration=true) for
+the models and their rates.
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/audio/speech" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "lyria-002",
+    "input": "A calm acoustic folk tune with gentle guitar and soft strings",
+    "negative_prompt": "drums, vocals"
+  }' \
+  --output music.wav
+```
+
+| Parameter         | Applies to | Description                                                         |
+| ----------------- | ---------- | ------------------------------------------------------------------- |
+| `negative_prompt` | Lyria 2    | What to keep out of the music                                       |
+| `seed`            | Lyria 2    | Integer seed for reproducible output                                |
+| `response_format` | Lyria 2    | `wav` (default) or `pcm`                                            |
+| `response_format` | Lyria 3    | `mp3` only (the default); the song is returned as Google encodes it |
+
+`voice`, `speed`, and `instructions` have no effect on music models, and
+`negative_prompt` and `seed` are rejected with `400` on any other model.
+
+<Callout type="info">
+	The Lyria 3 preview models run on Vertex AI's Interactions API, which accepts
+	only OAuth credentials. With your own Vertex provider key, set its token type
+	to OAuth and its project ID; an API-key credential is refused.
+</Callout>
+
 ## ElevenLabs
 
 The four ElevenLabs models are billed per **input character** (see the [models

@@ -1721,6 +1721,89 @@ export const googleModels = [
 		],
 	},
 	{
+		id: "lyria-002",
+		name: "Lyria 2",
+		description:
+			"Lyria 2 generates 30-second instrumental music clips from a text prompt via the /v1/audio/speech endpoint.",
+		family: "google",
+		output: ["audio"],
+		releasedAt: new Date("2025-10-27"),
+		providers: [
+			{
+				providerId: "google-vertex",
+				externalId: "lyria-002",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0.06",
+				contextSize: 8000,
+				maxOutput: 1,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				musicGenerationApi: "vertex-predict",
+			},
+		],
+	},
+	{
+		id: "lyria-3-clip-preview",
+		name: "Lyria 3 Clip (Preview)",
+		description:
+			"Lyria 3 generates 30-second music clips with vocals and lyrics from a text prompt via the /v1/audio/speech endpoint.",
+		family: "google",
+		output: ["audio"],
+		stability: "beta",
+		releasedAt: new Date("2026-03-25"),
+		providers: [
+			{
+				providerId: "google-vertex",
+				externalId: "lyria-3-clip-preview",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0.04",
+				contextSize: 8000,
+				maxOutput: 1,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				musicGenerationApi: "vertex-interactions",
+				// Needs a Vertex OAuth credential and returns MP3, not the WAV the
+				// speech e2e asserts.
+				test: "skip",
+			},
+		],
+	},
+	{
+		id: "lyria-3-pro-preview",
+		name: "Lyria 3 Pro (Preview)",
+		description:
+			"Lyria 3 Pro generates full-length songs of up to about three minutes, with vocals and lyrics, from a text prompt via the /v1/audio/speech endpoint.",
+		family: "google",
+		output: ["audio"],
+		stability: "beta",
+		releasedAt: new Date("2026-03-25"),
+		providers: [
+			{
+				providerId: "google-vertex",
+				externalId: "lyria-3-pro-preview",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0.08",
+				contextSize: 8000,
+				maxOutput: 1,
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				musicGenerationApi: "vertex-interactions",
+				// Needs a Vertex OAuth credential and returns MP3, not the WAV the
+				// speech e2e asserts.
+				test: "skip",
+			},
+		],
+	},
+	{
 		id: "veo-3.1-generate-preview",
 		name: "Veo 3.1",
 		description: "Google Veo 3.1 video generation with audio.",
