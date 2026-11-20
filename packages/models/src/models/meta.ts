@@ -658,6 +658,24 @@ export const metaModels = [
 				tools: true,
 				jsonOutput: false,
 			},
+			{
+				providerId: "aws-bedrock",
+				externalId: "meta.llama3-3-70b-instruct-v1:0",
+				// Meta Llama has no `global.` Bedrock inference profile, so pin the
+				// `us.` cross-region profile.
+				inputPrice: "0.72e-6",
+				outputPrice: "0.72e-6",
+				requestPrice: "0",
+				contextSize: 131072,
+				maxOutput: 8192,
+				maxTemperature: 1,
+				streaming: true,
+				vision: false,
+				// Bedrock returns tool calls as plain text instead of toolUse blocks.
+				tools: false,
+				jsonOutput: false,
+				regions: [{ id: "us" }],
+			},
 		],
 	},
 	{

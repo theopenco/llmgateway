@@ -4500,9 +4500,15 @@ export async function prepareRequestBody(
 			delete requestBody.tool_choice; // Converse uses toolConfig.toolChoice
 			delete requestBody.parallel_tool_calls; // No Converse equivalent
 
-			// Track cache point usage (Bedrock enforces the same per-request limit)
+			// Track cache point usage (Bedrock enforces the same per-request limit).
+			// Models without prompt caching (no cached-input price, e.g. Meta Llama)
+			// reject any cachePoint with a 403, so they get none.
 			let bedrockCacheControlCount = 0;
-			const bedrockMaxCacheControlBlocks = MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS;
+			const bedrockMaxCacheControlBlocks =
+				providerMappingForOptions &&
+				providerMappingForOptions.cachedInputPrice === undefined
+					? 0
+					: MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS;
 			interface BedrockCachePoint {
 				cachePoint: { type: "default"; ttl?: "5m" | "1h" };
 			}

@@ -1761,6 +1761,38 @@ describe("prepareRequestBody - Anthropic", () => {
 		]);
 	});
 
+	test("Bedrock sends no cachePoint to a model without prompt caching", async () => {
+		const long = "A".repeat(30000);
+		const marker = { type: "ephemeral" as const };
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"llama-3.3-70b-instruct",
+			"us",
+			"meta.llama3-3-70b-instruct-v1:0",
+			[
+				{
+					role: "system",
+					content: [{ type: "text", text: long, cache_control: marker }],
+				},
+				{ role: "user", content: long },
+				{ role: "assistant", content: "ok" },
+				{
+					role: "user",
+					content: [{ type: "text", text: long, cache_control: marker }],
+				},
+			] as any,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		)) as any;
+
+		expect(JSON.stringify(requestBody)).not.toContain("cachePoint");
+	});
+
 	test.each(["passthrough", "auto"] as const)(
 		"Bedrock sorts tool results into toolUse order ahead of the caller's breakpoint (%s)",
 		async (mode) => {
