@@ -33,7 +33,7 @@ export function knownAgents(
 	agents: readonly RankingsAgentModels[],
 ): RankingsAgentModels[] {
 	return agents
-		.filter((agent) => agent.source in APP_METADATA)
+		.filter((agent) => Object.hasOwn(APP_METADATA, agent.source))
 		.slice(0, MAX_AGENTS);
 }
 
