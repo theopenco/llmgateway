@@ -3,7 +3,7 @@ import "dotenv/config";
 
 import { swaggerUI } from "@hono/swagger-ui";
 import { OpenAPIHono } from "@hono/zod-openapi";
-import { APICallError } from "ai";
+import { APICallError, ToolChoiceViolationError } from "ai";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -195,6 +195,31 @@ app.onError((error, c) => {
 				message: "Upstream gateway request failed",
 			},
 			502,
+		);
+	}
+
+	// A gateway content-filter block on a `toolChoice: "required"` call (skill
+	// generation, memory extraction) is a user-content outcome, not a bug.
+	if (
+		ToolChoiceViolationError.isInstance(error) &&
+		error.finishReason === "content-filter"
+	) {
+		logger.warn("Upstream content filter blocked request", {
+			modelId: error.modelId,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		const text = error.content
+			.flatMap((part) => (part.type === "text" ? [part.text] : []))
+			.join("")
+			.trim();
+		return c.json(
+			{
+				error: true,
+				status: 400,
+				message: text || "The request was blocked by the content filter",
+			},
+			400,
 		);
 	}
 
