@@ -4502,7 +4502,15 @@ export async function prepareRequestBody(
 
 			// Track cache point usage (Bedrock enforces the same per-request limit)
 			let bedrockCacheControlCount = 0;
-			const bedrockMaxCacheControlBlocks = MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS;
+			// Models without prompt caching (Llama, Pixtral) 400 on any
+			// cachePoint; a priced cache rate marks the ones that have it.
+			const bedrockSupportsCachePoints =
+				providerMappingForOptions?.cachedInputPrice !== undefined ||
+				providerMappingForOptions?.cacheReadInputPrice !== undefined ||
+				providerMappingForOptions?.cacheWriteInputPrice !== undefined;
+			const bedrockMaxCacheControlBlocks = bedrockSupportsCachePoints
+				? MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS
+				: 0;
 			interface BedrockCachePoint {
 				cachePoint: { type: "default"; ttl?: "5m" | "1h" };
 			}

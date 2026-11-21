@@ -6692,6 +6692,44 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		]);
 	});
 
+	test("emits no cachePoints for a model without prompt caching", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"pixtral-large-2502",
+			null,
+			"mistral.pixtral-large-2502-v1:0",
+			[
+				{ role: "system", content: longContent },
+				{ role: "user", content: longContent },
+				{ role: "assistant", content: "Hi!" },
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		)) as any;
+
+		expect(JSON.stringify(requestBody)).not.toContain("cachePoint");
+		expect(requestBody.system).toEqual([{ text: longContent }]);
+		expect(requestBody.messages[2].content).toEqual([
+			{ text: "What should I do next?" },
+		]);
+	});
+
 	test("keeps heuristic cachePoints when a caller 1h ttl is downgraded to 5m", async () => {
 		const longContent = "A".repeat(5000);
 		const requestBody = (await prepareRequestBody(
