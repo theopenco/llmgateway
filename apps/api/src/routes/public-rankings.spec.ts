@@ -15,6 +15,8 @@ const MODEL_A = textModels[0].id;
 const MODEL_B = textModels[1].id;
 
 const HOUR_MS = 60 * 60 * 1000;
+// Two hours inside the 7-day window.
+const FIRST_DAY_HOURS_AGO = 166;
 
 function hoursAgo(hours: number): Date {
 	const offsetMs = hours * HOUR_MS;
@@ -120,6 +122,20 @@ describe("public rankings", () => {
 
 		const body = await getJson("/public/rankings/agents");
 		expect(body.agents).toEqual([]);
+	});
+
+	test("includes an app whose only traffic is on the first day of the window", async () => {
+		await seedAgent(
+			"edge-agent",
+			5,
+			[{ usedModel: `openai/${MODEL_A}`, tokens: 1000 }],
+			hoursAgo(FIRST_DAY_HOURS_AGO),
+		);
+
+		const body = await getJson("/public/rankings/agents");
+		expect(
+			body.agents.map((agent: { source: string }) => agent.source),
+		).toEqual(["edge-agent"]);
 	});
 
 	test("reports blended cost per million tokens per provider", async () => {

@@ -94,7 +94,7 @@ installation.openapi(registerRoute, async (c) => {
 
 	if (response.status === 429) {
 		throw new HTTPException(429, {
-			message: "Too many registrations. Try again in an hour.",
+			message: "Too many registrations. Try again later.",
 		});
 	}
 	if (!response.ok) {

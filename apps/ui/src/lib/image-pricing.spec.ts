@@ -62,6 +62,14 @@ describe("mappingImagePrice", () => {
 		expect(mappingImagePrice(mapping({ requestPrice: "0" }))).toBeNull();
 	});
 
+	it("adds a request charge to the image price", () => {
+		expect(
+			mappingImagePrice(
+				mapping({ perImagePrice: { a: "0.04" }, requestPrice: "0.01" }),
+			),
+		).toBeCloseTo(0.05, 10);
+	});
+
 	it("returns null when the mapping has no image price", () => {
 		expect(mappingImagePrice(mapping({}))).toBeNull();
 		expect(

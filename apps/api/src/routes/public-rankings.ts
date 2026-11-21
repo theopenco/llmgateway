@@ -36,7 +36,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_DAYS = { "7d": 7, "30d": 30 } as const;
 const windowSchema = z.enum(["7d", "30d"]).default("7d").optional();
 
-const TOP_AGENTS = 8;
+// More than the page shows: it names only apps with a public profile, so
+// it needs spare rows to fill its list.
+const TOP_AGENTS = 24;
 const TOP_MODELS_PER_AGENT = 5;
 // An app's model mix is published only when this many organizations sent
 // traffic with its name, so the mix never describes a single customer.
@@ -50,6 +52,12 @@ export const MIN_PROVIDER_TOKEN_SHARE = 0.01;
 // usedModel is stored as `provider/model[:region]`.
 function baseModelSql(column: AnyColumn) {
 	return sql<string>`split_part(split_part(${column}, '/', 2), ':', 1)`;
+}
+
+function startOfUtcDay(date: Date): Date {
+	const day = new Date(date);
+	day.setUTCHours(0, 0, 0, 0);
+	return day;
 }
 
 function windowStart(window: keyof typeof WINDOW_DAYS): Date {
@@ -118,12 +126,13 @@ export async function loadAgentModels(window: keyof typeof WINDOW_DAYS) {
 		.where(
 			and(
 				ne(globalSourceStats.source, "unknown"),
-				gte(globalSourceStats.dayTimestamp, start),
+				// Daily rows: include the day the window starts in.
+				gte(globalSourceStats.dayTimestamp, startOfUtcDay(start)),
 			),
 		)
 		.groupBy(globalSourceStats.source)
 		.orderBy(sql`${sourceTokens} DESC`)
-		.limit(TOP_AGENTS * 3);
+		.limit(TOP_AGENTS * 2);
 	const sources = candidates.map((row) => row.source);
 	if (sources.length === 0) {
 		return { window, agents: [] };
@@ -268,14 +277,17 @@ function isTextModel(modelId: string): boolean {
 		return false;
 	}
 	const output: readonly string[] = model.output ?? ["text"];
-	return !["image", "video", "audio", "embedding"].some((kind) =>
-		output.includes(kind),
-	);
+	return output.every((kind) => kind === "text");
 }
 
 export async function loadTokenCosts(window: keyof typeof WINDOW_DAYS) {
-	const start = new Date(windowStart(window));
-	start.setUTCHours(0, 0, 0, 0);
+	// Daily rows: start at the first whole day inside the window, so the
+	// figures never cover more than the window.
+	const windowStartsAt = windowStart(window);
+	const start = startOfUtcDay(windowStartsAt);
+	if (start < windowStartsAt) {
+		start.setUTCDate(start.getUTCDate() + 1);
+	}
 	const stats = globalModelStats;
 	const modelId = baseModelSql(stats.usedModel);
 	const rows = await db

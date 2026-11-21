@@ -22,9 +22,10 @@ function parsePrice(value: string | number | null | undefined): number | null {
 }
 
 /**
- * Lowest price of one image on a mapping: its flat per-image tiers, its
- * image-output token price times the smallest resolution's token count, or
- * its flat request price. Null when the price depends on tokens alone.
+ * Lowest price of one request for one image on a mapping: its cheapest flat
+ * per-image tier, or its image-output token price times the smallest
+ * resolution's token count, plus any flat request charge. Null when the price
+ * depends on tokens alone.
  */
 export function mappingImagePrice(
 	mapping: Pick<
@@ -36,25 +37,28 @@ export function mappingImagePrice(
 		| "discount"
 	>,
 ): number | null {
+	const requestPrice = parsePrice(mapping.requestPrice) ?? 0;
 	const flat = Object.values(mapping.perImagePrice ?? {})
 		.map(parsePrice)
 		.filter((price): price is number => price !== null);
-	if (flat.length > 0) {
-		return applyDiscount(Math.min(...flat), mapping.discount);
-	}
 	const tokenPrice = parsePrice(mapping.imageOutputPrice);
 	const tokens = Object.values(
 		mapping.imageOutputTokensByResolution ?? {},
 	).filter((count) => Number.isFinite(count) && count > 0);
-	if (tokenPrice !== null && tokens.length > 0) {
-		return applyDiscount(tokenPrice * Math.min(...tokens), mapping.discount);
+
+	let imagePrice: number | null = null;
+	if (flat.length > 0) {
+		imagePrice = Math.min(...flat);
+	} else if (tokenPrice !== null && tokens.length > 0) {
+		imagePrice = tokenPrice * Math.min(...tokens);
+	} else if (requestPrice > 0) {
+		imagePrice = 0;
 	}
-	// Image models billed per request charge that flat price for each image.
-	const requestPrice = parsePrice(mapping.requestPrice);
-	if (requestPrice !== null && requestPrice > 0) {
-		return applyDiscount(requestPrice, mapping.discount);
+	if (imagePrice === null) {
+		return null;
 	}
-	return null;
+	// A flat request charge is billed on top of the image itself.
+	return applyDiscount(imagePrice + requestPrice, mapping.discount);
 }
 
 /** Image models that can be routed today, cheapest first; unpriced ones last. */

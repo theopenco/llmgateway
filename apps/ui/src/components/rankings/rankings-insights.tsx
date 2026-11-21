@@ -18,6 +18,8 @@ export interface RankingsTokenCost {
 	}[];
 }
 
+const MAX_AGENTS = 8;
+
 function formatShare(percent: number): string {
 	return `${percent >= 10 ? Math.round(percent) : percent.toFixed(1)}%`;
 }
@@ -30,7 +32,9 @@ function formatCost(cost: number): string {
 export function knownAgents(
 	agents: readonly RankingsAgentModels[],
 ): RankingsAgentModels[] {
-	return agents.filter((agent) => agent.source in APP_METADATA);
+	return agents
+		.filter((agent) => agent.source in APP_METADATA)
+		.slice(0, MAX_AGENTS);
 }
 
 export function AgentModelMix({

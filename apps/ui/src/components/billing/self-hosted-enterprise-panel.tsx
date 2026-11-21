@@ -56,6 +56,7 @@ export function SelfHostedEnterprisePanel() {
 	const [email, setEmail] = useState("");
 	const [size, setSize] = useState("");
 	const [message, setMessage] = useState("");
+	const [submittedEmail, setSubmittedEmail] = useState("");
 
 	const register = api.useMutation("post", "/installation/register", {
 		onSuccess: () => {
@@ -95,14 +96,15 @@ export function SelfHostedEnterprisePanel() {
 				</ul>
 				{register.isSuccess ? (
 					<p role="status" className="rounded-lg border p-4 text-sm">
-						Sent. Open the confirmation email we sent to {email} and we will
-						reply with licence options.
+						Sent. Open the confirmation email we sent to {submittedEmail} and we
+						will reply with licence options.
 					</p>
 				) : (
 					<form
 						className="space-y-4"
 						onSubmit={(event) => {
 							event.preventDefault();
+							setSubmittedEmail(email.trim());
 							register.mutate({
 								body: {
 									email: email.trim(),

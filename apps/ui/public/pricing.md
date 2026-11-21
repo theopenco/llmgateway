@@ -9,7 +9,7 @@ Last updated: 2026-11-21
 - Price: $0 subscription. Prepaid credits, $10 minimum / $5,000 maximum per top-up.
 - Platform fee: flat 5% added at credit purchase (plus 1.5% for international cards).
 - Token pricing: provider list rates per token — no markup on tokens. Live per-model prices: https://llmgateway.io/models
-- Image pricing: provider rates per image. Lowest live price per image model: https://llmgateway.io/products/image-generation
+- Image pricing: provider rates, per image or per image token depending on the model. Lowest live price of one image per model: https://llmgateway.io/products/image-generation
 - Includes: access to the live model catalogue, automatic failover, response caching, usage analytics, and cost tracking.
 
 ## Bring Your Own Keys (BYOK)

@@ -202,7 +202,7 @@ export const Navbar = ({
 			title: "Image Generation",
 			href: "/products/image-generation",
 			description:
-				"Generate and edit images with every image model through one API, priced per image.",
+				"Generate and edit images with every image model through one API, at provider prices.",
 			icon: ImageIcon,
 			gradient:
 				"hover:from-amber-500/20 hover:to-orange-600/30 hover:shadow-amber-500/10 group-hover/product:text-amber-500 dark:group-hover/product:text-amber-400",
