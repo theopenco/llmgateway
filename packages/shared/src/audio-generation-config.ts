@@ -150,6 +150,21 @@ export function getModelAudioConfig(model: string): AudioModelConfig {
 		};
 	}
 
+	if (lower.includes("lyria")) {
+		// Music models take the prompt only and return a single native format:
+		// WAV for Lyria 2, MP3 for Lyria 3.
+		const format: AudioFormat = lower.includes("lyria-002") ? "wav" : "mp3";
+		return {
+			voices: [],
+			defaultVoice: "",
+			availableFormats: [format],
+			defaultFormat: format,
+			supportsSpeed: false,
+			availableSpeeds: [],
+			supportsInstructions: false,
+		};
+	}
+
 	if (lower.includes("gemini")) {
 		return {
 			voices: GEMINI_TTS_VOICES,

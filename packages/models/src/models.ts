@@ -861,6 +861,12 @@ export interface ProviderModelMapping {
 	 */
 	speechGenerations?: boolean;
 	/**
+	 * Whether this speech mapping is a prompt-to-music model (e.g. Lyria). The
+	 * /v1/audio/speech `input` is the music prompt, `voice` is ignored, and the
+	 * flat `requestPrice` bills each generated track.
+	 */
+	musicGenerations?: boolean;
+	/**
 	 * Whether this model uses the dedicated realtime WebSocket API.
 	 * When true, sessions are served by the gateway's /v1/realtime endpoint
 	 * (server-to-server WebSocket proxy) rather than /v1/chat/completions.

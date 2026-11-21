@@ -73,6 +73,7 @@ import { clientSafetyIdentifierFields } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 import { usageCost } from "@/lib/usage-cost.js";
+import { buildMusicRequestBody, extractMusicAudio } from "@/speech/music.js";
 import {
 	encodeSpeechEvents,
 	prepareSpeechStream,
@@ -620,6 +621,13 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 	const isElevenLabs = providerId === "elevenlabs";
 	const isAlibaba = providerId === "alibaba";
 	const isGoogleVertex = providerId === "google-vertex";
+	// Lyria returns encoded audio: WAV from Vertex `:predict`, MP3 from the
+	// AI Studio Interactions API.
+	const musicFormat = mapping.musicGenerations
+		? isGoogleVertex
+			? "wav"
+			: "mp3"
+		: undefined;
 	// OpenAI and ElevenLabs both return audio already encoded in the requested
 	// format and bill independently of Gemini's inline-PCM path.
 	const isEncodedPassthrough = isOpenAI || isElevenLabs;
@@ -650,29 +658,34 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 
 	const responseFormat =
 		request.response_format ??
+		musicFormat ??
 		(isEncodedPassthrough && !isGroq ? "mp3" : "wav");
-	const allowedFormats = isGroq
-		? GROQ_RESPONSE_FORMATS
-		: isOpenAI
-			? OPENAI_RESPONSE_FORMATS
-			: isElevenLabs
-				? ELEVENLABS_RESPONSE_FORMATS
-				: isAlibaba
-					? ALIBABA_RESPONSE_FORMATS
-					: GOOGLE_RESPONSE_FORMATS;
+	const allowedFormats = musicFormat
+		? new Set([musicFormat])
+		: isGroq
+			? GROQ_RESPONSE_FORMATS
+			: isOpenAI
+				? OPENAI_RESPONSE_FORMATS
+				: isElevenLabs
+					? ELEVENLABS_RESPONSE_FORMATS
+					: isAlibaba
+						? ALIBABA_RESPONSE_FORMATS
+						: GOOGLE_RESPONSE_FORMATS;
 	if (!allowedFormats.has(responseFormat)) {
 		return c.json(
 			{
 				error: {
-					message: isGroq
-						? `Unsupported response_format '${responseFormat}'. Groq speech models only support 'wav'.`
-						: isOpenAI
-							? `Unsupported response_format '${responseFormat}'.`
-							: isElevenLabs
-								? `Unsupported response_format '${responseFormat}'. ElevenLabs supports 'mp3', 'wav', 'pcm' and 'opus'.`
-								: isAlibaba
-									? `Unsupported response_format '${responseFormat}'. Qwen TTS models only support 'wav'.`
-									: `Unsupported response_format '${responseFormat}'. Gemini speech models only support 'wav' and 'pcm'.`,
+					message: musicFormat
+						? `Unsupported response_format '${responseFormat}'. ${modelDefId} only supports '${musicFormat}'.`
+						: isGroq
+							? `Unsupported response_format '${responseFormat}'. Groq speech models only support 'wav'.`
+							: isOpenAI
+								? `Unsupported response_format '${responseFormat}'.`
+								: isElevenLabs
+									? `Unsupported response_format '${responseFormat}'. ElevenLabs supports 'mp3', 'wav', 'pcm' and 'opus'.`
+									: isAlibaba
+										? `Unsupported response_format '${responseFormat}'. Qwen TTS models only support 'wav'.`
+										: `Unsupported response_format '${responseFormat}'. Gemini speech models only support 'wav' and 'pcm'.`,
 					type: "invalid_request_error",
 					param: "response_format",
 					code: "unsupported_response_format",
@@ -887,17 +900,25 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 							sample_rate: 24000,
 						},
 					}
-				: {
-						contents: [{ role: "user", parts: [googleTextPart] }],
-						generationConfig: {
-							responseModalities: ["AUDIO"],
-							speechConfig: {
-								voiceConfig: {
-									prebuiltVoiceConfig: { voiceName: voice },
+				: musicFormat
+					? buildMusicRequestBody(
+							isGoogleVertex,
+							upstreamModel,
+							request.instructions
+								? `${request.instructions}: ${request.input}`
+								: request.input,
+						)
+					: {
+							contents: [{ role: "user", parts: [googleTextPart] }],
+							generationConfig: {
+								responseModalities: ["AUDIO"],
+								speechConfig: {
+									voiceConfig: {
+										prebuiltVoiceConfig: { voiceName: voice },
+									},
 								},
 							},
-						},
-					};
+						};
 
 	interface SpeechAttempt {
 		providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
@@ -1088,7 +1109,9 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 				vertexTokenType === "oauth"
 					? ""
 					: `?key=${encodeURIComponent(usedToken)}`;
-			upstreamUrl = `${resolvedBaseUrl}${getGoogleVertexPublisherModelPath(upstreamModel, vertexProjectId, vertexRegion)}:generateContent${vertexAuthQuery}`;
+			upstreamUrl = `${resolvedBaseUrl}${getGoogleVertexPublisherModelPath(upstreamModel, vertexProjectId, vertexRegion)}:${musicFormat ? "predict" : "generateContent"}${vertexAuthQuery}`;
+		} else if (musicFormat) {
+			upstreamUrl = `${resolvedBaseUrl}/v1beta/interactions?key=${encodeURIComponent(usedToken)}`;
 		} else {
 			upstreamUrl = `${resolvedBaseUrl}/v1beta/models/${upstreamModel}:generateContent?key=${encodeURIComponent(usedToken)}`;
 		}
@@ -2139,23 +2162,29 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 			}
 
 			// Google (AI Studio or Vertex): parse the inline PCM audio from the
-			// JSON generateContent response — both return the same shape.
+			// JSON generateContent response — both return the same shape. Lyria
+			// returns encoded audio in a `:predict` or Interactions response.
 			const upstreamText = await upstreamResponse.text();
 			const responseSize = upstreamText.length;
-			let upstreamJson: GeminiResponse = {};
+			let parsedJson: unknown = {};
 			if (upstreamText) {
 				try {
-					upstreamJson = JSON.parse(upstreamText) as GeminiResponse;
+					parsedJson = JSON.parse(upstreamText);
 				} catch {
-					upstreamJson = {};
+					parsedJson = {};
 				}
 			}
+			const upstreamJson = (parsedJson ?? {}) as GeminiResponse;
 
-			// Extract the audio payload from the Gemini response.
 			const parts = upstreamJson.candidates?.[0]?.content?.parts ?? [];
 			const audioPart = parts.find(hasInlineAudio);
-			const base64Audio: string | undefined = audioPart?.inlineData.data;
-			const audioMimeType: string | undefined = audioPart?.inlineData.mimeType;
+			const musicAudio = musicFormat ? extractMusicAudio(parsedJson) : null;
+			const base64Audio: string | undefined = musicAudio
+				? musicAudio.data
+				: audioPart?.inlineData.data;
+			const audioMimeType: string | undefined = musicAudio
+				? musicAudio.mimeType
+				: audioPart?.inlineData.mimeType;
 
 			if (!base64Audio) {
 				const finishReason =
@@ -2259,18 +2288,25 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 			const out =
 				responseFormat === "pcm"
 					? pcm
-					: wavPcm
+					: musicAudio || wavPcm
 						? audio
 						: pcmToWav(pcm, sampleRate);
-			const contentType = responseFormat === "pcm" ? "audio/pcm" : "audio/wav";
+			const contentType =
+				responseFormat === "pcm"
+					? "audio/pcm"
+					: responseFormat === "mp3"
+						? "audio/mpeg"
+						: "audio/wav";
 
 			const usage = upstreamJson.usageMetadata ?? {};
-			const promptTokens =
-				typeof usage.promptTokenCount === "number"
+			const promptTokens = musicAudio
+				? musicAudio.inputTokens
+				: typeof usage.promptTokenCount === "number"
 					? usage.promptTokenCount
 					: null;
-			const audioOutputTokens =
-				typeof usage.candidatesTokenCount === "number"
+			const audioOutputTokens = musicAudio
+				? musicAudio.outputTokens
+				: typeof usage.candidatesTokenCount === "number"
 					? usage.candidatesTokenCount
 					: null;
 
@@ -2341,7 +2377,10 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 					imageInputCost: null,
 					imageOutputCost: null,
 					cost,
-					estimatedCost: promptTokens === null || audioOutputTokens === null,
+					// Lyria bills a flat price per track; tokens are informational.
+					estimatedCost:
+						!musicAudio &&
+						(promptTokens === null || audioOutputTokens === null),
 					discount: null,
 					pricingTier: null,
 					dataStorageCost: calculateDataStorageCost(
