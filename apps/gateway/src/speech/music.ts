@@ -4,7 +4,11 @@
  */
 
 interface LyriaResponse {
-	predictions?: Array<{ bytesBase64Encoded?: unknown; mimeType?: unknown }>;
+	predictions?: Array<{
+		bytesBase64Encoded?: unknown;
+		audioContent?: unknown;
+		mimeType?: unknown;
+	}>;
 	steps?: Array<{
 		content?: Array<{ type?: unknown; data?: unknown; mime_type?: unknown }>;
 	}>;
@@ -36,12 +40,21 @@ export function extractMusicAudio(body: unknown): MusicAudio {
 	const json: LyriaResponse =
 		body && typeof body === "object" ? (body as LyriaResponse) : {};
 
-	const prediction = json.predictions?.find(
-		(candidate) => typeof candidate.bytesBase64Encoded === "string",
-	);
+	// Vertex returns `bytesBase64Encoded`; its reference documents `audioContent`.
+	const prediction = json.predictions
+		?.map((candidate) => ({
+			data:
+				typeof candidate.bytesBase64Encoded === "string"
+					? candidate.bytesBase64Encoded
+					: typeof candidate.audioContent === "string"
+						? candidate.audioContent
+						: undefined,
+			mimeType: candidate.mimeType,
+		}))
+		.find((candidate) => candidate.data !== undefined);
 	if (prediction) {
 		return {
-			data: prediction.bytesBase64Encoded as string,
+			data: prediction.data,
 			mimeType:
 				typeof prediction.mimeType === "string"
 					? prediction.mimeType

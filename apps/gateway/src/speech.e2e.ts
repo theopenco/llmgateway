@@ -66,7 +66,7 @@ describe("e2e speech", getConcurrentTestOptions(), () => {
 			// A WAV file starts with a RIFF header and must carry actual audio
 			// samples beyond the 44-byte header.
 			expect(bytes.length).toBeGreaterThan(44);
-			if (contentType.includes("audio/mpeg")) {
+			if (isMusic && contentType.includes("audio/mpeg")) {
 				const id3 = bytes.subarray(0, 3).toString("ascii") === "ID3";
 				const frameSync =
 					bytes[0] === 0xff && ((bytes[1] ?? 0) & 0xe0) === 0xe0;

@@ -26,6 +26,12 @@ describe("Lyria music", () => {
 		});
 	});
 
+	it("accepts the documented audioContent prediction field", () => {
+		expect(
+			extractMusicAudio({ predictions: [{ audioContent: "UklGRg==" }] }).data,
+		).toBe("UklGRg==");
+	});
+
 	it("extracts MP3 audio and usage from an Interactions response", () => {
 		expect(
 			extractMusicAudio({
