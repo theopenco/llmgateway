@@ -155,6 +155,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.8,
 		},
 		{
+			url: `${baseUrl}/products/image-generation`,
+			changeFrequency: "daily",
+			priority: 0.8,
+		},
+		{
 			url: `${baseUrl}/open-source`,
 			changeFrequency: "monthly",
 			priority: 0.8,
