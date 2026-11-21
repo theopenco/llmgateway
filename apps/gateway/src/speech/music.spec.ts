@@ -75,6 +75,7 @@ describe("Lyria music", () => {
 			"lyria-002",
 			"lyria-3-clip-preview",
 			"lyria-3-pro-preview",
+			"lyria-3.5",
 		]);
 		for (const { mapping } of lyria) {
 			expect(mapping).toMatchObject({

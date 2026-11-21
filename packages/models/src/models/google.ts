@@ -3456,6 +3456,29 @@ export const googleModels = [
 		],
 	},
 	{
+		id: "lyria-3.5",
+		name: "Lyria 3.5",
+		description:
+			"Google's flagship Lyria 3.5 music generation model. Generates a full-length song (MP3) with verses, choruses and natural vocals from a text prompt via the /v1/audio/speech endpoint.",
+		family: "google",
+		output: ["audio"],
+		releasedAt: new Date("2026-09-03"),
+		providers: [
+			{
+				providerId: "google-ai-studio",
+				externalId: "lyria-3.5",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0.08",
+				streaming: false,
+				tools: false,
+				jsonOutput: false,
+				speechGenerations: true,
+				musicGenerations: true,
+			},
+		],
+	},
+	{
 		id: "gemini-2.5-flash-native-audio-preview-12-2025",
 		name: "Gemini 2.5 Flash Native Audio Preview (12-2025)",
 		description:
