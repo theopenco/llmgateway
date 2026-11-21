@@ -179,6 +179,28 @@ Orpheus V1 English offers six voices: `troy` (default), `autumn`, `diana`,
 Saudi-dialect voices: `fahad` (default), `abdullah`, `sultan`, `lulwa`, `noura`,
 and `aisha`. Groq limits Orpheus `input` to 200 characters per request.
 
+## Music generation
+
+Music models (Google Lyria) also use `/v1/audio/speech`: `input` is the music
+prompt, `voice` and `speed` are ignored, and each request generates one track
+billed at a flat per-track price. Each model returns a single native format,
+`wav` on Google Vertex or `mp3` on Google AI Studio, which is the default and
+only accepted `response_format`. Find them on the [models
+page](https://llmgateway.io/models?filters=1&audioGeneration=true).
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/audio/speech" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "lyria-3-clip-preview",
+    "input": "An upbeat lo-fi hip hop beat with warm piano chords"
+  }' \
+  --output music.mp3
+```
+
+Full-length songs can take a minute or more to generate.
+
 ## ElevenLabs
 
 The four ElevenLabs models are billed per **input character** (see the [models

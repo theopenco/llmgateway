@@ -18,6 +18,7 @@ const REQUIRED_OUTPUT_BY_FLAG: {
 	{ flag: "imageGenerations", output: "image" },
 	{ flag: "embeddings", output: "embedding" },
 	{ flag: "speechGenerations", output: "audio" },
+	{ flag: "musicGenerations", output: "audio" },
 	{ flag: "videoGenerations", output: "video" },
 	{ flag: "ocr", output: "ocr" },
 	{ flag: "transcriptions", output: "transcription" },
