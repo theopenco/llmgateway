@@ -104,9 +104,11 @@ vi.mock("@/chat/tools/retry-with-fallback.js", () => ({
 }));
 vi.mock("@llmgateway/actions", () => ({
 	RedirectError: class extends Error {},
+	createUpstreamClientRequestId: vi.fn(() => null),
 	getGoogleVertexPublisherModelPath: vi.fn(),
 	getOpenAiV1Prefix: vi.fn(() => "/v1"),
 	getProviderHeaders: vi.fn(() => ({})),
+	getUpstreamRequestId: vi.fn(() => null),
 	managedCredentialOptions: vi.fn(),
 	providerKeyLabel: vi.fn(),
 	readProviderKey: vi.fn(() => "byok-test-key"),

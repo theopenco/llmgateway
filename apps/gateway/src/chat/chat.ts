@@ -182,6 +182,8 @@ import {
 	getUpstreamModelId,
 	getProviderEndpoint,
 	getProviderHeaders,
+	createUpstreamClientRequestId,
+	getUpstreamRequestId,
 	routeProjectlessVertexEndpoint,
 	usesAwsBedrockConverse as isAwsBedrockConverse,
 	isPremiumServiceTier,
@@ -2038,6 +2040,11 @@ chat.openapi(completions, async (c) => {
 	// unsupported tiers to standard. Null = standard / no tier. Declared here
 	// (ahead of the insertLogEntry wrapper) so every log path can record it.
 	let servedServiceTier: "flex" | "priority" | null = null;
+	// The id this attempt sent upstream and the provider's own request id from
+	// its response, so a provider report quoting either maps to the log row.
+	// Reset at the start of every attempt.
+	let upstreamClientRequestId: string | null = null;
+	let upstreamRequestId: string | null = null;
 
 	// Providers dropped *before* provider selection runs — by the service-tier
 	// filter, the coding-plan prompt-caching requirement, the service-tier key
@@ -2499,6 +2506,8 @@ chat.openapi(completions, async (c) => {
 			// records them. Explicit values in logData still win.
 			requestedServiceTier,
 			usedServiceTier: servedServiceTier,
+			upstreamClientRequestId,
+			upstreamRequestId,
 			...webSearchLogFields(
 				logData,
 				internalWebSearch?.search.engine,
@@ -10101,12 +10110,16 @@ chat.openapi(completions, async (c) => {
 						// that fails before fetch returns (timeout/connection error)
 						// logs no served tier instead of the prior provider's.
 						servedServiceTier = null;
+						upstreamClientRequestId =
+							createUpstreamClientRequestId(transportProvider);
+						upstreamRequestId = null;
 						const headers = getProviderHeaders(transportProvider, usedToken, {
 							requestId,
 							// Same resolved token type as the endpoint so header auth and
 							// the `?key=` query param never disagree.
 							tokenType: resolveActiveVertexTokenType(),
 							serviceTier: forwardedServiceTier,
+							clientRequestId: upstreamClientRequestId,
 						});
 						headers["Content-Type"] = "application/json";
 
@@ -10174,6 +10187,10 @@ chat.openapi(completions, async (c) => {
 								signal: fetchSignal,
 							},
 							providerKey?.baseUrl ?? airsideCustomBaseUrl,
+						);
+						upstreamRequestId = getUpstreamRequestId(
+							transportProvider,
+							res?.headers,
 						);
 
 						logServiceTierRequest(usedProvider, forwardedServiceTier, res);
@@ -14561,6 +14578,8 @@ chat.openapi(completions, async (c) => {
 		// before fetch returns (timeout/connection error) logs no served tier
 		// instead of inheriting the prior provider's.
 		servedServiceTier = null;
+		upstreamClientRequestId = createUpstreamClientRequestId(transportProvider);
+		upstreamRequestId = null;
 
 		// Resolved outside the try so an unhonorable tier surfaces as a request
 		// error instead of being caught below and retried as an upstream failure.
@@ -14590,6 +14609,7 @@ chat.openapi(completions, async (c) => {
 				// `?key=` query param never disagree.
 				tokenType: resolveActiveVertexTokenType(),
 				serviceTier: forwardedServiceTier,
+				clientRequestId: upstreamClientRequestId,
 			});
 			if (!(requestBody instanceof FormData)) {
 				headers["Content-Type"] = "application/json";
@@ -14662,6 +14682,7 @@ chat.openapi(completions, async (c) => {
 				},
 				providerKey?.baseUrl ?? airsideCustomBaseUrl,
 			);
+			upstreamRequestId = getUpstreamRequestId(transportProvider, res?.headers);
 
 			logServiceTierRequest(usedProvider, forwardedServiceTier, res);
 			// AI Studio reports the served tier in a response header; Vertex reports

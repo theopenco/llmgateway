@@ -89,6 +89,8 @@ export interface CreateLogEntryOptions {
 	plugins?: string[];
 	pluginResults?: PluginResults;
 	gatewayContentFilterResponse?: GatewayContentFilterResponse | null;
+	/** Per-attempt id sent upstream (`createUpstreamClientRequestId`). */
+	upstreamClientRequestId?: string | null;
 }
 
 /**
@@ -168,6 +170,11 @@ function buildLogEntry(options: CreateLogEntryOptions) {
 				: null,
 		routingMetadata: options.routingMetadata ?? null,
 		traceId,
+		// Omitted when unset so chat's insertLogEntry default (the current
+		// attempt's id) is not overridden by a null.
+		...(options.upstreamClientRequestId && {
+			upstreamClientRequestId: options.upstreamClientRequestId,
+		}),
 		userAgent: options.userAgent ?? null,
 		// Only include raw payloads if x-debug header is set to true
 		rawRequest: options.debugMode ? (options.rawRequest ?? null) : null,

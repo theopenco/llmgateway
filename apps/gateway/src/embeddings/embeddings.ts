@@ -72,6 +72,8 @@ import {
 	getOpenAiV1Prefix,
 	getProviderDefaultBaseUrl,
 	getProviderHeaders,
+	getUpstreamRequestId,
+	createUpstreamClientRequestId,
 	managedCredentialOptions,
 	providerKeyLabel,
 	readProviderKey,
@@ -1014,6 +1016,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			const credentialSource: RoutingCredentialSource = attempt.providerKey
 				? "byok"
 				: "platform";
+			const upstreamClientRequestId = createUpstreamClientRequestId(providerId);
 			// Named only for the organization's own key; providerKeyLabel()
 			// refuses to describe a platform-managed credential.
 			const providerKeyId = attempt.providerKey?.id;
@@ -1040,6 +1043,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				userAgent,
 				rawRequest: rawBody,
 				upstreamRequest: attempt.requestBody,
+				upstreamClientRequestId,
 			});
 
 			let upstreamResponse: Response;
@@ -1060,6 +1064,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 							...getProviderHeaders(providerId, attempt.usedToken, {
 								requestId,
 								tokenType: attempt.vertexTokenType,
+								clientRequestId: upstreamClientRequestId,
 							}),
 						},
 						body: JSON.stringify(attempt.requestBody),
@@ -1255,6 +1260,11 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				}
 			}
 
+			const upstreamRequestId = getUpstreamRequestId(
+				providerId,
+				upstreamResponse.headers,
+			);
+
 			if (!upstreamResponse.ok) {
 				const status = upstreamResponse.status;
 				if (attempt.envVarName !== undefined) {
@@ -1308,6 +1318,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 					{
 						...baseLogEntry,
 						id: willRetry ? attemptLogId : finalLogId,
+						upstreamRequestId,
 						routingMetadata: buildEmbeddingRoutingMetadata(
 							usedApiKeyHash,
 							credentialSource,
@@ -1582,6 +1593,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				{
 					...baseLogEntry,
 					id: finalLogId,
+					upstreamRequestId,
 					routingMetadata: buildEmbeddingRoutingMetadata(
 						usedApiKeyHash,
 						credentialSource,
