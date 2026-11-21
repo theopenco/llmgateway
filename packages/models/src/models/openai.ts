@@ -713,8 +713,9 @@ export const openaiModels = [
 			{
 				providerId: "groq",
 				externalId: "openai/gpt-oss-120b",
-				inputPrice: "0.15e-6",
-				outputPrice: "0.75e-6",
+				inputPrice: "0.33e-6",
+				outputPrice: "0.71e-6",
+				cachedInputPrice: "0.17e-6",
 				requestPrice: "0",
 				contextSize: 131072,
 				maxOutput: 32766,
@@ -833,8 +834,9 @@ export const openaiModels = [
 			{
 				providerId: "groq",
 				externalId: "openai/gpt-oss-20b",
-				inputPrice: "0.1e-6",
-				outputPrice: "0.5e-6",
+				inputPrice: "0.17e-6",
+				outputPrice: "0.36e-6",
+				cachedInputPrice: "0.09e-6",
 				requestPrice: "0",
 				contextSize: 131072,
 				maxOutput: 32766,
