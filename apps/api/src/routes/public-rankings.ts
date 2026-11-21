@@ -36,9 +36,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_DAYS = { "7d": 7, "30d": 30 } as const;
 const windowSchema = z.enum(["7d", "30d"]).default("7d").optional();
 
-// More than the page shows: it names only apps with a public profile, so
-// it needs spare rows to fill its list.
-const TOP_AGENTS = 24;
+// The page names only apps with a public profile, so the response carries
+// far more rows than it shows. Candidates are ranked on the small daily table
+// before the organization floor is applied.
+const TOP_AGENTS = 50;
+const CANDIDATE_SOURCES = 200;
 const TOP_MODELS_PER_AGENT = 5;
 // An app's model mix is published only when this many organizations sent
 // traffic with its name, so the mix never describes a single customer.
@@ -132,7 +134,7 @@ export async function loadAgentModels(window: keyof typeof WINDOW_DAYS) {
 		)
 		.groupBy(globalSourceStats.source)
 		.orderBy(sql`${sourceTokens} DESC`)
-		.limit(TOP_AGENTS * 2);
+		.limit(CANDIDATE_SOURCES);
 	const sources = candidates.map((row) => row.source);
 	if (sources.length === 0) {
 		return { window, agents: [] };
