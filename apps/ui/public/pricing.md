@@ -1,6 +1,6 @@
 # LLM Gateway — Pricing
 
-Last updated: 2026-11-10
+Last updated: 2026-11-21
 
 > One OpenAI-compatible API for the models and providers in the live catalogue. Per-token prices match each provider's published rates; LLM Gateway charges a flat 5% platform fee when you buy credits. Bringing your own provider keys is free, and self-hosting is free under AGPLv3.
 
@@ -9,6 +9,7 @@ Last updated: 2026-11-10
 - Price: $0 subscription. Prepaid credits, $10 minimum / $5,000 maximum per top-up.
 - Platform fee: flat 5% added at credit purchase (plus 1.5% for international cards).
 - Token pricing: provider list rates per token — no markup on tokens. Live per-model prices: https://llmgateway.io/models
+- Image pricing: provider rates per image. Lowest live price per image model: https://llmgateway.io/products/image-generation
 - Includes: access to the live model catalogue, automatic failover, response caching, usage analytics, and cost tracking.
 
 ## Bring Your Own Keys (BYOK)
