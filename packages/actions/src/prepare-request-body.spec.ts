@@ -9303,6 +9303,62 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			expect(requestBody.max_tokens).toBeUndefined();
 		});
 	});
+
+	describe("meta", () => {
+		test.each([
+			["meta", "muse-wonder-1.0"],
+			["meta-contributor", "muse-spark-1.3-contributor"],
+		] as const)(
+			"raises max_tokens below 16 to 16 for %s",
+			async (provider, model) => {
+				const requestBody = (await prepareRequestBody(
+					provider,
+					model,
+					null,
+					model,
+					[{ role: "user", content: "Hello!" }],
+					false,
+					undefined,
+					1,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					false,
+				)) as OpenAIResponsesRequestBody;
+
+				expect(requestBody.max_output_tokens).toBe(16);
+			},
+		);
+
+		test("forwards max_tokens of 16 or more verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"meta",
+				"muse-wonder-1.0",
+				null,
+				"muse-wonder-1.0",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as OpenAIResponsesRequestBody;
+
+			expect(requestBody.max_output_tokens).toBe(32);
+		});
+	});
 });
 
 describe("prepareRequestBody - upstream prompt_cache_key", () => {

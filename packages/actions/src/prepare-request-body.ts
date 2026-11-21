@@ -3075,9 +3075,11 @@ export async function prepareRequestBody(
 		temperature = 1;
 	}
 
-	// OpenAI family models require max_tokens >= 16
+	// OpenAI family models and Meta's Model API require max_tokens >= 16
 	if (
-		modelDef?.family === "openai" &&
+		(modelDef?.family === "openai" ||
+			usedProvider === "meta" ||
+			usedProvider === "meta-contributor") &&
 		max_tokens !== undefined &&
 		max_tokens < 16
 	) {
