@@ -6961,6 +6961,11 @@ export const projectHourlySourceModelStats = snakeCase.table(
 			table.usedModel,
 			table.usedProvider,
 		),
+		// Cross-project reads of one app's model mix (public rankings).
+		index("project_hourly_source_model_stats_source_hour_timestamp_idx").on(
+			table.source,
+			table.hourTimestamp,
+		),
 	],
 );
 
