@@ -28,12 +28,19 @@ function formatCost(cost: number): string {
 	return `$${cost >= 1 ? cost.toFixed(2) : parseFloat(cost.toPrecision(2))}`;
 }
 
-/** Only apps with a public profile are named; the API already drops small ones. */
+/**
+ * Only coding agents with a public profile are named; the API already drops
+ * apps used by too few organizations.
+ */
 export function knownAgents(
 	agents: readonly RankingsAgentModels[],
 ): RankingsAgentModels[] {
 	return agents
-		.filter((agent) => Object.hasOwn(APP_METADATA, agent.source))
+		.filter(
+			(agent) =>
+				Object.hasOwn(APP_METADATA, agent.source) &&
+				APP_METADATA[agent.source].category === "coding",
+		)
 		.slice(0, MAX_AGENTS);
 }
 

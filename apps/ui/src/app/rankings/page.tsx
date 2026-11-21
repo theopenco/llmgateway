@@ -144,7 +144,7 @@ export default async function RankingsPage() {
 		{
 			question: "How do you know which models a coding agent uses?",
 			answer:
-				"Apps and coding agents can name themselves on each request. The per-agent breakdown counts tokens from those tagged requests over the last 7 days and shows each model's share. An app appears only when several separate projects send traffic under its name.",
+				"Apps and coding agents can name themselves on each request. The per-agent breakdown counts tokens from those tagged requests over the last 7 days and shows each model's share. A coding agent appears only when several separate organizations send traffic under its name.",
 		},
 		{
 			question:
