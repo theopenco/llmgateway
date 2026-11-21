@@ -1,0 +1,68 @@
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index ddabb70..74e9ac4 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -237,6 +237,35 @@ describe('EventProcessor.createRequest', () => {
+     expect(url.searchParams.get('ampersand')).toBe('a&b&c')
+   })
+ 
++  it('Should keep empty-string queryStringParameters but skip undefined ones for version 1.0', () => {
++    const event: LambdaEvent = {
++      ...baseV1Event,
++      queryStringParameters: { empty: '', present: '0', omitted: undefined },
++    }
++
++    const processor = getProcessor(event)
++    const request = processor.createRequest(event)
++
++    expect(request.url).toEqual('https://id.execute-api.us-east-1.amazonaws.com/my/path?empty=&present=0')
++  })
++
++  it('Should keep empty-string queryStringParameters but skip undefined ones for ALB', () => {
++    const event = {
++      httpMethod: 'GET',
++      path: '/my/path',
++      headers: { host: 'app.example.com' },
++      queryStringParameters: { empty: '', present: '0', omitted: undefined },
++      body: null,
++      isBase64Encoded: false,
++      requestContext: { elb: { targetGroupArn: 'arn:aws:elasticloadbalancing:...' } },
++    } as unknown as LambdaEvent
++
++    const processor = getProcessor(event)
++    const request = processor.createRequest(event)
++
++    expect(request.url).toEqual('https://app.example.com/my/path?empty=&present=0')
++  })
++
+   it('Should return valid Request object from version 1.0 API Gateway event', () => {
+     const event: LambdaEvent = {
+       ...baseV1Event,
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 889adaa..f5428bd 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -464,9 +464,10 @@ export class EventV1Processor extends EventProcessor<APIGatewayProxyEvent> {
+         )
+         .join('&')
+     } else {
++      // Keep empty-string values (e.g. `?empty=`); only skip absent ones
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
+-        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value || '')}`)
++        .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
++        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+         .join('&')
+     }
+   }
+@@ -554,8 +555,9 @@ export class ALBProcessor extends EventProcessor<ALBProxyEvent> {
+         .map(([key, value]) => `${key}=${value.join(`&${key}=`)}`)
+         .join('&')
+     } else {
++      // Keep empty-string values (e.g. `?empty=`); only skip absent ones
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
++        .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+         .map(([key, value]) => `${key}=${value}`)
+         .join('&')
+     }

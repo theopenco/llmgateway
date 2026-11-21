@@ -1,0 +1,62 @@
+diff --git a/.gitignore b/.gitignore
+index 087d731..b5c2a7b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -138,3 +138,4 @@ out
+ # Claude Code local files
+ CLAUDE.local.md
+ settings.local.json
++.empryo
+diff --git a/src/router/linear-router/router.test.ts b/src/router/linear-router/router.test.ts
+index ed8404b..164f26c 100644
+--- a/src/router/linear-router/router.test.ts
++++ b/src/router/linear-router/router.test.ts
+@@ -65,6 +65,33 @@ describe('LinearRouter', () => {
+     })
+   })
+ 
++  describe('Empty segment', () => {
++    let router: LinearRouter<string>
++
++    beforeEach(() => {
++      router = new LinearRouter<string>()
++      router.add('GET', '/u/:id/posts', 'GET /u/:id/posts')
++      router.add('GET', '/u/:id', 'GET /u/:id')
++    })
++
++    it('GET /u//posts', () => {
++      const [res] = router.match('GET', '/u//posts')
++      expect(res.length).toBe(0)
++    })
++
++    it('GET /u/', () => {
++      const [res] = router.match('GET', '/u/')
++      expect(res.length).toBe(0)
++    })
++
++    it('GET /u/123/posts', () => {
++      const [res] = router.match('GET', '/u/123/posts')
++      expect(res.length).toBe(1)
++      expect(res[0][0]).toBe('GET /u/:id/posts')
++      expect(res[0][1]['id']).toBe('123')
++    })
++  })
++
+   describe('Skip part', () => {
+     const router = new LinearRouter<string>()
+ 
+diff --git a/src/router/linear-router/router.ts b/src/router/linear-router/router.ts
+index acee5c1..bd5fd4a 100644
+--- a/src/router/linear-router/router.ts
++++ b/src/router/linear-router/router.ts
+@@ -110,6 +110,10 @@ export class LinearRouter<T> implements Router<T> {
+                 pos += match.indices[0][1] + 1
+               } else {
+                 let endValuePos = path.indexOf('/', pos + 1)
++                if (endValuePos === pos + 1) {
++                  // empty segment, e.g. /u//posts
++                  continue ROUTES_LOOP
++                }
+                 if (endValuePos === -1) {
+                   if (pos + 1 === path.length) {
+                     continue ROUTES_LOOP

@@ -1,0 +1,80 @@
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index ddabb70..25ac205 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -425,6 +425,51 @@ describe('EventProcessor.createRequest', () => {
+   })
+ })
+ 
++describe('getQueryString with empty and undefined query parameter values', () => {
++  it('Should keep empty-string values and skip undefined ones for version 1.0 API Gateway event', () => {
++    const event: LambdaEvent = {
++      ...baseV1Event,
++      queryStringParameters: {
++        empty: '',
++        present: '0',
++        omitted: undefined,
++      },
++    }
++
++    const processor = getProcessor(event)
++    const request = processor.createRequest(event)
++
++    expect(request.url).toEqual('https://id.execute-api.us-east-1.amazonaws.com/my/path?empty=&present=0')
++  })
++
++  it('Should keep empty-string values and skip undefined ones for ALB event', () => {
++    const event: LambdaEvent = {
++      httpMethod: 'GET',
++      headers: {
++        host: 'my-targets-73e2d6bc24d8a067.us-east-1.elb.amazonaws.com',
++      },
++      path: '/my/path',
++      body: null,
++      isBase64Encoded: false,
++      queryStringParameters: {
++        empty: '',
++        present: '0',
++        omitted: undefined,
++      },
++      requestContext: {
++        elb: {
++          targetGroupArn: 'arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/my-targets/73e2d6bc24d8a067',
++        },
++      },
++    }
++
++    const processor = getProcessor(event)
++    const request = processor.createRequest(event)
++
++    expect(request.url).toEqual('https://my-targets-73e2d6bc24d8a067.us-east-1.elb.amazonaws.com/my/path?empty=&present=0')
++  })
++})
++
+ describe('handle', () => {
+   it('Should route a V1 REST event by its path even when a base path mapping adds rawPath', async () => {
+     const app = new Hono()
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 889adaa..05de3b9 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -465,8 +465,8 @@ export class EventV1Processor extends EventProcessor<APIGatewayProxyEvent> {
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
+-        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value || '')}`)
++        .filter((entry): entry is [string, string] => entry[1] !== undefined)
++        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+         .join('&')
+     }
+   }
+@@ -555,7 +555,7 @@ export class ALBProcessor extends EventProcessor<ALBProxyEvent> {
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
++        .filter(([, value]) => value !== undefined)
+         .map(([key, value]) => `${key}=${value}`)
+         .join('&')
+     }

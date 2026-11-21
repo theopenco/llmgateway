@@ -1,0 +1,116 @@
+diff --git a/.gitignore b/.gitignore
+index 087d731..b5c2a7b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -138,3 +138,4 @@ out
+ # Claude Code local files
+ CLAUDE.local.md
+ settings.local.json
++.empryo
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..5b1231a 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -103,6 +103,62 @@ describe('JSON pretty by Middleware', () => {
+ }`)
+   })
+ 
++  it('Should pass through responses that cannot be parsed as JSON', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/empty', (c) =>
++      c.body('', 200, { 'Content-Type': 'application/json', 'Content-Length': '0' })
++    )
++    app.get('/invalid', (c) =>
++      c.body('not json', 200, { 'Content-Type': 'application/json', 'Content-Length': '8' })
++    )
++    app.get('/no-content', (c) => c.newResponse(null, 204, { 'Content-Type': 'application/json' }))
++    app.get('/not-modified', (c) =>
++      c.newResponse(null, 304, { 'Content-Type': 'application/json' })
++    )
++    app.get('/read', async (c, next) => {
++      await next()
++      await c.res.text()
++    })
++    app.get('/read', (c) =>
++      c.body('{"message":"Hono!"}', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '18',
++      })
++    )
++
++    for (const [path, status, body, contentLength] of [
++      ['/empty', 200, '', '0'],
++      ['/invalid', 200, 'not json', '8'],
++      ['/no-content', 204, '', null],
++      ['/not-modified', 304, '', null],
++      ['/read', 200, '{"message":"Hono!"}', '18'],
++    ] as const) {
++      const res = await app.request(path)
++      expect(res.status).toBe(status)
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++      expect(res.headers.get('Content-Length')).toBe(contentLength)
++      if (path !== '/read') {
++        expect(await res.text()).toBe(body)
++      }
++    }
++  })
++
++  it('Should remove Content-Length from prettified responses', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) =>
++      c.body('{"message":"Hono!"}', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '18',
++      })
++    )
++
++    const res = await app.request('/')
++    expect(res.headers.has('Content-Length')).toBe(false)
++    expect(await res.text()).toBe('{\n  "message": "Hono!"\n}')
++  })
++
+   it('Should not touch responses with non-JSON content-types', async () => {
+     const app = new Hono()
+     app.use('*', prettyJSON({ force: true }))
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..67178cc 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -46,14 +46,25 @@ const jsonContentTypeRegex = /^application\/(?:[a-z0-9._-]+\+)?json(?=$|[;\s])/i
+  * ```
+  */
+ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+-  const targetQuery = options?.query ?? 'pretty'
+-  return async function prettyJSON(c, next) {
+-    const pretty = options?.force || c.req.query(targetQuery) || c.req.query(targetQuery) === ''
+-    await next()
+-    const contentType = c.res.headers.get('Content-Type')
+-    if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
+-    }
+-  }
++    const targetQuery = options?.query ?? 'pretty'
++      return async function prettyJSON(c, next) {
++        const pretty = options?.force || c.req.query(targetQuery) || c.req.query(targetQuery) === ''
++        await next()
++        const response = c.res
++        const contentType = response.headers.get('Content-Type')
++        if (pretty && contentType && jsonContentTypeRegex.test(contentType) && !response.bodyUsed) {
++          try {
++            const obj = await response.clone().json()
++            response.headers.delete('Content-Length')
++            const headers = new Headers(response.headers)
++            c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), {
++              status: response.status,
++              statusText: response.statusText,
++              headers,
++            })
++          } catch {
++            // Leave non-JSON responses unchanged.
++          }
++        }
++      }
+ }

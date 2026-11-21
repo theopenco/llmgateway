@@ -1,0 +1,43 @@
+{
+  "runId": "linear-router__opencode__opus-5.5__r5",
+  "task": "linear-router",
+  "agent": "opencode",
+  "model": "opus-5.5",
+  "gatewayId": "anthropic/claude-opus-5-5",
+  "rep": 5,
+  "startedAt": "2026-11-04T19:46:21.807Z",
+  "code": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 37645,
+  "passed": true,
+  "tests": "90 passed | 15 skipped",
+  "patchLines": 16,
+  "agentVersion": "1.18.29",
+  "agentConfig": {
+    "$schema": "https://opencode.ai/config.json",
+    "provider": {
+      "llmgateway": {
+        "options": {
+          "apiKey": "{env:LLMGATEWAY_API_KEY}"
+        },
+        "models": {
+          "anthropic/claude-opus-5-5": {
+            "name": "Claude Opus 5.5",
+            "tool_call": true,
+            "reasoning": true
+          }
+        }
+      }
+    },
+    "model": "llmgateway/anthropic/claude-opus-5-5",
+    "small_model": "llmgateway/anthropic/claude-opus-5-5",
+    "permission": {
+      "edit": "allow",
+      "bash": "allow",
+      "webfetch": "allow"
+    },
+    "autoupdate": false,
+    "share": "disabled"
+  }
+}

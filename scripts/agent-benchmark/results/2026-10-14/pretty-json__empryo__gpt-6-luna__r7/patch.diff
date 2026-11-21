@@ -1,0 +1,157 @@
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..4865aa0 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -120,3 +120,88 @@ describe('JSON pretty by Middleware', () => {
+     expect(await jsonSeqRes.text()).toBe('{"message":"Hono!"}')
+   })
+ })
++
++describe('JSON pretty middleware pass-through', () => {
++  it('preserves responses whose bodies are not parseable as JSON', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/empty', (c) =>
++      c.newResponse('', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '0',
++        'X-Keep': 'empty',
++      })
++    )
++    app.get('/invalid', (c) =>
++      c.newResponse('not json', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '8',
++        'X-Keep': 'invalid',
++      })
++    )
++    app.get('/no-content', (c) =>
++      c.newResponse(null, 204, {
++        'Content-Type': 'application/json',
++        'Content-Length': '0',
++        'X-Keep': '204',
++      })
++    )
++    app.get('/not-modified', (c) =>
++      c.newResponse(null, 304, {
++        'Content-Type': 'application/json',
++        'Content-Length': '0',
++        'X-Keep': '304',
++      })
++    )
++
++    for (const [path, status, body, marker, length] of [
++      ['/empty', 200, '', 'empty', '0'],
++      ['/invalid', 200, 'not json', 'invalid', '8'],
++      ['/no-content', 204, '', '204', '0'],
++      ['/not-modified', 304, '', '304', '0'],
++    ] as const) {
++      const res = await app.request(`http://localhost${path}`)
++      expect(res.status).toBe(status)
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++      expect(res.headers.get('Content-Length')).toBe(length)
++      expect(res.headers.get('X-Keep')).toBe(marker)
++      expect(await res.text()).toBe(body)
++    }
++  })
++
++  it('does not retain Content-Length when prettifying', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) =>
++      c.newResponse('{"ok":true}', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '11',
++      })
++    )
++
++    const res = await app.request('http://localhost/')
++    expect(res.headers.get('Content-Length')).toBeNull()
++    expect(await res.text()).toBe(`{
++  "ok": true
++}`)
++  })
++
++  it('does not throw when the response body was already read', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.use('*', async (c, next) => {
++      await next()
++      await c.res.text()
++    })
++    app.get('/', (c) =>
++      c.newResponse('{"ok":true}', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '11',
++      })
++    )
++
++    const res = await app.request('http://localhost/')
++    expect(res.status).toBe(200)
++    expect(res.headers.get('Content-Length')).toBe('11')
++  })
++})
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..ee60829 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -52,8 +52,20 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+     await next()
+     const contentType = c.res.headers.get('Content-Type')
+     if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++      const originalResponse = c.res
++      try {
++        const obj = await originalResponse.clone().json()
++        const headers = new Headers(originalResponse.headers)
++        headers.delete('Content-Length')
++        c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), {
++          status: originalResponse.status,
++          statusText: originalResponse.statusText,
++          headers,
++        })
++        c.res.headers.delete('Content-Length')
++      } catch {
++        // Leave responses unchanged when the body cannot be parsed.
++      }
+     }
+   }
+ }
+diff --git a/.empryo/genome.db b/.empryo/genome.db
+new file mode 100644
+index 0000000..fcf52b3
+Binary files /dev/null and b/.empryo/genome.db differ
+diff --git a/.empryo/genome.db-shm b/.empryo/genome.db-shm
+new file mode 100644
+index 0000000..2f7c217
+Binary files /dev/null and b/.empryo/genome.db-shm differ
+diff --git a/.empryo/genome.db-wal b/.empryo/genome.db-wal
+new file mode 100644
+index 0000000..e69de29
+diff --git a/.empryo/memory-config.json b/.empryo/memory-config.json
+new file mode 100644
+index 0000000..58b778b
+--- /dev/null
++++ b/.empryo/memory-config.json
+@@ -0,0 +1,8 @@
++{
++  "writeScope": "project",
++  "readScope": "all",
++  "cleanup": {
++    "lastCleanupAt": null,
++    "sessionsSinceCleanup": 1
++  }
++}
+\ No newline at end of file
+diff --git a/.empryo/memory.db b/.empryo/memory.db
+new file mode 100644
+index 0000000..73886b9
+Binary files /dev/null and b/.empryo/memory.db differ
+diff --git a/.empryo/memory.db-shm b/.empryo/memory.db-shm
+new file mode 100644
+index 0000000..904505e
+Binary files /dev/null and b/.empryo/memory.db-shm differ
+diff --git a/.empryo/memory.db-wal b/.empryo/memory.db-wal
+new file mode 100644
+index 0000000..e69de29

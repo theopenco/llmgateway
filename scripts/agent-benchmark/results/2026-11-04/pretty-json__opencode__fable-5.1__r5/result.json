@@ -1,0 +1,43 @@
+{
+  "runId": "pretty-json__opencode__fable-5.1__r5",
+  "task": "pretty-json",
+  "agent": "opencode",
+  "model": "fable-5.1",
+  "gatewayId": "anthropic/claude-fable-5-1",
+  "rep": 5,
+  "startedAt": "2026-11-04T19:59:22.898Z",
+  "code": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 87334,
+  "passed": true,
+  "tests": "12 passed",
+  "patchLines": 103,
+  "agentVersion": "1.18.29",
+  "agentConfig": {
+    "$schema": "https://opencode.ai/config.json",
+    "provider": {
+      "llmgateway": {
+        "options": {
+          "apiKey": "{env:LLMGATEWAY_API_KEY}"
+        },
+        "models": {
+          "anthropic/claude-fable-5-1": {
+            "name": "Claude Fable 5.1",
+            "tool_call": true,
+            "reasoning": true
+          }
+        }
+      }
+    },
+    "model": "llmgateway/anthropic/claude-fable-5-1",
+    "small_model": "llmgateway/anthropic/claude-fable-5-1",
+    "permission": {
+      "edit": "allow",
+      "bash": "allow",
+      "webfetch": "allow"
+    },
+    "autoupdate": false,
+    "share": "disabled"
+  }
+}

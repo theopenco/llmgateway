@@ -1,0 +1,90 @@
+diff --git a/.gitignore b/.gitignore
+index 087d731..b5c2a7b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -138,3 +138,4 @@ out
+ # Claude Code local files
+ CLAUDE.local.md
+ settings.local.json
++.empryo
+diff --git a/src/adapter/aws-lambda/handler.test.ts b/src/adapter/aws-lambda/handler.test.ts
+index ddabb70..e71c060 100644
+--- a/src/adapter/aws-lambda/handler.test.ts
++++ b/src/adapter/aws-lambda/handler.test.ts
+@@ -1,7 +1,13 @@
+ import { setCookie } from '../../helper/cookie'
+ import { Hono } from '../../hono'
+ import { bodyLimit } from '../../middleware/body-limit'
+-import type { APIGatewayProxyEventV2, LambdaEvent, LatticeProxyEventV2 } from './handler'
++import type {
++  APIGatewayProxyEventV2,
++  LambdaEvent,
++  LatticeProxyEventV2,
++  APIGatewayProxyEvent,
++  ALBProxyEvent,
++} from './handler'
+ import {
+   getProcessor,
+   handle,
+@@ -580,6 +586,39 @@ describe('handle', () => {
+   })
+ })
+ 
++describe('EventProcessor.createRequest with empty query parameters', () => {
++  it.each<{ name: string; event: APIGatewayProxyEvent | ALBProxyEvent }>([
++    { name: 'API Gateway v1', event: baseV1Event },
++    {
++      name: 'ALB',
++      event: {
++        httpMethod: 'GET',
++        path: '/my/path',
++        headers: { host: 'example.com' },
++        body: null,
++        isBase64Encoded: false,
++        requestContext: {
++          elb: { targetGroupArn: 'arn:aws:elasticloadbalancing:targetgroup/test' },
++        },
++      },
++    },
++  ])(
++    'Should preserve empty strings and omit undefined values for $name',
++    ({ event: baseEvent }) => {
++      const event: LambdaEvent = {
++        ...baseEvent,
++        queryStringParameters: { empty: '', present: '0', omitted: undefined },
++      }
++
++      const request = getProcessor(event).createRequest(event)
++
++      expect(request.url).toBe(
++        `https://${baseEvent.headers?.host || 'id.execute-api.us-east-1.amazonaws.com'}/my/path?empty=&present=0`
++      )
++    }
++  )
++})
++
+ describe('V2 request context authorizer', () => {
+   const baseV2RequestContext = baseV2Event.requestContext as ApiGatewayRequestContextV2
+ 
+diff --git a/src/adapter/aws-lambda/handler.ts b/src/adapter/aws-lambda/handler.ts
+index 889adaa..d7bb904 100644
+--- a/src/adapter/aws-lambda/handler.ts
++++ b/src/adapter/aws-lambda/handler.ts
+@@ -465,7 +465,7 @@ export class EventV1Processor extends EventProcessor<APIGatewayProxyEvent> {
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
++        .filter(([, value]) => value !== undefined)
+         .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value || '')}`)
+         .join('&')
+     }
+@@ -555,7 +555,7 @@ export class ALBProcessor extends EventProcessor<ALBProxyEvent> {
+         .join('&')
+     } else {
+       return Object.entries(event.queryStringParameters || {})
+-        .filter(([, value]) => value)
++        .filter(([, value]) => value !== undefined)
+         .map(([key, value]) => `${key}=${value}`)
+         .join('&')
+     }

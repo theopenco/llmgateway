@@ -1,0 +1,109 @@
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..47b9aaa 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -120,3 +120,68 @@ describe('JSON pretty by Middleware', () => {
+     expect(await jsonSeqRes.text()).toBe('{"message":"Hono!"}')
+   })
+ })
++
++describe('JSON pretty with unparsable JSON bodies', () => {
++  const app = new Hono()
++  app.use('*', prettyJSON({ force: true }))
++  app.get('/204', () => new Response(null, { status: 204, headers: { 'Content-Type': 'application/json' } }))
++  app.get('/304', () => new Response(null, { status: 304, headers: { 'Content-Type': 'application/json' } }))
++  app.get('/empty', () => new Response('', { headers: { 'Content-Type': 'application/json' } }))
++  app.get(
++    '/invalid',
++    () =>
++      new Response('not json', {
++        status: 502,
++        headers: { 'Content-Type': 'application/json', 'Content-Length': '8', 'X-Custom': 'yes' },
++      })
++  )
++  app.get('/used', async () => {
++    const res = new Response('{"a":1}', { headers: { 'Content-Type': 'application/json' } })
++    await res.text()
++    return res
++  })
++  app.get(
++    '/valid',
++    () =>
++      new Response('{"a":1}', {
++        status: 201,
++        headers: { 'Content-Type': 'application/json', 'Content-Length': '7', 'X-Custom': 'yes' },
++      })
++  )
++
++  it.each([204, 304])('Should pass through %i without body', async (status) => {
++    const res = await app.request(`/${status}`)
++    expect(res.status).toBe(status)
++    expect(res.headers.get('Content-Type')).toBe('application/json')
++    expect(await res.text()).toBe('')
++  })
++
++  it('Should pass through an empty body', async () => {
++    const res = await app.request('/empty')
++    expect(res.status).toBe(200)
++    expect(await res.text()).toBe('')
++  })
++
++  it('Should pass through an invalid JSON body unchanged', async () => {
++    const res = await app.request('/invalid')
++    expect(res.status).toBe(502)
++    expect(res.headers.get('Content-Length')).toBe('8')
++    expect(res.headers.get('X-Custom')).toBe('yes')
++    expect(await res.text()).toBe('not json')
++  })
++
++  it('Should pass through an already consumed body', async () => {
++    const res = await app.request('/used')
++    expect(res.status).toBe(200)
++    expect(res.headers.get('Content-Type')).toBe('application/json')
++  })
++
++  it('Should remove Content-Length when prettifying', async () => {
++    const res = await app.request('/valid')
++    expect(res.status).toBe(201)
++    expect(res.headers.get('Content-Length')).toBeNull()
++    expect(res.headers.get('X-Custom')).toBe('yes')
++    expect(await res.text()).toBe('{\n  "a": 1\n}')
++  })
++})
++
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..917a7b4 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -52,8 +52,29 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+     await next()
+     const contentType = c.res.headers.get('Content-Type')
+     if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++      const res = c.res
++      // Responses without a readable body (e.g. 204/304, already consumed) pass through
++      if (!res.body || res.bodyUsed) {
++        return
++      }
++      let obj: unknown
++      try {
++        // Read from a clone so the original body is kept intact if parsing fails
++        obj = JSON.parse(await res.clone().text())
++      } catch {
++        return
++      }
++      const headers = new Headers(res.headers)
++      // The prettified body has a different length
++      headers.delete('Content-Length')
++      const prettyRes = new Response(JSON.stringify(obj, null, options?.space ?? 2), {
++        status: res.status,
++        statusText: res.statusText,
++        headers,
++      })
++      // Reset first so the Context setter doesn't merge back the stale Content-Length
++      c.res = undefined
++      c.res = prettyRes
+     }
+   }
+ }

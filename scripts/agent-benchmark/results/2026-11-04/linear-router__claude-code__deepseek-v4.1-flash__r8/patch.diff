@@ -1,0 +1,57 @@
+diff --git a/src/router/linear-router/repro.test.ts b/src/router/linear-router/repro.test.ts
+new file mode 100644
+index 0000000..997db80
+--- /dev/null
++++ b/src/router/linear-router/repro.test.ts
+@@ -0,0 +1,51 @@
++import { writeFileSync } from 'node:fs'
++import { Hono } from '../../index'
++import { LinearRouter } from '../linear-router'
++import { RegExpRouter } from '../reg-exp-router'
++import { TrieRouter } from '../trie-router'
++import { PatternRouter } from '../pattern-router'
++
++const routers = { Linear: LinearRouter, RegExp: RegExpRouter, Trie: TrieRouter, Pattern: PatternRouter }
++
++const cases: [string, string][] = [
++  ['/u/:id{.+}', '/u//'],
++  ['/u/:id{.+}', '/u/x'],
++  ['/u/:id{[^/]+}', '/u//'],
++  ['/u/:id/posts', '/u//posts'],
++  ['/u/:id', '/u//'],
++  ['/u/:id', '/u/x//'],
++  ['/u/:id', '/u//x'],
++  ['/u/:id/', '/u//'],
++  ['/u/:id/', '/u/x//'],
++  ['/u/:a/:b', '/u//x'],
++  ['/u/:a/:b', '/u/x/'],
++  ['/u/:a/:b', '/u//'],
++  ['/u/:a/:b', '/u///'],
++  ['/u/x/:id', '/u/x//'],
++  ['/u/:id', '/u/x/'],
++  ['/u/:id', '/u/x'],
++  ['/book/:id', '/book/'],
++  ['/book/:id', '/book//'],
++  ['/:id', '//'],
++  ['/:id', '/x'],
++  ['/:id/posts', '//posts'],
++  ['/u/:id', '//u/x'],
++  ['/u/:id/posts', '/u/ /posts'],
++]
++
++it('matrix', async () => {
++  const lines: string[] = []
++  for (const [route, req] of cases) {
++    const out: Record<string, string> = {}
++    for (const [name, R] of Object.entries(routers)) {
++      const app = new Hono({ router: new (R as any)() })
++      app.get(route, (c) => c.text(`${c.req.param('id')}|${c.req.param('a')}|${c.req.param('b')}`))
++      const res = await app.request(req)
++      out[name] = `${res.status}:${await res.text()}`
++    }
++    const vals = Object.values(out)
++    const same = vals.every((v) => v === vals[0])
++    lines.push(`${same ? '  ' : 'XX'} ${route} <- ${req}  ${JSON.stringify(out)}`)
++  }
++  writeFileSync('/tmp/matrix2.txt', lines.join('\n'))
++})

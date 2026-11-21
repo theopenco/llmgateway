@@ -1,0 +1,33 @@
+{
+	"repo": "https://github.com/honojs/hono.git",
+	"suffix": "\n\nWork in the current directory. Keep the change focused, add a regression test next to the existing tests, and run the relevant tests to confirm the fix (vitest: `bunx --bun vitest --run --project main --coverage.enabled=false <test file>`). Do not commit.",
+	"tasks": [
+		{
+			"id": "linear-router",
+			"title": "LinearRouter matches an empty path segment as a param",
+			"fixCommit": "00ee8757",
+			"upstreamPr": "https://github.com/honojs/hono/pull/5373",
+			"hiddenTests": ["src/router/common.case.test.ts"],
+			"testTarget": "src/router/linear-router/router.test.ts",
+			"prompt": "Bug: LinearRouter matches an empty path segment as a route parameter.\n\n```ts\nimport { Hono } from 'hono'\nimport { LinearRouter } from 'hono/router/linear-router'\n\nconst app = new Hono({ router: new LinearRouter() })\napp.get('/u/:id/posts', (c) => c.text(`id=${c.req.param('id')}`))\n// GET /u//posts -> 200 \"id=\" (expected 404)\n```\n\nRegExpRouter, TrieRouter and PatternRouter all return 404 for `/u//posts`. LinearRouter should behave the same way: an empty segment in the middle of the path must not match a named parameter."
+		},
+		{
+			"id": "aws-lambda-query",
+			"title": "AWS Lambda adapter drops empty query parameters",
+			"fixCommit": "28e8572c",
+			"upstreamPr": "https://github.com/honojs/hono/pull/5292",
+			"hiddenTests": ["src/adapter/aws-lambda/handler.test.ts"],
+			"testTarget": "src/adapter/aws-lambda/handler.test.ts",
+			"prompt": "Bug: the AWS Lambda adapter drops query parameters whose value is an empty string.\n\nFor an API Gateway REST (v1) event or an ALB event with `queryStringParameters: { empty: '', present: '0', omitted: undefined }` and no multi-value parameters, the URL of the Request built by the adapter ends in `/my/path?present=0`. AWS event maps distinguish an empty string from an absent value, so it should end in `/my/path?empty=&present=0`: keep empty-string values, still skip `undefined` ones."
+		},
+		{
+			"id": "pretty-json",
+			"title": "prettyJSON() turns unparseable JSON bodies into 500s",
+			"fixCommit": "f950277c",
+			"upstreamPr": "https://github.com/honojs/hono/pull/5377",
+			"hiddenTests": ["src/middleware/pretty-json/index.test.ts"],
+			"testTarget": "src/middleware/pretty-json/index.test.ts",
+			"prompt": "Bug: when the `prettyJSON()` middleware is active (`?pretty` or `force: true`), responses that have a JSON Content-Type but a body that cannot be parsed as JSON turn into 500 errors. Examples: a 204 or 304 with `Content-Type: application/json` and no body, an empty body, a proxied response whose body is not valid JSON, or a response whose body was already read by another middleware.\n\nExpected:\n- Such responses pass through unchanged: same status, same headers (including Content-Length) and the original body.\n- When a body is prettified, the original Content-Length header is removed, because it no longer matches the new body."
+		}
+	]
+}

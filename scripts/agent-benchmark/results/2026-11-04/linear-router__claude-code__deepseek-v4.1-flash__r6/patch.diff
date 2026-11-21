@@ -1,0 +1,62 @@
+diff --git a/src/router/linear-router/router.test.ts b/src/router/linear-router/router.test.ts
+index ed8404b..8ffbb24 100644
+--- a/src/router/linear-router/router.test.ts
++++ b/src/router/linear-router/router.test.ts
+@@ -65,6 +65,44 @@ describe('LinearRouter', () => {
+     })
+   })
+ 
++  describe('Empty path segment', () => {
++    let router: LinearRouter<string>
++
++    beforeEach(() => {
++      router = new LinearRouter<string>()
++      router.add('GET', '/u/:id/posts', 'GET /u/:id/posts')
++      router.add('GET', '/:a/:b', 'GET /:a/:b')
++      router.add('GET', '/:a/posts', 'GET /:a/posts')
++      router.add('GET', '/u/:id{[a-z]+}/posts', 'GET /u/:id{[a-z]+}/posts')
++    })
++
++    it('GET /u//posts', () => {
++      expect(router.match('GET', '/u//posts')[0]).toEqual([])
++    })
++
++    it('GET /u///posts', () => {
++      expect(router.match('GET', '/u///posts')[0]).toEqual([])
++    })
++
++    it('GET /a//b', () => {
++      expect(router.match('GET', '/a//b')[0]).toEqual([])
++    })
++
++    it('GET //posts', () => {
++      expect(router.match('GET', '//posts')[0]).toEqual([])
++    })
++
++    it('GET /u/x/posts still matches', () => {
++      const [res] = router.match('GET', '/u/x/posts')
++      expect(res.length).toBe(2)
++      expect(res.map(([handler]) => handler)).toEqual([
++        'GET /u/:id/posts',
++        'GET /u/:id{[a-z]+}/posts',
++      ])
++      expect(res[0][1]).toEqual({ id: 'x' })
++    })
++  })
++
+   describe('Skip part', () => {
+     const router = new LinearRouter<string>()
+ 
+diff --git a/src/router/linear-router/router.ts b/src/router/linear-router/router.ts
+index acee5c1..f54d439 100644
+--- a/src/router/linear-router/router.ts
++++ b/src/router/linear-router/router.ts
+@@ -115,6 +115,8 @@ export class LinearRouter<T> implements Router<T> {
+                     continue ROUTES_LOOP
+                   }
+                   endValuePos = path.length
++                } else if (endValuePos === pos + 1) {
++                  continue ROUTES_LOOP
+                 }
+                 value = path.slice(pos + 1, endValuePos)
+                 pos = endValuePos
