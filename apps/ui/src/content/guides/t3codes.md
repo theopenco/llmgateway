@@ -35,7 +35,7 @@ This walkthrough was verified with T3 Code 0.1.11 and Claude Code 2.1.329: the a
 
 In T3 Code, each configured agent is a provider instance. Add a Claude instance that only talks to LLM Gateway.
 
-On first launch, T3 Code shows a welcome page with the agents it found. If Claude is listed as **Not authenticated**, click **Start without an agent**. Then:
+On first launch, T3 Code shows a welcome page with the agents it found. If no agent is ready, click **Start without an agent**; otherwise click **Start**. Then:
 
 1. Open **Settings → Providers** and click **Add provider**.
 2. Choose **Claude**, then click **Next**.
@@ -52,11 +52,11 @@ Select the new instance, scroll to **Environment**, and click **Add variable** f
 | ---------------------- | --------------------------- |
 | `ANTHROPIC_BASE_URL`   | `https://api.llmgateway.io` |
 | `ANTHROPIC_AUTH_TOKEN` | Your LLM Gateway API key    |
-| `ANTHROPIC_API_KEY`    | Leave empty                 |
+| `ANTHROPIC_API_KEY`    | Add with an empty value     |
 
 Use the base URL exactly as shown. Claude Code adds `/v1/messages` itself. The empty `ANTHROPIC_API_KEY` stops an Anthropic key in your environment from overriding the LLM Gateway key.
 
-Values are sensitive by default: T3 Code stores them separately and shows **Stored secret** instead of the value afterwards. Leave the key sensitive. For the other two, click the lock next to the value first so they are saved as plain text, as in the screenshot below.
+Values are sensitive by default: T3 Code stores them separately and shows **Stored secret** instead of the value afterwards. Leave the key sensitive. For the other two, click the lock next to the value first, so they are saved as plain text and stay readable, as in the screenshot below.
 
 The instance status changes to **Authenticated · Custom API endpoint** once the base URL is saved. The status does not check the key, so a wrong key only fails when you send a message.
 
@@ -66,7 +66,7 @@ The default **Claude** instance can stay signed out. A thread uses the instance 
 
 ## Choose a model
 
-T3 Code sends its built-in Claude models by ID, and current Claude IDs match the LLM Gateway catalogue. Claude Haiku 5.5 from the built-in list passed the task in this guide without further setup.
+T3 Code sends its built-in Claude models by ID. In T3 Code 0.1.11, 13 of the 14 built-in IDs exist in the LLM Gateway catalogue, and Claude Haiku 5.5 passed the task in this guide without further setup.
 
 For any other model, or a built-in one that LLM Gateway rejects as unsupported, scroll to **Models** in the same instance, click **Add custom model**, and enter the exact ID from the&nbsp;[tool-capable models list](https://llmgateway.io/models?features=tools), for example `glm-5.2`. Custom models can have fewer effort and thinking controls than the built-in ones.
 
@@ -76,7 +76,7 @@ For any other model, or a built-in one that LLM Gateway rejects as unsupported, 
 
 Click **Add project**, choose **Local folder**, and enter your repository's path. T3 Code opens a new thread for the project.
 
-Open the model picker at the bottom of the composer and select a model under your **LLM Gateway** instance. Check it before your first message: T3 Code preselects a model for new threads, which was Claude Opus 5.5 in this walkthrough.
+Open the model picker at the bottom of the composer and select a model under your **LLM Gateway** instance. Confirm the selection before your first message: T3 Code preselects a model for new threads, which was Claude Opus 5.5 in this walkthrough.
 
 ![T3 Code's model picker with the LLM Gateway instance selected and a custom model from the catalogue](/images/guides/t3codes/model-picker.png)
 
@@ -87,7 +87,7 @@ Fix slugify.ts so all tests pass. Read the files, make the smallest fix,
 run node --test slugify.test.ts, and summarize. Do not edit the tests.
 ```
 
-New threads start in **Full access**, which runs commands and edits without prompts. Switch the thread to **Supervised** in the composer to approve each command and file change.
+By default, new threads use **Full access**, which runs commands and edits without prompts. Switch the thread to **Supervised** in the composer to approve each command and file change.
 
 When the turn finishes, click **Open diff** to review the change before you commit it. Then open your&nbsp;[LLM Gateway dashboard](https://llmgateway.io/dashboard), select the project that issued the key, and open **Activity** to see the request's model, tokens, and cost.
 
@@ -97,8 +97,8 @@ When the turn finishes, click **Open diff** to review the change before you comm
 
 T3 Code passes an instance's environment variables to Codex and OpenCode in the same way. The same task also passed through both, with Codex CLI 0.159.0 and OpenCode 1.18.29.
 
-- **OpenCode:** add an **OpenCode** provider and set `LLMGATEWAY_API_KEY` in its **Environment** variables. The model picker then lists the catalogue under **LLM Gateway** and **DevPass (LLM Gateway)**. The&nbsp;[OpenCode guide](/guides/opencode) covers its own configuration.
-- **Codex:** create a directory such as `~/.codex_llmgateway` and save the provider block from the&nbsp;[Codex CLI guide](/guides/codex-cli) as `config.toml` inside it. Add a **Codex** provider, choose **Configure manually**, and set the `CODEX_HOME` path to that directory. Then set `LLMGATEWAY_API_KEY` in the instance's **Environment** variables and pick a model that exists in the catalogue. GPT-5.6 Terra from the built-in list passed the task.
+- **OpenCode:** click **Add provider**, choose **OpenCode**, and set `LLMGATEWAY_API_KEY` in the new instance's **Environment** variables. The model picker then lists the catalogue under **LLM Gateway** and **DevPass (LLM Gateway)**. The&nbsp;[OpenCode guide](/guides/opencode) covers its own configuration.
+- **Codex:** create a directory such as `~/.codex_llmgateway` and save the provider block from the&nbsp;[Codex CLI guide](/guides/codex-cli) as `config.toml` inside it. Click **Add provider**, choose **Codex**, then **Configure manually**, and set the `CODEX_HOME` path to that directory. Then set `LLMGATEWAY_API_KEY` in the instance's **Environment** variables and pick a model that exists in the catalogue. GPT-5.6 Terra from the built-in list passed the task.
 
 ## Troubleshooting
 
@@ -108,7 +108,7 @@ T3 Code cannot find the `claude` binary. Install Claude Code, check `claude --ve
 
 ### The instance shows Not authenticated
 
-`ANTHROPIC_BASE_URL` is missing or was not saved. Add it without a `/v1` suffix, then click **Refresh provider status**.
+`ANTHROPIC_BASE_URL` is missing, was not saved, or does not start with `https://`. Enter `https://api.llmgateway.io`, then click **Refresh provider status**.
 
 ### A thread shows Retrying provider, then a 401 error
 
