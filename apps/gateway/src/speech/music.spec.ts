@@ -56,6 +56,11 @@ describe("Lyria music", () => {
 	it("returns no audio for an empty or malformed response", () => {
 		expect(extractMusicAudio(null).data).toBeUndefined();
 		expect(
+			extractMusicAudio({
+				predictions: [null, { bytesBase64Encoded: "UklGRg==" }],
+			}).data,
+		).toBe("UklGRg==");
+		expect(
 			extractMusicAudio({ steps: [{ content: [] }] }).data,
 		).toBeUndefined();
 	});

@@ -8,10 +8,14 @@ interface LyriaResponse {
 		bytesBase64Encoded?: unknown;
 		audioContent?: unknown;
 		mimeType?: unknown;
-	}>;
+	} | null>;
 	steps?: Array<{
-		content?: Array<{ type?: unknown; data?: unknown; mime_type?: unknown }>;
-	}>;
+		content?: Array<{
+			type?: unknown;
+			data?: unknown;
+			mime_type?: unknown;
+		} | null>;
+	} | null>;
 	usage?: { total_input_tokens?: unknown; total_output_tokens?: unknown };
 }
 
@@ -44,12 +48,12 @@ export function extractMusicAudio(body: unknown): MusicAudio {
 	const prediction = json.predictions
 		?.map((candidate) => ({
 			data:
-				typeof candidate.bytesBase64Encoded === "string"
+				typeof candidate?.bytesBase64Encoded === "string"
 					? candidate.bytesBase64Encoded
-					: typeof candidate.audioContent === "string"
+					: typeof candidate?.audioContent === "string"
 						? candidate.audioContent
 						: undefined,
-			mimeType: candidate.mimeType,
+			mimeType: candidate?.mimeType,
 		}))
 		.find((candidate) => candidate.data !== undefined);
 	if (prediction) {
@@ -65,8 +69,8 @@ export function extractMusicAudio(body: unknown): MusicAudio {
 	}
 
 	const audio = json.steps
-		?.flatMap((step) => step.content ?? [])
-		.find((part) => part.type === "audio" && typeof part.data === "string");
+		?.flatMap((step) => step?.content ?? [])
+		.find((part) => part?.type === "audio" && typeof part.data === "string");
 	return {
 		data: typeof audio?.data === "string" ? audio.data : undefined,
 		mimeType:
