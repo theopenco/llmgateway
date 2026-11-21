@@ -25,6 +25,7 @@ import {
 	N8nIcon,
 	OpenCodeIcon,
 	PiIcon,
+	T3CodeIcon,
 	VSCodeIcon,
 } from "@llmgateway/shared/components";
 
@@ -210,6 +211,14 @@ export const integrations: Integration[] = [
 			"Use LLM Gateway with Pi coding agent for AI-powered terminal coding with any model.",
 		href: "/guides/pi",
 		icon: PiIcon,
+		comingSoon: false,
+	},
+	{
+		name: "T3 Code",
+		description:
+			"Run Claude Code, Codex, and OpenCode through LLM Gateway from T3 Code's desktop, web, and mobile apps.",
+		href: "/guides/t3codes",
+		icon: T3CodeIcon,
 		comingSoon: false,
 	},
 	{
