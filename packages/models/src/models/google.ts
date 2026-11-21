@@ -3198,6 +3198,8 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				externalId: "gemini-2.5-flash-preview-tts",
+				deprecatedAt: new Date("2026-11-20"),
+				deactivatedAt: new Date("2026-12-18"),
 				inputPrice: "0.5e-6",
 				outputPrice: "10.0e-6",
 				outputAudioPrice: "10.0e-6",
@@ -3224,6 +3226,8 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				externalId: "gemini-2.5-pro-preview-tts",
+				deprecatedAt: new Date("2026-11-20"),
+				deactivatedAt: new Date("2026-12-18"),
 				inputPrice: "1.0e-6",
 				outputPrice: "20.0e-6",
 				outputAudioPrice: "20.0e-6",
@@ -3266,6 +3270,8 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				externalId: "gemini-3.1-flash-tts-preview",
+				deprecatedAt: new Date("2026-11-20"),
+				deactivatedAt: new Date("2026-12-18"),
 				inputPrice: "1.0e-6",
 				outputPrice: "20.0e-6",
 				outputAudioPrice: "20.0e-6",
@@ -3468,6 +3474,8 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				externalId: "gemini-2.5-flash-native-audio-preview-12-2025",
+				deprecatedAt: new Date("2026-11-20"),
+				deactivatedAt: new Date("2027-03-31"),
 				inputPrice: "0.5e-6",
 				// Gemini Live does not support context caching, so no discounted
 				// cached rate exists. The realtime billing path requires a cached
@@ -3506,6 +3514,45 @@ export const googleModels = [
 			{
 				providerId: "google-ai-studio",
 				externalId: "gemini-3.1-flash-live-preview",
+				inputPrice: "0.75e-6",
+				// Live does not support context caching, so no discounted cached rate
+				// exists. The realtime billing path requires a cached price for every
+				// priced modality, so the full rate is declared here: a usage block
+				// that ever reports cached tokens is billed at full price rather than
+				// failing as unpriceable.
+				cachedInputPrice: "0.75e-6",
+				inputAudioPrice: "3.0e-6",
+				cachedInputAudioPrice: "3.0e-6",
+				// Google prices output "including thinking tokens" at the text rate.
+				outputPrice: "4.5e-6",
+				outputAudioPrice: "12.0e-6",
+				requestPrice: "0",
+				contextSize: 131072,
+				maxOutput: 65536,
+				streaming: false,
+				vision: false,
+				audio: true,
+				tools: true,
+				jsonOutput: false,
+				realtime: true,
+				supportedVoices: GEMINI_TTS_VOICES,
+				test: "skip",
+			},
+		],
+	},
+	{
+		id: "gemini-3.8-live",
+		name: "Gemini 3.8 Live",
+		description:
+			"Google's default low-latency Gemini Live model for real-time voice agents. Served via the gateway's /v1/realtime WebSocket endpoint using Gemini's own BidiGenerateContent protocol, with text and audio input/output and function calling.",
+		family: "google",
+		output: ["text", "audio"],
+		stability: "beta",
+		releasedAt: new Date("2026-09-15"),
+		providers: [
+			{
+				providerId: "google-ai-studio",
+				externalId: "gemini-3.8-live",
 				inputPrice: "0.75e-6",
 				// Live does not support context caching, so no discounted cached rate
 				// exists. The realtime billing path requires a cached price for every
