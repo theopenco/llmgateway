@@ -108,7 +108,7 @@ import type { Route } from "next";
 type AnimatedIconComponent = React.ComponentType<AnimatedIconProps>;
 
 // Configuration
-const PROJECT_NAVIGATION: readonly {
+export const PROJECT_NAVIGATION: readonly {
 	href: string;
 	label: string;
 	icon: AnimatedIconComponent;
@@ -157,7 +157,7 @@ const PROJECT_NAVIGATION: readonly {
 
 // Navigation shown to project-scoped "developer" members instead of the full
 // Project section: they can only see their own usage and manage their own keys.
-const USER_NAVIGATION: readonly {
+export const USER_NAVIGATION: readonly {
 	href: string;
 	label: string;
 	icon: AnimatedIconComponent;
@@ -174,7 +174,7 @@ const USER_NAVIGATION: readonly {
 	},
 ];
 
-const PROJECT_SETTINGS = [
+export const PROJECT_SETTINGS = [
 	{
 		href: "settings/preferences",
 		label: "Preferences",
@@ -201,7 +201,7 @@ const PROJECT_SETTINGS = [
 
 // Org-level nav items. `enterpriseGated` items show the enterprise indicator
 // badge on non-enterprise plans.
-const ORGANIZATION_NAVIGATION: readonly {
+export const ORGANIZATION_NAVIGATION: readonly {
 	href: string;
 	label: string;
 	icon: AnimatedIconComponent;
@@ -287,7 +287,7 @@ const ORGANIZATION_NAVIGATION: readonly {
 	},
 ];
 
-const ORGANIZATION_SETTINGS = [
+export const ORGANIZATION_SETTINGS = [
 	{
 		href: "org/billing",
 		label: "Billing",

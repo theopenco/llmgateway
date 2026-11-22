@@ -74,6 +74,7 @@ import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
 import { cn } from "@/lib/utils";
 
 import { Time, useDisplayTimeZone } from "@llmgateway/shared";
+import { ASSISTANT_KEY_DESCRIPTION } from "@llmgateway/shared/dashboard-assistant";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
 import {
@@ -212,6 +213,12 @@ function renderLastUsed(key: ApiKey) {
 	);
 }
 
+function managedKeyLabel(apiKey: { description: string }) {
+	return apiKey.description === ASSISTANT_KEY_DESCRIPTION
+		? "Autopilot"
+		: "Playground";
+}
+
 function ManagedPlaygroundTableRow({
 	apiKey,
 	statisticsUrl,
@@ -230,7 +237,7 @@ function ManagedPlaygroundTableRow({
 			<TableCell />
 			<TableCell>
 				<div className="flex items-center gap-2">
-					<span className="font-medium">Playground</span>
+					<span className="font-medium">{managedKeyLabel(apiKey)}</span>
 					<Badge variant="outline">Managed</Badge>
 				</div>
 			</TableCell>
@@ -283,7 +290,7 @@ function ManagedPlaygroundCard({
 		<div className="border rounded-lg p-3 space-y-3">
 			<div className="flex items-start justify-between gap-3">
 				<div className="flex items-center gap-2">
-					<h3 className="font-medium text-sm">Playground</h3>
+					<h3 className="font-medium text-sm">{managedKeyLabel(apiKey)}</h3>
 					<Badge variant="outline">Managed</Badge>
 					<StatusBadge status={apiKey.status} />
 				</div>

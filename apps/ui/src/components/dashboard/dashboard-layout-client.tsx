@@ -2,6 +2,7 @@
 
 import { type ReactNode, useEffect } from "react";
 
+import { AssistantDock } from "@/components/assistant/assistant-dock";
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { EnterpriseLicenseBanner } from "@/components/dashboard/enterprise-license-banner";
 import { MobileHeader } from "@/components/dashboard/mobile-header";
@@ -99,6 +100,7 @@ export function DashboardLayoutClient({
 					</div>
 				</div>
 			</div>
+			<AssistantDock />
 		</DashboardProvider>
 	);
 }
