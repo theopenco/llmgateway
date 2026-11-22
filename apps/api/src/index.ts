@@ -276,6 +276,12 @@ app.onError((error, c) => {
 // locked database cannot get healthy pods restarted.
 app.get("/livez", (c) => c.json({ status: "ok" }));
 
+// This is an API, not a website: keep search engines from crawling its
+// endpoints (GSC reports internal.llmgateway.io URLs as 401 and 404).
+app.get("/robots.txt", (c) => {
+	return c.text("User-agent: *\nDisallow: /\n");
+});
+
 // Deep health for external monitoring: checks Postgres and Redis. Readiness
 // uses `/`, so a dependency outage or a schema the running release cannot
 // read never pulls every pod out of the load balancer.
