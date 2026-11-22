@@ -6,6 +6,8 @@ import {
 	USER_NAVIGATION,
 } from "@/components/dashboard/dashboard-sidebar";
 
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
+
 import type { Organization } from "@/lib/types";
 
 export interface AssistantPage {
@@ -43,7 +45,14 @@ const ACCOUNT_PAGES = [
 	{ href: "settings/security", label: "Security" },
 ] as const;
 
-/** Every dashboard page the sidebar offers this member, for the assistant. */
+// Organization pages OrganizationRouteGuard lets every member open.
+const SHARED_ORGANIZATION_PAGES = ["org/models", "org/skills"];
+
+/**
+ * The dashboard pages this member can actually open, for the assistant. It
+ * follows the sidebar and OrganizationRouteGuard, so the assistant never
+ * sends anyone to a page that answers "unauthorized".
+ */
 export function getAssistantPages(role: Organization["role"]): AssistantPage[] {
 	if (role === "developer") {
 		return [
@@ -51,11 +60,17 @@ export function getAssistantPages(role: Organization["role"]): AssistantPage[] {
 			...toPages(ACCOUNT_PAGES, "Account"),
 		];
 	}
+	const admin = isOrganizationAdmin(role);
 	return [
 		...toPages(PROJECT_NAVIGATION, "Project"),
 		...toPages(PROJECT_SETTINGS, "Project settings"),
-		...toPages(ORGANIZATION_NAVIGATION, "Organization"),
-		...toPages(ORGANIZATION_SETTINGS, "Organization settings"),
+		...toPages(
+			ORGANIZATION_NAVIGATION.filter(
+				(item) => admin || SHARED_ORGANIZATION_PAGES.includes(item.href),
+			),
+			"Organization",
+		),
+		...(admin ? toPages(ORGANIZATION_SETTINGS, "Organization settings") : []),
 		...toPages(ACCOUNT_PAGES, "Account"),
 	];
 }

@@ -17,6 +17,8 @@ import {
 } from "@/lib/navigation-utils";
 import { getModelContext, type WebMcpToolDefinition } from "@/lib/webmcp";
 
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
+
 const NAVIGATION_TIMEOUT_MS = 8000;
 const SETTLE_MS = 500;
 
@@ -104,6 +106,10 @@ export function useDashboardTools() {
 				router.push(href);
 				if (!(await waitForPath(href, signal))) {
 					return { error: `${page.label} did not open` };
+				}
+				// Never report a page the member was refused as opened.
+				if (document.querySelector("[data-unauthorized]")) {
+					return { error: `You do not have access to ${page.label}` };
 				}
 				return {
 					opened: `${page.section} › ${page.label}`,
@@ -199,10 +205,10 @@ export function useDashboardTools() {
 		},
 	];
 
+	// Only organization owners and admins may create projects.
+	const admin = isOrganizationAdmin(selectedOrganization?.role);
 	useWebMcpTools(
-		selectedOrganization?.role === "developer"
-			? tools.filter((tool) => tool.name !== "create_project")
-			: tools,
+		admin ? tools : tools.filter((tool) => tool.name !== "create_project"),
 	);
 
 	return { organization: selectedOrganization, project };

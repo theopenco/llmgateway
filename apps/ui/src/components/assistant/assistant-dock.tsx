@@ -40,6 +40,8 @@ import { useFetchClient } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 import { getModelContext } from "@/lib/webmcp";
 
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
+
 import "./assistant.css";
 
 import type { Organization, Project } from "@/lib/types";
@@ -50,6 +52,8 @@ const SUGGESTIONS = [
 	"Create an API key called Production",
 	"Show me where I add credits",
 ];
+// Billing and the rest of the organization pages are closed to other roles.
+const MEMBER_SUGGESTIONS = ["Where are my API keys?", "Show me my usage"];
 const STATUS_LABEL = {
 	idle: "Ready",
 	listening: "Listening",
@@ -559,7 +563,10 @@ function AssistantPanel({
 								change anything.
 							</p>
 							<div className="flex flex-wrap gap-1.5">
-								{SUGGESTIONS.map((suggestion) => (
+								{(isOrganizationAdmin(organization.role)
+									? SUGGESTIONS
+									: MEMBER_SUGGESTIONS
+								).map((suggestion) => (
 									<button
 										key={suggestion}
 										type="button"
@@ -760,6 +767,8 @@ function AssistantPanel({
 export function AssistantDock() {
 	const { organization, project } = useDashboardTools();
 	const [open, setOpen] = useState(false);
+	// The balance is only disclosed to owners and admins, so they are who
+	// sees the dock; the API checks credits and project access again.
 	const hasCredits = new Decimal(organization?.credits ?? 0).greaterThan(0);
 
 	useEffect(() => {
