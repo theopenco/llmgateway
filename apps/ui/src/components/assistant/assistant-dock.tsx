@@ -19,6 +19,7 @@ import {
 	VolumeX,
 	X,
 } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -33,9 +34,11 @@ import {
 import { useDashboardTools } from "@/components/assistant/use-dashboard-tools";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { getApiErrorMessage } from "@/lib/api-error";
+import { recentMessages, settleToolCalls } from "@/lib/assistant-messages";
 import { useAppConfig } from "@/lib/config";
 import { useDashboardContext } from "@/lib/dashboard-context";
 import { useFetchClient } from "@/lib/fetch-client";
+import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
 import { cn } from "@/lib/utils";
 import { getModelContext } from "@/lib/webmcp";
 
@@ -44,7 +47,6 @@ import "./assistant.css";
 import type { Organization, Project } from "@/lib/types";
 import type { DynamicToolUIPart, UIMessage } from "ai";
 
-const MAX_SENT_MESSAGES = 40;
 const SUGGESTIONS = [
 	"Where do I create an API key?",
 	"Create an API key called Production",
@@ -81,13 +83,6 @@ function chatErrorMessage(error: Error): string {
 	} catch {
 		return fallback;
 	}
-}
-
-// Keep the request small, and never open it on a dangling assistant turn.
-function recentMessages(messages: UIMessage[]): UIMessage[] {
-	const tail = messages.slice(-MAX_SENT_MESSAGES);
-	const firstUser = tail.findIndex((message) => message.role === "user");
-	return firstUser > 0 ? tail.slice(firstUser) : tail;
 }
 
 function toolSummary(part: DynamicToolUIPart, title: string): string {
@@ -177,6 +172,8 @@ function AssistantPanel({
 	const inputRef = useRef<HTMLInputElement>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const chatRef = useRef<Chat<UIMessage> | null>(null);
+	// Bumped on stop and reset, so work started before then reports nothing.
+	const generation = useRef(0);
 
 	const scope = useRef({ organization, project });
 	useEffect(() => {
@@ -184,26 +181,32 @@ function AssistantPanel({
 	});
 
 	const execute = useCallback((approval: PendingApproval) => {
+		const startedIn = generation.current;
+		const current = () => generation.current === startedIn;
 		setRunning((count) => count + 1);
 		getModelContext()
 			.executeTool(approval.tool, approval.input)
-			.then((output) =>
-				chatRef.current?.addToolOutput({
-					tool: approval.tool.name,
-					toolCallId: approval.toolCallId,
-					output: JSON.parse(output),
-				}),
+			.then(
+				(output) =>
+					current() &&
+					chatRef.current?.addToolOutput({
+						tool: approval.tool.name,
+						toolCallId: approval.toolCallId,
+						output: JSON.parse(output),
+					}),
 			)
-			.catch((error: unknown) =>
-				chatRef.current?.addToolOutput({
-					state: "output-error",
-					tool: approval.tool.name,
-					toolCallId: approval.toolCallId,
-					errorText:
-						error instanceof Error && error.message
-							? error.message
-							: "The action failed.",
-				}),
+			.catch(
+				(error: unknown) =>
+					current() &&
+					chatRef.current?.addToolOutput({
+						state: "output-error",
+						tool: approval.tool.name,
+						toolCallId: approval.toolCallId,
+						errorText:
+							error instanceof Error && error.message
+								? error.message
+								: "The action failed.",
+					}),
 			)
 			.finally(() => setRunning((count) => count - 1));
 	}, []);
@@ -242,7 +245,11 @@ function AssistantPanel({
 				}),
 				sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
 				onToolCall: async ({ toolCall }) => {
+					const startedIn = generation.current;
 					const tools = await getModelContext().getTools();
+					if (generation.current !== startedIn) {
+						return;
+					}
 					const tool = tools.find(
 						(candidate) => candidate.name === toolCall.toolName,
 					);
@@ -268,9 +275,7 @@ function AssistantPanel({
 					}
 				},
 			}),
-		// A different organization or project starts a fresh conversation.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[apiUrl, organization.id, project.id, execute],
+		[apiUrl, execute],
 	);
 	useEffect(() => {
 		chatRef.current = chat;
@@ -285,6 +290,40 @@ function AssistantPanel({
 		setMessages,
 		clearError,
 	} = useChat({ chat });
+
+	const busy = status === "submitted" || status === "streaming";
+	const occupied = busy || running > 0 || approvals.length > 0;
+
+	const submit = (text: string, spoken = false) => {
+		const prompt = text.trim();
+		if (!prompt) {
+			return;
+		}
+		// One turn at a time: a second request would race the open tool calls.
+		if (occupied) {
+			if (spoken) {
+				setNotice("Finish the current step, then ask again.");
+			}
+			return;
+		}
+		spokeLast.current = spoken;
+		setNotice(null);
+		clearError();
+		setInput("");
+		setMessages((current) => settleToolCalls(current, "Interrupted."));
+		void sendMessage({ text: prompt });
+	};
+
+	// Stops the turn and closes whatever it left open.
+	const halt = () => {
+		generation.current += 1;
+		setApprovals([]);
+		void stop().then(() =>
+			setMessages((current) =>
+				settleToolCalls(current, "Stopped by the user."),
+			),
+		);
+	};
 
 	const voice = useVoiceInput({
 		transcribe: async (audio, mimeType) => {
@@ -309,15 +348,10 @@ function AssistantPanel({
 			}
 			return data.text;
 		},
-		onTranscript: (text) => {
-			spokeLast.current = true;
-			setNotice(null);
-			void sendMessage({ text });
-		},
+		onTranscript: (text) => submit(text, true),
 		onError: setNotice,
 	});
 
-	const busy = status === "submitted" || status === "streaming";
 	const dockStatus: DockStatus =
 		voice.state === "recording"
 			? "listening"
@@ -382,18 +416,6 @@ function AssistantPanel({
 		[],
 	);
 
-	const submit = (text: string) => {
-		const prompt = text.trim();
-		if (!prompt || busy || running > 0 || approvals.length > 0) {
-			return;
-		}
-		spokeLast.current = false;
-		setNotice(null);
-		clearError();
-		setInput("");
-		void sendMessage({ text: prompt });
-	};
-
 	const resolveApproval = (approval: PendingApproval, approved: boolean) => {
 		setApprovals((queue) => queue.filter((entry) => entry !== approval));
 		if (approved) {
@@ -409,7 +431,8 @@ function AssistantPanel({
 	};
 
 	const reset = () => {
-		void stop();
+		generation.current += 1;
+		void stop().then(() => setMessages([]));
 		setMessages([]);
 		setApprovals([]);
 		setNotice(null);
@@ -424,6 +447,7 @@ function AssistantPanel({
 	};
 
 	const recording = voice.state === "recording";
+	const stoppable = busy || running > 0;
 	const errorText = error ? chatErrorMessage(error) : notice;
 
 	return (
@@ -511,6 +535,7 @@ function AssistantPanel({
 									<button
 										key={suggestion}
 										type="button"
+										disabled={voice.state !== "idle"}
 										onClick={() => submit(suggestion)}
 										className="min-h-9 rounded-full border border-white/12 bg-white/5 px-3 text-[13px] text-white/80 transition hover:border-white/30 hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none"
 									>
@@ -609,7 +634,9 @@ function AssistantPanel({
 				<form
 					onSubmit={(event) => {
 						event.preventDefault();
-						submit(input);
+						if (voice.state === "idle") {
+							submit(input);
+						}
 					}}
 					className="flex items-center gap-2 p-2.5 pt-1"
 				>
@@ -626,7 +653,9 @@ function AssistantPanel({
 								void voice.start();
 							}
 						}}
-						disabled={voice.state === "transcribing" || busy}
+						disabled={
+							voice.state === "transcribing" || (occupied && !recording)
+						}
 						aria-label={recording ? "Stop recording" : "Talk to Autopilot"}
 						aria-pressed={recording}
 						className={cn(
@@ -659,19 +688,23 @@ function AssistantPanel({
 							}
 							aria-label="Message Autopilot"
 							autoComplete="off"
+							readOnly={voice.state === "transcribing"}
 							maxLength={2000}
 							className="h-11 min-w-0 flex-1 rounded-full bg-white/[0.07] px-4 text-[15px] text-white placeholder:text-white/40 focus:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
 						/>
 					)}
 					<button
-						type={busy ? "button" : "submit"}
+						type={stoppable ? "button" : "submit"}
 						data-testid="assistant-send"
-						onClick={busy ? () => void stop() : undefined}
-						disabled={!busy && (!input.trim() || recording)}
-						aria-label={busy ? "Stop" : "Send"}
+						onClick={stoppable ? halt : undefined}
+						disabled={
+							!stoppable &&
+							(!input.trim() || voice.state !== "idle" || approvals.length > 0)
+						}
+						aria-label={stoppable ? "Stop" : "Send"}
 						className="grid size-11 shrink-0 place-items-center rounded-full bg-white text-black transition hover:bg-white/85 focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none disabled:bg-white/15 disabled:text-white/40"
 					>
-						{busy ? (
+						{stoppable ? (
 							<Square className="size-4 fill-current" aria-hidden />
 						) : (
 							<ArrowUp className="size-5" aria-hidden />
@@ -698,9 +731,22 @@ function AssistantPanel({
 export function AssistantDock() {
 	const { projects } = useDashboardContext();
 	const { organization, project: currentProject } = useDashboardTools();
+	const pathname = usePathname();
 	const [open, setOpen] = useState(false);
 
-	const project = currentProject ?? projects[0] ?? null;
+	// Organization pages carry no project in the URL, and the dashboard's
+	// selected project can lag there. Stay on the last project the user was
+	// actually in, so a conversation and its billing do not jump mid-task.
+	const routeProjectId = extractOrgAndProjectFromPath(pathname).projectId;
+	const [pinnedProjectId, setPinnedProjectId] = useState(routeProjectId);
+	if (routeProjectId && routeProjectId !== pinnedProjectId) {
+		setPinnedProjectId(routeProjectId);
+	}
+	const project =
+		projects.find((candidate) => candidate.id === pinnedProjectId) ??
+		currentProject ??
+		projects[0] ??
+		null;
 	const hasCredits = new Decimal(organization?.credits ?? 0).greaterThan(0);
 
 	useEffect(() => {
@@ -744,7 +790,9 @@ export function AssistantDock() {
 				>
 					{/* Kept mounted while collapsed so the conversation survives. */}
 					<div className={open ? undefined : "hidden"}>
+						{/* Keyed by organization: only that starts a new conversation. */}
 						<AssistantPanel
+							key={organization.id}
 							organization={organization}
 							project={project}
 							active={open}
