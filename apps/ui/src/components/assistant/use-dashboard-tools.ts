@@ -69,8 +69,11 @@ export function useDashboardTools() {
 		{
 			name: "open_page",
 			title: "Open a dashboard page",
-			description: `Navigate the dashboard to a page. More tools can appear once the page opens; the result lists them. Pages: ${pages
-				.map((page) => `${page.id} (${page.section} › ${page.label})`)
+			description: `Navigate the dashboard to a page. Some pages add tools while they are open; the result lists the tools available after navigating. Pages: ${pages
+				.map(
+					(page) =>
+						`${page.id} (${page.section} › ${page.label}${page.offers ? `; open it to ${page.offers}` : ""})`,
+				)
 				.join(", ")}.`,
 			inputSchema: {
 				type: "object",

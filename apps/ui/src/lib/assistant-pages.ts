@@ -15,7 +15,14 @@ export interface AssistantPage {
 	section: string;
 	href: string;
 	scope: "project" | "organization";
+	/** What the assistant can do once this page is open. */
+	offers?: string;
 }
+
+// Pages that register their own tools while open; keep in step with them.
+const PAGE_OFFERS: Record<string, string> = {
+	"api-keys": "create or list this project's API keys",
+};
 
 function toPages(
 	items: readonly { href: string; label: string }[],
@@ -27,6 +34,7 @@ function toPages(
 		section,
 		href: item.href,
 		scope: item.href.startsWith("org/") ? "organization" : "project",
+		offers: PAGE_OFFERS[item.href],
 	}));
 }
 
