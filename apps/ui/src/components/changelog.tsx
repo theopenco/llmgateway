@@ -6,11 +6,17 @@ import { useState } from "react";
 
 import { ChangelogTags } from "@/components/changelog-tags";
 import {
+	ContentSearch,
+	NoSearchResults,
+	useContentSearch,
+} from "@/components/content-search";
+import {
 	changelogPageSize,
 	changelogPath,
 	changelogProducts,
 	changelogTags,
 } from "@/lib/changelog";
+import { matchesQuery } from "@/lib/content-search";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
 
@@ -25,10 +31,26 @@ interface ChangelogProps {
 
 export function Changelog({ entries, tag, page }: ChangelogProps) {
 	const [visiblePage, setVisiblePage] = useState(page);
-	const start = (page - 1) * changelogPageSize;
-	const end = visiblePage * changelogPageSize;
-	const changelogEntries = entries.slice(start, end);
-	const hasMore = end < entries.length;
+	const [query, setQuery] = useContentSearch();
+	const [searchPages, setSearchPages] = useState(1);
+	const searching = query.trim().length > 0;
+	// A search looks through every update, not only the page being read.
+	const matches = searching
+		? entries.filter((entry) =>
+				matchesQuery(
+					[
+						entry.title,
+						entry.summary,
+						...entry.tags.map((entryTag) => changelogProducts[entryTag].name),
+					],
+					query,
+				),
+			)
+		: entries;
+	const start = searching ? 0 : (page - 1) * changelogPageSize;
+	const end = (searching ? searchPages : visiblePage) * changelogPageSize;
+	const changelogEntries = matches.slice(start, end);
+	const hasMore = end < matches.length;
 
 	return (
 		<div className="bg-background text-foreground min-h-screen font-sans pt-30">
@@ -59,9 +81,31 @@ export function Changelog({ entries, tag, page }: ChangelogProps) {
 							</Link>
 						))}
 					</nav>
+					<div className="mt-6">
+						<ContentSearch
+							label={
+								tag
+									? `Search the ${changelogProducts[tag].name} changelog`
+									: "Search the changelog"
+							}
+							placeholder="Search updates"
+							query={query}
+							onQueryChange={(next) => {
+								setQuery(next);
+								setSearchPages(1);
+							}}
+						/>
+					</div>
 				</div>
 
-				{page > 1 && (
+				{searching && matches.length === 0 && (
+					<NoSearchResults
+						query={query}
+						noun="update"
+						onClear={() => setQuery("")}
+					/>
+				)}
+				{page > 1 && !searching && (
 					<Link
 						href={changelogPath(tag, page - 1)}
 						className="mb-8 block text-sm text-muted-foreground hover:text-foreground"
@@ -128,7 +172,8 @@ export function Changelog({ entries, tag, page }: ChangelogProps) {
 				<div className="mt-16 flex flex-col items-center gap-4">
 					<p role="status" className="text-sm text-muted-foreground">
 						Showing {formatNumber(changelogEntries.length)} of{" "}
-						{formatNumber(entries.length)} updates
+						{formatNumber(matches.length)} {searching ? "matching " : ""}
+						updates
 					</p>
 					{hasMore && (
 						<Link
@@ -137,7 +182,11 @@ export function Changelog({ entries, tag, page }: ChangelogProps) {
 							scroll={false}
 							onNavigate={(event) => {
 								event.preventDefault();
-								setVisiblePage((current) => current + 1);
+								if (searching) {
+									setSearchPages((current) => current + 1);
+								} else {
+									setVisiblePage((current) => current + 1);
+								}
 							}}
 							className="inline-flex min-h-11 items-center justify-center rounded-full border border-border px-6 py-2 text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
 						>
