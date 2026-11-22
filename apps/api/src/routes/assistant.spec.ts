@@ -63,6 +63,7 @@ describe("dashboard assistant", () => {
 
 	beforeEach(async () => {
 		cookie = await createTestUser();
+		vi.stubEnv("ASSISTANT_MODEL", "");
 		await db.insert(tables.organization).values({
 			id: organizationId,
 			name: "Assistant Org",
@@ -219,10 +220,13 @@ describe("dashboard assistant", () => {
 		expect(headers.get("x-source")).toBe(ASSISTANT_SOURCE);
 		const sent = z
 			.object({
+				model: z.string(),
 				tools: z.array(z.object({ function: z.object({ name: z.string() }) })),
 			})
 			.parse(JSON.parse(String(init?.body)));
 		expect(sent.tools.map((tool) => tool.function.name)).toEqual(["open_page"]);
+		// Works for organizations that never configured Smart Routing.
+		expect(sent.model).toBe("auto");
 
 		// Billed through a managed key in the caller's own project.
 		const keys = await db.query.apiKey.findMany();
