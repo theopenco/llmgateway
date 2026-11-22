@@ -27,8 +27,9 @@ import {
 } from "@/components/assistant/assistant-approval-dialog";
 import { AssistantSpotlight } from "@/components/assistant/assistant-spotlight";
 import {
-	revealStore,
-	useAssistantReveal,
+	clearReveals,
+	dismissReveal,
+	useAssistantReveals,
 } from "@/components/assistant/assistant-store";
 import { useDashboardTools } from "@/components/assistant/use-dashboard-tools";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
@@ -156,14 +157,14 @@ function AssistantPanel({
 }) {
 	const { apiUrl } = useAppConfig();
 	const fetchClient = useFetchClient();
-	const reveal = useAssistantReveal();
+	const reveals = useAssistantReveals();
 	const [input, setInput] = useState("");
 	const [approvals, setApprovals] = useState<PendingApproval[]>([]);
 	const [running, setRunning] = useState(0);
 	const [writing, setWriting] = useState(0);
 	const [notice, setNotice] = useState<string | null>(null);
 	const [speakReplies, setSpeakReplies] = useState(true);
-	const [copied, setCopied] = useState(false);
+	const [copied, setCopied] = useState<string | null>(null);
 	const toolTitles = useRef(new Map<string, string>());
 	const spokeLast = useRef(false);
 	const spokenMessageId = useRef<string | null>(null);
@@ -218,8 +219,11 @@ function AssistantPanel({
 			)
 			.finally(() => {
 				aborts.current.delete(controller);
-				setRunning((count) => count - 1);
-				setWriting((count) => count - (write ? 1 : 0));
+				// Stop already released the reads of an interrupted turn.
+				if (reports()) {
+					setRunning((count) => count - 1);
+					setWriting((count) => count - (write ? 1 : 0));
+				}
 			});
 	}, []);
 
@@ -278,6 +282,7 @@ function AssistantPanel({
 						tool,
 						toolCallId: toolCall.toolCallId,
 						input: isRecord(toolCall.input) ? toolCall.input : {},
+						path: window.location.pathname,
 					};
 					// Only tools that declare themselves read-only run unattended.
 					if (tool.annotations?.readOnlyHint === true) {
@@ -330,6 +335,7 @@ function AssistantPanel({
 	const halt = () => {
 		generation.current += 1;
 		aborts.current.forEach((controller) => controller.abort());
+		setRunning(0);
 		setApprovals([]);
 		void stop().then(() =>
 			setMessages((current) =>
@@ -391,7 +397,7 @@ function AssistantPanel({
 			top: scrollRef.current.scrollHeight,
 			behavior: "smooth",
 		});
-	}, [messages, reveal, error, notice]);
+	}, [messages, reveals, error, notice]);
 
 	// Spoken prompts get spoken answers.
 	useEffect(() => {
@@ -431,7 +437,10 @@ function AssistantPanel({
 
 	const resolveApproval = (approval: PendingApproval, approved: boolean) => {
 		setApprovals((queue) => queue.filter((entry) => entry !== approval));
-		if (approved) {
+		// An approval covers the page it was asked on, not wherever the same
+		// tool name is registered now.
+		const moved = window.location.pathname !== approval.path;
+		if (approved && !moved) {
 			execute(approval, true);
 			return;
 		}
@@ -439,25 +448,28 @@ function AssistantPanel({
 			state: "output-error",
 			tool: approval.tool.name,
 			toolCallId: approval.toolCallId,
-			errorText: "The user declined this change.",
+			errorText: moved
+				? "The page changed before this was approved. Nothing was changed."
+				: "The user declined this change.",
 		});
 	};
 
 	const reset = () => {
 		generation.current += 1;
 		aborts.current.forEach((controller) => controller.abort());
+		setRunning(0);
 		void stop().then(() => setMessages([]));
 		setMessages([]);
 		setApprovals([]);
 		setNotice(null);
 		clearError();
-		revealStore.set(null);
+		clearReveals();
 	};
 
 	const copySecret = async (secret: string) => {
 		await navigator.clipboard.writeText(secret);
-		setCopied(true);
-		window.setTimeout(() => setCopied(false), 1600);
+		setCopied(secret);
+		window.setTimeout(() => setCopied(null), 1600);
 	};
 
 	const recording = voice.state === "recording";
@@ -600,8 +612,9 @@ function AssistantPanel({
 							</div>
 						),
 					)}
-					{reveal && (
+					{reveals.map((reveal) => (
 						<div
+							key={reveal.secret}
 							data-testid="assistant-reveal"
 							className="rounded-2xl border border-emerald-300/25 bg-emerald-300/10 p-3"
 						>
@@ -618,16 +631,16 @@ function AssistantPanel({
 									onClick={() => void copySecret(reveal.secret)}
 									className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-white px-3 text-xs font-semibold text-black transition hover:bg-white/85 focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none"
 								>
-									{copied ? (
+									{copied === reveal.secret ? (
 										<Check className="size-3.5" aria-hidden />
 									) : (
 										<Copy className="size-3.5" aria-hidden />
 									)}
-									{copied ? "Copied" : "Copy"}
+									{copied === reveal.secret ? "Copied" : "Copy"}
 								</button>
 								<button
 									type="button"
-									onClick={() => revealStore.set(null)}
+									onClick={() => dismissReveal(reveal)}
 									aria-label="Hide the secret"
 									className="grid size-9 place-items-center rounded-lg text-white/60 transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none"
 								>
@@ -635,7 +648,7 @@ function AssistantPanel({
 								</button>
 							</div>
 						</div>
-					)}
+					))}
 					{errorText && (
 						<p
 							role="alert"

@@ -142,6 +142,9 @@ export function useVoiceInput({
 			toBase64(blob)
 				.then((audio) => handlers.current.transcribe(audio, blob.type))
 				.then((text) => {
+					if (unmounted.current) {
+						return;
+					}
 					if (text) {
 						handlers.current.onTranscript(text);
 					} else {
@@ -149,6 +152,9 @@ export function useVoiceInput({
 					}
 				})
 				.catch((error: unknown) => {
+					if (unmounted.current) {
+						return;
+					}
 					handlers.current.onError(
 						error instanceof Error && error.message
 							? error.message

@@ -2,7 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 
-import { revealStore } from "@/components/assistant/assistant-store";
+import { addReveal } from "@/components/assistant/assistant-store";
 import { useWebMcpTools } from "@/hooks/useWebMcpTools";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { useFetchClient } from "@/lib/fetch-client";
@@ -32,16 +32,21 @@ export function useApiKeyTools({
 			description: `List the API keys of the project "${project.name}" with their status. Secrets are never included.`,
 			inputSchema: { type: "object", properties: {} },
 			annotations: { readOnlyHint: true },
-			execute: async () => ({
-				project: project.name,
-				apiKeys: (apiKeys ?? [])
-					.filter((key) => key.kind !== "playground")
-					.map((key) => ({
-						name: key.description,
-						status: key.status,
-						createdAt: key.createdAt,
-					})),
-			}),
+			execute: async () => {
+				if (!apiKeys) {
+					return { error: "The API keys are still loading. Try again." };
+				}
+				return {
+					project: project.name,
+					apiKeys: apiKeys
+						.filter((key) => key.kind !== "playground")
+						.map((key) => ({
+							name: key.description,
+							status: key.status,
+							createdAt: key.createdAt,
+						})),
+				};
+			},
 		});
 	}
 	if (project && canCreate) {
@@ -76,7 +81,7 @@ export function useApiKeyTools({
 						getApiErrorMessage(error, "Failed to create the API key."),
 					);
 				}
-				revealStore.set({
+				addReveal({
 					title: `API key "${data.apiKey.description}"`,
 					secret: data.apiKey.token,
 				});

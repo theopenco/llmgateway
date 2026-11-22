@@ -8,11 +8,7 @@ import { spotlightStore } from "@/components/assistant/assistant-store";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useWebMcpTools } from "@/hooks/useWebMcpTools";
 import { getApiErrorMessage } from "@/lib/api-error";
-import {
-	collectControls,
-	describePage,
-	findControl,
-} from "@/lib/assistant-dom";
+import { describePage, findControl } from "@/lib/assistant-dom";
 import { getAssistantPages } from "@/lib/assistant-pages";
 import { useFetchClient } from "@/lib/fetch-client";
 import {
@@ -144,10 +140,7 @@ export function useDashboardTools() {
 				if (!control) {
 					return {
 						found: false,
-						visibleControls: collectControls()
-							.filter((candidate) => candidate.element.closest("main"))
-							.map((candidate) => candidate.label)
-							.slice(0, 40),
+						visibleControls: describePage(40).controls,
 					};
 				}
 				control.element.scrollIntoView({ block: "center", behavior: "smooth" });

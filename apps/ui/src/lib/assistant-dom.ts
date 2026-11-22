@@ -72,7 +72,6 @@ function kindOf(element: HTMLElement): string {
 
 export function collectControls(): PageControl[] {
 	const controls: PageControl[] = [];
-	const seen = new Set<string>();
 	for (const element of Array.from(
 		document.querySelectorAll<HTMLElement>(CONTROL_SELECTOR),
 	)) {
@@ -80,15 +79,15 @@ export function collectControls(): PageControl[] {
 			continue;
 		}
 		const label = labelOf(element);
-		const kind = kindOf(element);
-		const key = `${kind}:${label.toLowerCase()}`;
-		if (!label || seen.has(key)) {
-			continue;
+		if (label) {
+			controls.push({ element, label, kind: kindOf(element) });
 		}
-		seen.add(key);
-		controls.push({ element, label, kind });
 	}
 	return controls;
+}
+
+function unique(values: string[]): string[] {
+	return Array.from(new Set(values));
 }
 
 function normalize(text: string): string {
@@ -146,16 +145,18 @@ export function describePage(limit = 60) {
 	const controls = collectControls();
 	return {
 		path: window.location.pathname,
-		headings: controls
-			.filter((control) => control.kind === "heading")
-			.map((control) => control.label)
-			.slice(0, 20),
-		controls: controls
-			.filter(
-				(control) =>
-					control.kind !== "heading" && control.element.closest("main"),
-			)
-			.map((control) => `${control.kind}: ${control.label}`)
-			.slice(0, limit),
+		headings: unique(
+			controls
+				.filter((control) => control.kind === "heading")
+				.map((control) => control.label),
+		).slice(0, 20),
+		controls: unique(
+			controls
+				.filter(
+					(control) =>
+						control.kind !== "heading" && control.element.closest("main"),
+				)
+				.map((control) => `${control.kind}: ${control.label}`),
+		).slice(0, limit),
 	};
 }

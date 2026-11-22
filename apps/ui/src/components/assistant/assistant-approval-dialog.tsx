@@ -18,6 +18,8 @@ export interface PendingApproval {
 	tool: WebMcpTool;
 	toolCallId: string;
 	input: Record<string, unknown>;
+	/** Where the request was made; the approval is void anywhere else. */
+	path: string;
 }
 
 function formatValue(value: unknown): string {

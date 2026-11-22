@@ -28,7 +28,21 @@ export interface AssistantReveal {
 }
 
 export const spotlightStore = createStore<Spotlight | null>(null);
-export const revealStore = createStore<AssistantReveal | null>(null);
+const NO_REVEALS: AssistantReveal[] = [];
+export const revealStore = createStore<AssistantReveal[]>(NO_REVEALS);
+
+/** Queues a secret; earlier ones stay until the user dismisses them. */
+export function addReveal(reveal: AssistantReveal) {
+	revealStore.set([...revealStore.get(), reveal]);
+}
+
+export function dismissReveal(reveal: AssistantReveal) {
+	revealStore.set(revealStore.get().filter((entry) => entry !== reveal));
+}
+
+export function clearReveals() {
+	revealStore.set(NO_REVEALS);
+}
 
 export function useSpotlight() {
 	return useSyncExternalStore(
@@ -38,10 +52,10 @@ export function useSpotlight() {
 	);
 }
 
-export function useAssistantReveal() {
+export function useAssistantReveals() {
 	return useSyncExternalStore(
 		revealStore.subscribe,
 		revealStore.get,
-		() => null,
+		() => NO_REVEALS,
 	);
 }
