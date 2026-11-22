@@ -44,6 +44,7 @@ import { devPlans } from "./dev-plans.js";
 import { dynamicRoutes } from "./dynamic-routes.js";
 import { escape } from "./escape.js";
 import { guardrails } from "./guardrails.js";
+import { installation } from "./installation.js";
 import keysApi from "./keys-api.js";
 import keysProvider from "./keys-provider.js";
 import { logs } from "./logs.js";
@@ -97,6 +98,7 @@ routes.use("/*", async (c, next) => {
 });
 
 routes.route("/user", user);
+routes.route("/installation", installation);
 routes.route("/connectors", connectors);
 routes.route("/notifications", notifications);
 

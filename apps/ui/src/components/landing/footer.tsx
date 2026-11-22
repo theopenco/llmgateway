@@ -124,6 +124,15 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
+										href="/products/image-generation"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+										prefetch={true}
+									>
+										Image Generation
+									</Link>
+								</li>
+								<li>
+									<Link
 										href="/models"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
