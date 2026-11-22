@@ -3,13 +3,6 @@ import dynamic from "next/dynamic";
 import { CompareFaq } from "@/components/compare/compare-faq";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
-import {
-	AgentModelMix,
-	TokenCostTable,
-	knownAgents,
-	type RankingsAgentModels,
-	type RankingsTokenCost,
-} from "@/components/rankings/rankings-insights";
 import { CiteThis } from "@/components/seo/cite-this";
 import { JsonLd } from "@/components/seo/json-ld";
 import { fetchServerData } from "@/lib/server-api";
@@ -39,7 +32,7 @@ export const revalidate = 300;
 
 const title = "LLM Rankings — Top Models by Real Usage";
 const description =
-	"Live LLM rankings from real traffic routed through LLM Gateway: top models and apps by token volume, the models each coding agent runs, blended token cost per provider, and usage trends.";
+	"Live LLM rankings from real traffic routed through LLM Gateway: top models and apps by token volume, usage trends, and provider market share.";
 
 export const metadata: Metadata = {
 	title,
@@ -89,30 +82,14 @@ export default async function RankingsPage() {
 
 	// The 7d snapshot feeds structured data and seeds the client's default
 	// window, so the chart and leaderboard render without a loading swap.
-	const [stats, apps, agentModels, tokenCosts] = await Promise.all([
+	const [stats, apps] = await Promise.all([
 		fetchServerData<RankingsStats>("GET", "/public/models/stats", {
 			params: { query: { window: "7d" } },
 		}),
 		fetchServerData<PublicApps>("GET", "/public/apps", {
 			params: { query: { limit: "5" } },
 		}),
-		fetchServerData<{ agents: RankingsAgentModels[] }>(
-			"GET",
-			"/public/rankings/agents",
-			{ params: { query: { window: "7d" } } },
-		),
-		fetchServerData<{ models: RankingsTokenCost[] }>(
-			"GET",
-			"/public/rankings/token-costs",
-			{ params: { query: { window: "7d" } } },
-		),
 	]);
-	const agents = knownAgents(agentModels?.agents ?? []);
-	const costModels = tokenCosts?.models ?? [];
-	const modelNames: Record<string, string> = {};
-	for (const [id, meta] of Object.entries(modelMeta)) {
-		modelNames[id] = meta.name;
-	}
 	const statsFetchedAt = Date.now();
 	const topModels = (stats?.models ?? []).slice(0, 10);
 	const topApps = apps?.apps ?? [];
@@ -140,17 +117,6 @@ export default async function RankingsPage() {
 			question: "Are these rankings the same as benchmark leaderboards?",
 			answer:
 				"No. Benchmarks measure quality on fixed tests; these rankings measure adoption. Use both: model pages show benchmark results, where available, next to pricing and providers.",
-		},
-		{
-			question: "How do you know which models a coding agent uses?",
-			answer:
-				"Apps and coding agents can name themselves on each request. The per-agent breakdown counts tokens from those tagged requests over the last 7 days and shows each model's share. A coding agent appears only when several separate organizations send traffic under its name.",
-		},
-		{
-			question:
-				"Why does the blended cost per million tokens differ from list prices?",
-			answer:
-				"List prices are quoted separately for input and output tokens. The blended figure divides what was billed by every token processed, so it reflects the real mix of input, cached and output tokens. Heavy prompt caching pulls it well below the input list price.",
 		},
 		{
 			question: "Can I use the top-ranked models through one API?",
@@ -227,12 +193,6 @@ export default async function RankingsPage() {
 						modelMeta={modelMeta}
 						providerNames={providerNames}
 						topApps={topApps}
-					/>
-					<AgentModelMix agents={agents} modelNames={modelNames} />
-					<TokenCostTable
-						models={costModels}
-						modelNames={modelNames}
-						providerNames={providerNames}
 					/>
 					<section
 						aria-labelledby="rankings-method-heading"
