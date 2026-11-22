@@ -13,6 +13,7 @@ import {
 	type ApiKeysScope,
 } from "@/components/api-keys/api-keys-list";
 import { CreateApiKeyDialog } from "@/components/api-keys/create-api-key-dialog";
+import { useApiKeyTools } from "@/components/api-keys/use-api-key-tools";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import { useApi } from "@/lib/fetch-client";
@@ -105,6 +106,12 @@ export function ApiKeysClient({
 		: false;
 	const canCreate =
 		scope.type === "project" ? !!scope.project : scope.projects.length > 0;
+
+	useApiKeyTools({
+		project: scope.type === "project" ? scope.project : null,
+		apiKeys: apiKeysData?.apiKeys,
+		canCreate: !createDisabled,
+	});
 
 	// The API enforces this; the notice only avoids a generic load error.
 	if (

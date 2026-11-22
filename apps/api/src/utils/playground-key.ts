@@ -2,7 +2,17 @@ import { getCookie, setCookie } from "hono/cookie";
 
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
 
-import { and, asc, cdb, db, eq, sql, tables, shortid } from "@llmgateway/db";
+import {
+	and,
+	asc,
+	cdb,
+	db,
+	eq,
+	ne,
+	sql,
+	tables,
+	shortid,
+} from "@llmgateway/db";
 import {
 	PLAYGROUND_KEY_COOKIE_MAX_AGE,
 	PLAYGROUND_KEY_COOKIE_NAME,
@@ -11,6 +21,7 @@ import {
 	getApiKeyFingerprints,
 	hashApiKeyForStorage,
 } from "@llmgateway/shared/api-key-hash";
+import { ASSISTANT_KEY_DESCRIPTION } from "@llmgateway/shared/dashboard-assistant";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 
 import type { ServerTypes } from "@/vars.js";
@@ -32,10 +43,15 @@ interface PlaygroundApiKeyResult {
 // first time that member uses the playground, and is only ever rotated for the
 // member who owns it. Scoping by creator keeps teammates from revoking each
 // other's key. The cookie carries the secret because storage is hash-only.
+// The dashboard assistant keeps its own row (and cookie) per member, told
+// apart by description, so it never rotates the member's Lounge key.
 export async function getOrCreatePlaygroundApiKey(
 	projectId: string,
 	userId: string,
 	existingToken?: string,
+	description:
+		| typeof PLAYGROUND_KEY_DESCRIPTION
+		| typeof ASSISTANT_KEY_DESCRIPTION = PLAYGROUND_KEY_DESCRIPTION,
 ): Promise<PlaygroundApiKeyResult> {
 	return await cdb.transaction(async (tx) => {
 		await tx.execute(
@@ -52,6 +68,9 @@ export async function getOrCreatePlaygroundApiKey(
 					eq(tables.apiKey.keyType, "user"),
 					eq(tables.apiKey.kind, "playground"),
 					eq(tables.apiKey.createdBy, userId),
+					description === ASSISTANT_KEY_DESCRIPTION
+						? eq(tables.apiKey.description, ASSISTANT_KEY_DESCRIPTION)
+						: ne(tables.apiKey.description, ASSISTANT_KEY_DESCRIPTION),
 				),
 			)
 			.orderBy(asc(tables.apiKey.createdAt))
@@ -72,14 +91,13 @@ export async function getOrCreatePlaygroundApiKey(
 			(!key.expiresAt || key.expiresAt.getTime() > now)
 		) {
 			const expiresAt = key.expiresAt ?? new Date(now + PLAYGROUND_KEY_TTL_MS);
-			const shouldUpdate =
-				!key.expiresAt || key.description !== PLAYGROUND_KEY_DESCRIPTION;
+			const shouldUpdate = !key.expiresAt || key.description !== description;
 
 			if (shouldUpdate) {
 				await tx
 					.update(tables.apiKey)
 					.set({
-						description: PLAYGROUND_KEY_DESCRIPTION,
+						description,
 						expiresAt,
 					})
 					.where(eq(tables.apiKey.id, key.id));
@@ -109,7 +127,7 @@ export async function getOrCreatePlaygroundApiKey(
 				.update(tables.apiKey)
 				.set({
 					...hashApiKeyForStorage(token),
-					description: PLAYGROUND_KEY_DESCRIPTION,
+					description,
 					expiresAt,
 				})
 				.where(eq(tables.apiKey.id, key.id));
@@ -117,7 +135,7 @@ export async function getOrCreatePlaygroundApiKey(
 			await tx.insert(tables.apiKey).values({
 				...hashApiKeyForStorage(token),
 				projectId,
-				description: PLAYGROUND_KEY_DESCRIPTION,
+				description,
 				kind: "playground",
 				expiresAt,
 				usageLimit: null,

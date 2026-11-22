@@ -125,6 +125,11 @@
 			"import": "./dist/random.js",
 			"default": "./dist/random.js"
 		},
+		"./dashboard-assistant": {
+			"types": "./dist/dashboard-assistant.d.ts",
+			"import": "./dist/dashboard-assistant.js",
+			"default": "./dist/dashboard-assistant.js"
+		},
 		"./lounge-source": {
 			"types": "./dist/lounge-source.d.ts",
 			"import": "./dist/lounge-source.js",

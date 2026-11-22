@@ -4,6 +4,7 @@
 	"icon": "BookOpen",
 	"pages": [
 		"index",
+		"autopilot",
 		"---AI Gateway---",
 		"api-keys",
 		"provider-keys",
