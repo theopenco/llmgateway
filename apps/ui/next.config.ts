@@ -66,6 +66,51 @@ const nextConfig: NextConfig = {
 			"anthropic-discount": "/providers",
 			bluestone: "/providers",
 			obsidian: "/providers",
+			glacier: "/providers",
+			granite: "/providers",
+			iceberg: "/providers",
+			embercloud: "/providers",
+			nanogpt: "/providers",
+			ranoai: "/providers",
+			reve: "/providers",
+		};
+		// REST-style gateway paths that crawlers resolve against this domain.
+		const apiPathReferenceSlugs: Record<string, string> = {
+			"audio/speech": "v1_audio_speech",
+			"audio/transcriptions": "v1_audio_transcriptions",
+			"chat/completions": "v1_chat_completions",
+			decisions: "v1_decisions",
+			embeddings: "v1_embeddings",
+			"images/edits": "v1_images_edits",
+			"images/generations": "v1_images_generations",
+			messages: "v1_messages",
+			models: "v1_models",
+			moderations: "v1_moderations",
+			ocr: "v1_ocr",
+			realtime: "v1_realtime_client_secrets",
+			rerank: "v1_rerank",
+			responses: "v1_chat_completions",
+			search: "v1_search",
+			systemone: "v1_systemone",
+			videos: "v1_videos_create",
+		};
+		// Posts whose slug changed after they were indexed or linked.
+		const renamedContentRedirects: Record<string, string> = {
+			"/blog/perplexity-sonar-retirement":
+				"/blog/perplexity-sonar-api-retirement",
+			"/blog/self-host-llm-gateway": "/blog/how-to-self-host-llm-gateway",
+			"/blog/how-configure-claude-code-with-llmgateway":
+				"/blog/how-to-configure-claude-code-with-llmgateway",
+			"/blog/ai-gateway-fees-compared-11": "/blog/ai-gateway-fees-compared",
+			"/blog/ai-gateway-fees-compared-14": "/blog/ai-gateway-fees-compared",
+			"/blog/ai-gateway-pricing-fees-markups-compared-2026":
+				"/blog/ai-gateway-fees-compared",
+			"/changelog/pro-features-are-now-free":
+				"/changelog/pro-features-now-free",
+			"/changelog/v1-0": "/changelog/gateway-v1-launch",
+			"/changelog/devpass": "/changelog/devpass-product-hunt-launch",
+			"/compare/bedrock": "/compare/aws-bedrock",
+			"/compare/azure-foundry": "/compare/azure-ai-foundry",
 		};
 		return [
 			{
@@ -307,21 +352,18 @@ const nextConfig: NextConfig = {
 				destination: "https://docs.llmgateway.io/v1_videos_create",
 				permanent: true,
 			},
-			{
-				source: "/v1/chat/completions",
-				destination: "https://docs.llmgateway.io/v1_chat_completions",
+			...Object.entries(apiPathReferenceSlugs).map(([path, slug]) => ({
+				source: `/v1/${path}`,
+				destination: `https://docs.llmgateway.io/${slug}`,
 				permanent: true,
-			},
-			{
-				source: "/v1/images/generations",
-				destination: "https://docs.llmgateway.io/v1_images_generations",
-				permanent: true,
-			},
-			{
-				source: "/v1/images/edits",
-				destination: "https://docs.llmgateway.io/v1_images_edits",
-				permanent: true,
-			},
+			})),
+			...Object.entries(renamedContentRedirects).map(
+				([source, destination]) => ({
+					source,
+					destination,
+					permanent: true,
+				}),
+			),
 			// Removed/renamed models and providers.
 			...Object.entries(renamedModelRedirects).flatMap(([slug, target]) => [
 				{
@@ -349,12 +391,23 @@ const nextConfig: NextConfig = {
 					},
 				],
 			),
-			...Object.entries(removedProviderRedirects).map(
-				([slug, destination]) => ({
-					source: `/providers/${slug}`,
-					destination,
-					permanent: true,
-				}),
+			...Object.entries(removedProviderRedirects).flatMap(
+				([slug, destination]) => [
+					{
+						source: `/providers/${slug}`,
+						destination,
+						permanent: true,
+					},
+					// The model outlives the provider, so its provider sub-page
+					// lands on the successor's listing or the model itself.
+					{
+						source: `/models/:model/${slug}`,
+						destination: destination.startsWith("/providers/")
+							? `/models/:model/${destination.slice("/providers/".length)}`
+							: "/models/:model",
+						permanent: true,
+					},
+				],
 			),
 			// xAI is often referred to as "SpaceXAI" in external links; the
 			// provider id is "xai".

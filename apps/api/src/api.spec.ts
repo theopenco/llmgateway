@@ -40,6 +40,12 @@ test("/livez", async () => {
 	expect(await res.json()).toEqual({ status: "ok" });
 });
 
+test("/robots.txt disallows crawling without credentials", async () => {
+	const res = await app.request("/robots.txt");
+	expect(res.status).toBe(200);
+	expect(await res.text()).toBe("User-agent: *\nDisallow: /\n");
+});
+
 test("/user/me", async () => {
 	const res = await app.request("/user/me");
 	expect(res.status).toBe(401);
