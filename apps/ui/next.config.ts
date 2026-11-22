@@ -134,6 +134,16 @@ const nextConfig: NextConfig = {
 				permanent: true,
 			},
 			{
+				source: "/models/sherlock-dash-alpha/:path+",
+				destination: "/models/grok-4-1-fast-non-reasoning",
+				permanent: true,
+			},
+			{
+				source: "/models/sherlock-think-alpha/:path+",
+				destination: "/models/grok-4-1-fast-reasoning",
+				permanent: true,
+			},
+			{
 				source: "/docs",
 				destination: "https://docs.llmgateway.io",
 				permanent: true,
