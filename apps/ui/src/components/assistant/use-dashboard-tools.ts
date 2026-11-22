@@ -1,8 +1,8 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
-import { useMemo } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 
 import { spotlightStore } from "@/components/assistant/assistant-store";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
@@ -15,6 +15,10 @@ import {
 } from "@/lib/assistant-dom";
 import { getAssistantPages } from "@/lib/assistant-pages";
 import { useFetchClient } from "@/lib/fetch-client";
+import {
+	buildDashboardUrl,
+	extractOrgAndProjectFromPath,
+} from "@/lib/navigation-utils";
 import { getModelContext, type WebMcpToolDefinition } from "@/lib/webmcp";
 
 const NAVIGATION_TIMEOUT_MS = 8000;
@@ -42,8 +46,23 @@ export function useDashboardTools() {
 	const router = useRouter();
 	const queryClient = useQueryClient();
 	const fetchClient = useFetchClient();
-	const { buildUrl, buildOrgUrl, selectedOrganization, currentProject } =
+	const pathname = usePathname();
+	const { buildOrgUrl, selectedOrganization, currentProject, projects } =
 		useDashboardNavigation();
+
+	// Organization pages carry no project in the URL, and the dashboard's
+	// selected project can lag there. Stay on the last project the user was
+	// actually in, so navigation, writes and billing do not jump mid-task.
+	const routeProjectId = extractOrgAndProjectFromPath(pathname).projectId;
+	const [pinnedProjectId, setPinnedProjectId] = useState(routeProjectId);
+	if (routeProjectId && routeProjectId !== pinnedProjectId) {
+		setPinnedProjectId(routeProjectId);
+	}
+	const project =
+		projects.find((candidate) => candidate.id === pinnedProjectId) ??
+		currentProject ??
+		projects[0] ??
+		null;
 
 	const pages = useMemo(
 		() => getAssistantPages(selectedOrganization?.role),
@@ -77,7 +96,11 @@ export function useDashboardTools() {
 				const href =
 					page.scope === "organization"
 						? buildOrgUrl(page.href)
-						: buildUrl(page.href || undefined);
+						: buildDashboardUrl(
+								selectedOrganization?.id,
+								project?.id,
+								page.href || undefined,
+							);
 				spotlightStore.set(null);
 				router.push(href);
 				if (!(await waitForPath(href, signal))) {
@@ -186,5 +209,5 @@ export function useDashboardTools() {
 			: tools,
 	);
 
-	return { organization: selectedOrganization, project: currentProject };
+	return { organization: selectedOrganization, project };
 }

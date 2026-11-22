@@ -43,6 +43,8 @@ export function useVoiceInput({
 	const session = useRef<{ stop: () => void; discard: () => void } | null>(
 		null,
 	);
+	const starting = useRef(false);
+	const unmounted = useRef(false);
 	const handlers = useRef({ transcribe, onTranscript, onError });
 	useEffect(() => {
 		handlers.current = { transcribe, onTranscript, onError };
@@ -54,16 +56,27 @@ export function useVoiceInput({
 		!!navigator.mediaDevices?.getUserMedia;
 
 	const start = useCallback(async () => {
-		if (session.current) {
+		// Claimed before the permission prompt, so a second click cannot start
+		// a recorder nothing would ever stop.
+		if (session.current || starting.current) {
 			return;
 		}
+		starting.current = true;
 		let stream: MediaStream;
 		try {
 			stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 		} catch {
+			starting.current = false;
 			handlers.current.onError(
 				"Microphone access is blocked. Allow it in your browser to talk.",
 			);
+			return;
+		}
+		starting.current = false;
+		if (unmounted.current) {
+			for (const track of stream.getTracks()) {
+				track.stop();
+			}
 			return;
 		}
 		const mimeType = MIME_TYPES.find((type) =>
@@ -164,7 +177,13 @@ export function useVoiceInput({
 
 	const stop = useCallback(() => session.current?.stop(), []);
 
-	useEffect(() => () => session.current?.discard(), []);
+	useEffect(() => {
+		unmounted.current = false;
+		return () => {
+			unmounted.current = true;
+			session.current?.discard();
+		};
+	}, []);
 
 	return { state, levels, supported, start, stop };
 }

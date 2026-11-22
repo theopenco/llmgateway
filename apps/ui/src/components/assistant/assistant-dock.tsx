@@ -19,7 +19,6 @@ import {
 	VolumeX,
 	X,
 } from "lucide-react";
-import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -36,9 +35,7 @@ import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { recentMessages, settleToolCalls } from "@/lib/assistant-messages";
 import { useAppConfig } from "@/lib/config";
-import { useDashboardContext } from "@/lib/dashboard-context";
 import { useFetchClient } from "@/lib/fetch-client";
-import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
 import { cn } from "@/lib/utils";
 import { getModelContext } from "@/lib/webmcp";
 
@@ -163,6 +160,7 @@ function AssistantPanel({
 	const [input, setInput] = useState("");
 	const [approvals, setApprovals] = useState<PendingApproval[]>([]);
 	const [running, setRunning] = useState(0);
+	const [writing, setWriting] = useState(0);
 	const [notice, setNotice] = useState<string | null>(null);
 	const [speakReplies, setSpeakReplies] = useState(true);
 	const [copied, setCopied] = useState(false);
@@ -174,21 +172,31 @@ function AssistantPanel({
 	const chatRef = useRef<Chat<UIMessage> | null>(null);
 	// Bumped on stop and reset, so work started before then reports nothing.
 	const generation = useRef(0);
+	const aborts = useRef(new Set<AbortController>());
 
 	const scope = useRef({ organization, project });
 	useEffect(() => {
 		scope.current = { organization, project };
 	});
 
-	const execute = useCallback((approval: PendingApproval) => {
+	const execute = useCallback((approval: PendingApproval, write: boolean) => {
 		const startedIn = generation.current;
-		const current = () => generation.current === startedIn;
+		// A change that has started cannot be taken back, so it always reports;
+		// reads from a stopped turn are dropped.
+		const reports = () => write || generation.current === startedIn;
+		const controller = new AbortController();
+		if (!write) {
+			aborts.current.add(controller);
+		}
 		setRunning((count) => count + 1);
+		setWriting((count) => count + (write ? 1 : 0));
 		getModelContext()
-			.executeTool(approval.tool, approval.input)
+			.executeTool(approval.tool, approval.input, {
+				signal: controller.signal,
+			})
 			.then(
 				(output) =>
-					current() &&
+					reports() &&
 					chatRef.current?.addToolOutput({
 						tool: approval.tool.name,
 						toolCallId: approval.toolCallId,
@@ -197,7 +205,7 @@ function AssistantPanel({
 			)
 			.catch(
 				(error: unknown) =>
-					current() &&
+					reports() &&
 					chatRef.current?.addToolOutput({
 						state: "output-error",
 						tool: approval.tool.name,
@@ -208,7 +216,11 @@ function AssistantPanel({
 								: "The action failed.",
 					}),
 			)
-			.finally(() => setRunning((count) => count - 1));
+			.finally(() => {
+				aborts.current.delete(controller);
+				setRunning((count) => count - 1);
+				setWriting((count) => count - (write ? 1 : 0));
+			});
 	}, []);
 
 	const chat = useMemo(
@@ -269,7 +281,7 @@ function AssistantPanel({
 					};
 					// Only tools that declare themselves read-only run unattended.
 					if (tool.annotations?.readOnlyHint === true) {
-						execute(approval);
+						execute(approval, false);
 					} else {
 						setApprovals((queue) => [...queue, approval]);
 					}
@@ -317,6 +329,7 @@ function AssistantPanel({
 	// Stops the turn and closes whatever it left open.
 	const halt = () => {
 		generation.current += 1;
+		aborts.current.forEach((controller) => controller.abort());
 		setApprovals([]);
 		void stop().then(() =>
 			setMessages((current) =>
@@ -419,7 +432,7 @@ function AssistantPanel({
 	const resolveApproval = (approval: PendingApproval, approved: boolean) => {
 		setApprovals((queue) => queue.filter((entry) => entry !== approval));
 		if (approved) {
-			execute(approval);
+			execute(approval, true);
 			return;
 		}
 		void chat.addToolOutput({
@@ -432,6 +445,7 @@ function AssistantPanel({
 
 	const reset = () => {
 		generation.current += 1;
+		aborts.current.forEach((controller) => controller.abort());
 		void stop().then(() => setMessages([]));
 		setMessages([]);
 		setApprovals([]);
@@ -447,7 +461,8 @@ function AssistantPanel({
 	};
 
 	const recording = voice.state === "recording";
-	const stoppable = busy || running > 0;
+	// An approved change runs to completion: stopping it would only hide it.
+	const stoppable = (busy || running > 0) && writing === 0;
 	const errorText = error ? chatErrorMessage(error) : notice;
 
 	return (
@@ -497,8 +512,9 @@ function AssistantPanel({
 					<button
 						type="button"
 						onClick={reset}
+						disabled={writing > 0}
 						aria-label="Start over"
-						className="grid size-8 place-items-center rounded-full text-white/60 transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none"
+						className="grid size-8 place-items-center rounded-full text-white/60 transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none disabled:opacity-40"
 					>
 						<RotateCcw className="size-4" aria-hidden />
 					</button>
@@ -699,7 +715,7 @@ function AssistantPanel({
 						onClick={stoppable ? halt : undefined}
 						disabled={
 							!stoppable &&
-							(!input.trim() || voice.state !== "idle" || approvals.length > 0)
+							(!input.trim() || voice.state !== "idle" || occupied)
 						}
 						aria-label={stoppable ? "Stop" : "Send"}
 						className="grid size-11 shrink-0 place-items-center rounded-full bg-white text-black transition hover:bg-white/85 focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none disabled:bg-white/15 disabled:text-white/40"
@@ -729,24 +745,8 @@ function AssistantPanel({
  * organizations with credits, which is what its model calls are billed to.
  */
 export function AssistantDock() {
-	const { projects } = useDashboardContext();
-	const { organization, project: currentProject } = useDashboardTools();
-	const pathname = usePathname();
+	const { organization, project } = useDashboardTools();
 	const [open, setOpen] = useState(false);
-
-	// Organization pages carry no project in the URL, and the dashboard's
-	// selected project can lag there. Stay on the last project the user was
-	// actually in, so a conversation and its billing do not jump mid-task.
-	const routeProjectId = extractOrgAndProjectFromPath(pathname).projectId;
-	const [pinnedProjectId, setPinnedProjectId] = useState(routeProjectId);
-	if (routeProjectId && routeProjectId !== pinnedProjectId) {
-		setPinnedProjectId(routeProjectId);
-	}
-	const project =
-		projects.find((candidate) => candidate.id === pinnedProjectId) ??
-		currentProject ??
-		projects[0] ??
-		null;
 	const hasCredits = new Decimal(organization?.credits ?? 0).greaterThan(0);
 
 	useEffect(() => {
