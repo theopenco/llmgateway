@@ -24,6 +24,7 @@ export interface AssistantPage {
 // Pages that register their own tools while open; keep in step with them.
 const PAGE_OFFERS: Record<string, string> = {
 	"api-keys": "create or list this project's API keys",
+	"me/api-keys": "create or list this project's API keys",
 };
 
 function toPages(

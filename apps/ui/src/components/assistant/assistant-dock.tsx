@@ -435,6 +435,8 @@ function AssistantPanel({
 			if ("speechSynthesis" in window) {
 				window.speechSynthesis.cancel();
 			}
+			// The panel is keyed by organization: its secrets leave with it.
+			clearReveals();
 		},
 		[],
 	);
