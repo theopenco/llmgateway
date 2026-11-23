@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowRight } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 
 import { AuthLink } from "@/components/shared/auth-link";
 import { ShimmerButton } from "@/lib/components/shimmer-button";
@@ -20,8 +20,13 @@ const { key, attribute } = HOME_HERO_CTA_EXPERIMENT;
 export function HeroCta() {
 	const posthog = usePostHog();
 
+	// Before paint, for client-side navigations where the inline script does
+	// not run.
+	useLayoutEffect(() => {
+		assignExperimentVariant(HOME_HERO_CTA_EXPERIMENT);
+	}, []);
+
 	useEffect(() => {
-		// Covers client-side navigations, where the inline script does not run.
 		const variant = assignExperimentVariant(HOME_HERO_CTA_EXPERIMENT);
 		// Registered so every later event, signup included, carries the variant.
 		posthog.register({ [`${key}_variant`]: variant });

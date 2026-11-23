@@ -2,6 +2,7 @@ import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { ExperimentAssignment } from "@/components/experiment-assignment";
 import { DashboardDemo } from "@/components/home/dashboard-demo";
 import { TrackedLink } from "@/components/home/tracked-link";
 import { HeroCta } from "@/components/landing/hero-cta";
@@ -9,10 +10,7 @@ import {
 	LandingStats,
 	LandingStatsView,
 } from "@/components/landing/landing-stats";
-import {
-	experimentAssignmentScript,
-	HOME_HERO_CTA_EXPERIMENT,
-} from "@/lib/experiments";
+import { HOME_HERO_CTA_EXPERIMENT } from "@/lib/experiments";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
 
@@ -81,14 +79,7 @@ export function LandingHero() {
 								<div className="relative">
 									{/* Outer glow ring */}
 									<div className="absolute -inset-3 bg-blue-500/30 rounded-full blur-xl animate-pulse" />
-									<script
-										// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-										dangerouslySetInnerHTML={{
-											__html: experimentAssignmentScript(
-												HOME_HERO_CTA_EXPERIMENT,
-											),
-										}}
-									/>
+									<ExperimentAssignment experiment={HOME_HERO_CTA_EXPERIMENT} />
 									<HeroCta />
 								</div>
 

@@ -21,7 +21,8 @@ export const HOME_HERO_CTA_EXPERIMENT = {
 	variants: ["control", "free"],
 } as const satisfies Experiment;
 
-const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 90;
+/** Cookie lifetime; the inline script reads it from a data attribute. */
+export const EXPERIMENT_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 90;
 
 /** Reads the visitor's variant, assigning one at random on a first visit. */
 export function assignExperimentVariant(experiment: Experiment): string {
@@ -33,7 +34,7 @@ export function assignExperimentVariant(experiment: Experiment): string {
 	let variant = stored;
 	if (variant !== control && variant !== treatment) {
 		variant = randomFloat() < 0.5 ? control : treatment;
-		document.cookie = `${experiment.cookie}=${variant}; path=/; max-age=${COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
+		document.cookie = `${experiment.cookie}=${variant}; path=/; max-age=${EXPERIMENT_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
 	}
 	document.documentElement.setAttribute(experiment.attribute, variant);
 	return variant;
@@ -42,13 +43,8 @@ export function assignExperimentVariant(experiment: Experiment): string {
 /**
  * The same assignment as an inline script for the server-rendered page: it
  * runs while the HTML is parsed, before the variants below it are painted.
- * Written out as a string because a bundled function body cannot be inlined.
+ * A constant: the experiment reaches it through data attributes on its own
+ * tag (see ExperimentAssignment), so no value is ever built into code.
  */
-export function experimentAssignmentScript(experiment: Experiment): string {
-	const [control, treatment] = experiment.variants.map((v) =>
-		JSON.stringify(v),
-	);
-	const cookie = JSON.stringify(experiment.cookie);
-	const attribute = JSON.stringify(experiment.attribute);
-	return `(function(){try{var c=${cookie},m=document.cookie.match(new RegExp("(?:^|; )"+c+"=([^;]+)")),v=m&&m[1];if(v!==${control}&&v!==${treatment}){v=crypto.getRandomValues(new Uint8Array(1))[0]<128?${control}:${treatment};document.cookie=c+"="+v+"; path=/; max-age=${COOKIE_MAX_AGE_SECONDS}; SameSite=Lax"}document.documentElement.setAttribute(${attribute},v)}catch(e){}})()`;
-}
+export const EXPERIMENT_ASSIGNMENT_SCRIPT =
+	'(function(){try{var d=document.currentScript.dataset,c=d.cookie,a=d.control,b=d.treatment,m=document.cookie.match(new RegExp("(?:^|; )"+c+"=([^;]+)")),v=m&&m[1];if(v!==a&&v!==b){v=crypto.getRandomValues(new Uint8Array(1))[0]<128?a:b;document.cookie=c+"="+v+"; path=/; max-age="+d.maxAge+"; SameSite=Lax"}document.documentElement.setAttribute(d.attribute,v)}catch(e){}})()';
