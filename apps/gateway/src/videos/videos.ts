@@ -4339,10 +4339,12 @@ async function createBytedanceVideoJob(
 		});
 	}
 
-	// Seedance 2.5 rejects a fixed ratio alongside a first frame; "adaptive"
-	// keeps the image's aspect ratio.
+	// Seedance 2.5 and 2.5 Flash reject a fixed ratio alongside a first frame;
+	// "adaptive" keeps the image's aspect ratio.
 	const videoRatio =
-		processedFirstFrame && upstreamModelName === "dreamina-seedance-2-5-260628"
+		processedFirstFrame &&
+		(upstreamModelName === "dreamina-seedance-2-5-260628" ||
+			upstreamModelName === "dreamina-seedance-2-5-flash-261115")
 			? "adaptive"
 			: getBytedanceVideoAspectRatio(videoSize);
 	const upstreamRequest: Record<string, unknown> = {
