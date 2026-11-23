@@ -1016,6 +1016,25 @@ describe("getProviderEndpoint", () => {
 			expect(endpoint).toBe("https://anthropic.example/v1/messages");
 		});
 
+		it("honors a credential base URL for a provider without a base URL env var", () => {
+			const endpoint = getProviderEndpoint(
+				"meta",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ env_config: { baseUrl: "https://meta-proxy.example" } },
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toBe("https://meta-proxy.example/v1/chat/completions");
+		});
+
 		it("falls back to the anthropic default when no base URL is configured", () => {
 			const endpoint = getProviderEndpoint(
 				"anthropic",

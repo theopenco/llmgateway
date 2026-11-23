@@ -9,6 +9,7 @@ import {
 	type RequestApiFormat,
 	type VertexTokenType,
 	getProviderEnvValue,
+	getProviderEnvVarNameFor,
 	getProviderDefinition,
 	getProviderEnvConfig,
 	getRegionEnvVarSuffix,
@@ -465,8 +466,17 @@ export function getProviderEndpoint(
 		regionBaseUrl = endpointMap?.[region];
 	}
 
-	if (baseUrl) {
-		url = baseUrl;
+	// Any managed credential may point its provider at another endpoint (e.g. a
+	// proxy). Providers that declare a baseUrl setting resolve it in their own
+	// case below; for the rest it replaces the static default.
+	const explicitBaseUrl =
+		baseUrl ??
+		(getProviderEnvVarNameFor(provider, "baseUrl")
+			? undefined
+			: credentialConfig?.baseUrl);
+
+	if (explicitBaseUrl) {
+		url = explicitBaseUrl;
 	} else {
 		switch (provider) {
 			case "llmgateway":
