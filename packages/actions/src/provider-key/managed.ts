@@ -1,7 +1,11 @@
-import { getProviderEnvKeys, providers } from "@llmgateway/models";
+import {
+	getProviderDefinition,
+	getProviderEnvKeys,
+	providers,
+} from "@llmgateway/models";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
-import type { ProviderDefinition } from "@llmgateway/models";
+import type { ProviderDefinition, ProviderEnvKey } from "@llmgateway/models";
 
 /**
  * Columns of a managed provider-key row that describe the credential beyond
@@ -69,9 +73,22 @@ export function managedCredentialValidationOptions(
 /**
  * The credential settings a provider accepts, excluding the API key itself
  * (which is stored encrypted in the token columns rather than in `config`).
+ * Every provider accepts an optional `baseUrl`, even one without an env var
+ * for it, so a credential can route through a proxy or alternate endpoint.
  */
-export function getManagedCredentialConfigKeys(provider: string) {
-	return getProviderEnvKeys(provider).filter((entry) => entry.key !== "apiKey");
+export function getManagedCredentialConfigKeys(
+	provider: string,
+): ProviderEnvKey[] {
+	if (!getProviderDefinition(provider)) {
+		return [];
+	}
+	const keys = getProviderEnvKeys(provider).filter(
+		(entry) => entry.key !== "apiKey",
+	);
+	if (!keys.some((entry) => entry.key === "baseUrl")) {
+		keys.push({ key: "baseUrl", envVar: "", required: false });
+	}
+	return keys;
 }
 
 /**
