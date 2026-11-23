@@ -268,8 +268,11 @@ describe("API auth hooks functionality", () => {
 			);
 
 		try {
+			// Signups are rate limited per IP; clear what earlier tests recorded.
+			await redisClient.flushdb();
 			expect((await signUp()).status).toBe(200);
 			// A repeat signup for the same email creates no user.
+			await redisClient.flushdb();
 			await signUp();
 
 			const user = await db.query.user.findFirst({
