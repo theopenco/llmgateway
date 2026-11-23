@@ -1,10 +1,11 @@
 "use client";
 
 import { Decimal } from "decimal.js";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AssistantSpotlight } from "@/components/assistant/assistant-spotlight";
 import { useDashboardTools } from "@/components/assistant/use-dashboard-tools";
+import { toast } from "@/lib/components/use-toast";
 import { cn } from "@/lib/utils";
 
 import "./assistant.css";
@@ -30,6 +31,9 @@ export function AssistantDock() {
 		null,
 	);
 	const [loading, setLoading] = useState(false);
+	// Cleared by Cmd+J or Escape while the chunk loads, so a cancelled open
+	// does not pop the panel up when the load resolves.
+	const pendingOpen = useRef(false);
 	// The balance is only disclosed to owners and admins, so they are who
 	// sees the dock; the API checks credits and project access again.
 	const hasCredits = new Decimal(organization?.credits ?? 0).greaterThan(0);
@@ -45,6 +49,7 @@ export function AssistantDock() {
 			setOpen(true);
 			return;
 		}
+		pendingOpen.current = true;
 		if (loading) {
 			return;
 		}
@@ -52,10 +57,16 @@ export function AssistantDock() {
 		loadAssistantPanel()
 			.then((component) => {
 				setPanel(() => component);
-				setOpen(true);
+				if (pendingOpen.current) {
+					setOpen(true);
+				}
 			})
 			.catch((error: unknown) => {
 				console.error("Failed to load the assistant panel:", error);
+				toast({
+					title: "Autopilot failed to load. Please try again.",
+					variant: "destructive",
+				});
 			})
 			.finally(() => setLoading(false));
 	}, [Panel, loading]);
@@ -66,6 +77,8 @@ export function AssistantDock() {
 				event.preventDefault();
 				if (open) {
 					setOpen(false);
+				} else if (loading && pendingOpen.current) {
+					pendingOpen.current = false;
 				} else {
 					show();
 				}
@@ -75,12 +88,13 @@ export function AssistantDock() {
 				event.target instanceof Element &&
 				event.target.closest("[data-assistant-root]")
 			) {
+				pendingOpen.current = false;
 				setOpen(false);
 			}
 		};
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [open, show]);
+	}, [open, loading, show]);
 
 	if (!organization || !project || !hasCredits) {
 		return null;

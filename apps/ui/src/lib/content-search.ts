@@ -1,6 +1,9 @@
 /** Lower-cased and stripped of accents, so "Resume" finds "résumé". */
 function normalize(text: string): string {
-	return text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+	return text
+		.normalize("NFD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.toLowerCase();
 }
 
 /**
