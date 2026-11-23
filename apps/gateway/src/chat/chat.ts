@@ -2583,15 +2583,31 @@ chat.openapi(completions, async (c) => {
 	let requestedRegion = parseResult.requestedRegion;
 
 	// Count input images from messages for cost calculation
-	const inputImageCount =
+	const countsAllInputImages =
 		requestedModel === "gemini-3-pro-image" ||
 		requestedModel === "gemini-3-pro-image-preview" ||
 		requestedModel === "gemini-3.1-flash-image" ||
 		requestedModel === "gemini-3.1-flash-image-preview" ||
 		requestedModel === "gemini-3.1-flash-lite-image" ||
-		requestedModel === "gemini-nano-banana-2.1"
+		requestedModel === "gemini-nano-banana-2.1";
+	// Models priced per reference image (Seedream 5.5) are matched on the routed
+	// model, so auto routing bills them too. They only forward the last user
+	// message's images upstream.
+	const inputImageCountFor = (billedModel: string): number =>
+		countsAllInputImages
 			? countInputImages(messages)
-			: 0;
+			: models.some(
+						(m) =>
+							m.id === billedModel &&
+							m.providers.some((p) => "perInputImagePrice" in p),
+				  )
+				? countInputImages(
+						[...messages]
+							.reverse()
+							.filter((m) => m.role === "user")
+							.slice(0, 1),
+					)
+				: 0;
 
 	// Resolve model info and filter deactivated providers
 	const modelInfoResult =
@@ -9700,7 +9716,7 @@ chat.openapi(completions, async (c) => {
 						null,
 						0,
 						image_config?.image_size,
-						inputImageCount,
+						inputImageCountFor(billingModel),
 						0,
 						project.organizationId,
 						image_config?.image_quality,
@@ -9863,7 +9879,7 @@ chat.openapi(completions, async (c) => {
 							null, // No reasoning tokens
 							0, // No output images
 							undefined,
-							inputImageCount,
+							inputImageCountFor(usedInternalModel),
 							// Bill for web search if it was enabled, except where only
 							// response evidence may count one
 							webSearchTool && !usedWebSearchFormat() ? 1 : null,
@@ -10821,7 +10837,7 @@ chat.openapi(completions, async (c) => {
 										null,
 										0,
 										image_config?.image_size,
-										inputImageCount,
+										inputImageCountFor(usedInternalModel),
 										0,
 										project.organizationId,
 										image_config?.image_quality,
@@ -11873,7 +11889,7 @@ chat.openapi(completions, async (c) => {
 										reasoningTokens,
 										outputImageCount,
 										image_config?.image_size,
-										inputImageCount,
+										inputImageCountFor(usedInternalModel),
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
@@ -13571,7 +13587,7 @@ chat.openapi(completions, async (c) => {
 										reasoningTokens,
 										outputImageCount,
 										image_config?.image_size,
-										inputImageCount,
+										inputImageCountFor(usedInternalModel),
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
@@ -13923,7 +13939,7 @@ chat.openapi(completions, async (c) => {
 									reasoningTokens,
 									outputImageCount,
 									image_config?.image_size,
-									inputImageCount,
+									inputImageCountFor(usedInternalModel),
 									webSearchCount,
 									project.organizationId,
 									image_config?.image_quality,
@@ -14351,7 +14367,7 @@ chat.openapi(completions, async (c) => {
 				null, // No reasoning tokens
 				0, // No output images
 				undefined,
-				inputImageCount,
+				inputImageCountFor(usedInternalModel),
 				webSearchTool ? 1 : null, // Bill for web search if it was enabled
 				project.organizationId,
 				undefined, // imageQuality
@@ -15261,7 +15277,7 @@ chat.openapi(completions, async (c) => {
 							null,
 							0,
 							image_config?.image_size,
-							inputImageCount,
+							inputImageCountFor(usedInternalModel),
 							0,
 							project.organizationId,
 							image_config?.image_quality,
@@ -16224,7 +16240,7 @@ chat.openapi(completions, async (c) => {
 		reasoningTokens,
 		convertedImages?.length || 0,
 		alibabaServedImageTier ?? image_config?.image_size,
-		inputImageCount,
+		inputImageCountFor(usedInternalModel),
 		webSearchCount,
 		project.organizationId,
 		image_config?.image_quality,

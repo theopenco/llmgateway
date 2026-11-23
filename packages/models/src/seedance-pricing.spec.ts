@@ -25,6 +25,10 @@ describe("Seedance pricing", () => {
 			},
 		],
 		[
+			"seedance-2-5-flash",
+			{ default_without_video: "7e-6", default_with_video: "4.3e-6" },
+		],
+		[
 			"seedance-2-0",
 			{
 				default_without_video: "7e-6",

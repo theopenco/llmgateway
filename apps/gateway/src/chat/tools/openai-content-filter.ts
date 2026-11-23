@@ -4,9 +4,11 @@ import { isCancellationError, isTimeoutError } from "@/lib/timeout-config.js";
 
 import { getProviderHeaders } from "@llmgateway/actions";
 import { logger } from "@llmgateway/logger";
+import { randomFloatBetween } from "@llmgateway/shared/random";
 
 import {
 	hasContentFilterCredential,
+	markContentFilterCredentialRateLimited,
 	resolveContentFilterCredential,
 	type ContentFilterCredential,
 } from "./content-filter-credential.js";
@@ -14,6 +16,12 @@ import {
 	classifyContentFilterError,
 	logContentFilterError,
 } from "./content-filter-error.js";
+import {
+	moderationCacheKey,
+	readModerationCache,
+	writeModerationCache,
+	type CachedModerationResult,
+} from "./moderation-cache.js";
 
 import type {
 	ModerationApiPayload,
@@ -46,10 +54,9 @@ type OpenAIModerationInputPart =
 
 type OpenAIModerationInput = string | string[] | OpenAIModerationInputPart[];
 
-interface OpenAIModerationRequest {
-	kind: "text" | "image";
-	input: OpenAIModerationInput;
-}
+type OpenAIModerationRequest =
+	| { kind: "text"; input: string[] }
+	| { kind: "image"; input: OpenAIModerationInput };
 
 export interface OpenAIModerationResult {
 	flagged?: boolean;
@@ -83,13 +90,25 @@ type OpenAIModerationAttempt =
 			payload: Record<string, unknown>;
 			thrown?: unknown;
 			upstreamRequestId: string | null;
+			/** From a 429's `retry-after-ms` / `retry-after` headers. */
+			retryAfterMs?: number;
 	  };
 
 const OPENAI_MODERATION_MODEL = "omni-moderation-latest";
 const OPENAI_MODERATION_PATH = "/v1/moderations";
 const OPENAI_MODERATION_TIMEOUT_MS = 60_000;
-const OPENAI_MODERATION_MAX_ATTEMPTS = 2;
+/** Attempts per moderation call, retries of every kind included. */
+const OPENAI_MODERATION_MAX_ATTEMPTS = 3;
 const OPENAI_MODERATION_RETRY_DELAY_MS = 100;
+/** Jitter ceiling before retrying a 429 on another credential. */
+const OPENAI_MODERATION_SWITCH_CREDENTIAL_DELAY_MS = 50;
+/** Backoff base for a 429 retried on the same credential, doubled per attempt. */
+const OPENAI_MODERATION_RATE_LIMIT_BACKOFF_MS = 250;
+/**
+ * Longest pause before a retry. The chat request may be waiting on the
+ * verdict, so a longer `retry-after` fails open instead.
+ */
+const OPENAI_MODERATION_MAX_RETRY_DELAY_MS = 2_000;
 const DEFAULT_OPENAI_MODERATION_SCORE_THRESHOLD = 0.75;
 /**
  * Bytes per text input. omni-moderation scores input past 4,096 tokens as all
@@ -441,14 +460,82 @@ function logModerationError(
 	);
 }
 
+function isRateLimitedModerationError(
+	error: ContentFilterModerationError,
+): boolean {
+	return error.kind === "upstream_4xx" && error.status === 429;
+}
+
 /**
- * A connection reset or 5xx is usually gone on the next try. A timeout has
- * spent the budget, and a 4xx or malformed body would fail again.
+ * A connection reset or 5xx is usually gone on the next try, and a 429 on
+ * another credential or after a short backoff. A timeout has spent the budget,
+ * and any other 4xx or a malformed body would fail again.
  */
-function isRetryableModerationError(
+function isTransientModerationError(
 	error: ContentFilterModerationError,
 ): boolean {
 	return error.kind === "network" || error.kind === "upstream_5xx";
+}
+
+/** Milliseconds a 429 asks to wait, from `retry-after-ms` or `retry-after`. */
+export function parseRetryAfterMs(
+	headers: Headers,
+	now = Date.now(),
+): number | undefined {
+	const retryAfterMs = headers.get("retry-after-ms");
+	if (retryAfterMs !== null && retryAfterMs.trim() !== "") {
+		const ms = Number(retryAfterMs);
+		if (Number.isFinite(ms) && ms >= 0) {
+			return ms;
+		}
+	}
+	const retryAfter = headers.get("retry-after");
+	if (retryAfter === null || retryAfter.trim() === "") {
+		return undefined;
+	}
+	const seconds = Number(retryAfter);
+	if (Number.isFinite(seconds) && seconds >= 0) {
+		return seconds * 1000;
+	}
+	const date = Date.parse(retryAfter);
+	return Number.isNaN(date) ? undefined : Math.max(0, date - now);
+}
+
+/**
+ * The pause before the next attempt, or null to give up. A 429 moves to
+ * another credential after a short jittered pause. On the same credential it
+ * backs off exponentially with jitter, waiting out `retry-after` only when
+ * that fits both the cap and the remaining budget.
+ */
+export function getModerationRetryDelayMs(
+	error: ContentFilterModerationError,
+	attempt: number,
+	options: {
+		sameCredential: boolean;
+		remainingMs: number;
+		retryAfterMs?: number;
+	},
+): number | null {
+	if (!isRateLimitedModerationError(error)) {
+		return OPENAI_MODERATION_RETRY_DELAY_MS;
+	}
+	let delayMs: number;
+	if (options.sameCredential) {
+		const growth = 2 ** (attempt - 1);
+		const half = (OPENAI_MODERATION_RATE_LIMIT_BACKOFF_MS * growth) / 2;
+		const backoff = randomFloatBetween(half, half * 2);
+		delayMs = Math.max(backoff, options.retryAfterMs ?? 0);
+	} else {
+		delayMs = randomFloatBetween(
+			0,
+			OPENAI_MODERATION_SWITCH_CREDENTIAL_DELAY_MS,
+		);
+	}
+	const limitMs = Math.min(
+		OPENAI_MODERATION_MAX_RETRY_DELAY_MS,
+		options.remainingMs,
+	);
+	return delayMs < limitMs ? delayMs : null;
 }
 
 function createFailedOpenAIContentFilterResult(
@@ -474,16 +561,22 @@ export async function hasOpenAIContentFilterCredential(): Promise<boolean> {
 }
 
 /**
- * One moderation call, retried once on a transient failure. The retried
- * attempt only warns; a failure that survives the retry logs at its kind's
- * level.
+ * One moderation call, each attempt on a credential picked for it. A network
+ * error or 5xx retries once on the same credential; a 429 retries up to twice,
+ * on another credential when one exists; at most three attempts in all.
+ * Retried attempts only warn; a failure that survives the retries logs at its
+ * kind's level.
  */
 async function runOpenAIContentFilterRequest(
 	request: OpenAIModerationRequest,
 	context: GatewayContentFilterContext,
-	credential: ContentFilterCredential,
 	signal: AbortSignal,
+	deadline: number,
 ): Promise<OpenAIContentFilterRequestResult> {
+	/** Credentials that answered 429 in this call, by when they may retry. */
+	const retryAt = new Map<string, number>();
+	const retriesLeft = { rateLimit: 2, transient: 1 };
+	let credential = await resolveOpenAIModerationCredential(new Set());
 	for (let attempt = 1; ; attempt++) {
 		const result = await attemptOpenAIContentFilterRequest(
 			request,
@@ -495,17 +588,58 @@ async function runOpenAIContentFilterRequest(
 			return result;
 		}
 
-		const retrying =
-			attempt < OPENAI_MODERATION_MAX_ATTEMPTS &&
-			isRetryableModerationError(result.error);
+		const rateLimited = isRateLimitedModerationError(result.error);
+		const retryKind = rateLimited
+			? "rateLimit"
+			: isTransientModerationError(result.error)
+				? "transient"
+				: null;
+		if (rateLimited) {
+			markContentFilterCredentialRateLimited(
+				credential.id,
+				result.retryAfterMs,
+			);
+			retryAt.set(credential.id, Date.now() + (result.retryAfterMs ?? 0));
+		}
+		let next: ContentFilterCredential | undefined;
+		let delayMs: number | null = null;
+		if (
+			retryKind &&
+			retriesLeft[retryKind] > 0 &&
+			attempt < OPENAI_MODERATION_MAX_ATTEMPTS
+		) {
+			next = rateLimited
+				? await resolveRetryCredential(new Set(retryAt.keys()), context, signal)
+				: credential;
+			if (next) {
+				// A credential that already answered 429 keeps its own retry-after.
+				const nextRetryAt = retryAt.get(next.id);
+				delayMs = getModerationRetryDelayMs(result.error, attempt, {
+					sameCredential: nextRetryAt !== undefined,
+					remainingMs: deadline - Date.now(),
+					retryAfterMs:
+						nextRetryAt === undefined
+							? undefined
+							: Math.max(0, nextRetryAt - Date.now()),
+				});
+			}
+		}
+		const retrying = next !== undefined && delayMs !== null;
 		logModerationError(
 			context,
 			result.error,
-			{ ...result.payload, attempt, retrying },
+			{
+				...result.payload,
+				attempt,
+				retrying,
+				...(rateLimited && retrying
+					? { switchingCredential: next?.id !== credential.id }
+					: {}),
+			},
 			result.thrown,
 			retrying ? "warn" : undefined,
 		);
-		if (!retrying) {
+		if (!retryKind || !retrying || !next || delayMs === null) {
 			return {
 				success: false,
 				response: createFailedOpenAIContentFilterResult(
@@ -514,9 +648,172 @@ async function runOpenAIContentFilterRequest(
 				),
 			};
 		}
-		// No abort signal: the next fetch rejects at once if the budget ran out.
-		await sleep(OPENAI_MODERATION_RETRY_DELAY_MS);
+		retriesLeft[retryKind]--;
+		// No abort signal: the delay fits the budget, and the next fetch rejects
+		// at once if the request was cancelled meanwhile.
+		await sleep(delayMs);
+		credential = next;
 	}
+}
+
+/**
+ * The credential to retry a 429 on, or undefined when the lookup fails: the
+ * call then ends with its 429 instead of failing its sibling calls.
+ */
+async function resolveRetryCredential(
+	avoidIds: ReadonlySet<string>,
+	context: GatewayContentFilterContext,
+	signal: AbortSignal,
+): Promise<ContentFilterCredential | undefined> {
+	try {
+		return await resolveOpenAIModerationCredential(avoidIds);
+	} catch (error) {
+		if (signal.aborted || isCancellationError(error)) {
+			throw error;
+		}
+		logger.warn("Moderation retry credential lookup failed", {
+			requestId: context.requestId,
+			error,
+		});
+		return undefined;
+	}
+}
+
+/**
+ * Gateway-internal safety filter: always the base credential, never the
+ * enterprise-plan env override. Managed credentials replace the env vars for
+ * their provider, so once OpenAI has one the moderation call uses it and never
+ * reads `LLM_OPENAI_API_KEY`; when none can serve it, this throws and the
+ * filter fails open.
+ */
+async function resolveOpenAIModerationCredential(
+	avoidIds: ReadonlySet<string>,
+): Promise<ContentFilterCredential> {
+	return await resolveContentFilterCredential(
+		"openai",
+		OPENAI_MODERATION_PATH,
+		OPENAI_MODERATION_MODEL,
+		avoidIds,
+	);
+}
+
+/**
+ * The text check, served from the per-chunk cache where it can be: only the
+ * chunks that miss go upstream, in one call, and the verdicts come back in
+ * chunk order. Fresh verdicts are cached; failures never are.
+ */
+async function runCachedTextModeration(
+	chunks: string[],
+	context: GatewayContentFilterContext,
+	signal: AbortSignal,
+	requestSignal: AbortSignal | undefined,
+	deadline: number,
+): Promise<
+	OpenAIContentFilterRequestResult & { cacheHits: number; cacheMisses: number }
+> {
+	const keys = chunks.map((chunk) =>
+		moderationCacheKey(context.organizationId, OPENAI_MODERATION_MODEL, chunk),
+	);
+	const cached = await readModerationCache(keys);
+	const missIndexes = chunks.flatMap((_, index) =>
+		cached?.[index] ? [] : [index],
+	);
+	const hitResults = (cached ?? []).filter(
+		(result): result is CachedModerationResult => result !== undefined,
+	);
+	const upstream =
+		missIndexes.length > 0
+			? await runOpenAIContentFilterRequest(
+					{ kind: "text", input: missIndexes.map((index) => chunks[index]!) },
+					context,
+					signal,
+					deadline,
+				).catch((error: unknown) => {
+					// Out of budget with cached verdicts in hand: keep them, a
+					// cached violation still blocks. A caller abort propagates.
+					if (
+						hitResults.length === 0 ||
+						requestSignal?.aborted ||
+						!isTimeoutError(error)
+					) {
+						throw error;
+					}
+					const moderationError = classifyContentFilterError({
+						source: "openai",
+						inputType: "text",
+						error,
+					});
+					logModerationError(
+						context,
+						moderationError,
+						{ inputType: "text", timeout: true, cacheHits: hitResults.length },
+						error,
+					);
+					return {
+						success: false,
+						response: createFailedOpenAIContentFilterResult(null, [
+							moderationError,
+						]),
+					};
+				})
+			: null;
+	const cacheStats = {
+		cacheHits: hitResults.length,
+		cacheMisses: missIndexes.length,
+	};
+	const upstreamResults = upstream?.success ? upstream.response.results : [];
+	const aligned = upstreamResults.length === missIndexes.length;
+	// Skip the write when the read failed: the cache is likely down.
+	if (cached && upstream?.success && aligned) {
+		writeModerationCache(
+			missIndexes.map((index, position) => ({
+				key: keys[index]!,
+				result: upstreamResults[position]!,
+			})),
+		);
+	}
+	if (upstream && hitResults.length === 0) {
+		return { ...upstream, ...cacheStats };
+	}
+
+	let nextUpstream = 0;
+	const results: OpenAIModerationResult[] = chunks.flatMap((_, index) => {
+		const hit = cached?.[index];
+		if (hit) {
+			return [hit];
+		}
+		const fresh = aligned ? upstreamResults[nextUpstream++] : undefined;
+		return fresh ? [fresh] : [];
+	});
+	if (!aligned) {
+		results.push(...upstreamResults);
+	}
+	const cachedResponse: ModerationApiPayload = {
+		model: OPENAI_MODERATION_MODEL,
+		cached: true,
+		results: hitResults.map((result) => ({ ...result })),
+	};
+	return {
+		// Any verdict at all counts: a flagged cached chunk still blocks when
+		// the call for the rest failed, whose error is reported alongside.
+		success: true,
+		response: {
+			flagged: results.some((result) =>
+				isOpenAIModerationResultFlagged(result),
+			),
+			model: upstream?.success
+				? upstream.response.model
+				: OPENAI_MODERATION_MODEL,
+			upstreamRequestId: upstream?.response.upstreamRequestId ?? null,
+			results,
+			responses: [
+				...(upstream?.success ? upstream.response.responses : []),
+				cachedResponse,
+			],
+			errors: upstream?.response.errors ?? [],
+		},
+		...cacheStats,
+	};
 }
 
 async function attemptOpenAIContentFilterRequest(
@@ -600,6 +897,7 @@ async function attemptOpenAIContentFilterRequest(
 				response: responseJson,
 			},
 			upstreamRequestId,
+			retryAfterMs: parseRetryAfterMs(upstreamResponse.headers),
 		};
 	}
 
@@ -666,23 +964,36 @@ export async function checkOpenAIContentFilter(
 			])
 		: AbortSignal.timeout(OPENAI_MODERATION_TIMEOUT_MS);
 
+	const deadline = startTime + OPENAI_MODERATION_TIMEOUT_MS;
+	let cacheHits = 0;
+	let cacheMisses = 0;
+
 	try {
-		// Gateway-internal safety filter: always uses the base credential, never
-		// the enterprise-plan env override. Managed credentials replace the env
-		// vars for their provider, so once OpenAI has one the moderation call
-		// uses it and never reads `LLM_OPENAI_API_KEY`; when none can serve it,
-		// this throws and the filter fails open below.
-		const credential = await resolveContentFilterCredential(
-			"openai",
-			OPENAI_MODERATION_PATH,
-			OPENAI_MODERATION_MODEL,
-		);
 		const moderationResults = await Promise.all(
-			moderationRequests.map((request) =>
-				runOpenAIContentFilterRequest(request, context, credential, signal),
-			),
+			moderationRequests.map(async (request) => {
+				if (request.kind === "image") {
+					return await runOpenAIContentFilterRequest(
+						request,
+						context,
+						signal,
+						deadline,
+					);
+				}
+				const result = await runCachedTextModeration(
+					request.input,
+					context,
+					signal,
+					requestSignal,
+					deadline,
+				);
+				cacheHits = result.cacheHits;
+				cacheMisses = result.cacheMisses;
+				return result;
+			}),
 		);
 
+		// A verdict served entirely from the cache never touched the signal.
+		requestSignal?.throwIfAborted();
 		const errors = moderationResults.flatMap(
 			(result) => result.response.errors,
 		);
@@ -713,6 +1024,8 @@ export async function checkOpenAIContentFilter(
 			textChunkCount: moderationRequests.find(
 				(request) => request.kind === "text",
 			)?.input.length,
+			cacheHits,
+			cacheMisses,
 			flaggedCategories: getFlaggedCategories(results),
 			results,
 		});

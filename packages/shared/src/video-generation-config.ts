@@ -527,7 +527,8 @@ function isSeedance2ReferenceModel(canonicalModelId: string): boolean {
 	return (
 		canonicalModelId === "seedance-2-0" ||
 		canonicalModelId === "seedance-2-0-fast" ||
-		canonicalModelId === "seedance-2-5"
+		canonicalModelId === "seedance-2-5" ||
+		canonicalModelId === "seedance-2-5-flash"
 	);
 }
 

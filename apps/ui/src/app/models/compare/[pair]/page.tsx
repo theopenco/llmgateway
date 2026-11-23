@@ -193,16 +193,11 @@ export default async function ModelPairComparisonPage({ params }: PageProps) {
 		name: `${title}: pricing, context window and capabilities`,
 		url,
 		description: summary.verdict,
+		// Not Product: Google reads Product + Offer as a merchant listing.
 		about: [left, right].map((model) => ({
-			"@type": "Product",
+			"@type": "Thing",
 			name: model.name,
 			url: `${BASE_URL}/models/${encodeURIComponent(model.id)}`,
-			offers: {
-				"@type": "Offer",
-				price: model.inputPrice.toFixed(4),
-				priceCurrency: "USD",
-				description: "Per 1M input tokens",
-			},
 		})),
 	};
 

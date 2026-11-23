@@ -10,7 +10,12 @@ import { useApi } from "@/lib/fetch-client";
 import { usePostHog } from "@/lib/posthog";
 import { cn } from "@/lib/utils";
 
-export function NewModelsSignup() {
+export function NewModelsSignup({
+	placement = "timeline_hero",
+}: {
+	/** Where the form sits, for analytics. */
+	placement?: string;
+}) {
 	const [email, setEmail] = useState("");
 	const inputId = useId();
 	const statusRef = useRef<HTMLParagraphElement>(null);
@@ -18,9 +23,7 @@ export function NewModelsSignup() {
 	const posthog = usePostHog();
 	const subscribe = api.useMutation("post", "/public/newsletter/subscribe", {
 		onSuccess: () => {
-			posthog.capture("newsletter_signup_requested", {
-				placement: "timeline_hero",
-			});
+			posthog.capture("newsletter_signup_requested", { placement });
 		},
 		// The status line shows the error; this replaces the default toast.
 		onError: () => undefined,
