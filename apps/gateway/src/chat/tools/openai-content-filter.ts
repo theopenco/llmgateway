@@ -97,11 +97,9 @@ type OpenAIModerationAttempt =
 const OPENAI_MODERATION_MODEL = "omni-moderation-latest";
 const OPENAI_MODERATION_PATH = "/v1/moderations";
 const OPENAI_MODERATION_TIMEOUT_MS = 60_000;
-/** Attempts for a network error or 5xx, retried on the same credential. */
-const OPENAI_MODERATION_MAX_ATTEMPTS = 2;
+/** Attempts per moderation call, retries of every kind included. */
+const OPENAI_MODERATION_MAX_ATTEMPTS = 3;
 const OPENAI_MODERATION_RETRY_DELAY_MS = 100;
-/** Attempts for a 429, retried on another credential when there is one. */
-const OPENAI_MODERATION_RATE_LIMIT_MAX_ATTEMPTS = 3;
 /** Jitter ceiling before retrying a 429 on another credential. */
 const OPENAI_MODERATION_SWITCH_CREDENTIAL_DELAY_MS = 50;
 /** Backoff base for a 429 retried on the same credential, doubled per attempt. */
@@ -462,10 +460,6 @@ function logModerationError(
 	);
 }
 
-/**
- * A connection reset or 5xx is usually gone on the next try. A timeout has
- * spent the budget, and a 4xx or malformed body would fail again.
- */
 function isRateLimitedModerationError(
 	error: ContentFilterModerationError,
 ): boolean {
@@ -477,13 +471,10 @@ function isRateLimitedModerationError(
  * another credential or after a short backoff. A timeout has spent the budget,
  * and any other 4xx or a malformed body would fail again.
  */
-function maxModerationAttempts(error: ContentFilterModerationError): number {
-	if (isRateLimitedModerationError(error)) {
-		return OPENAI_MODERATION_RATE_LIMIT_MAX_ATTEMPTS;
-	}
-	return error.kind === "network" || error.kind === "upstream_5xx"
-		? OPENAI_MODERATION_MAX_ATTEMPTS
-		: 1;
+function isTransientModerationError(
+	error: ContentFilterModerationError,
+): boolean {
+	return error.kind === "network" || error.kind === "upstream_5xx";
 }
 
 /** Milliseconds a 429 asks to wait, from `retry-after-ms` or `retry-after`. */
@@ -572,8 +563,9 @@ export async function hasOpenAIContentFilterCredential(): Promise<boolean> {
 /**
  * One moderation call, each attempt on a credential picked for it. A network
  * error or 5xx retries once on the same credential; a 429 retries up to twice,
- * on another credential when one exists. Retried attempts only warn; a failure
- * that survives the retries logs at its kind's level.
+ * on another credential when one exists; at most three attempts in all.
+ * Retried attempts only warn; a failure that survives the retries logs at its
+ * kind's level.
  */
 async function runOpenAIContentFilterRequest(
 	request: OpenAIModerationRequest,
@@ -581,8 +573,10 @@ async function runOpenAIContentFilterRequest(
 	signal: AbortSignal,
 	deadline: number,
 ): Promise<OpenAIContentFilterRequestResult> {
-	const rateLimitedIds = new Set<string>();
-	let credential = await resolveOpenAIModerationCredential(rateLimitedIds);
+	/** Credentials that answered 429 in this call, by when they may retry. */
+	const retryAt = new Map<string, number>();
+	const retriesLeft = { rateLimit: 2, transient: 1 };
+	let credential = await resolveOpenAIModerationCredential(new Set());
 	for (let attempt = 1; ; attempt++) {
 		const result = await attemptOpenAIContentFilterRequest(
 			request,
@@ -595,24 +589,40 @@ async function runOpenAIContentFilterRequest(
 		}
 
 		const rateLimited = isRateLimitedModerationError(result.error);
+		const retryKind = rateLimited
+			? "rateLimit"
+			: isTransientModerationError(result.error)
+				? "transient"
+				: null;
 		if (rateLimited) {
 			markContentFilterCredentialRateLimited(
 				credential.id,
 				result.retryAfterMs,
 			);
-			rateLimitedIds.add(credential.id);
+			retryAt.set(credential.id, Date.now() + (result.retryAfterMs ?? 0));
 		}
 		let next: ContentFilterCredential | undefined;
 		let delayMs: number | null = null;
-		if (attempt < maxModerationAttempts(result.error)) {
+		if (
+			retryKind &&
+			retriesLeft[retryKind] > 0 &&
+			attempt < OPENAI_MODERATION_MAX_ATTEMPTS
+		) {
 			next = rateLimited
-				? await resolveOpenAIModerationCredential(rateLimitedIds)
+				? await resolveRetryCredential(new Set(retryAt.keys()), context, signal)
 				: credential;
-			delayMs = getModerationRetryDelayMs(result.error, attempt, {
-				sameCredential: next.id === credential.id,
-				remainingMs: deadline - Date.now(),
-				retryAfterMs: result.retryAfterMs,
-			});
+			if (next) {
+				// A credential that already answered 429 keeps its own retry-after.
+				const nextRetryAt = retryAt.get(next.id);
+				delayMs = getModerationRetryDelayMs(result.error, attempt, {
+					sameCredential: nextRetryAt !== undefined,
+					remainingMs: deadline - Date.now(),
+					retryAfterMs:
+						nextRetryAt === undefined
+							? undefined
+							: Math.max(0, nextRetryAt - Date.now()),
+				});
+			}
 		}
 		const retrying = next !== undefined && delayMs !== null;
 		logModerationError(
@@ -629,7 +639,7 @@ async function runOpenAIContentFilterRequest(
 			result.thrown,
 			retrying ? "warn" : undefined,
 		);
-		if (!retrying || !next || delayMs === null) {
+		if (!retryKind || !retrying || !next || delayMs === null) {
 			return {
 				success: false,
 				response: createFailedOpenAIContentFilterResult(
@@ -638,10 +648,34 @@ async function runOpenAIContentFilterRequest(
 				),
 			};
 		}
+		retriesLeft[retryKind]--;
 		// No abort signal: the delay fits the budget, and the next fetch rejects
 		// at once if the request was cancelled meanwhile.
 		await sleep(delayMs);
 		credential = next;
+	}
+}
+
+/**
+ * The credential to retry a 429 on, or undefined when the lookup fails: the
+ * call then ends with its 429 instead of failing its sibling calls.
+ */
+async function resolveRetryCredential(
+	avoidIds: ReadonlySet<string>,
+	context: GatewayContentFilterContext,
+	signal: AbortSignal,
+): Promise<ContentFilterCredential | undefined> {
+	try {
+		return await resolveOpenAIModerationCredential(avoidIds);
+	} catch (error) {
+		if (signal.aborted || isCancellationError(error)) {
+			throw error;
+		}
+		logger.warn("Moderation retry credential lookup failed", {
+			requestId: context.requestId,
+			error,
+		});
+		return undefined;
 	}
 }
 
@@ -672,6 +706,7 @@ async function runCachedTextModeration(
 	chunks: string[],
 	context: GatewayContentFilterContext,
 	signal: AbortSignal,
+	requestSignal: AbortSignal | undefined,
 	deadline: number,
 ): Promise<
 	OpenAIContentFilterRequestResult & { cacheHits: number; cacheMisses: number }
@@ -693,7 +728,34 @@ async function runCachedTextModeration(
 					context,
 					signal,
 					deadline,
-				)
+				).catch((error: unknown) => {
+					// Out of budget with cached verdicts in hand: keep them, a
+					// cached violation still blocks. A caller abort propagates.
+					if (
+						hitResults.length === 0 ||
+						requestSignal?.aborted ||
+						!isTimeoutError(error)
+					) {
+						throw error;
+					}
+					const moderationError = classifyContentFilterError({
+						source: "openai",
+						inputType: "text",
+						error,
+					});
+					logModerationError(
+						context,
+						moderationError,
+						{ inputType: "text", timeout: true, cacheHits: hitResults.length },
+						error,
+					);
+					return {
+						success: false,
+						response: createFailedOpenAIContentFilterResult(null, [
+							moderationError,
+						]),
+					};
+				})
 			: null;
 	const cacheStats = {
 		cacheHits: hitResults.length,
@@ -921,6 +983,7 @@ export async function checkOpenAIContentFilter(
 					request.input,
 					context,
 					signal,
+					requestSignal,
 					deadline,
 				);
 				cacheHits = result.cacheHits;
@@ -929,6 +992,8 @@ export async function checkOpenAIContentFilter(
 			}),
 		);
 
+		// A verdict served entirely from the cache never touched the signal.
+		requestSignal?.throwIfAborted();
 		const errors = moderationResults.flatMap(
 			(result) => result.response.errors,
 		);

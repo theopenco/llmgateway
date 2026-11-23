@@ -17,6 +17,20 @@ const KEY_PREFIX = "content-filter-moderation:v1:";
 export const MODERATION_CACHE_TTL_SECONDS = 60 * 60;
 /** Redis is an optimization here: past this, moderate as if it missed. */
 const MODERATION_CACHE_TIMEOUT_MS = 100;
+/**
+ * Cache commands still unsettled on this pod. The timeout stops waiting but
+ * cannot cancel a command, so a stalled Redis would otherwise queue one per
+ * moderation call on the shared client; past the cap, skip the cache.
+ */
+const MODERATION_CACHE_MAX_IN_FLIGHT = 256;
+let inFlight = 0;
+
+function trackInFlight<T>(promise: Promise<T>): Promise<T> {
+	inFlight++;
+	return promise.finally(() => {
+		inFlight--;
+	});
+}
 
 /**
  * Cache key of one text chunk. Scoped by organization so one tenant cannot
@@ -95,8 +109,11 @@ export async function readModerationCache(
 		if (redisClient.status !== "ready") {
 			throw new Error("Moderation cache is not ready");
 		}
+		if (inFlight >= MODERATION_CACHE_MAX_IN_FLIGHT) {
+			throw new Error("Moderation cache has too many pending operations");
+		}
 		const values = await withTimeout(
-			redisClient.mget(...keys),
+			trackInFlight(redisClient.mget(...keys)),
 			"Moderation cache read",
 		);
 		let corrupt = 0;
@@ -136,7 +153,11 @@ export async function readModerationCache(
 export function writeModerationCache(
 	entries: { key: string; result: CachedModerationResult }[],
 ): void {
-	if (entries.length === 0 || redisClient.status !== "ready") {
+	if (
+		entries.length === 0 ||
+		redisClient.status !== "ready" ||
+		inFlight >= MODERATION_CACHE_MAX_IN_FLIGHT
+	) {
 		return;
 	}
 	const pipeline = redisClient.pipeline();
@@ -148,8 +169,7 @@ export function writeModerationCache(
 			MODERATION_CACHE_TTL_SECONDS,
 		);
 	}
-	void pipeline
-		.exec()
+	void trackInFlight(pipeline.exec())
 		.then((replies) => {
 			const failed = replies?.find(([error]) => error)?.[0];
 			if (failed) {

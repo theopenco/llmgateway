@@ -1489,6 +1489,68 @@ describe("moderation throughput", () => {
 			]);
 		});
 
+		it("still retries a 5xx from the key it switched to", async () => {
+			vi.spyOn(logger, "warn").mockImplementation(() => {});
+			vi.spyOn(logger, "error").mockImplementation(() => {});
+			vi.mocked(hasManagedProviderCredential).mockResolvedValue(true);
+			vi.mocked(findManagedProviderKey).mockImplementation(
+				async (_provider, options) =>
+					options?.excludedKeyIds?.has("key-a")
+						? managedKey("key-b")
+						: managedKey("key-a"),
+			);
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementationOnce(async () => rateLimited())
+				.mockImplementationOnce(
+					async () => new Response("unavailable", { status: 503 }),
+				)
+				.mockImplementation(async () => moderationResponse([{}]));
+
+			const result = await checkOpenAIContentFilter(
+				[{ role: "user", content: "switch then 503" }],
+				CONTEXT,
+			);
+
+			expect(fetchSpy).toHaveBeenCalledTimes(3);
+			expect(result.errors).toEqual([]);
+		});
+
+		it("waits out a key's own retry-after when the retry lands back on it", async () => {
+			vi.spyOn(logger, "warn").mockImplementation(() => {});
+			vi.mocked(hasManagedProviderCredential).mockResolvedValue(true);
+			// Key B is the only other key and also answers 429, so the third
+			// attempt could only go back to key A, which asked for 30 s.
+			vi.mocked(findManagedProviderKey).mockImplementation(
+				async (_provider, options) => {
+					const excluded = options?.excludedKeyIds ?? new Set();
+					if (!excluded.has("key-a")) {
+						return managedKey("key-a");
+					}
+					return excluded.has("key-b") ? undefined : managedKey("key-b");
+				},
+			);
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (_input, init) =>
+					rateLimited(
+						bearer(init) === "Bearer token-key-a"
+							? { "retry-after": "30" }
+							: {},
+					),
+				);
+
+			const result = await checkOpenAIContentFilter(
+				[{ role: "user", content: "both keys limited" }],
+				CONTEXT,
+			);
+
+			expect(fetchSpy).toHaveBeenCalledTimes(2);
+			expect(result.errors).toEqual([
+				expect.objectContaining({ kind: "upstream_4xx", status: 429 }),
+			]);
+		});
+
 		it("fails open at once when retry-after outlasts the retry cap", async () => {
 			vi.spyOn(logger, "warn").mockImplementation(() => {});
 			const fetchSpy = vi
@@ -1581,6 +1643,57 @@ describe("moderation throughput", () => {
 			expect(result.flagged).toBe(true);
 			expect(result.upstreamRequestId).toBe("req-upstream");
 			await vi.waitFor(async () => expect(await cacheKeys()).toHaveLength(3));
+		});
+
+		it("keeps a cached violation when the misses run out of time", async () => {
+			vi.spyOn(logger, "error").mockImplementation(() => {});
+			const chunks = buildOpenAIContentFilterTextChunks(
+				LONG_MESSAGES,
+				"latest_turn",
+			);
+			await redisClient.set(
+				moderationCacheKey(
+					CONTEXT.organizationId,
+					"omni-moderation-latest",
+					chunks[1]!,
+				),
+				JSON.stringify({ category_scores: { violence: 0.99 } }),
+			);
+			vi.spyOn(globalThis, "fetch").mockRejectedValue(
+				new DOMException("signal timed out", "TimeoutError"),
+			);
+
+			const result = await checkOpenAIContentFilter(LONG_MESSAGES, CONTEXT);
+
+			expect(result.flagged).toBe(true);
+			expect(result.results).toHaveLength(1);
+			expect(result.errors).toEqual([
+				expect.objectContaining({ kind: "timeout", inputType: "text" }),
+			]);
+		});
+
+		it("rethrows a caller abort even when every chunk hits the cache", async () => {
+			await redisClient.set(
+				moderationCacheKey(
+					CONTEXT.organizationId,
+					"omni-moderation-latest",
+					"user: all cached",
+				),
+				JSON.stringify({ category_scores: {} }),
+			);
+			const fetchSpy = vi.spyOn(globalThis, "fetch");
+			const controller = new AbortController();
+			const abortError = new DOMException("aborted", "AbortError");
+			controller.abort(abortError);
+
+			await expect(
+				checkOpenAIContentFilter(
+					[{ role: "user", content: "all cached" }],
+					CONTEXT,
+					controller.signal,
+				),
+			).rejects.toBe(abortError);
+			expect(fetchSpy).not.toHaveBeenCalled();
 		});
 
 		it("never caches a failed call", async () => {

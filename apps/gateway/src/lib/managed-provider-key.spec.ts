@@ -128,7 +128,13 @@ describe("managed provider-key selection strategies", () => {
 		expect(chat).toEqual(["ord-a", "ord-a", "ord-a"]);
 
 		// A key that answered 429 sits out while another can serve.
-		markContentFilterCredentialRateLimited("ord-a");
+		markContentFilterCredentialRateLimited("ord-a", 10_000);
+		// A later, shorter 429 cannot end the cooldown early.
+		markContentFilterCredentialRateLimited(
+			"ord-a",
+			undefined,
+			Date.now() - 5_000,
+		);
 		expect([await resolve(), await resolve()]).toEqual(["ord-b", "ord-b"]);
 		// Retrying away from the only key left still finds one.
 		expect(

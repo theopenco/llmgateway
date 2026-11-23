@@ -45,7 +45,11 @@ export function markContentFilterCredentialRateLimited(
 		Math.max(retryAfterMs ?? 0, RATE_LIMIT_COOLDOWN_DEFAULT_MS),
 		RATE_LIMIT_COOLDOWN_MAX_MS,
 	);
-	rateLimitedUntil.set(id, now + cooldownMs);
+	// A later 429 can extend an active cooldown but never shorten it.
+	rateLimitedUntil.set(
+		id,
+		Math.max(rateLimitedUntil.get(id) ?? 0, now + cooldownMs),
+	);
 }
 
 /** Test hook: forget every cooldown. */

@@ -179,7 +179,9 @@ async function selectFromPool<T extends ManagedKey>(
 	const state = turnPerRequest ? selectionContext.getStore() : undefined;
 	let order = state?.get(key);
 	if (!order) {
-		order = rotatePool(eligible, key, options.provider);
+		// Per-call turns rotate over the whole pool and take the next eligible
+		// key, so exclusions that change between calls cannot starve a key.
+		order = rotatePool(turnPerRequest ? eligible : pool, key, options.provider);
 		state?.set(key, order);
 	}
 	const selection = await order;

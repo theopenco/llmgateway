@@ -78,7 +78,8 @@ once, and a 429 twice on another key when one exists, logging retried attempts
 at `warn`. Final failures log at `contentFilterErrorLogLevel`: `warn` for a 4xx
 other than 401/403, else `error`. Each moderation call rotates over every
 managed OpenAI key (`rotateEveryCall`), whatever its selection strategy; text
-verdicts are cached per chunk in Redis (`chat/tools/moderation-cache.ts`),
+verdicts are cached per chunk in Redis
+(`apps/gateway/src/chat/tools/moderation-cache.ts`),
 keyed by an org-scoped HMAC, never the text.
 
 ## Logging, streaming, shutdown
