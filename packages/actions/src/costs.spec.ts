@@ -2334,6 +2334,90 @@ describe("calculateCosts", () => {
 		expect(at2k.outputCost).toBeCloseTo(0.075);
 	});
 
+	it("bills Seedream 5.5 per output image tier plus each reference image", async () => {
+		// $0.02 per image up to 2.61MP (1K, 1.5K), $0.035 above (2K);
+		// $0.008 per reference image.
+		const at1k = await calculateCosts(
+			"seedream-5-5",
+			"bytedance",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"1K",
+			0,
+		);
+		expect(at1k.imageOutputCost).toBeCloseTo(0.02);
+		expect(at1k.imageInputCost).toBeNull();
+		expect(at1k.totalCost).toBeCloseTo(0.02);
+
+		const at2kWithRefs = await calculateCosts(
+			"seedream-5-5",
+			"bytedance",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"2K",
+			3,
+		);
+		expect(at2kWithRefs.imageOutputCost).toBeCloseTo(0.035);
+		expect(at2kWithRefs.imageInputCost).toBeCloseTo(0.024);
+		expect(at2kWithRefs.totalCost).toBeCloseTo(0.059);
+
+		const noSize = await calculateCosts(
+			"seedream-5-5",
+			"bytedance",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			undefined,
+			0,
+		);
+		expect(noSize.imageOutputCost).toBeCloseTo(0.035);
+
+		// Custom sizes bill by pixel area: 1024x1024 (1.05MP) is the low band,
+		// 2560x1440 (3.69MP) the high one.
+		const small = await calculateCosts(
+			"seedream-5-5",
+			"bytedance",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"1024x1024",
+			0,
+		);
+		expect(small.imageOutputCost).toBeCloseTo(0.02);
+		const large = await calculateCosts(
+			"seedream-5-5",
+			"bytedance",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"2560x1440",
+			0,
+		);
+		expect(large.imageOutputCost).toBeCloseTo(0.035);
+	});
+
 	it("falls back to the default perImagePrice tier for unknown or missing sizes", async () => {
 		// A raw pixel size that is not a tier key must not undercharge: it falls
 		// back to "default" ($0.075 for the pro model, the no-size 2K case).

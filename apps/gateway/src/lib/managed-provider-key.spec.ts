@@ -1,5 +1,10 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import {
+	markContentFilterCredentialRateLimited,
+	resetContentFilterCredentialCooldowns,
+	resolveContentFilterCredential,
+} from "@/chat/tools/content-filter-credential.js";
 import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
 
 import {
@@ -31,6 +36,7 @@ import {
 	hasManagedProviderCredential,
 	withModelRateLimitedManagedKeyIds,
 } from "./cached-queries.js";
+import { withManagedKeySelection } from "./managed-key-selection.js";
 
 const ORG_ID = "test-org-managed-keys";
 
@@ -88,6 +94,60 @@ describe("managed provider-key selection strategies", () => {
 				})
 			)?.id,
 		).toBe("rr-fallback");
+	});
+
+	it("spreads moderation over ordered keys per call while chat stays ordered", async () => {
+		resetContentFilterCredentialCooldowns();
+		await insertManaged({ id: "ord-a", sortOrder: 0 });
+		await insertManaged({ id: "ord-b", sortOrder: 1 });
+		const resolve = async () =>
+			(
+				await resolveContentFilterCredential(
+					"openai",
+					"/v1/moderations",
+					"omni-moderation-latest",
+				)
+			).id;
+
+		// One gateway request: every moderation call takes its own turn.
+		const moderation = await withManagedKeySelection(async () => [
+			await resolve(),
+			await resolve(),
+			await resolve(),
+			await resolve(),
+		]);
+		expect(new Set(moderation)).toEqual(new Set(["ord-a", "ord-b"]));
+		expect(moderation[0]).not.toBe(moderation[1]);
+		expect(moderation[0]).toBe(moderation[2]);
+		expect(moderation[1]).toBe(moderation[3]);
+
+		const chat = [];
+		for (let index = 0; index < 3; index++) {
+			chat.push((await findManagedProviderKey("openai"))?.id);
+		}
+		expect(chat).toEqual(["ord-a", "ord-a", "ord-a"]);
+
+		// A key that answered 429 sits out while another can serve.
+		markContentFilterCredentialRateLimited("ord-a", 10_000);
+		// A later, shorter 429 cannot end the cooldown early.
+		markContentFilterCredentialRateLimited(
+			"ord-a",
+			undefined,
+			Date.now() - 5_000,
+		);
+		expect([await resolve(), await resolve()]).toEqual(["ord-b", "ord-b"]);
+		// Retrying away from the only key left still finds one.
+		expect(
+			(
+				await resolveContentFilterCredential(
+					"openai",
+					"/v1/moderations",
+					"omni-moderation-latest",
+					new Set(["ord-b"]),
+				)
+			).id,
+		).toBe("ord-a");
+		resetContentFilterCredentialCooldowns();
 	});
 });
 afterAll(async () => {

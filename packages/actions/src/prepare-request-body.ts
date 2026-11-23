@@ -2441,12 +2441,33 @@ export async function prepareRequestBody(
 			}
 		}
 
+		// Seedream 5.5 adds native background (transparent needs png) and
+		// png/jpeg output format controls.
+		const supportsOutputOptions = usedInternalModel === "seedream-5-5";
+		const background =
+			supportsOutputOptions &&
+			(image_config?.background === "auto" ||
+				image_config?.background === "opaque" ||
+				image_config?.background === "transparent")
+				? image_config.background
+				: undefined;
+		const outputFormat =
+			supportsOutputOptions &&
+			(image_config?.output_format === "png" ||
+				image_config?.output_format === "jpeg")
+				? image_config.output_format
+				: undefined;
+
 		const bytedanceImageRequest: any = {
 			model: usedExternalId,
 			prompt,
 			...(image_config?.image_size && { size: image_config.image_size }),
 			...(imageUrls.length === 1 && { image: imageUrls[0] }),
 			...(imageUrls.length > 1 && { image: imageUrls }),
+			...(background && { background }),
+			...(outputFormat && { output_format: outputFormat }),
+			...(supportsOutputOptions &&
+				image_config?.seed !== undefined && { seed: image_config.seed }),
 		};
 
 		return bytedanceImageRequest;

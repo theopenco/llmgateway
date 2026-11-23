@@ -94,6 +94,7 @@ const pricingSchema = z.object({
 	video_output: z.string().optional(),
 	per_second: z.record(z.string(), z.string()).optional(),
 	per_image: z.record(z.string(), z.string()).optional(),
+	per_input_image: z.string().optional(),
 	request: z.string().optional(),
 	input_cache_read: z.string().optional(),
 	input_cache_read_explicit: z.string().optional().openapi({
@@ -926,6 +927,7 @@ function buildPricingFields(
 		video_output: p?.videoOutputPrice?.toString(),
 		per_second: stringifyPrices(p?.perSecondPrice),
 		per_image: stringifyPrices(p?.perImagePrice),
+		per_input_image: p?.perInputImagePrice?.toString(),
 		request: p?.requestPrice?.toString() ?? "0",
 		input_cache_read: p?.cachedInputPrice?.toString() ?? "0",
 		input_cache_read_explicit: p?.cacheReadInputPrice?.toString(),

@@ -105,12 +105,17 @@ const imageGenerationsRequestSchema = z
 				"Content moderation strictness for models that support it (GPT Image). 'auto' applies the default filtering, 'low' is less restrictive. Ignored by models without a moderation control.",
 			example: "low",
 		}),
+		background: z.enum(["transparent", "opaque", "auto"]).optional().openapi({
+			description:
+				"Background behavior for models with a native background control: GPT Image (OpenAI and Azure) and Seedream 5.5. `transparent` requires `png` output (or `webp` on GPT Image). Ignored by other models.",
+			example: "transparent",
+		}),
 		output_format: z
 			.enum(["png", "jpeg", "webp", "svg", "gif"])
 			.optional()
 			.openapi({
 				description:
-					"The file format of the generated image for GPT Image models. `svg` returns a base64-encoded SVG document in `b64_json`; it requires a model with SVG output (GPT Image 2.6) and `n` of 1, and does not accept `output_compression`.",
+					"The file format of the generated image for GPT Image models and Seedream 5.5 (`png` or `jpeg`). `svg` returns a base64-encoded SVG document in `b64_json`; it requires a model with SVG output (GPT Image 2.6) and `n` of 1, and does not accept `output_compression`.",
 				example: "svg",
 			}),
 		svg: svgOptionsSchema.nullable().optional().openapi({
@@ -1022,6 +1027,7 @@ images.openapi(generations, async (c): Promise<any> => {
 		normalizedQuality ||
 		request.moderation ||
 		request.complexity ||
+		request.background ||
 		request.output_format ||
 		request.output_compression !== undefined ||
 		request.n > 1
@@ -1038,6 +1044,7 @@ images.openapi(generations, async (c): Promise<any> => {
 			...(request.frame_duration_ms !== undefined && {
 				frame_duration_ms: request.frame_duration_ms,
 			}),
+			...(request.background && { background: request.background }),
 			...(request.output_format && { output_format: request.output_format }),
 			...(request.svg && { svg: request.svg }),
 			...(request.output_compression !== undefined && {
@@ -1119,7 +1126,7 @@ const imageEditsRequestSchema = z
 		}),
 		background: z.enum(["transparent", "opaque", "auto"]).optional().openapi({
 			description:
-				"Background behavior for generated image output. OpenAI and Azure GPT Image models apply it natively and reject it when unsupported; `transparent` requires `png` or `webp` output. Other providers only receive it as a prompt hint.",
+				"Background behavior for generated image output. OpenAI and Azure GPT Image models apply it natively and reject it when unsupported; `transparent` requires `png` or `webp` output. Seedream 5.5 applies it natively; `transparent` requires `png`. Other providers only receive it as a prompt hint.",
 			example: "transparent",
 		}),
 		input_fidelity: z.enum(["high", "low"]).optional().openapi({

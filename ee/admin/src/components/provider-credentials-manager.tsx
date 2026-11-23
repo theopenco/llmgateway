@@ -2308,7 +2308,7 @@ function CredentialDialog({
 												}));
 												clearProbeResults();
 											}}
-											placeholder={entry.envVar}
+											placeholder={entry.envVar || "Provider default"}
 										/>
 									</div>
 								);
