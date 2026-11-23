@@ -2591,7 +2591,19 @@ chat.openapi(completions, async (c) => {
 		requestedModel === "gemini-3.1-flash-lite-image" ||
 		requestedModel === "gemini-nano-banana-2.1"
 			? countInputImages(messages)
-			: 0;
+			: models.some(
+						(m) =>
+							m.id === requestedModel &&
+							m.providers.some((p) => "perInputImagePrice" in p),
+				  )
+				? // Seedream forwards only the last user message's images upstream.
+					countInputImages(
+						[...messages]
+							.reverse()
+							.filter((m) => m.role === "user")
+							.slice(0, 1),
+					)
+				: 0;
 
 	// Resolve model info and filter deactivated providers
 	const modelInfoResult =

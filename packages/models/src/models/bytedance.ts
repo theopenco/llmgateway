@@ -454,6 +454,39 @@ export const bytedanceModels = [
 		],
 	},
 	{
+		id: "seedream-5-5",
+		name: "Seedream 5.5",
+		description:
+			"ByteDance Seedream 5.5 (Dola Seedream 5.5) image generation and editing model with consistent multi-turn edits, accurate small and multilingual text, transparent backgrounds, and up to 2K output",
+		family: "bytedance",
+		output: ["text", "image"],
+		releasedAt: new Date("2026-10-28"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "bytedance",
+				externalId: "dola-seedream-5-5-261028",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				perImagePrice: {
+					"1K": "0.02",
+					"1.5K": "0.02",
+					"2K": "0.035",
+					default: "0.035",
+				},
+				perInputImagePrice: "0.008",
+				contextSize: 2000,
+				maxOutput: 4096,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+	{
 		id: "seedream-5-0-flash",
 		name: "Seedream 5.0 Flash",
 		description:

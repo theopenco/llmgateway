@@ -474,6 +474,12 @@ export interface ProviderModelMapping {
 	 */
 	perImagePrice?: Record<string, Price>;
 	/**
+	 * Price per input (reference) image in USD, for image models whose
+	 * provider bills each reference image at a flat rate (e.g. ByteDance
+	 * Seedream 5.5). Billed per input image on top of the output price.
+	 */
+	perInputImagePrice?: Price;
+	/**
 	 * Pricing tiers for models with context-length based pricing.
 	 * When set, inputPrice and outputPrice represent the base tier.
 	 * Tiers should be sorted by upToTokens in ascending order.

@@ -795,6 +795,13 @@ export async function calculateCosts(
 			.times(imageInputPricePerToken)
 			.times(tokenDiscountMultiplier);
 	}
+	if (providerInfo.perInputImagePrice && inputImageCount > 0) {
+		imageInputCost = (imageInputCost ?? new Decimal(0)).plus(
+			new Decimal(providerInfo.perInputImagePrice)
+				.times(inputImageCount)
+				.times(discountMultiplier),
+		);
+	}
 	// Audio input tokens are reported separately by Google and OpenAI but are
 	// included in the upstream prompt-token total, so we subtract them from the
 	// text-billable count and price them at inputAudioPrice (falling back to

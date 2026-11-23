@@ -25,6 +25,9 @@ interface ByteDanceImageRequest {
 	prompt: string;
 	size?: string;
 	image?: string | string[];
+	background?: string;
+	output_format?: string;
+	seed?: number;
 }
 
 const MODEL_ID = "ernie-4.5-vl-424b-a47b";
@@ -66,12 +69,17 @@ function imagePart(url: string) {
 	return { type: "image_url", image_url: { url } };
 }
 
-async function prepareSeedream(content: unknown) {
+async function prepareSeedream(
+	content: unknown,
+	imageConfig: Parameters<typeof prepareRequestBody>[20] = { image_size: "1K" },
+	model = "seedream-5-0-pro",
+	externalId = "dola-seedream-5-0-pro-260628",
+) {
 	return (await prepareRequestBody(
 		"bytedance",
-		"seedream-5-0-pro",
+		model,
 		null,
-		"dola-seedream-5-0-pro-260628",
+		externalId,
 		[{ role: "user", content }] as Parameters<typeof prepareRequestBody>[4],
 		false,
 		undefined,
@@ -88,7 +96,7 @@ async function prepareSeedream(content: unknown) {
 		20,
 		null,
 		undefined,
-		{ image_size: "1K" },
+		imageConfig,
 		undefined,
 		true,
 	)) as unknown as ByteDanceImageRequest;
@@ -128,6 +136,50 @@ describe("prepareRequestBody - Seedream image editing", () => {
 			"https://example.com/first.png",
 			"data:image/jpeg;base64,d29ybGQ=",
 		]);
+	});
+
+	test("forwards Seedream 5.5 background, output format, and seed", async () => {
+		const requestBody = await prepareSeedream(
+			"A sticker of a red apple",
+			{
+				image_size: "2K",
+				background: "transparent",
+				output_format: "png",
+				seed: 42,
+			},
+			"seedream-5-5",
+			"dola-seedream-5-5-261028",
+		);
+
+		expect(requestBody).toEqual({
+			model: "dola-seedream-5-5-261028",
+			prompt: "A sticker of a red apple",
+			size: "2K",
+			background: "transparent",
+			output_format: "png",
+			seed: 42,
+		});
+	});
+
+	test("drops output options Seedream 5.5 rejects and other Seedream models", async () => {
+		const unsupported = await prepareSeedream(
+			"A red apple",
+			{ background: "semi_transparent", output_format: "webp" },
+			"seedream-5-5",
+			"dola-seedream-5-5-261028",
+		);
+		expect(unsupported).not.toHaveProperty("background");
+		expect(unsupported).not.toHaveProperty("output_format");
+
+		const pro = await prepareSeedream("A red apple", {
+			background: "transparent",
+			output_format: "jpeg",
+			seed: 1,
+		});
+		expect(pro).toEqual({
+			model: "dola-seedream-5-0-pro-260628",
+			prompt: "A red apple",
+		});
 	});
 });
 
