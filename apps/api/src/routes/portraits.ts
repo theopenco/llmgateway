@@ -194,24 +194,28 @@ async function loadGroupResponse(row: GroupRow) {
 }
 
 /** Maps credential and upstream failures onto client-facing HTTP errors. */
+function toHttpError(error: unknown): unknown {
+	if (error instanceof PortraitCredentialError) {
+		return new HTTPException(error.status, { message: error.message });
+	}
+	if (error instanceof BytePlusAssetsError) {
+		logger.warn("BytePlus Assets API call failed", {
+			status: error.status,
+			code: error.code,
+			message: error.message,
+		});
+		return new HTTPException(error.status >= 500 ? 502 : 400, {
+			message: error.message,
+		});
+	}
+	return error;
+}
+
 async function withBytePlus<T>(run: () => Promise<T>): Promise<T> {
 	try {
 		return await run();
 	} catch (error) {
-		if (error instanceof PortraitCredentialError) {
-			throw new HTTPException(error.status, { message: error.message });
-		}
-		if (error instanceof BytePlusAssetsError) {
-			logger.warn("BytePlus Assets API call failed", {
-				status: error.status,
-				code: error.code,
-				message: error.message,
-			});
-			throw new HTTPException(error.status >= 500 ? 502 : 400, {
-				message: error.message,
-			});
-		}
-		throw error;
+		throw toHttpError(error);
 	}
 }
 
@@ -697,9 +701,21 @@ portraits.openapi(refreshRoute, async (c) => {
 			row.id,
 			row.organizationId,
 		);
-		const { groupId } = await withBytePlus(
-			async () => await getVisualValidateResult(credentials, token),
-		);
+		let groupId: string | null = null;
+		try {
+			({ groupId } = await getVisualValidateResult(credentials, token));
+		} catch (error) {
+			// BytePlus answers an unfinished verification with a client error;
+			// keep the portrait pending and show why.
+			if (!(error instanceof BytePlusAssetsError) || error.status >= 500) {
+				throw toHttpError(error);
+			}
+			[row] = await db
+				.update(tables.portraitGroup)
+				.set({ lastError: error.message })
+				.where(eq(tables.portraitGroup.id, row.id))
+				.returning();
+		}
 		if (groupId) {
 			[row] = await db
 				.update(tables.portraitGroup)

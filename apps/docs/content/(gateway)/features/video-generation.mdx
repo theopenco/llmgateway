@@ -253,6 +253,40 @@ curl -X POST "https://api.llmgateway.io/v1/videos" \
   }'
 ```
 
+### Real people on Seedance 2.x (verified portraits)
+
+Seedance 2.x rejects reference images and videos that contain a real person's face with a `400` (`may contain real person`). ByteDance only accepts real people through its private asset library: the person completes a live face verification once, then their photos, clips and voice recordings are stored as assets that Seedance can use.
+
+Manage this under **Portraits** in the organization dashboard (owners and admins):
+
+1. **Pick the account.** Assets live in one BytePlus account and only work through that account's key.
+   - **Your own key:** add a ByteDance provider key, then attach a BytePlus IAM access key pair (Access Key ID and Secret Access Key) from the same account. The account needs the Seedance asset library enabled by BytePlus.
+   - **LLM Gateway credits:** uses LLM Gateway's account, when available for your organization.
+2. **Verify the person.** **Verify a person** returns a BytePlus verification link. The person opens it on their phone and completes the live face check. Then click **Refresh**.
+3. **Add assets.** Add HTTPS URLs of clear, front-facing photos, 2–30 second videos (mp4/mov) or 2–30 second audio (wav/mp3). ByteDance checks each one against the verified face before it becomes **Active**.
+4. **Use them.** Each asset has a URI such as `asset://<id>`. Put it in `reference_images`, `reference_videos` or `reference_audios` according to its type, and refer to it in the prompt by its position ("Image 1", "Video 1", "Audio 1").
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/videos" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "seedance-2-0",
+    "prompt": "The person in Image 1 presents the product from Image 2 to the camera",
+    "seconds": 5,
+    "size": "1280x720",
+    "reference_images": [
+      "asset://<portrait asset id>",
+      "https://example.com/product.png"
+    ]
+  }'
+```
+
+- **Pinned to its account.** A request with portrait assets runs only on the credential that holds them, without key rotation or provider fallback. Assets on your own key need a project in **API keys** or **hybrid** mode; assets verified on credits need **credits** or **hybrid** mode.
+- **Assets you already have.** If you added people through the ModelArk console, register them with **Import existing asset**, or pass the raw BytePlus id (`asset://asset-…`) directly. Raw ids only work through your own ByteDance key.
+- **Only Seedance 2.x.** `asset://` references are accepted only in the reference fields, and only on Seedance 2.x models served by ByteDance.
+- **Deleting.** Deleting a portrait verified on credits removes it from LLM Gateway's BytePlus account. Deleting one on your own key only removes it from LLM Gateway; manage the asset itself in the ModelArk console.
+
 ### Talking video (VEED Fabric)
 
 `veed-fabric-1-0` and `veed-fabric-1-0-fast` animate one image with a face into a lip-synced video of it speaking an audio track. Send exactly one image as `input_reference` (or `reference_images`; HTTPS URL or base64 data URL) and exactly one speech clip as `reference_audios` (HTTPS URL only). Other inputs and `audio: false` return a `400`.

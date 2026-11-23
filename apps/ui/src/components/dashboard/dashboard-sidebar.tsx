@@ -228,6 +228,11 @@ export const ORGANIZATION_NAVIGATION: readonly {
 		icon: AnimatedKeyRound,
 	},
 	{
+		href: "org/portraits",
+		label: "Portraits",
+		icon: AnimatedUsers,
+	},
+	{
 		href: "org/discounts",
 		label: "Your Discounts",
 		icon: AnimatedPercent,
