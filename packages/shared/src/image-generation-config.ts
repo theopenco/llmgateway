@@ -111,6 +111,7 @@ export function getModelImageConfig(model: string) {
 		lower.includes("seedream") || lower.includes("bytedance/seedream");
 	const isSeedreamPro = lower.includes("seedream-5-0-pro");
 	const isSeedreamFlash = lower.includes("seedream-5-0-flash");
+	const isSeedream55 = lower.includes("seedream-5-5");
 
 	const isGemini31FlashImage = lower.includes("gemini-3.1-flash-image");
 	const isGemini31FlashLiteImage = lower.includes(
@@ -145,7 +146,7 @@ export function getModelImageConfig(model: string) {
 									] as const)
 								: isSeedreamPro || isGrokImagine20
 									? (["1K", "2K"] as const)
-									: isSeedreamFlash
+									: isSeedreamFlash || isSeedream55
 										? (["1K", "1.5K", "2K"] as const)
 										: isSeedream
 											? (["2K", "4K"] as const)

@@ -125,6 +125,14 @@ describe("getModelImageConfig", () => {
 		expect(config.defaultSize).toBe("2K");
 		expect(config.maxInputImages).toBe(10);
 	});
+
+	it("offers Seedream 5.5's 1K, 1.5K, and 2K presets", () => {
+		const config = getModelImageConfig("bytedance/seedream-5-5");
+
+		expect(config.availableSizes).toEqual(["1K", "1.5K", "2K"]);
+		expect(config.defaultSize).toBe("2K");
+		expect(config.maxInputImages).toBe(10);
+	});
 });
 
 it.each([
