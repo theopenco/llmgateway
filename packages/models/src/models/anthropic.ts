@@ -1680,6 +1680,8 @@ export const anthropicModels = [
 				test: "skip",
 				providerId: "anthropic",
 				externalId: "claude-opus-4-5-20251101",
+				deprecatedAt: new Date("2026-11-23"),
+				deactivatedAt: new Date("2027-01-22T20:00:00Z"),
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
