@@ -4,6 +4,7 @@ import { Decimal } from "decimal.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AssistantSpotlight } from "@/components/assistant/assistant-spotlight";
+import { clearReveals } from "@/components/assistant/assistant-store";
 import { useDashboardTools } from "@/components/assistant/use-dashboard-tools";
 import { toast } from "@/lib/components/use-toast";
 import { cn } from "@/lib/utils";
@@ -83,18 +84,27 @@ export function AssistantDock() {
 					show();
 				}
 			}
-			if (
-				event.key === "Escape" &&
-				event.target instanceof Element &&
-				event.target.closest("[data-assistant-root]")
-			) {
+			if (event.key === "Escape") {
+				// A pending open is cancelled from anywhere: the launcher never
+				// takes focus into the root before the panel exists.
 				pendingOpen.current = false;
-				setOpen(false);
+				if (
+					event.target instanceof Element &&
+					event.target.closest("[data-assistant-root]")
+				) {
+					setOpen(false);
+				}
 			}
 		};
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
 	}, [open, loading, show]);
+
+	// Page tools such as create_api_key can queue a secret reveal without the
+	// panel (a WebMCP browser agent calls them directly), so the store is
+	// cleared on an organization switch even when no panel ever mounted.
+	const organizationId = organization?.id;
+	useEffect(() => () => clearReveals(), [organizationId]);
 
 	if (!organization || !project || !hasCredits) {
 		return null;
