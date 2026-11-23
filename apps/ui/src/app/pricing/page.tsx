@@ -40,6 +40,7 @@ const pricingSchema = {
 		name: "LLM Gateway",
 	},
 	url: "https://llmgateway.io/pricing",
+	image: "https://llmgateway.io/pricing/opengraph-image",
 	offers: {
 		"@type": "AggregateOffer",
 		priceCurrency: "USD",
