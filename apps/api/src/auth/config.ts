@@ -13,10 +13,12 @@ import {
 } from "@/auth/password-policy.js";
 import { serializedPasswordReset } from "@/auth/password-reset.js";
 import { getAuthSecret } from "@/auth/secret.js";
+import { resolveSignupMethod } from "@/auth/signup-method.js";
 import { verificationCallback } from "@/auth/verification-callback.js";
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
 import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
+import { posthog } from "@/posthog.js";
 import {
 	getBlockedSignupCountries,
 	isCountryBlocked,
@@ -649,6 +651,28 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 				},
 				defaultCookieAttributes: {
 					domain: cookieDomain,
+				},
+			},
+			databaseHooks: {
+				user: {
+					create: {
+						// Counted here, not in the browser: the client event is lost
+						// to blockers and OAuth redirects. The user id joins it to the
+						// browser's person once the dashboard identifies them.
+						after: async (
+							user: { id: string },
+							ctx?: { path?: string; headers?: Headers } | null,
+						) => {
+							posthog.capture({
+								distinctId: user.id,
+								event: "account_created",
+								properties: {
+									method: resolveSignupMethod(ctx?.path),
+									country: getCountryFromHeaders(ctx?.headers),
+								},
+							});
+						},
+					},
 				},
 			},
 			session: {

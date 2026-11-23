@@ -174,6 +174,15 @@ export default function Signup() {
 			</div>
 
 			<div className="mt-8 space-y-4">
+				<SocialAuthButtons
+					isLoading={isLoading}
+					setIsLoading={setIsLoading}
+					callbackPath={redirectTarget}
+					errorCallbackPath={getAuthPagePath("/signup", redirectTarget)}
+					newUserCallbackPath={redirectTarget}
+					requestSignUp
+					dividerAfter
+				/>
 				<Form {...form}>
 					<form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
 						<FormField
@@ -283,26 +292,6 @@ export default function Signup() {
 						</Button>
 					</form>
 				</Form>
-
-				{/* Divider */}
-				<div className="relative">
-					<div className="absolute inset-0 flex items-center">
-						<span className="w-full border-t" />
-					</div>
-					<div className="relative flex justify-center text-xs uppercase">
-						<span className="bg-background px-2 text-muted-foreground">Or</span>
-					</div>
-				</div>
-
-				{/* Social sign-up methods */}
-				<SocialAuthButtons
-					isLoading={isLoading}
-					setIsLoading={setIsLoading}
-					callbackPath={redirectTarget}
-					errorCallbackPath={getAuthPagePath("/signup", redirectTarget)}
-					newUserCallbackPath={redirectTarget}
-					requestSignUp
-				/>
 				<p className="text-center text-xs leading-relaxed text-muted-foreground">
 					By signing up, you agree to the{" "}
 					<Link

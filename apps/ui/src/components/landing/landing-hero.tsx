@@ -2,14 +2,15 @@ import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { ExperimentAssignment } from "@/components/experiment-assignment";
 import { DashboardDemo } from "@/components/home/dashboard-demo";
 import { TrackedLink } from "@/components/home/tracked-link";
+import { HeroCta } from "@/components/landing/hero-cta";
 import {
 	LandingStats,
 	LandingStatsView,
 } from "@/components/landing/landing-stats";
-import { AuthLink } from "@/components/shared/auth-link";
-import { ShimmerButton } from "@/lib/components/shimmer-button";
+import { HOME_HERO_CTA_EXPERIMENT } from "@/lib/experiments";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
 
@@ -78,17 +79,8 @@ export function LandingHero() {
 								<div className="relative">
 									{/* Outer glow ring */}
 									<div className="absolute -inset-3 bg-blue-500/30 rounded-full blur-xl animate-pulse" />
-									<AuthLink href="/signup" className="group relative">
-										<ShimmerButton
-											background="rgb(37, 99, 235)"
-											className="shadow-2xl shadow-blue-500/25 px-10 md:px-12 py-3 md:py-4"
-										>
-											<span className="flex items-center gap-3 text-center text-xl leading-none font-bold tracking-tight whitespace-pre-wrap text-white md:text-2xl">
-												<span>Get My API Key</span>
-												<ArrowRight className="size-6 md:size-7 transition-transform group-hover:translate-x-1" />
-											</span>
-										</ShimmerButton>
-									</AuthLink>
+									<ExperimentAssignment experiment={HOME_HERO_CTA_EXPERIMENT} />
+									<HeroCta />
 								</div>
 
 								<TrackedLink
