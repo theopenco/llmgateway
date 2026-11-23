@@ -93,6 +93,13 @@ export const managedKeySelectionDegradedTotal = new Counter({
 	help: "Round-robin selections degraded to ordered keys after cursor errors",
 	registers: [metricsRegistry],
 });
+
+export const contentFilterModerationCacheTotal = new Counter({
+	name: "content_filter_moderation_cache_total",
+	help: "Moderation text chunks by cache result (hit, miss, error)",
+	labelNames: ["result"] as const,
+	registers: [metricsRegistry],
+});
 // pod-wide backpressure cap (HTTP 529); scope="org" is a per-organization
 // in-flight limit (HTTP 429). Lets us alert on dropped traffic and see how
 // often limits are hit, rather than inferring it from the gauge riding the cap.

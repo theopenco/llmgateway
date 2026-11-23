@@ -970,9 +970,12 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   }'
 ```
 
-| Parameter    | Type   | Description                                                                                      |
-| ------------ | ------ | ------------------------------------------------------------------------------------------------ |
-| `image_size` | string | Image dimensions in `WIDTHxHEIGHT` format. Examples: `"1024x1024"`, `"2048x2048"`, `"4096x4096"` |
+| Parameter       | Type   | Description                                                                                                                  |
+| --------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `image_size`    | string | Image dimensions in `WIDTHxHEIGHT` format or a preset. Examples: `"1K"`, `"2K"`, `"1024x1024"`, `"2048x2048"`, `"4096x4096"` |
+| `background`    | string | Seedream 5.5 only: `"auto"`, `"opaque"`, or `"transparent"` (requires `png` output)                                          |
+| `output_format` | string | Seedream 5.5 only: `"png"` (default) or `"jpeg"`                                                                             |
+| `seed`          | number | Seedream 5.5 only: seed for reproducible output                                                                              |
 
 Available ByteDance models (see the [models page](https://llmgateway.io/models?filters=1&imageGeneration=true) for current pricing):
 
@@ -982,11 +985,15 @@ Available ByteDance models (see the [models page](https://llmgateway.io/models?f
 | `bytedance/seedream-4-5`       | Enhanced quality and consistency with improved prompt adherence |
 | `bytedance/seedream-5-0-pro`   | Precise generation and reference-image editing at 1K or 2K      |
 | `bytedance/seedream-5-0-flash` | Fast, low-cost generation and reference-image editing up to 2K  |
+| `bytedance/seedream-5-5`       | Consistent editing, accurate text, and transparent backgrounds  |
 
 <Callout type="info">
 	Seedream models support up to 2-10 reference images for multi-image fusion and
 	generation. The default output resolution is 2048×2048 (2K). Seedream 4.0 and
-	4.5 support up to 4096×4096 (4K); Seedream 5.0 Pro and Flash top out at 2K.
+	4.5 support up to 4096×4096 (4K); Seedream 5.0 Pro, 5.0 Flash, and 5.5 top out
+	at 2K. Seedream 5.5 accepts the `1K`, `1.5K`, and `2K` presets or custom sizes
+	between 921,600 and 4,624,220 pixels, and bills each reference image
+	separately.
 </Callout>
 
 ### Tencent Models

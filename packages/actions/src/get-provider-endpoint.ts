@@ -54,6 +54,17 @@ function appendPath(url: string, path: string): string {
 	return `${url.slice(0, urlEnd)}/${path.slice(pathStart)}`;
 }
 
+function trimTrailingSlashes(url: string | undefined): string | undefined {
+	if (!url) {
+		return undefined;
+	}
+	let end = url.length;
+	while (end > 0 && url[end - 1] === "/") {
+		end--;
+	}
+	return url.slice(0, end) || undefined;
+}
+
 function isChatCompletionsUrl(url: string): boolean {
 	const { pathname } = new URL(url);
 	return (
@@ -465,8 +476,13 @@ export function getProviderEndpoint(
 		regionBaseUrl = endpointMap?.[region];
 	}
 
-	if (baseUrl) {
-		url = baseUrl;
+	// A credential's base URL (e.g. a proxy) replaces any provider's default
+	// endpoint, exactly like an explicit one.
+	const explicitBaseUrl =
+		baseUrl ?? trimTrailingSlashes(credentialConfig?.baseUrl);
+
+	if (explicitBaseUrl) {
+		url = explicitBaseUrl;
 	} else {
 		switch (provider) {
 			case "llmgateway":

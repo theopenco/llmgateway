@@ -76,7 +76,10 @@ import {
 	getTrackedKeyMetrics,
 	isTrackedKeyHealthy,
 } from "./api-key-health.js";
-import { selectManagedProviderKey } from "./managed-key-selection.js";
+import {
+	selectManagedProviderKey,
+	selectRotatedManagedKey,
+} from "./managed-key-selection.js";
 import {
 	getRateLimitedProviderKeyIds,
 	withModelRateLimitedProviderKeyIds,
@@ -1107,6 +1110,12 @@ export interface FindManagedProviderKeyOptions {
 	model?: string;
 	/** Availability checks never reserve a round-robin turn. */
 	advanceRoundRobin?: boolean;
+	/**
+	 * Rotate over every eligible credential on each call, whatever its
+	 * selection strategy. Gateway-internal calls (moderation) only; customer
+	 * traffic keeps the configured strategy.
+	 */
+	rotateEveryCall?: boolean;
 }
 
 /**
@@ -1173,7 +1182,11 @@ export async function findManagedProviderKey(
 	options: FindManagedProviderKeyOptions = {},
 ): Promise<ProviderKey | undefined> {
 	const candidates = await listManagedProviderKeyCandidates(provider, options);
-	if (!candidates.some((key) => key.selectionStrategy === "round_robin")) {
+	const rotateEveryCall = options.rotateEveryCall === true;
+	if (
+		!rotateEveryCall &&
+		!candidates.some((key) => key.selectionStrategy === "round_robin")
+	) {
 		const selected = await selectAvailableProviderKey(
 			candidates,
 			options.selectionScope,
@@ -1188,21 +1201,26 @@ export async function findManagedProviderKey(
 		options.rateLimitExemption,
 		options.model,
 	);
-	const selected = await selectManagedProviderKey(
-		candidates,
-		{
-			provider,
-			variant: candidates[0]?.variant ?? "default",
-			region: candidates[0]?.region ?? null,
-			selectionScope: options.selectionScope,
-			excludedKeyIds: new Set([
-				...(options.excludedKeyIds ?? []),
-				...rateLimited,
-			]),
-			advanceRoundRobin: options.advanceRoundRobin,
-		},
-		(items) => selectProviderKeyWithFailover(items, options.selectionScope),
-	);
+	const selectionOptions = {
+		provider,
+		variant: candidates[0]?.variant ?? "default",
+		region: candidates[0]?.region ?? null,
+		selectionScope: options.selectionScope,
+		excludedKeyIds: new Set([
+			...(options.excludedKeyIds ?? []),
+			...rateLimited,
+		]),
+		advanceRoundRobin: options.advanceRoundRobin,
+	};
+	const selectOrdered = (items: ProviderKey[]) =>
+		selectProviderKeyWithFailover(items, options.selectionScope);
+	const selected = rotateEveryCall
+		? await selectRotatedManagedKey(candidates, selectionOptions, selectOrdered)
+		: await selectManagedProviderKey(
+				candidates,
+				selectionOptions,
+				selectOrdered,
+			);
 	return recordManagedKeySelection(selected, options);
 }
 
@@ -1895,7 +1913,9 @@ function recordManagedKeySelection(
 ): ProviderKey | undefined {
 	if (key && options.advanceRoundRobin !== false) {
 		managedKeySelectionsTotal.inc({
-			strategy: key.selectionStrategy ?? "ordered",
+			strategy: options.rotateEveryCall
+				? "rotated"
+				: (key.selectionStrategy ?? "ordered"),
 			attempt: options.excludedKeyIds?.size ? "retry" : "initial",
 		});
 	}
