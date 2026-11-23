@@ -1025,7 +1025,7 @@ describe("getProviderEndpoint", () => {
 				undefined,
 				undefined,
 				undefined,
-				{ env_config: { baseUrl: "https://meta-proxy.example" } },
+				{ env_config: { baseUrl: "https://meta-proxy.example/" } },
 				undefined,
 				undefined,
 				undefined,

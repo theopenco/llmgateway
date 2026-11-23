@@ -9,7 +9,6 @@ import {
 	type RequestApiFormat,
 	type VertexTokenType,
 	getProviderEnvValue,
-	getProviderEnvVarNameFor,
 	getProviderDefinition,
 	getProviderEnvConfig,
 	getRegionEnvVarSuffix,
@@ -53,6 +52,17 @@ function appendPath(url: string, path: string): string {
 	}
 
 	return `${url.slice(0, urlEnd)}/${path.slice(pathStart)}`;
+}
+
+function trimTrailingSlashes(url: string | undefined): string | undefined {
+	if (!url) {
+		return undefined;
+	}
+	let end = url.length;
+	while (end > 0 && url[end - 1] === "/") {
+		end--;
+	}
+	return url.slice(0, end) || undefined;
 }
 
 function isChatCompletionsUrl(url: string): boolean {
@@ -466,14 +476,10 @@ export function getProviderEndpoint(
 		regionBaseUrl = endpointMap?.[region];
 	}
 
-	// Any managed credential may point its provider at another endpoint (e.g. a
-	// proxy). Providers that declare a baseUrl setting resolve it in their own
-	// case below; for the rest it replaces the static default.
+	// A credential's base URL (e.g. a proxy) replaces any provider's default
+	// endpoint, exactly like an explicit one.
 	const explicitBaseUrl =
-		baseUrl ??
-		(getProviderEnvVarNameFor(provider, "baseUrl")
-			? undefined
-			: credentialConfig?.baseUrl);
+		baseUrl ?? trimTrailingSlashes(credentialConfig?.baseUrl);
 
 	if (explicitBaseUrl) {
 		url = explicitBaseUrl;
