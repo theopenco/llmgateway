@@ -38,6 +38,7 @@ export function AssistantDock() {
 	// The balance is only disclosed to owners and admins, so they are who
 	// sees the dock; the API checks credits and project access again.
 	const hasCredits = new Decimal(organization?.credits ?? 0).greaterThan(0);
+	const available = Boolean(organization && project && hasCredits);
 
 	const prefetch = () => {
 		loadAssistantPanel().catch((error: unknown) => {
@@ -73,6 +74,11 @@ export function AssistantDock() {
 	}, [Panel, loading]);
 
 	useEffect(() => {
+		// Without the dock the shortcut would download the panel for nothing
+		// and take the key combination from the browser.
+		if (!available) {
+			return;
+		}
 		const onKeyDown = (event: KeyboardEvent) => {
 			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "j") {
 				event.preventDefault();
@@ -98,7 +104,7 @@ export function AssistantDock() {
 		};
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [open, loading, show]);
+	}, [available, open, loading, show]);
 
 	// Page tools such as create_api_key can queue a secret reveal without the
 	// panel (a WebMCP browser agent calls them directly), so the store is
