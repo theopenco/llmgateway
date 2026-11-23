@@ -1,0 +1,1267 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "69ab02e7-566d-4f76-884e-502664c915d7",
+  "prevIds": [
+    "c453ec95-ff0a-454a-8679-48d601ab58d9"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "portrait_asset"
+      ],
+      "writes": [
+        "s|tbl|public.portrait_asset",
+        "n|tbl|public.portrait_asset",
+        "e|tbl|public.portrait_asset",
+        "n|rel|public.portrait_asset",
+        "n|type|public.portrait_asset",
+        "n|rel|public.portrait_asset_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "portrait_group"
+      ],
+      "writes": [
+        "s|tbl|public.portrait_group",
+        "n|tbl|public.portrait_group",
+        "e|tbl|public.portrait_group",
+        "n|rel|public.portrait_group",
+        "n|type|public.portrait_group",
+        "n|rel|public.portrait_group_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "provider_key_asset_credential"
+      ],
+      "writes": [
+        "s|tbl|public.provider_key_asset_credential",
+        "n|tbl|public.provider_key_asset_credential",
+        "e|tbl|public.provider_key_asset_credential",
+        "n|rel|public.provider_key_asset_credential",
+        "n|type|public.provider_key_asset_credential",
+        "n|rel|public.provider_key_asset_credential_pkey",
+        "n|rel|public.provider_key_asset_credential_provider_key_id_key"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "portrait_asset",
+        "portrait_asset_organization_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.portrait_asset_organization_id_idx",
+        "n|idx|public.portrait_asset_organization_id_idx",
+        "e|idx|public.portrait_asset_organization_id_idx",
+        "n|rel|public.portrait_asset_organization_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.portrait_asset",
+        "n|sch|public",
+        "n|col|public.portrait_asset.organization_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "portrait_asset",
+        "portrait_asset_group_id_upstream_asset_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.portrait_asset_group_id_upstream_asset_id_idx",
+        "n|idx|public.portrait_asset_group_id_upstream_asset_id_idx",
+        "e|idx|public.portrait_asset_group_id_upstream_asset_id_idx",
+        "n|rel|public.portrait_asset_group_id_upstream_asset_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.portrait_asset",
+        "n|sch|public",
+        "n|col|public.portrait_asset.group_id",
+        "n|col|public.portrait_asset.upstream_asset_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "portrait_group",
+        "portrait_group_organization_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.portrait_group_organization_id_idx",
+        "n|idx|public.portrait_group_organization_id_idx",
+        "e|idx|public.portrait_group_organization_id_idx",
+        "n|rel|public.portrait_group_organization_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.portrait_group",
+        "n|sch|public",
+        "n|col|public.portrait_group.organization_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "portrait_group",
+        "portrait_group_provider_key_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.portrait_group_provider_key_id_idx",
+        "n|idx|public.portrait_group_provider_key_id_idx",
+        "e|idx|public.portrait_group_provider_key_id_idx",
+        "n|rel|public.portrait_group_provider_key_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.portrait_group",
+        "n|sch|public",
+        "n|col|public.portrait_group.provider_key_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "provider_key_asset_credential",
+        "provider_key_asset_credential_organization_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.provider_key_asset_credential_organization_id_idx",
+        "n|idx|public.provider_key_asset_credential_organization_id_idx",
+        "e|idx|public.provider_key_asset_credential_organization_id_idx",
+        "n|rel|public.provider_key_asset_credential_organization_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.provider_key_asset_credential",
+        "n|sch|public",
+        "n|col|public.provider_key_asset_credential.organization_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "portrait_asset"
+      ],
+      "writes": [
+        "s|fk|public.portrait_asset.portrait_asset_organization_id_organization_id_fkey",
+        "n|fk|public.portrait_asset.portrait_asset_organization_id_organization_id_fkey",
+        "e|fk|public.portrait_asset.portrait_asset_organization_id_organization_id_fkey",
+        "n|con|public.portrait_asset.portrait_asset_organization_id_organization_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.portrait_asset",
+        "n|sch|public",
+        "n|tbl|public.organization",
+        "n|sch|public",
+        "n|col|public.portrait_asset.organization_id",
+        "n|col|public.organization.id",
+        "e|uniqueness|public.organization.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "portrait_asset"
+      ],
+      "writes": [
+        "s|fk|public.portrait_asset.portrait_asset_group_id_portrait_group_id_fkey",
+        "n|fk|public.portrait_asset.portrait_asset_group_id_portrait_group_id_fkey",
+        "e|fk|public.portrait_asset.portrait_asset_group_id_portrait_group_id_fkey",
+        "n|con|public.portrait_asset.portrait_asset_group_id_portrait_group_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.portrait_asset",
+        "n|sch|public",
+        "n|tbl|public.portrait_group",
+        "n|sch|public",
+        "n|col|public.portrait_asset.group_id",
+        "n|col|public.portrait_group.id",
+        "e|uniqueness|public.portrait_group.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "portrait_asset"
+      ],
+      "writes": [
+        "s|fk|public.portrait_asset.portrait_asset_created_by_user_id_fkey",
+        "n|fk|public.portrait_asset.portrait_asset_created_by_user_id_fkey",
+        "e|fk|public.portrait_asset.portrait_asset_created_by_user_id_fkey",
+        "n|con|public.portrait_asset.portrait_asset_created_by_user_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.portrait_asset",
+        "n|sch|public",
+        "n|tbl|public.user",
+        "n|sch|public",
+        "n|col|public.portrait_asset.created_by",
+        "n|col|public.user.id",
+        "e|uniqueness|public.user.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "portrait_group"
+      ],
+      "writes": [
+        "s|fk|public.portrait_group.portrait_group_organization_id_organization_id_fkey",
+        "n|fk|public.portrait_group.portrait_group_organization_id_organization_id_fkey",
+        "e|fk|public.portrait_group.portrait_group_organization_id_organization_id_fkey",
+        "n|con|public.portrait_group.portrait_group_organization_id_organization_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.portrait_group",
+        "n|sch|public",
+        "n|tbl|public.organization",
+        "n|sch|public",
+        "n|col|public.portrait_group.organization_id",
+        "n|col|public.organization.id",
+        "e|uniqueness|public.organization.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "portrait_group"
+      ],
+      "writes": [
+        "s|fk|public.portrait_group.portrait_group_created_by_user_id_fkey",
+        "n|fk|public.portrait_group.portrait_group_created_by_user_id_fkey",
+        "e|fk|public.portrait_group.portrait_group_created_by_user_id_fkey",
+        "n|con|public.portrait_group.portrait_group_created_by_user_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.portrait_group",
+        "n|sch|public",
+        "n|tbl|public.user",
+        "n|sch|public",
+        "n|col|public.portrait_group.created_by",
+        "n|col|public.user.id",
+        "e|uniqueness|public.user.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "portrait_group"
+      ],
+      "writes": [
+        "s|fk|public.portrait_group.portrait_group_provider_key_id_provider_key_id_fkey",
+        "n|fk|public.portrait_group.portrait_group_provider_key_id_provider_key_id_fkey",
+        "e|fk|public.portrait_group.portrait_group_provider_key_id_provider_key_id_fkey",
+        "n|con|public.portrait_group.portrait_group_provider_key_id_provider_key_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.portrait_group",
+        "n|sch|public",
+        "n|tbl|public.provider_key",
+        "n|sch|public",
+        "n|col|public.portrait_group.provider_key_id",
+        "n|col|public.provider_key.id",
+        "e|uniqueness|public.provider_key.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "provider_key_asset_credential"
+      ],
+      "writes": [
+        "s|fk|public.provider_key_asset_credential.provider_key_asset_credential_b3cZ4GCPxxyG_fkey",
+        "n|fk|public.provider_key_asset_credential.provider_key_asset_credential_b3cZ4GCPxxyG_fkey",
+        "e|fk|public.provider_key_asset_credential.provider_key_asset_credential_b3cZ4GCPxxyG_fkey",
+        "n|con|public.provider_key_asset_credential.provider_key_asset_credential_b3cZ4GCPxxyG_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.provider_key_asset_credential",
+        "n|sch|public",
+        "n|tbl|public.provider_key",
+        "n|sch|public",
+        "n|col|public.provider_key_asset_credential.provider_key_id",
+        "n|col|public.provider_key.id",
+        "e|uniqueness|public.provider_key.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "provider_key_asset_credential"
+      ],
+      "writes": [
+        "s|fk|public.provider_key_asset_credential.provider_key_asset_credential_BbilIoBM3ppI_fkey",
+        "n|fk|public.provider_key_asset_credential.provider_key_asset_credential_BbilIoBM3ppI_fkey",
+        "e|fk|public.provider_key_asset_credential.provider_key_asset_credential_BbilIoBM3ppI_fkey",
+        "n|con|public.provider_key_asset_credential.provider_key_asset_credential_BbilIoBM3ppI_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.provider_key_asset_credential",
+        "n|sch|public",
+        "n|tbl|public.organization",
+        "n|sch|public",
+        "n|col|public.provider_key_asset_credential.organization_id",
+        "n|col|public.organization.id",
+        "e|uniqueness|public.organization.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "portrait_asset",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "portrait_group",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "provider_key_asset_credential",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_asset",
+        "name": "id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_asset",
+        "name": "created_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_asset",
+        "name": "updated_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_asset",
+        "name": "organization_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_asset",
+        "name": "group_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_asset",
+        "name": "created_by",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_asset",
+        "name": "name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_asset",
+        "name": "asset_type",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_asset",
+        "name": "upstream_asset_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_asset",
+        "name": "status",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'processing'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_asset",
+        "name": "last_error",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "created_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "updated_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "organization_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "created_by",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "credential_source",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "provider_key_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "project_name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'default'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "status",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'pending_verification'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "upstream_group_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "verification_token_ciphertext",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "verified_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "last_error",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key_asset_credential",
+        "name": "id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key_asset_credential",
+        "name": "created_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key_asset_credential",
+        "name": "updated_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key_asset_credential",
+        "name": "provider_key_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key_asset_credential",
+        "name": "organization_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key_asset_credential",
+        "name": "access_key_id_masked",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key_asset_credential",
+        "name": "credentials_ciphertext",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key_asset_credential",
+        "name": "project_name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'default'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key_asset_credential",
+        "name": "region",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'ap-southeast-1'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_asset",
+        "name": "portrait_asset_organization_id_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "organization_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_asset",
+        "name": "portrait_asset_group_id_upstream_asset_id_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "group_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "upstream_asset_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "portrait_group_organization_id_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "organization_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "portrait_group_provider_key_id_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "provider_key_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key_asset_credential",
+        "name": "provider_key_asset_credential_organization_id_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "organization_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_asset",
+        "name": "portrait_asset_organization_id_organization_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "organization_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "organization",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_asset",
+        "name": "portrait_asset_group_id_portrait_group_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "group_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "portrait_group",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_asset",
+        "name": "portrait_asset_created_by_user_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "created_by"
+        ],
+        "schemaTo": "public",
+        "tableTo": "user",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "portrait_group_organization_id_organization_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "organization_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "organization",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "portrait_group_created_by_user_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "created_by"
+        ],
+        "schemaTo": "public",
+        "tableTo": "user",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "portrait_group_provider_key_id_provider_key_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "provider_key_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "provider_key",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key_asset_credential",
+        "name": "provider_key_asset_credential_b3cZ4GCPxxyG_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "provider_key_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "provider_key",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key_asset_credential",
+        "name": "provider_key_asset_credential_BbilIoBM3ppI_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "organization_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "organization",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_asset",
+        "name": "portrait_asset_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "portrait_group",
+        "name": "portrait_group_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key_asset_credential",
+        "name": "provider_key_asset_credential_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key_asset_credential",
+        "name": "provider_key_asset_credential_provider_key_id_key",
+        "nameExplicit": false,
+        "columns": [
+          "provider_key_id"
+        ],
+        "nullsNotDistinct": false,
+        "entityType": "uniques"
+      }
+    }
+  ]
+}

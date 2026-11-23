@@ -67,6 +67,9 @@ export async function deleteAll() {
 			await db.delete(providerKeyHourlyStats);
 			await db.delete(tables.globalProviderKeyModelStats);
 			await db.delete(tables.apiKey);
+			await db.delete(tables.portraitAsset);
+			await db.delete(tables.portraitGroup);
+			await db.delete(tables.providerKeyAssetCredential);
 			await db.delete(tables.providerKey);
 			await db.delete(tables.providerPriceFiling);
 			await db.delete(tables.providerDraftModel);

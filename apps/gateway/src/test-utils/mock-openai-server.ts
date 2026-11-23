@@ -2669,6 +2669,7 @@ mockOpenAIServer.post("/contents/generations/tasks", async (c) => {
 		referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
 		referenceVideoUrls:
 			referenceVideoUrls.length > 0 ? referenceVideoUrls : undefined,
+		requestBody: body,
 		duration: typeof body.duration === "number" ? body.duration : undefined,
 		ratio: typeof body.ratio === "string" ? body.ratio : undefined,
 		resolution:

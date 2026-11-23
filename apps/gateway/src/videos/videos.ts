@@ -74,6 +74,12 @@ import {
 	reserveVideoSubmission,
 } from "@/lib/video-submission-reservation.js";
 import {
+	isAssetUri,
+	resolvePortraitAssetReferences,
+	supportsPortraitAssets,
+	type PortraitAssetBinding,
+} from "@/videos/portrait-assets.js";
+import {
 	inlineVideoResponse,
 	videoProxyResponse,
 	videoRangeHeaders,
@@ -336,7 +342,7 @@ const videoImageInputSchema = z
 	])
 	.openapi({
 		description:
-			"Input image for image-to-video generation. Supports HTTPS URLs and base64 data URLs. Routed to provider-specific image-to-video generation when supported by the selected model.",
+			"Input image for image-to-video generation. Supports HTTPS URLs and base64 data URLs. Routed to provider-specific image-to-video generation when supported by the selected model. In reference_images on Seedance 2.x, also accepts an asset:// URI of a verified portrait asset.",
 		example: {
 			image_url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
 		},
@@ -360,8 +366,8 @@ const videoReferenceImagesSchema = z
 const referenceVideoUrlSchema = z
 	.string()
 	.url()
-	.refine((value) => /^https:\/\//i.test(value), {
-		message: "Reference video URL must be an HTTPS URL",
+	.refine((value) => /^https:\/\//i.test(value) || isAssetUri(value), {
+		message: "Reference video URL must be an HTTPS URL or an asset:// URI",
 	});
 
 const videoReferenceVideoInputSchema = z
@@ -373,7 +379,7 @@ const videoReferenceVideoInputSchema = z
 	])
 	.openapi({
 		description:
-			"Reference video input for omni-reference video generation. Must be a publicly reachable HTTPS URL; base64 data URLs are not supported for videos.",
+			"Reference video input for omni-reference video generation. Must be a publicly reachable HTTPS URL, or on Seedance 2.x an asset:// URI of a verified portrait asset; base64 data URLs are not supported for videos.",
 		example: {
 			video_url: "https://example.com/reference-motion.mp4",
 		},
@@ -387,8 +393,8 @@ const videoReferenceVideosSchema = z
 const referenceAudioUrlSchema = z
 	.string()
 	.url()
-	.refine((value) => /^https:\/\//i.test(value), {
-		message: "Reference audio URL must be an HTTPS URL",
+	.refine((value) => /^https:\/\//i.test(value) || isAssetUri(value), {
+		message: "Reference audio URL must be an HTTPS URL or an asset:// URI",
 	});
 
 const videoReferenceAudioInputSchema = z
@@ -400,7 +406,7 @@ const videoReferenceAudioInputSchema = z
 	])
 	.openapi({
 		description:
-			"Reference audio input for omni-reference video generation. Must be a publicly reachable HTTPS URL; base64 data URLs are not supported for audio.",
+			"Reference audio input for omni-reference video generation. Must be a publicly reachable HTTPS URL, or on Seedance 2.x an asset:// URI of a verified portrait asset; base64 data URLs are not supported for audio.",
 		example: {
 			audio_url: "https://example.com/reference-track.mp3",
 		},
@@ -918,6 +924,11 @@ type VideoImageInput = z.infer<typeof videoImageInputSchema>;
 interface ProcessedVideoImageInput {
 	bytesBase64Encoded: string;
 	mimeType: string;
+	/**
+	 * BytePlus asset URI of a portrait reference image, sent upstream as-is.
+	 * Bytes are empty; only Seedance 2.x requests carry one.
+	 */
+	assetUri?: string;
 }
 
 type VideoInputMode = "none" | "frames" | "reference" | "source";
@@ -2203,6 +2214,129 @@ async function resolvePlatformVideoProviderContext(
 			managedKey,
 		),
 	};
+}
+
+/**
+ * The credential a request referencing portrait assets must run on. Assets
+ * live in one BytePlus account, so the job is pinned to that account's key and
+ * never rotates to another credential.
+ */
+async function resolvePortraitVideoProviderContext(
+	binding: PortraitAssetBinding,
+	project: InferSelectModel<typeof tables.project>,
+	organizationId: string,
+	requestId: string,
+	selectionScope: string,
+): Promise<ProviderContext> {
+	const providerId: Provider = "bytedance";
+	if (binding.kind === "platform") {
+		if (project.mode === "api-keys") {
+			throw new HTTPException(400, {
+				message:
+					"These portrait assets were verified on LLM Gateway credits. Switch the project to credits or hybrid mode to use them.",
+			});
+		}
+		const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
+		if (binding.managedProviderKeyId) {
+			const managedKey = await findManagedProviderKeyById(
+				binding.managedProviderKeyId,
+			);
+			if (!managedKey || managedKey.status !== "active") {
+				throw new HTTPException(503, {
+					message:
+						"The ByteDance account holding these portrait assets is temporarily unavailable.",
+				});
+			}
+			const baseUrl =
+				getCredentialSetting(providerId, "baseUrl", { managedKey }) ??
+				defaultBaseUrl;
+			if (!baseUrl) {
+				throw new HTTPException(500, {
+					message: `No base URL set for provider: ${providerId}`,
+				});
+			}
+			return {
+				providerId,
+				baseUrl,
+				tenantBaseUrl: null,
+				token: readProviderKey(managedKey),
+				requestId,
+				usedMode: "credits",
+				configIndex: 0,
+				managedProviderKeyId: managedKey.id,
+			};
+		}
+		// The environment pair belongs to the first LLM_BYTEDANCE_API_KEY entry;
+		// managed credentials supersede the environment once one exists.
+		if (await hasManagedProviderCredential(providerId)) {
+			throw new HTTPException(503, {
+				message:
+					"The ByteDance account holding these portrait assets is temporarily unavailable.",
+			});
+		}
+		const env = getProviderEnv(providerId, { configIndex: 0 });
+		const baseUrl =
+			getCredentialSetting(
+				providerId,
+				"baseUrl",
+				{},
+				{
+					configIndex: env.configIndex,
+					defaultValue: defaultBaseUrl ?? undefined,
+				},
+			) ?? defaultBaseUrl;
+		if (!baseUrl) {
+			throw new HTTPException(500, {
+				message: `No base URL set for provider: ${providerId}`,
+			});
+		}
+		return {
+			providerId,
+			baseUrl,
+			tenantBaseUrl: null,
+			token: env.token,
+			requestId,
+			usedMode: "credits",
+			configIndex: env.configIndex,
+		};
+	}
+
+	if (project.mode === "credits") {
+		throw new HTTPException(400, {
+			message:
+				"These assets live in your own BytePlus account. Switch the project to API keys or hybrid mode to use them with your ByteDance provider key.",
+		});
+	}
+	if (binding.kind === "byok") {
+		const providerKey = await findProviderKey(
+			organizationId,
+			providerId,
+			selectionScope,
+			undefined,
+			(key) => key.id === binding.providerKeyId,
+		);
+		if (!providerKey) {
+			throw new HTTPException(400, {
+				message:
+					"The ByteDance provider key these portrait assets belong to is not active.",
+			});
+		}
+		return resolveByokVideoProviderContext(providerId, providerKey, requestId);
+	}
+	const context = await resolveProviderContext(
+		providerId,
+		project,
+		organizationId,
+		requestId,
+		selectionScope,
+	);
+	if (context.usedMode !== "api-keys") {
+		throw new HTTPException(400, {
+			message:
+				"BytePlus asset IDs need your own ByteDance provider key. Add one in your provider keys settings.",
+		});
+	}
+	return context;
 }
 
 interface TriedVideoKeys {
@@ -4311,7 +4445,9 @@ async function createBytedanceVideoJob(
 			content.push({
 				type: "image_url",
 				image_url: {
-					url: `data:${image.mimeType};base64,${image.bytesBase64Encoded}`,
+					url:
+						image.assetUri ??
+						`data:${image.mimeType};base64,${image.bytesBase64Encoded}`,
 				},
 				role: "reference_image",
 			});
@@ -5088,6 +5224,9 @@ async function processVideoImageInput(
 			message: "image must include a non-empty image URL",
 		});
 	}
+	if (isAssetUri(imageUrl)) {
+		return { bytesBase64Encoded: "", mimeType: "", assetUri: imageUrl };
+	}
 
 	try {
 		const { data, mimeType } = await processImageUrl(
@@ -5130,7 +5269,10 @@ function buildVideoModerationMessages(
 			content: [
 				{ type: "text", text: prompt },
 				...images
-					.filter((image): image is ProcessedVideoImageInput => image !== null)
+					.filter(
+						(image): image is ProcessedVideoImageInput =>
+							image !== null && image.assetUri === undefined,
+					)
 					.map((image) => ({
 						type: "image_url" as const,
 						image_url: {
@@ -5393,11 +5535,27 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 	const { normalizedModel, requestedProvider } = getVideoModel(request.model);
 	const firstFrameInput = getVideoFirstFrameInput(request);
 	const lastFrameInput = getVideoLastFrameInput(request);
-	const referenceImageInputs = getVideoReferenceImageInputs(request);
-	const referenceVideoInputs = getVideoReferenceVideoInputs(request);
-	const referenceAudioInputs = getVideoReferenceAudioInputs(request);
 	const inputMode = getVideoInputMode(request);
 	const sourceVideoInput = getVideoSourceInput(request);
+	const requestedReferenceImageInputs = getVideoReferenceImageInputs(request);
+	// `asset://` references to verified portraits, rewritten to the BytePlus
+	// asset they stand for and pinned to the account that holds them.
+	const portraitAssets = await resolvePortraitAssetReferences(organization.id, {
+		referenceImages: requestedReferenceImageInputs.map(getVideoImageUrl),
+		referenceVideos: getVideoReferenceVideoInputs(request),
+		referenceAudios: getVideoReferenceAudioInputs(request),
+		other: [
+			firstFrameInput ? getVideoImageUrl(firstFrameInput) : undefined,
+			lastFrameInput ? getVideoImageUrl(lastFrameInput) : undefined,
+			sourceVideoInput?.url,
+		],
+	});
+	const referenceImageInputs: VideoImageInput[] =
+		portraitAssets?.referenceImages ?? requestedReferenceImageInputs;
+	const referenceVideoInputs =
+		portraitAssets?.referenceVideos ?? getVideoReferenceVideoInputs(request);
+	const referenceAudioInputs =
+		portraitAssets?.referenceAudios ?? getVideoReferenceAudioInputs(request);
 	const inputImageCount = getVideoInputImageCount(
 		inputMode,
 		firstFrameInput,
@@ -5532,6 +5690,27 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		complianceModelInfo = { ...complianceModelInfo, providers };
 	}
 
+	let portraitProviderContext: ProviderContext | null = null;
+	if (portraitAssets) {
+		const providers = complianceModelInfo.providers.filter((provider) =>
+			supportsPortraitAssets(provider as ProviderModelMapping),
+		);
+		if (providers.length === 0) {
+			throw new HTTPException(400, {
+				message:
+					"Assets (asset://) are only supported on ByteDance Seedance 2.x models",
+			});
+		}
+		complianceModelInfo = { ...complianceModelInfo, providers };
+		portraitProviderContext = await resolvePortraitVideoProviderContext(
+			portraitAssets.binding,
+			project,
+			organization.id,
+			requestId,
+			modelInfo.id,
+		);
+	}
+
 	const {
 		providerMapping,
 		providerContext,
@@ -5558,7 +5737,8 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 
 	const videoId = shortid();
 	let selectedProviderMapping = providerMapping;
-	let selectedProviderContext = providerContext;
+	// Portrait assets only exist in the account that holds them.
+	let selectedProviderContext = portraitProviderContext ?? providerContext;
 	let selectedUpstreamModelName = upstreamModelName;
 	let enrichedRoutingMetadata = routingMetadata;
 	let processedFirstFrame: ProcessedVideoImageInput | null;
@@ -5945,13 +6125,15 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				// credential fails on its own. A fal-ai submission that was not
 				// rejected outright may already have been charged.
 				const rotateKey =
-					selectedProviderContext.providerId === "fal-ai"
-						? statusCode === 401 || statusCode === 403
-						: shouldRetryAlternateKey(
-								retryErrorType,
-								statusCode,
-								error instanceof Error ? error.message : undefined,
-							);
+					portraitProviderContext !== null
+						? false
+						: selectedProviderContext.providerId === "fal-ai"
+							? statusCode === 401 || statusCode === 403
+							: shouldRetryAlternateKey(
+									retryErrorType,
+									statusCode,
+									error instanceof Error ? error.message : undefined,
+								);
 				if (rotateKey) {
 					let triedKeys = triedKeysByProvider.get(
 						selectedProviderContext.providerId,
