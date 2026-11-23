@@ -14,6 +14,7 @@ Currently available models:
 - **Veo 3.1** through `google-vertex` (720p, 1080p, 4k)
 - **Gemini Omni 1.2 Flash** and **Gemini Omni 1.1 Flash** through `google-ai-studio` (360p, 720p, 1080p, 4k; up to 15 seconds on 1.2 and 10 on 1.1; frames, references, and source video edit/extend; always with audio)
 - **Seedance 2.5** through `bytedance` (480p, 720p, 1080p; clips up to 30 seconds)
+- **Seedance 2.5 Flash** through `bytedance` (480p, 720p; clips up to 30 seconds)
 - **Seedance 2.0** and **Seedance 1.5 Pro** through `bytedance` (720p, 1080p), **Seedance 2.0 Fast** through `bytedance` (720p only)
 - **Seedance 2.0 Mini** through `bytedance` (480p, 720p)
 - **KLING v3.0** and **KLING v3.0 Turbo** through `atlascloud` (720p, 1080p; KLING v3.0 also 4k), **KLING v3.0 Pro** through `atlascloud` (1080p only)
@@ -76,6 +77,7 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 | Gemini Omni 1.2 Flash | `google-ai-studio` | `640x360`, `360x640`, `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840` | `3`–`15`            |
 | Gemini Omni 1.1 Flash | `google-ai-studio` | `640x360`, `360x640`, `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840` | `3`–`10`            |
 | Seedance 2.5          | `bytedance`        | `848x480`, `854x480`, `480x854`, `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                | `4`–`30`            |
+| Seedance 2.5 Flash    | `bytedance`        | `848x480`, `854x480`, `480x854`, `1280x720`, `720x1280`                                          | `4`–`30`            |
 | Seedance 2.0          | `bytedance`        | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                                                 | `4`–`15`            |
 | Seedance 2.0 Fast     | `bytedance`        | `1280x720`, `720x1280`                                                                           | `4`–`15`            |
 | Seedance 2.0 Mini     | `bytedance`        | `1280x720`, `720x1280`, `848x480`, `854x480`, `480x854`                                          | `4`–`15`            |
@@ -128,7 +130,7 @@ Frame inputs interpolate a video between a starting frame and an optional ending
 
 #### Rules and limits
 
-- **Seedance scope.** Frame inputs are supported on **Seedance 2.5**, **Seedance 2.0**, **Seedance 2.0 Fast**, and **Seedance 2.0 Mini** (`seedance-2-5`, `seedance-2-0`, `seedance-2-0-fast`, `seedance-2-0-mini`). Sending `image`/`last_frame` to Seedance 1.5 Pro or any other ByteDance model returns a `400`.
+- **Seedance scope.** Frame inputs are supported on **Seedance 2.5**, **Seedance 2.5 Flash**, **Seedance 2.0**, **Seedance 2.0 Fast**, and **Seedance 2.0 Mini** (`seedance-2-5`, `seedance-2-5-flash`, `seedance-2-0`, `seedance-2-0-fast`, `seedance-2-0-mini`). Sending `image`/`last_frame` to Seedance 1.5 Pro or any other ByteDance model returns a `400`.
 - **KLING and Luma scope.** Frame inputs are supported on **KLING v3.0**, **Pro**, **Turbo**, and **3.0 Omni** (`kling-v3-0`, `kling-v3-0-pro`, `kling-v3-0-turbo`, `kling-v3-0-omni`) and **Luma Ray 3.2** (`luma-ray-3-2`). KLING v3.0, Pro, and Turbo need `5` or `10` seconds with frames; Omni accepts any listed duration and Luma only `5`. Luma image-to-video follows the first frame's aspect ratio. The gateway uploads base64 frames to AtlasCloud's media endpoint automatically, so both HTTPS URLs and base64 data URLs are accepted.
 - **Wan scope.** Frame inputs are supported on **Wan 3.0 Video** and **Wan 3.0 Video Prime** (`wan-3-0-video`, `wan-3-0-video-prime`). Wan 2.6 Text-to-Video accepts text only. Frames must be at least 240 pixels per side.
 - **FLUX scope.** FLUX 3 Max (`fal-ai`) accepts first and last frames as HTTPS URLs or base64 data URLs; use `image` for the start and `last_frame` for the optional end.
@@ -168,7 +170,7 @@ curl -X POST "https://api.llmgateway.io/v1/videos" \
 
 ### Reference-guided generation
 
-Seedance 2.x (`seedance-2-5`, `seedance-2-0`, `seedance-2-0-fast`, `seedance-2-0-mini`) can generate a video that is guided by reference **images**, **videos**, and **audio** — sometimes called omni-reference. You attach references as top-level fields in the same `POST /v1/videos` payload; the gateway forwards each one to the provider tagged with the correct role, so you don't set roles yourself.
+Seedance 2.x (`seedance-2-5`, `seedance-2-5-flash`, `seedance-2-0`, `seedance-2-0-fast`, `seedance-2-0-mini`) can generate a video that is guided by reference **images**, **videos**, and **audio** — sometimes called omni-reference. You attach references as top-level fields in the same `POST /v1/videos` payload; the gateway forwards each one to the provider tagged with the correct role, so you don't set roles yourself.
 
 | Reference type | Payload field                                | Count | Accepted input                   | Available on                                                                                                                      |
 | -------------- | -------------------------------------------- | ----- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
@@ -336,14 +338,15 @@ Gemini Omni bills video output at `$12.00 / 1M` (1.2 Flash) or `$17.50 / 1M` (1.
 
 Seedance (ByteDance) bills the provider's `usage.completion_tokens`, not rounded output seconds. These token counts include reference-video consumption and any provider minimum. The rate depends on output resolution and whether the input contains a video:
 
-| Model               | Resolution | Without video input (USD / 1M tokens) | With video input (USD / 1M tokens) |
-| ------------------- | ---------- | ------------------------------------- | ---------------------------------- |
-| `seedance-2-5`      | 480p, 720p | $10.70                                | $6.40                              |
-| `seedance-2-5`      | 1080p      | $11.70                                | $7.00                              |
-| `seedance-2-0`      | 720p       | $7.00                                 | $4.30                              |
-| `seedance-2-0`      | 1080p      | $7.70                                 | $4.70                              |
-| `seedance-2-0-fast` | 720p       | $5.60                                 | $3.30                              |
-| `seedance-2-0-mini` | 480p, 720p | $3.50                                 | $2.10                              |
+| Model                | Resolution | Without video input (USD / 1M tokens) | With video input (USD / 1M tokens) |
+| -------------------- | ---------- | ------------------------------------- | ---------------------------------- |
+| `seedance-2-5`       | 480p, 720p | $10.70                                | $6.40                              |
+| `seedance-2-5`       | 1080p      | $11.70                                | $7.00                              |
+| `seedance-2-5-flash` | 480p, 720p | $7.00                                 | $4.30                              |
+| `seedance-2-0`       | 720p       | $7.00                                 | $4.30                              |
+| `seedance-2-0`       | 1080p      | $7.70                                 | $4.70                              |
+| `seedance-2-0-fast`  | 720p       | $5.60                                 | $3.30                              |
+| `seedance-2-0-mini`  | 480p, 720p | $3.50                                 | $2.10                              |
 
 Generated audio does not change these Seedance 2.x token rates. Reference images or audio alone use the **without video input** tier. Pixel dimensions, aspect ratio, input-video length, and output frames determine token consumption; a per-second estimate is not the final charge. For example, Seedance 2.0 Mini's 480p landscape output is 864×496, regardless of its nominal requested size.
 

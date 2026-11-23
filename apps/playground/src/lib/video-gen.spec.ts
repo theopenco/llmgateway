@@ -357,6 +357,19 @@ describe("Seedance 2.0 reference capabilities", () => {
 		expect(supportsVideoFrameInput("google-vertex/seedance-2-5")).toBe(false);
 	});
 
+	test("Seedance 2.5 Flash gets the Seedance 2.x reference/frame capabilities", () => {
+		expect(supportsVideoFrameInput("bytedance/seedance-2-5-flash")).toBe(true);
+		expect(supportsVideoReferenceInput("bytedance/seedance-2-5-flash")).toBe(
+			true,
+		);
+		expect(
+			supportsVideoReferenceVideoInput("bytedance/seedance-2-5-flash"),
+		).toBe(true);
+		expect(
+			supportsVideoReferenceAudioInput("bytedance/seedance-2-5-flash"),
+		).toBe(true);
+	});
+
 	test("Seedance 2.5 offers 480p and durations beyond 15s", () => {
 		const model = makeModel(
 			[
