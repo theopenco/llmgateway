@@ -250,7 +250,7 @@ export const tencentModels = [
 				outputPrice: "2.501e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
-				maxOutput: 131072,
+				maxOutput: 1048576,
 				quantization: "fp4",
 				maxTemperature: 1,
 				streaming: true,
