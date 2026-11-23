@@ -242,6 +242,27 @@ export const tencentModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 			},
+			{
+				providerId: "deepinfra",
+				externalId: "tencent/Hy4",
+				inputPrice: "0.834e-6",
+				cachedInputPrice: "0.042e-6",
+				outputPrice: "2.501e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				quantization: "fp4",
+				maxTemperature: 1,
+				streaming: true,
+				reasoning: true,
+				// `none` leaks the reasoning into `content`, terminated by a
+				// `</think:opensource>` marker, instead of disabling it.
+				reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
 		],
 	},
 	{
