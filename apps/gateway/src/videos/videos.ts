@@ -2238,6 +2238,8 @@ async function resolvePortraitVideoProviderContext(
 		}
 		const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
 		if (binding.managedProviderKeyId) {
+			// The binding only ever selects a default-variant, all-region key
+			// (resolvePlatformPortraitBinding), so any org's credits may use it.
 			const managedKey = await findManagedProviderKeyById(
 				binding.managedProviderKeyId,
 			);
@@ -2266,39 +2268,10 @@ async function resolvePortraitVideoProviderContext(
 				managedProviderKeyId: managedKey.id,
 			};
 		}
-		// The environment pair belongs to the first LLM_BYTEDANCE_API_KEY entry;
-		// managed credentials supersede the environment once one exists.
-		if (await hasManagedProviderCredential(providerId)) {
-			throw new HTTPException(503, {
-				message:
-					"The ByteDance account holding these portrait assets is temporarily unavailable.",
-			});
-		}
-		const env = getProviderEnv(providerId, { configIndex: 0 });
-		const baseUrl =
-			getCredentialSetting(
-				providerId,
-				"baseUrl",
-				{},
-				{
-					configIndex: env.configIndex,
-					defaultValue: defaultBaseUrl ?? undefined,
-				},
-			) ?? defaultBaseUrl;
-		if (!baseUrl) {
-			throw new HTTPException(500, {
-				message: `No base URL set for provider: ${providerId}`,
-			});
-		}
-		return {
-			providerId,
-			baseUrl,
-			tenantBaseUrl: null,
-			token: env.token,
-			requestId,
-			usedMode: "credits",
-			configIndex: env.configIndex,
-		};
+		throw new HTTPException(503, {
+			message:
+				"The ByteDance account holding these portrait assets is temporarily unavailable.",
+		});
 	}
 
 	if (project.mode === "credits") {
@@ -2313,7 +2286,10 @@ async function resolvePortraitVideoProviderContext(
 			providerId,
 			selectionScope,
 			undefined,
-			(key) => key.id === binding.providerKeyId,
+			buildByokKeyFilter(selectionScope, (key) => {
+				const videoFilter = getVideoProviderKeyFilter(providerId);
+				return key.id === binding.providerKeyId && (videoFilter?.(key) ?? true);
+			}),
 		);
 		if (!providerKey) {
 			throw new HTTPException(400, {

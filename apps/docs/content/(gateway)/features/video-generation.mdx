@@ -261,7 +261,7 @@ Manage this under **Portraits** in the organization dashboard (owners and admins
 
 1. **Pick the account.** Assets live in one BytePlus account and only work through that account's key.
    - **Your own key:** add a ByteDance provider key, then attach a BytePlus IAM access key pair (Access Key ID and Secret Access Key) from the same account. The account needs the Seedance asset library enabled by BytePlus.
-   - **LLM Gateway credits:** uses LLM Gateway's account, when available for your organization.
+   - **LLM Gateway credits:** uses LLM Gateway's account. Needs a positive credit balance; video generation is billed to your credits as usual.
 2. **Verify the person.** **Verify a person** returns a BytePlus verification link. The person opens it on their phone and completes the live face check. Then click **Refresh**.
 3. **Add assets.** Add HTTPS URLs of clear, front-facing photos, 2–30 second videos (mp4/mov) or 2–30 second audio (wav/mp3). ByteDance checks each one against the verified face before it becomes **Active**.
 4. **Use them.** Each asset has a URI such as `asset://<id>`. Put it in `reference_images`, `reference_videos` or `reference_audios` according to its type, and refer to it in the prompt by its position ("Image 1", "Video 1", "Audio 1").

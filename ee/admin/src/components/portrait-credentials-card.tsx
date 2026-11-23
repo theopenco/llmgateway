@@ -195,9 +195,9 @@ export function PortraitCredentialsCard() {
 			<CardHeader>
 				<CardTitle>Seedance portrait access keys</CardTitle>
 				<CardDescription>
-					New platform portraits use the first active managed ByteDance
-					credential with an access key pair; the <code>LLM_BYTEDANCE_*</code>{" "}
-					env pair is only used when no managed ByteDance credential exists.
+					New platform portraits use the first active default-variant,
+					all-region managed ByteDance credential with an access key pair. The
+					pair must belong to the same BytePlus account as the credential.
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="flex flex-col gap-4">
@@ -206,16 +206,6 @@ export function PortraitCredentialsCard() {
 				) : (
 					<>
 						<div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
-							<span>
-								Env pair:{" "}
-								{data.env.configured ? (
-									<span className="font-mono text-foreground">
-										{data.env.accessKeyIdMasked} · {data.env.projectName}
-									</span>
-								) : (
-									"not configured"
-								)}
-							</span>
 							<span>
 								Platform portraits:{" "}
 								<span className="text-foreground">{data.portraitCount}</span>
@@ -248,6 +238,11 @@ export function PortraitCredentialsCard() {
 													<span>{key.comment ?? key.tokenMasked}</span>
 													{activeId === key.id && (
 														<Badge>Used for new portraits</Badge>
+													)}
+													{!key.eligible && (
+														<Badge variant="outline">
+															Not eligible (variant or region scoped)
+														</Badge>
 													)}
 												</div>
 												{key.comment && (

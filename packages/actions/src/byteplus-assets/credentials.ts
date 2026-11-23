@@ -107,25 +107,3 @@ export function decryptVerificationToken(
 		organizationId,
 	);
 }
-
-/**
- * LLM Gateway's own BytePlus access key pair, for the environment ByteDance
- * credential (`LLM_BYTEDANCE_API_KEY`, first entry). Null when unset.
- */
-export function getPlatformEnvAssetCredentials(): BytePlusAssetCredentials | null {
-	const accessKeyId = process.env.LLM_BYTEDANCE_ACCESS_KEY_ID?.trim();
-	const secretAccessKey = process.env.LLM_BYTEDANCE_SECRET_ACCESS_KEY?.trim();
-	if (!accessKeyId || !secretAccessKey) {
-		return null;
-	}
-	return {
-		accessKeyId,
-		secretAccessKey,
-		region:
-			process.env.LLM_BYTEDANCE_ASSET_REGION?.trim() ||
-			DEFAULT_BYTEPLUS_ASSET_REGION,
-		projectName:
-			process.env.LLM_BYTEDANCE_ASSET_PROJECT?.trim() ||
-			DEFAULT_BYTEPLUS_ASSET_PROJECT,
-	};
-}

@@ -51,6 +51,6 @@ ALTER TABLE "portrait_asset" ADD CONSTRAINT "portrait_asset_group_id_portrait_gr
 ALTER TABLE "portrait_asset" ADD CONSTRAINT "portrait_asset_created_by_user_id_fkey" FOREIGN KEY ("created_by") REFERENCES "user"("id") ON DELETE SET NULL;--> statement-breakpoint
 ALTER TABLE "portrait_group" ADD CONSTRAINT "portrait_group_organization_id_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "portrait_group" ADD CONSTRAINT "portrait_group_created_by_user_id_fkey" FOREIGN KEY ("created_by") REFERENCES "user"("id") ON DELETE SET NULL;--> statement-breakpoint
-ALTER TABLE "portrait_group" ADD CONSTRAINT "portrait_group_provider_key_id_provider_key_id_fkey" FOREIGN KEY ("provider_key_id") REFERENCES "provider_key"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "portrait_group" ADD CONSTRAINT "portrait_group_provider_key_id_provider_key_id_fkey" FOREIGN KEY ("provider_key_id") REFERENCES "provider_key"("id") ON DELETE SET NULL;--> statement-breakpoint
 ALTER TABLE "provider_key_asset_credential" ADD CONSTRAINT "provider_key_asset_credential_b3cZ4GCPxxyG_fkey" FOREIGN KEY ("provider_key_id") REFERENCES "provider_key"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "provider_key_asset_credential" ADD CONSTRAINT "provider_key_asset_credential_BbilIoBM3ppI_fkey" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE CASCADE;

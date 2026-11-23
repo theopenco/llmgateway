@@ -2,7 +2,7 @@
   "type": "diff",
   "version": "9",
   "dialect": "postgres",
-  "id": "69ab02e7-566d-4f76-884e-502664c915d7",
+  "id": "f945d2e0-8edd-423f-ab7a-3c2db7e21f05",
   "prevIds": [
     "c453ec95-ff0a-454a-8679-48d601ab58d9"
   ],
@@ -1166,7 +1166,7 @@
           "id"
         ],
         "onUpdate": "NO ACTION",
-        "onDelete": "CASCADE",
+        "onDelete": "SET NULL",
         "entityType": "fks"
       }
     },

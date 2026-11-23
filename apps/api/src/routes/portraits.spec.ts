@@ -14,7 +14,10 @@ import {
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import {
+	encryptAssetCredentials,
+	encryptProviderKeyForStorage,
+} from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
 
 import type { AddressInfo } from "node:net";
@@ -79,8 +82,6 @@ describe("portraits", () => {
 			"BYTEPLUS_OPENAPI_URL",
 			`http://localhost:${(server.address() as AddressInfo).port}`,
 		);
-		vi.stubEnv("LLM_BYTEDANCE_ACCESS_KEY_ID", "");
-		vi.stubEnv("LLM_BYTEDANCE_SECRET_ACCESS_KEY", "");
 	});
 
 	afterAll(async () => {
@@ -113,8 +114,6 @@ describe("portraits", () => {
 	});
 
 	afterEach(async () => {
-		vi.stubEnv("LLM_BYTEDANCE_ACCESS_KEY_ID", "");
-		vi.stubEnv("LLM_BYTEDANCE_SECRET_ACCESS_KEY", "");
 		await deleteAll();
 	});
 
@@ -258,28 +257,64 @@ describe("portraits", () => {
 		]);
 	});
 
-	test("platform portraits need LLM Gateway's access key pair and delete upstream", async () => {
-		const unavailable = await call("POST", "/portraits", {
-			organizationId: ORG_ID,
-			name: "Actor",
-			credentialSource: "platform",
-		});
+	test("platform portraits need a managed key pair and credits, and delete upstream", async () => {
+		const create = () =>
+			call("POST", "/portraits", {
+				organizationId: ORG_ID,
+				name: "Actor",
+				credentialSource: "platform",
+			});
+
+		const noCredits = await create();
+		expect(noCredits.status).toBe(402);
+
+		await db
+			.update(tables.organization)
+			.set({ credits: "25" })
+			.where(eq(tables.organization.id, ORG_ID));
+		const unavailable = await create();
 		expect(unavailable.status).toBe(400);
 
-		vi.stubEnv("LLM_BYTEDANCE_ACCESS_KEY_ID", ACCESS_KEY_ID);
-		vi.stubEnv("LLM_BYTEDANCE_SECRET_ACCESS_KEY", SECRET_ACCESS_KEY);
-		const created = await call("POST", "/portraits", {
-			organizationId: ORG_ID,
-			name: "Actor",
-			credentialSource: "platform",
+		await db.insert(tables.providerKey).values({
+			id: "managed-bytedance",
+			...encryptProviderKeyForStorage(
+				"ark-managed-spec",
+				"managed-bytedance",
+				null,
+			),
+			provider: "bytedance",
+			organizationId: null,
+			managed: true,
 		});
+		await db.insert(tables.providerKeyAssetCredential).values({
+			id: "managed-bytedance-assets",
+			providerKeyId: "managed-bytedance",
+			organizationId: null,
+			...encryptAssetCredentials(
+				{ accessKeyId: ACCESS_KEY_ID, secretAccessKey: SECRET_ACCESS_KEY },
+				"managed-bytedance-assets",
+				null,
+			),
+		});
+
+		const created = await create();
 		expect(created.status).toBe(200);
 		const { portrait } = await created.json();
 		expect(portrait.credentialSource).toBe("platform");
 		expect(portrait.providerKeyId).toBeNull();
+		expect(
+			calls[0].authorization?.startsWith(
+				`HMAC-SHA256 Credential=${ACCESS_KEY_ID}/`,
+			),
+		).toBe(true);
 
 		verifiedGroupId = "group-20260101000000-plat1";
-		await call("POST", `/portraits/${portrait.id}/refresh`);
+		const refreshed = await call("POST", `/portraits/${portrait.id}/refresh`);
+		const refreshedJson = await refreshed.json();
+		expect(refreshedJson.portrait.status).toBe("active");
+		// LLM Gateway's account ids stay internal.
+		expect(refreshedJson.portrait.upstreamGroupId).toBeNull();
+
 		const removed = await call("DELETE", `/portraits/${portrait.id}`);
 		expect(removed.status).toBe(200);
 		expect(calls.at(-1)).toMatchObject({

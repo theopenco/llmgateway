@@ -8730,11 +8730,12 @@ export const portraitGroup = snakeCase.table(
 		createdBy: text().references(() => user.id, { onDelete: "set null" }),
 		name: text().notNull(),
 		// "byok": the organization's own ByteDance key (providerKeyId).
-		// "platform": LLM Gateway's account, via a managed credential
-		// (providerKeyId) or the environment credential (providerKeyId NULL).
+		// "platform": a managed credential of LLM Gateway's (providerKeyId).
+		// NULL only once that key row was hard-deleted; the portrait is then
+		// unusable but kept so its upstream group can still be cleaned up.
 		credentialSource: text({ enum: portraitCredentialSources }).notNull(),
 		providerKeyId: text().references(() => providerKey.id, {
-			onDelete: "cascade",
+			onDelete: "set null",
 		}),
 		projectName: text().notNull().default("default"),
 		status: text({

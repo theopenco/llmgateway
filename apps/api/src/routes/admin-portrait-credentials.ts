@@ -9,12 +9,10 @@ import {
 	DEFAULT_BYTEPLUS_ASSET_PROJECT,
 	DEFAULT_BYTEPLUS_ASSET_REGION,
 	encryptAssetCredentials,
-	getPlatformEnvAssetCredentials,
 	resolvePlatformPortraitBinding,
 } from "@llmgateway/actions";
 import { and, asc, db, eq, inArray, shortid, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -24,11 +22,12 @@ import type { ServerTypes } from "@/vars.js";
  */
 export const adminPortraitCredentials = new OpenAPIHono<ServerTypes>();
 
-adminPortraitCredentials.use("/portrait-credentials/*", adminMiddleware);
-adminPortraitCredentials.use("/portrait-credentials", adminMiddleware);
+adminPortraitCredentials.use("/*", adminMiddleware);
 
 const managedKeySchema = z.object({
 	id: z.string(),
+	// Only default-variant, all-region credentials can host portraits.
+	eligible: z.boolean(),
 	comment: z.string().nullable(),
 	tokenMasked: z.string(),
 	status: z.string().nullable(),
@@ -47,11 +46,6 @@ const listRoute = createRoute({
 				"application/json": {
 					schema: z.object({
 						managedKeys: z.array(managedKeySchema),
-						env: z.object({
-							configured: z.boolean(),
-							accessKeyIdMasked: z.string().nullable(),
-							projectName: z.string().nullable(),
-						}),
 						// Which credential new platform portraits bind to.
 						activeBinding: z
 							.object({ providerKeyId: z.string().nullable() })
@@ -87,7 +81,6 @@ adminPortraitCredentials.openapi(listRoute, async (c) => {
 			),
 		)
 		.orderBy(asc(tables.providerKey.createdAt));
-	const env = getPlatformEnvAssetCredentials();
 	const binding = await resolvePlatformPortraitBinding();
 	const platformGroups = await db
 		.select({ id: tables.portraitGroup.id })
@@ -96,6 +89,7 @@ adminPortraitCredentials.openapi(listRoute, async (c) => {
 	return c.json({
 		managedKeys: rows.map(({ key, credential }) => ({
 			id: key.id,
+			eligible: key.variant === "default" && key.region === null,
 			comment: key.comment,
 			tokenMasked: key.tokenMasked,
 			status: key.status,
@@ -104,11 +98,6 @@ adminPortraitCredentials.openapi(listRoute, async (c) => {
 			projectName: credential?.projectName ?? null,
 			region: credential?.region ?? null,
 		})),
-		env: {
-			configured: env !== null,
-			accessKeyIdMasked: env ? maskToken(env.accessKeyId) : null,
-			projectName: env?.projectName ?? null,
-		},
 		activeBinding: binding ? { providerKeyId: binding.providerKeyId } : null,
 		portraitCount: platformGroups.length,
 	});

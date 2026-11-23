@@ -1,4 +1,5 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -50,6 +51,9 @@ type GroupRow = InferSelectModel<typeof tables.portraitGroup>;
 type AssetRow = InferSelectModel<typeof tables.portraitAsset>;
 
 const MAX_GROUPS_PER_ORG = 100;
+// Unverified people at once; each one holds an open BytePlus session.
+const MAX_PENDING_GROUPS_PER_ORG = 10;
+const MAX_ASSETS_PER_GROUP = 50;
 
 const assetTypeSchema = z.enum(["image", "video", "audio"]);
 
@@ -59,7 +63,8 @@ const assetSchema = z.object({
 	name: z.string().nullable(),
 	assetType: assetTypeSchema,
 	status: z.enum(["processing", "active", "failed", "deleted"]),
-	upstreamAssetId: z.string(),
+	// BytePlus asset id; null for portraits in LLM Gateway's account.
+	upstreamAssetId: z.string().nullable(),
 	// What to put in a video request's reference_images / reference_videos /
 	// reference_audios entry.
 	uri: z.string(),
@@ -88,34 +93,36 @@ const byokKeySchema = z.object({
 	region: z.string().nullable(),
 });
 
-function serializeAsset(row: AssetRow) {
+function serializeAsset(row: AssetRow, platform: boolean) {
 	return {
 		id: row.id,
 		createdAt: row.createdAt,
 		name: row.name,
 		assetType: row.assetType,
 		status: row.status,
-		upstreamAssetId: row.upstreamAssetId,
+		upstreamAssetId: platform ? null : row.upstreamAssetId,
 		uri: `asset://${row.id}`,
 		lastError: row.lastError,
 	};
 }
 
 function serializeGroup(row: GroupRow, assets: AssetRow[]) {
+	const platform = row.credentialSource === "platform";
 	return {
 		id: row.id,
 		createdAt: row.createdAt,
 		name: row.name,
 		credentialSource: row.credentialSource,
 		// A managed credential's id is platform infrastructure.
-		providerKeyId: row.credentialSource === "byok" ? row.providerKeyId : null,
+		providerKeyId: platform ? null : row.providerKeyId,
 		status: row.status,
-		upstreamGroupId: row.upstreamGroupId,
+		// LLM Gateway's account ids are platform infrastructure.
+		upstreamGroupId: platform ? null : row.upstreamGroupId,
 		verifiedAt: row.verifiedAt,
 		lastError: row.lastError,
 		assets: assets
 			.filter((asset) => asset.groupId === row.id)
-			.map(serializeAsset),
+			.map((asset) => serializeAsset(asset, platform)),
 	};
 }
 
@@ -193,8 +200,15 @@ async function loadGroupResponse(row: GroupRow) {
 	return serializeGroup(row, await listGroupAssets([row.id]));
 }
 
-/** Maps credential and upstream failures onto client-facing HTTP errors. */
-function toHttpError(error: unknown): unknown {
+const PLATFORM_ACCOUNT_ERROR =
+	/AccessKey|Signature|Auth|Permission|Forbidden|NotOpen|NotActivated|Quota/i;
+
+/**
+ * Maps credential and upstream failures onto client-facing HTTP errors.
+ * Account-level failures of LLM Gateway's own BytePlus account are not passed
+ * through: they describe platform infrastructure, not the request.
+ */
+function toHttpError(error: unknown, platform = false): unknown {
 	if (error instanceof PortraitCredentialError) {
 		return new HTTPException(error.status, { message: error.message });
 	}
@@ -204,6 +218,17 @@ function toHttpError(error: unknown): unknown {
 			code: error.code,
 			message: error.message,
 		});
+		if (
+			platform &&
+			(error.status === 401 ||
+				error.status === 403 ||
+				PLATFORM_ACCOUNT_ERROR.test(error.code ?? ""))
+		) {
+			return new HTTPException(503, {
+				message:
+					"Portraits on LLM Gateway credits are temporarily unavailable. Please try again later or contact support.",
+			});
+		}
 		return new HTTPException(error.status >= 500 ? 502 : 400, {
 			message: error.message,
 		});
@@ -211,12 +236,19 @@ function toHttpError(error: unknown): unknown {
 	return error;
 }
 
-async function withBytePlus<T>(run: () => Promise<T>): Promise<T> {
+async function withBytePlus<T>(
+	run: () => Promise<T>,
+	platform = false,
+): Promise<T> {
 	try {
 		return await run();
 	} catch (error) {
-		throw toHttpError(error);
+		throw toHttpError(error, platform);
 	}
+}
+
+function isPlatform(row: GroupRow): boolean {
+	return row.credentialSource === "platform";
 }
 
 async function credentialsFor(
@@ -225,7 +257,53 @@ async function credentialsFor(
 	return await withBytePlus(
 		async () =>
 			await resolvePortraitAssetCredentials(bindingOf(row), row.organizationId),
+		isPlatform(row),
 	);
+}
+
+/**
+ * Portraits on credits use LLM Gateway's BytePlus account, so they need an
+ * organization that pays for usage.
+ */
+function assertPlatformPortraitsAllowed(
+	organization: InferSelectModel<typeof tables.organization> | undefined,
+) {
+	if (!organization || !new Decimal(organization.credits).gt(0)) {
+		throw new HTTPException(402, {
+			message:
+				"Portraits on LLM Gateway credits need a positive credit balance. Add credits or use your own ByteDance provider key.",
+		});
+	}
+}
+
+/**
+ * Deletes a platform portrait's upstream data. When LLM Gateway's credential
+ * for it is gone, the person can still remove it here; the upstream group is
+ * logged for manual cleanup instead.
+ */
+async function deleteFromPlatformAccount(
+	row: GroupRow,
+	run: (credentials: BytePlusAssetCredentials) => Promise<void>,
+) {
+	let credentials: BytePlusAssetCredentials;
+	try {
+		credentials = await resolvePortraitAssetCredentials(
+			bindingOf(row),
+			row.organizationId,
+		);
+	} catch (error) {
+		if (!(error instanceof PortraitCredentialError)) {
+			throw error;
+		}
+		logger.error("Platform portrait deleted without upstream cleanup", {
+			portraitId: row.id,
+			providerKeyId: row.providerKeyId,
+			upstreamGroupId: row.upstreamGroupId,
+			reason: error.message,
+		});
+		return;
+	}
+	await withBytePlus(async () => await run(credentials), true);
 }
 
 function verificationCallbackUrl(groupId: string): string {
@@ -243,6 +321,7 @@ async function startVerification(row: GroupRow): Promise<string> {
 				credentials,
 				verificationCallbackUrl(row.id),
 			),
+		isPlatform(row),
 	);
 	await db
 		.update(tables.portraitGroup)
@@ -556,7 +635,10 @@ const createGroupRoute = createRoute({
 portraits.openapi(createGroupRoute, async (c) => {
 	const user = c.get("user");
 	const body = c.req.valid("json");
-	await requirePortraitAdmin(user?.id, body.organizationId);
+	const organization = await requirePortraitAdmin(
+		user?.id,
+		body.organizationId,
+	);
 
 	let binding: PortraitCredentialBinding;
 	if (body.credentialSource === "byok") {
@@ -571,6 +653,7 @@ portraits.openapi(createGroupRoute, async (c) => {
 		);
 		binding = { source: "byok", providerKeyId: key.id };
 	} else {
+		assertPlatformPortraitsAllowed(organization);
 		const platform = await resolvePlatformPortraitBinding();
 		if (!platform) {
 			throw new HTTPException(400, {
@@ -582,7 +665,7 @@ portraits.openapi(createGroupRoute, async (c) => {
 	}
 
 	const existing = await db
-		.select({ id: tables.portraitGroup.id })
+		.select({ status: tables.portraitGroup.status })
 		.from(tables.portraitGroup)
 		.where(
 			and(
@@ -595,11 +678,20 @@ portraits.openapi(createGroupRoute, async (c) => {
 			message: `Organizations can have at most ${MAX_GROUPS_PER_ORG} portraits`,
 		});
 	}
+	if (
+		existing.filter((group) => group.status !== "active").length >=
+		MAX_PENDING_GROUPS_PER_ORG
+	) {
+		throw new HTTPException(400, {
+			message: `Finish or delete pending verifications first (at most ${MAX_PENDING_GROUPS_PER_ORG} at a time)`,
+		});
+	}
 
 	// Fail on missing credentials before creating a row.
 	await withBytePlus(
 		async () =>
 			await resolvePortraitAssetCredentials(binding, body.organizationId),
+		binding.source === "platform",
 	);
 
 	const [row] = await db
@@ -659,6 +751,13 @@ portraits.openapi(restartVerificationRoute, async (c) => {
 			message: "This portrait is already verified",
 		});
 	}
+	if (isPlatform(row)) {
+		const [organization] = await db
+			.select()
+			.from(tables.organization)
+			.where(eq(tables.organization.id, row.organizationId));
+		assertPlatformPortraitsAllowed(organization);
+	}
 	const verificationUrl = await startVerification(row);
 	await logAuditEvent({
 		organizationId: row.organizationId,
@@ -707,8 +806,13 @@ portraits.openapi(refreshRoute, async (c) => {
 		} catch (error) {
 			// BytePlus answers an unfinished verification with a client error;
 			// keep the portrait pending and show why.
-			if (!(error instanceof BytePlusAssetsError) || error.status >= 500) {
-				throw toHttpError(error);
+			const mapped = toHttpError(error, isPlatform(row));
+			if (
+				!(error instanceof BytePlusAssetsError) ||
+				!(mapped instanceof HTTPException) ||
+				mapped.status !== 400
+			) {
+				throw mapped;
 			}
 			[row] = await db
 				.update(tables.portraitGroup)
@@ -716,18 +820,27 @@ portraits.openapi(refreshRoute, async (c) => {
 				.where(eq(tables.portraitGroup.id, row.id))
 				.returning();
 		}
-		if (groupId) {
-			[row] = await db
-				.update(tables.portraitGroup)
-				.set({
-					status: "active",
-					upstreamGroupId: groupId,
-					verificationTokenCiphertext: null,
-					verifiedAt: new Date(),
-					lastError: null,
-				})
-				.where(eq(tables.portraitGroup.id, row.id))
-				.returning();
+		const [activated] = groupId
+			? await db
+					.update(tables.portraitGroup)
+					.set({
+						status: "active",
+						upstreamGroupId: groupId,
+						verificationTokenCiphertext: null,
+						verifiedAt: new Date(),
+						lastError: null,
+					})
+					.where(
+						and(
+							eq(tables.portraitGroup.id, row.id),
+							ne(tables.portraitGroup.status, "active"),
+						),
+					)
+					.returning()
+			: [];
+		// A concurrent refresh may have activated it first.
+		if (activated) {
+			row = activated;
 			await logAuditEvent({
 				organizationId: row.organizationId,
 				userId: user!.id,
@@ -764,7 +877,11 @@ portraits.openapi(refreshRoute, async (c) => {
 			}
 			await db
 				.update(tables.portraitAsset)
-				.set({ lastError: error.message })
+				.set({
+					lastError: isPlatform(row)
+						? "Could not check the asset status. Try again later."
+						: error.message,
+				})
 				.where(eq(tables.portraitAsset.id, asset.id));
 		}
 	}
@@ -815,6 +932,11 @@ portraits.openapi(createAssetRoute, async (c) => {
 					: "Invalid asset URL",
 		});
 	}
+	if ((await listGroupAssets([row.id])).length >= MAX_ASSETS_PER_GROUP) {
+		throw new HTTPException(400, {
+			message: `A portrait can have at most ${MAX_ASSETS_PER_GROUP} assets`,
+		});
+	}
 	const credentials = await credentialsFor(row);
 	const upstreamGroupId = row.upstreamGroupId;
 	const created = await withBytePlus(
@@ -825,6 +947,7 @@ portraits.openapi(createAssetRoute, async (c) => {
 				assetType: UPSTREAM_ASSET_TYPE[body.assetType],
 				name: body.name,
 			}),
+		isPlatform(row),
 	);
 	const [asset] = await db
 		.insert(tables.portraitAsset)
@@ -1000,11 +1123,10 @@ portraits.openapi(deleteAssetRoute, async (c) => {
 		throw new HTTPException(404, { message: "Asset not found" });
 	}
 	const group = await loadGroup(user?.id, asset.groupId);
-	if (group.credentialSource === "platform") {
-		const credentials = await credentialsFor(group);
-		await withBytePlus(
-			async () => await deleteAsset(credentials, asset.upstreamAssetId),
-		);
+	if (isPlatform(group)) {
+		await deleteFromPlatformAccount(group, async (credentials) => {
+			await deleteAsset(credentials, asset.upstreamAssetId);
+		});
 	}
 	await db
 		.update(tables.portraitAsset)
@@ -1038,12 +1160,11 @@ const deleteGroupRoute = createRoute({
 portraits.openapi(deleteGroupRoute, async (c) => {
 	const user = c.get("user");
 	const row = await loadGroup(user?.id, c.req.valid("param").id);
-	if (row.credentialSource === "platform" && row.upstreamGroupId) {
-		const credentials = await credentialsFor(row);
-		const upstreamGroupId = row.upstreamGroupId;
-		await withBytePlus(
-			async () => await deleteAssetGroup(credentials, upstreamGroupId),
-		);
+	const upstreamGroupId = row.upstreamGroupId;
+	if (isPlatform(row) && upstreamGroupId) {
+		await deleteFromPlatformAccount(row, async (credentials) => {
+			await deleteAssetGroup(credentials, upstreamGroupId);
+		});
 	}
 	await db
 		.update(tables.portraitAsset)

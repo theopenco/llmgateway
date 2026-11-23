@@ -1,8 +1,7 @@
-import { and, db, eq, tables } from "@llmgateway/db";
+import { and, asc, db, eq, isNull, tables } from "@llmgateway/db";
 
 import {
 	decryptAssetCredentials,
-	getPlatformEnvAssetCredentials,
 	type BytePlusAssetCredentials,
 } from "./credentials.js";
 
@@ -10,8 +9,8 @@ import type { PortraitCredentialSource } from "@llmgateway/db";
 
 /**
  * The BytePlus account a portrait group lives in: an organization's own
- * ByteDance key, a managed credential, or (platform with no key) the
- * environment credential.
+ * ByteDance key ("byok") or one of LLM Gateway's managed credentials
+ * ("platform"). providerKeyId is only null once that key was hard-deleted.
  */
 export interface PortraitCredentialBinding {
 	source: PortraitCredentialSource;
@@ -38,19 +37,16 @@ async function loadAssetCredentialRow(providerKeyId: string) {
 }
 
 /**
- * The platform binding new platform portraits use: the first active managed
- * ByteDance credential with an access key pair, else the environment pair when
- * no managed ByteDance credential exists (managed credentials supersede the
- * environment). Null when LLM Gateway has no BytePlus access key configured.
+ * The managed credential new platform portraits bind to: the first active
+ * default-variant, all-region managed ByteDance credential with an access key
+ * pair, so any organization's credits traffic may use it. Null when LLM
+ * Gateway has none.
  */
 export async function resolvePlatformPortraitBinding(): Promise<PortraitCredentialBinding | null> {
-	const managed = await db
-		.select({
-			id: tables.providerKey.id,
-			hasAssetCredentials: tables.providerKeyAssetCredential.id,
-		})
+	const [row] = await db
+		.select({ id: tables.providerKey.id })
 		.from(tables.providerKey)
-		.leftJoin(
+		.innerJoin(
 			tables.providerKeyAssetCredential,
 			eq(
 				tables.providerKeyAssetCredential.providerKeyId,
@@ -62,17 +58,13 @@ export async function resolvePlatformPortraitBinding(): Promise<PortraitCredenti
 				eq(tables.providerKey.managed, true),
 				eq(tables.providerKey.provider, "bytedance"),
 				eq(tables.providerKey.status, "active"),
+				eq(tables.providerKey.variant, "default"),
+				isNull(tables.providerKey.region),
 			),
 		)
-		.orderBy(tables.providerKey.createdAt, tables.providerKey.id);
-	const withCredentials = managed.find((row) => row.hasAssetCredentials);
-	if (withCredentials) {
-		return { source: "platform", providerKeyId: withCredentials.id };
-	}
-	if (managed.length === 0 && getPlatformEnvAssetCredentials()) {
-		return { source: "platform", providerKeyId: null };
-	}
-	return null;
+		.orderBy(asc(tables.providerKey.createdAt), asc(tables.providerKey.id))
+		.limit(1);
+	return row ? { source: "platform", providerKeyId: row.id } : null;
 }
 
 /**
@@ -85,16 +77,9 @@ export async function resolvePortraitAssetCredentials(
 	organizationId: string,
 ): Promise<BytePlusAssetCredentials> {
 	if (!binding.providerKeyId) {
-		if (binding.source !== "platform") {
-			throw new PortraitCredentialError("A BYOK portrait needs a provider key");
-		}
-		const env = getPlatformEnvAssetCredentials();
-		if (!env) {
-			throw new PortraitCredentialError(
-				"LLM Gateway's BytePlus asset credentials are not configured",
-			);
-		}
-		return env;
+		throw new PortraitCredentialError(
+			"The ByteDance account for this portrait no longer exists",
+		);
 	}
 
 	const key = await db.query.providerKey.findFirst({

@@ -131,13 +131,20 @@ export async function createVisualValidateSession(
 		"CreateVisualValidateSession",
 		{ CallbackURL: callbackUrl },
 	);
+	const h5Link = requireString(result, "H5Link", "CreateVisualValidateSession");
+	if (!h5Link.startsWith("https://")) {
+		throw new BytePlusAssetsError(
+			"BytePlus CreateVisualValidateSession returned a non-HTTPS link",
+			502,
+		);
+	}
 	return {
 		bytedToken: requireString(
 			result,
 			"BytedToken",
 			"CreateVisualValidateSession",
 		),
-		h5Link: requireString(result, "H5Link", "CreateVisualValidateSession"),
+		h5Link,
 	};
 }
 
