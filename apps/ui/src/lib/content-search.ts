@@ -1,24 +1,23 @@
 /** Lower-cased and stripped of accents, so "Resume" finds "résumé". */
 function normalize(text: string): string {
-	return text
-		.normalize("NFD")
-		.replace(/[\u0300-\u036f]/g, "")
-		.toLowerCase();
+	return text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
 /**
- * True when every word of the query appears somewhere in the fields. Words
- * may match different fields, so "devpass limits" finds an entry tagged
- * DevPass whose title mentions limits.
+ * Matcher for one query, tokenized once however many entries it filters.
+ * Matches when every word of the query appears somewhere in the fields.
+ * Words may match different fields, so "devpass limits" finds an entry
+ * tagged DevPass whose title mentions limits.
  */
-export function matchesQuery(
-	fields: readonly (string | undefined)[],
+export function queryMatcher(
 	query: string,
-): boolean {
+): (fields: readonly (string | undefined)[]) => boolean {
 	const words = normalize(query).split(/\s+/).filter(Boolean);
 	if (words.length === 0) {
-		return true;
+		return () => true;
 	}
-	const haystack = normalize(fields.filter(Boolean).join(" "));
-	return words.every((word) => haystack.includes(word));
+	return (fields) => {
+		const haystack = normalize(fields.filter(Boolean).join(" "));
+		return words.every((word) => haystack.includes(word));
+	};
 }

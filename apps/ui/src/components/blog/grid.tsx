@@ -8,7 +8,7 @@ import {
 	NoSearchResults,
 	useContentSearch,
 } from "@/components/content-search";
-import { matchesQuery } from "@/lib/content-search";
+import { queryMatcher } from "@/lib/content-search";
 import { slugify } from "@/lib/slugify";
 
 export interface BlogGridItem {
@@ -31,16 +31,14 @@ export function BlogGrid({
 	searchLabel: string;
 }) {
 	const [query, setQuery] = useContentSearch();
+	const matchesEntry = queryMatcher(query);
 	const matches = entries.filter((entry) =>
-		matchesQuery(
-			[
-				entry.title,
-				entry.summary,
-				entry.author?.name,
-				...(entry.categories ?? []),
-			],
-			query,
-		),
+		matchesEntry([
+			entry.title,
+			entry.summary,
+			entry.author?.name,
+			...(entry.categories ?? []),
+		]),
 	);
 
 	return (

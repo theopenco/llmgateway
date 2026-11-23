@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { matchesQuery } from "./content-search";
+import { queryMatcher } from "./content-search";
 
-describe("matchesQuery", () => {
+describe("queryMatcher", () => {
 	const fields = [
 		"DevPass Allowance Carries Over",
 		"Unused allowance",
@@ -10,21 +10,21 @@ describe("matchesQuery", () => {
 	];
 
 	it("matches everything for an empty query", () => {
-		expect(matchesQuery(fields, "")).toBe(true);
-		expect(matchesQuery(fields, "   ")).toBe(true);
+		expect(queryMatcher("")(fields)).toBe(true);
+		expect(queryMatcher("   ")(fields)).toBe(true);
 	});
 
 	it("ignores case and accents", () => {
-		expect(matchesQuery(fields, "ALLOWANCE")).toBe(true);
-		expect(matchesQuery(["Résumé parsing"], "resume")).toBe(true);
+		expect(queryMatcher("ALLOWANCE")(fields)).toBe(true);
+		expect(queryMatcher("resume")(["Résumé parsing"])).toBe(true);
 	});
 
 	it("needs every word, across any field", () => {
-		expect(matchesQuery(fields, "devpass unused")).toBe(true);
-		expect(matchesQuery(fields, "devpass refunds")).toBe(false);
+		expect(queryMatcher("devpass unused")(fields)).toBe(true);
+		expect(queryMatcher("devpass refunds")(fields)).toBe(false);
 	});
 
 	it("skips missing fields", () => {
-		expect(matchesQuery([undefined, "Batch API"], "batch")).toBe(true);
+		expect(queryMatcher("batch")([undefined, "Batch API"])).toBe(true);
 	});
 });

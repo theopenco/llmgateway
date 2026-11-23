@@ -16,7 +16,7 @@ import {
 	changelogProducts,
 	changelogTags,
 } from "@/lib/changelog";
-import { matchesQuery } from "@/lib/content-search";
+import { queryMatcher } from "@/lib/content-search";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
 
@@ -34,17 +34,15 @@ export function Changelog({ entries, tag, page }: ChangelogProps) {
 	const [query, setQuery] = useContentSearch();
 	const [searchPages, setSearchPages] = useState(1);
 	const searching = query.trim().length > 0;
+	const matchesEntry = queryMatcher(query);
 	// A search looks through every update, not only the page being read.
 	const matches = searching
 		? entries.filter((entry) =>
-				matchesQuery(
-					[
-						entry.title,
-						entry.summary,
-						...entry.tags.map((entryTag) => changelogProducts[entryTag].name),
-					],
-					query,
-				),
+				matchesEntry([
+					entry.title,
+					entry.summary,
+					...entry.tags.map((entryTag) => changelogProducts[entryTag].name),
+				]),
 			)
 		: entries;
 	const start = searching ? 0 : (page - 1) * changelogPageSize;
