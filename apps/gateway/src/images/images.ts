@@ -107,7 +107,7 @@ const imageGenerationsRequestSchema = z
 		}),
 		background: z.enum(["transparent", "opaque", "auto"]).optional().openapi({
 			description:
-				"Background behavior for models with a native background control (Seedream 5.5). `transparent` requires `png` output. Ignored by other models.",
+				"Background behavior for models with a native background control: GPT Image (OpenAI and Azure) and Seedream 5.5. `transparent` requires `png` output (or `webp` on GPT Image). Ignored by other models.",
 			example: "transparent",
 		}),
 		output_format: z

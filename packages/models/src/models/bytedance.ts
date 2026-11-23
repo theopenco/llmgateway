@@ -475,6 +475,10 @@ export const bytedanceModels = [
 					"2K": "0.035",
 					default: "0.035",
 				},
+				perImagePriceByPixels: [
+					{ upToPixels: 2610000, price: "0.02" },
+					{ upToPixels: 4630000, price: "0.035" },
+				],
 				perInputImagePrice: "0.008",
 				contextSize: 2000,
 				maxOutput: 4096,

@@ -694,6 +694,19 @@ export async function calculateCosts(
 		);
 	}
 
+	// Prices a `WIDTHxHEIGHT` size by the first pixel-area band that fits it.
+	function resolvePerImagePriceByPixels(
+		bands: Array<{ upToPixels: number; price: string }> | undefined,
+		size: string | undefined,
+	): string | undefined {
+		const match = size ? /^(\d+)x(\d+)$/.exec(size) : null;
+		if (!bands || !match) {
+			return undefined;
+		}
+		const pixels = Number(match[1]) * Number(match[2]);
+		return bands.find((band) => pixels <= band.upToPixels)?.price;
+	}
+
 	// Track image input tokens separately. For image-output models (e.g.
 	// gpt-image-2, Gemini image models) we prefer the upstream-reported
 	// image token count, which is already part of the reported prompt tokens.
@@ -895,6 +908,10 @@ export async function calculateCosts(
 		// a lookup miss can only overcharge, never bill a generated image at $0
 		// (same stance as the unknown-size → "default" fallback).
 		const perImagePrice =
+			resolvePerImagePriceByPixels(
+				providerInfo.perImagePriceByPixels,
+				perImageTier,
+			) ??
 			resolveByResolution(perImagePriceMap, perImageTier) ??
 			Object.values(perImagePriceMap).reduce(
 				(max, v) => (new Decimal(v).gt(max) ? v : max),

@@ -2385,6 +2385,37 @@ describe("calculateCosts", () => {
 			0,
 		);
 		expect(noSize.imageOutputCost).toBeCloseTo(0.035);
+
+		// Custom sizes bill by pixel area: 1024x1024 (1.05MP) is the low band,
+		// 2560x1440 (3.69MP) the high one.
+		const small = await calculateCosts(
+			"seedream-5-5",
+			"bytedance",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"1024x1024",
+			0,
+		);
+		expect(small.imageOutputCost).toBeCloseTo(0.02);
+		const large = await calculateCosts(
+			"seedream-5-5",
+			"bytedance",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"2560x1440",
+			0,
+		);
+		expect(large.imageOutputCost).toBeCloseTo(0.035);
 	});
 
 	it("falls back to the default perImagePrice tier for unknown or missing sizes", async () => {

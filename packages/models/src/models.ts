@@ -480,6 +480,11 @@ export interface ProviderModelMapping {
 	 */
 	perInputImagePrice?: Price;
 	/**
+	 * Per-image prices by output pixel area, ascending, for providers that bill
+	 * by area band. Used when a `WIDTHxHEIGHT` size has no `perImagePrice` key.
+	 */
+	perImagePriceByPixels?: Array<{ upToPixels: number; price: Price }>;
+	/**
 	 * Pricing tiers for models with context-length based pricing.
 	 * When set, inputPrice and outputPrice represent the base tier.
 	 * Tiers should be sorted by upToTokens in ascending order.
