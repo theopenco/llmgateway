@@ -1272,7 +1272,8 @@ function isBytedanceSeedance2Model(externalId: string): boolean {
 		externalId === "dreamina-seedance-2-0-260128" ||
 		externalId === "dreamina-seedance-2-0-fast-260128" ||
 		externalId === "dreamina-seedance-2-0-mini-260615" ||
-		externalId === "dreamina-seedance-2-5-260628"
+		externalId === "dreamina-seedance-2-5-260628" ||
+		externalId === "dreamina-seedance-2-5-flash-261115"
 	);
 }
 
@@ -1441,7 +1442,7 @@ function getVideoProviderConstraintReasons(
 		if (provider.providerId === "bytedance") {
 			if (!isBytedanceSeedance2Model(provider.externalId)) {
 				reasons.push(
-					"frame inputs are currently only supported on bytedance Seedance 2.x (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini, seedance-2-5)",
+					"frame inputs are currently only supported on bytedance Seedance 2.x (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini, seedance-2-5, seedance-2-5-flash)",
 				);
 			}
 		} else if (isAtlasCloudVideoProvider(provider.providerId)) {
@@ -1540,7 +1541,7 @@ function getVideoProviderConstraintReasons(
 		if (provider.providerId === "bytedance") {
 			if (!isBytedanceSeedance2Model(provider.externalId)) {
 				reasons.push(
-					"reference inputs are currently only supported on bytedance Seedance 2.x (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini, seedance-2-5)",
+					"reference inputs are currently only supported on bytedance Seedance 2.x (seedance-2-0, seedance-2-0-fast, seedance-2-0-mini, seedance-2-5, seedance-2-5-flash)",
 				);
 			} else if (inputImageCount > SEEDANCE_2_MAX_REFERENCE_IMAGES) {
 				reasons.push(

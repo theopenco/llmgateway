@@ -201,6 +201,56 @@ export const bytedanceModels = [
 		],
 	},
 	{
+		id: "seedance-2-5-flash",
+		name: "Seedance 2.5 Flash",
+		description:
+			"ByteDance Seedance 2.5 Flash video generation model with near-flagship quality at twice the speed, clips up to 30 seconds, and omni-reference image/video/audio conditioning",
+		family: "bytedance",
+		output: ["video"],
+		maxVideoDurationSeconds: 30,
+		releasedAt: new Date("2026-11-15"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "bytedance",
+				externalId: "dreamina-seedance-2-5-flash-261115",
+				videoOutputPrice: {
+					default_without_video: "7e-6",
+					default_with_video: "4.3e-6",
+				},
+				inputPrice: undefined,
+				outputPrice: undefined,
+				requestPrice: undefined,
+				perSecondPrice: {
+					default_audio: "0.1512",
+					default_video: "0.1512",
+					"480p_audio": "0.0672525",
+					"480p_video": "0.0672525",
+				},
+				contextSize: 2000,
+				maxOutput: 1,
+				streaming: false,
+				vision: false,
+				tools: false,
+				jsonOutput: false,
+				videoGenerations: true,
+				supportedVideoSizes: [
+					"848x480",
+					"854x480",
+					"480x854",
+					"1280x720",
+					"720x1280",
+				],
+				supportedVideoDurationsSeconds: [
+					4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+					23, 24, 25, 26, 27, 28, 29, 30,
+				],
+				supportsVideoAudio: true,
+				supportsVideoWithoutAudio: true,
+			},
+		],
+	},
+	{
 		id: "seedance-2-0",
 		name: "Seedance 2.0",
 		description:

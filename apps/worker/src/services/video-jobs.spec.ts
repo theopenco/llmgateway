@@ -196,6 +196,8 @@ describe("video job polling credential", () => {
 const seedanceRates = [
 	["seedance-2-5", "720p", "10.7e-6", "6.4e-6"],
 	["seedance-2-5", "1080p", "11.7e-6", "7e-6"],
+	["seedance-2-5-flash", "480p", "7e-6", "4.3e-6"],
+	["seedance-2-5-flash", "720p", "7e-6", "4.3e-6"],
 	["seedance-2-0", "720p", "7e-6", "4.3e-6"],
 	["seedance-2-0", "1080p", "7.7e-6", "4.7e-6"],
 	["seedance-2-0", "4k", "4e-6", "2.4e-6"],
