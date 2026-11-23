@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useId, useState } from "react";
+import { useDeferredValue, useId, useState } from "react";
 
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
@@ -32,6 +32,9 @@ export function ContextWindowClient({
 }) {
 	const id = useId();
 	const [text, setText] = useState("");
+	// Tokenizing a large pasted document blocks the main thread; the deferred
+	// value keeps typing responsive while the table catches up.
+	const deferredText = useDeferredValue(text);
 	const [manualTokens, setManualTokens] = useState("");
 	const [outputTokens, setOutputTokens] = useState("4000");
 	const [query, setQuery] = useState("");
@@ -84,7 +87,7 @@ export function ContextWindowClient({
 			</div>
 			<ContextWindowTable
 				models={models}
-				text={text}
+				text={deferredText}
 				manualTokens={toCount(manualTokens)}
 				outputTokens={toCount(outputTokens)}
 				query={query}

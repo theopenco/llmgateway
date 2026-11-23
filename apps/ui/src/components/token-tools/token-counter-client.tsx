@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useId, useState } from "react";
+import { useDeferredValue, useId, useState } from "react";
 
 import { Label } from "@/lib/components/label";
 import { Textarea } from "@/lib/components/textarea";
@@ -20,6 +20,9 @@ const TokenCounterStats = dynamic(
 export function TokenCounterClient() {
 	const id = useId();
 	const [text, setText] = useState("");
+	// Tokenizing a large pasted document blocks the main thread; the deferred
+	// value keeps typing responsive while the count catches up.
+	const deferredText = useDeferredValue(text);
 	return (
 		<div className="space-y-6">
 			<div className="space-y-2">
@@ -32,7 +35,7 @@ export function TokenCounterClient() {
 					className="min-h-56 font-mono text-sm"
 				/>
 			</div>
-			<TokenCounterStats text={text} />
+			<TokenCounterStats text={deferredText} />
 		</div>
 	);
 }
