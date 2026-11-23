@@ -8,6 +8,11 @@ export const AI_CRAWLER_USER_AGENTS = [
 	"OAI-SearchBot",
 	"ClaudeBot",
 	"Claude-User",
+	"Claude-SearchBot",
 	"PerplexityBot",
+	"Perplexity-User",
 	"Google-Extended",
+	"MistralAI-Index",
+	"MistralAI-User",
+	"DuckAssistBot",
 ];

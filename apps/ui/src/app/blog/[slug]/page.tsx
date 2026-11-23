@@ -6,6 +6,7 @@ import { notFound } from "next/navigation";
 
 import { ContentMentions } from "@/components/blog/content-mentions";
 import { ContentConversionRail } from "@/components/content-conversion-rail";
+import { ContentNextStep } from "@/components/content-next-step";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { blogAuthorSlug } from "@/lib/blog-authors";
@@ -135,6 +136,12 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 			},
 		],
 	};
+
+	// Follow whichever offer the post's inline cards already make, so the
+	// closing card and the rail reinforce them instead of competing.
+	const offer = entry.content.includes('variant="devpass"')
+		? "devpass"
+		: "gateway";
 
 	return (
 		<>
@@ -269,6 +276,12 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 							) : null}
 
 							<ContentMentions content={entry.content} />
+
+							<ContentNextStep
+								surface="blog"
+								variant={offer}
+								showOffer={!entry.content.includes("<BlogCta")}
+							/>
 						</article>
 					</div>
 				</main>
@@ -278,9 +291,7 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 				surface="blog"
 				// Follow whichever offer the post's inline cards already make, so the
 				// rail reinforces them instead of competing.
-				variant={
-					entry.content.includes('variant="devpass"') ? "devpass" : "gateway"
-				}
+				variant={offer}
 				model={entry.model}
 			/>
 		</>

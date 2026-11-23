@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { posthog } from "@/posthog.js";
 import { setBlockedSignupCountries } from "@/utils/country-blocking.js";
 
 import { db, eq, tables } from "@llmgateway/db";
@@ -245,6 +246,48 @@ describe("API auth hooks functionality", () => {
 		expect(
 			await db.$count(tables.apiKey, eq(tables.apiKey.projectId, project!.id)),
 		).toBe(0);
+	});
+
+	test("captures account_created once per new account, with the method", async () => {
+		const capture = vi.spyOn(posthog, "capture");
+		const email = `test-capture-${Date.now()}@example.com`;
+		const signUp = () =>
+			apiAuth.handler(
+				new Request("http://localhost:4002/auth/sign-up/email", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"x-client-region": "de",
+					},
+					body: JSON.stringify({
+						email,
+						password: "Password123!",
+						name: "Test User",
+					}),
+				}),
+			);
+
+		try {
+			expect((await signUp()).status).toBe(200);
+			// A repeat signup for the same email creates no user.
+			await signUp();
+
+			const user = await db.query.user.findFirst({
+				where: { email: { eq: email } },
+			});
+			const created = capture.mock.calls
+				.map(([message]) => message)
+				.filter((message) => message.event === "account_created");
+			expect(created).toEqual([
+				{
+					distinctId: user!.id,
+					event: "account_created",
+					properties: { method: "email", country: "DE" },
+				},
+			]);
+		} finally {
+			capture.mockRestore();
+		}
 	});
 
 	test("should create personal organization for DevPass (code app) signup", async () => {

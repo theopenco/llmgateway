@@ -30,6 +30,9 @@ const analytics = {
 	identify: (...args: Parameters<PostHog["identify"]>) => {
 		run((posthog) => posthog.identify(...args));
 	},
+	register: (...args: Parameters<PostHog["register"]>) => {
+		run((posthog) => posthog.register(...args));
+	},
 	reset: (...args: Parameters<PostHog["reset"]>) => {
 		run((posthog) => posthog.reset(...args));
 	},

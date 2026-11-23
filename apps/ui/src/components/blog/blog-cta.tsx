@@ -12,9 +12,12 @@ import { usePostHog } from "@/lib/posthog";
 export function BlogCta({
 	variant = "devpass",
 	location = "inline",
+	surface = "blog",
 }: {
 	variant?: "devpass" | "gateway" | "enterprise";
 	location?: string;
+	/** Content type the card sits in; prefixes the analytics location. */
+	surface?: string;
 }) {
 	const posthog = usePostHog();
 	const pathname = usePathname();
@@ -22,7 +25,7 @@ export function BlogCta({
 
 	const track = (cta: string) => {
 		posthog.capture("cta_clicked", {
-			location: `blog_${location}`,
+			location: `${surface}_${location}`,
 			cta,
 			post,
 		});

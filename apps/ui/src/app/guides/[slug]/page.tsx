@@ -5,6 +5,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { ContentConversionRail } from "@/components/content-conversion-rail";
+import { ContentNextStep } from "@/components/content-next-step";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { pageTitle } from "@/lib/page-title";
@@ -151,6 +152,12 @@ export default async function GuidePage({ params }: GuidePageProps) {
 									{guide.content}
 								</Markdown>
 							</div>
+
+							<ContentNextStep
+								surface="guide"
+								variant="devpass"
+								showOffer={!guide.content.includes("<BlogCta")}
+							/>
 						</article>
 					</div>
 				</main>
