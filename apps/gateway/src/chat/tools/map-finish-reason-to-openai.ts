@@ -99,6 +99,22 @@ export function mapFinishReasonToOpenai(
 				default:
 					return "stop";
 			}
+		case "aws-bedrock":
+			// Claude on Bedrock's Messages API returns Anthropic stop reasons;
+			// Converse and OpenAI-compatible responses are already canonical.
+			switch (finishReason) {
+				case "end_turn":
+				case "stop_sequence":
+					return "stop";
+				case "max_tokens":
+					return "length";
+				case "tool_use":
+					return "tool_calls";
+			}
+			if (!finishReason) {
+				return hasToolCalls ? "tool_calls" : "stop";
+			}
+			return finishReason;
 		default:
 			// OpenAI-format providers already emit canonical values
 			// (the idempotency switch above handles the canonical cases)
