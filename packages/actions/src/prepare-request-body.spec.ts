@@ -10554,6 +10554,68 @@ describe("prepareRequestBody - declared web search format", () => {
 	});
 });
 
+describe("prepareRequestBody - forced Anthropic web search", () => {
+	const prepare = (
+		provider: string,
+		model: string,
+		webSearchTool: unknown,
+		reasoningMaxTokens?: number,
+	) => {
+		const args: unknown[] = [
+			provider,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "hi" }],
+			false,
+		];
+		args[15] = reasoningMaxTokens !== undefined;
+		args[23] = webSearchTool;
+		args[24] = reasoningMaxTokens;
+		return (prepareRequestBody as (...a: unknown[]) => Promise<any>)(...args);
+	};
+
+	test.each(["anthropic", "vertex-anthropic", "azure-anthropic"])(
+		"%s forces the server tool",
+		async (provider) => {
+			const body = await prepare(provider, "claude-sonnet-5", {
+				type: "web_search",
+				forced: true,
+			});
+			expect(body.tools).toEqual([
+				{ type: "web_search_20250305", name: "web_search" },
+			]);
+			expect(body.tool_choice).toEqual({ type: "tool", name: "web_search" });
+		},
+	);
+
+	test("does not force on a model without forced tool choice", async () => {
+		const body = await prepare("anthropic", "claude-fable-5-2", {
+			type: "web_search",
+			forced: true,
+		});
+		expect(body.tool_choice).toBeUndefined();
+	});
+
+	test("leaves an offered search to the model", async () => {
+		const body = await prepare("anthropic", "claude-sonnet-5", {
+			type: "web_search",
+		});
+		expect(body.tool_choice).toBeUndefined();
+	});
+
+	test("does not force under budgeted thinking, which rejects it", async () => {
+		const body = await prepare(
+			"anthropic",
+			"claude-sonnet-4-5",
+			{ type: "web_search", forced: true },
+			2048,
+		);
+		expect(body.thinking).toMatchObject({ type: "enabled" });
+		expect(body.tool_choice).toBeUndefined();
+	});
+});
+
 describe("prepareRequestBody - tool_choice with thinking disabled", () => {
 	const tools = [
 		{

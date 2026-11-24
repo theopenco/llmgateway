@@ -19,6 +19,7 @@ import {
 } from "@/lib/api-key-usage-limits.js";
 import {
 	hasInternalClientCacheMarkers,
+	isInternalApiOrigin,
 	resolveChatApiOrigin,
 } from "@/lib/api-origin.js";
 import {
@@ -206,6 +207,7 @@ import {
 	promptTokensShowSearchContext,
 	reportedWebSearchCount,
 	billedServerToolUseCount,
+	mappingSupportsToolChoice,
 } from "@llmgateway/actions";
 import {
 	generateCacheKey,
@@ -489,6 +491,17 @@ import {
 } from "./tools/transform-streaming-to-openai.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 import { validateModelCapabilities } from "./tools/validate-model-capabilities.js";
+import {
+	gatewayRoundDispatcher,
+	runWebSearchLoop,
+	takeWebSearchLoopRound,
+	WEB_SEARCH_FUNCTION_NAME,
+	WEB_SEARCH_LOOP_HEADER,
+} from "./tools/web-search-loop.js";
+import {
+	planWebSearch,
+	WEB_SEARCH_PLANNER_PROVIDER,
+} from "./tools/web-search-planner.js";
 
 import type {
 	FilteredProvider,
@@ -1894,7 +1907,25 @@ chat.openapi(completions, async (c) => {
 	// native search (`usesGatewayWebSearch`). Billed by the calculateCosts wrapper
 	// and recorded on the log by insertLogEntry.
 	let internalWebSearch:
-		{ search: InternalWebSearch; price: string } | undefined;
+		{ search: InternalWebSearch; price: string; count?: number } | undefined;
+	// A round of gateway-run search (`runWebSearchLoop`) bills the searches
+	// that ran since the previous round.
+	const webSearchLoopRound = isInternalApiOrigin(c)
+		? takeWebSearchLoopRound(c.req.header(WEB_SEARCH_LOOP_HEADER))
+		: undefined;
+	const webSearchLoopBilling = webSearchLoopRound?.billing;
+	if (webSearchLoopBilling) {
+		internalWebSearch = {
+			search: {
+				engine: webSearchLoopBilling.engine,
+				queries: webSearchLoopBilling.queries,
+				results: [],
+				engineCostUsd: null,
+			},
+			price: webSearchLoopBilling.price,
+			count: webSearchLoopBilling.count,
+		};
+	}
 	// Native searches the latest cost calculation billed, for the log row.
 	let nativeWebSearchCount = 0;
 
@@ -1907,7 +1938,11 @@ chat.openapi(completions, async (c) => {
 		const costs = await _calculateCosts(...args);
 		nativeWebSearchCount = costs.webSearchCount;
 		if (internalWebSearch) {
-			addInternalWebSearchCost(costs, internalWebSearch.price);
+			addInternalWebSearchCost(
+				costs,
+				internalWebSearch.price,
+				internalWebSearch.count,
+			);
 		}
 		if (sponsoredOnboarding) {
 			zeroInferenceCosts(costs);
@@ -2505,6 +2540,7 @@ chat.openapi(completions, async (c) => {
 				logData,
 				internalWebSearch?.search.engine,
 				nativeWebSearchCount,
+				internalWebSearch?.count,
 			),
 			...(await getRoutingBaselineFields(logData)),
 			...logData,
@@ -2636,7 +2672,11 @@ chat.openapi(completions, async (c) => {
 		? expandedAllModelProviders
 		: modelInfoResult.allModelProviders;
 	let requestedProvider = modelInfoResult.requestedProvider;
-	const explicitRateLimitProvider = modelInfoResult.requestedProvider;
+	// A gateway-run search round is pinned by the gateway, not the caller, so it
+	// gets no pinned-provider rate limit exemption.
+	const explicitRateLimitProvider = webSearchLoopRound
+		? undefined
+		: modelInfoResult.requestedProvider;
 	const explicitRateLimitModel = modelInfoResult.modelInfo.id;
 
 	// If a specific region was requested (e.g. "alibaba/qwen-plus:cn-beijing"),
@@ -5672,9 +5712,12 @@ chat.openapi(completions, async (c) => {
 
 	const contentFilterMode = getContentFilterMode();
 	const contentFilterMethod = getContentFilterMethod();
+	// A follow-up round of gateway-run search repeats the conversation the first
+	// round already filtered, plus web results the caller never wrote.
 	const shouldApplyGatewayContentFilter =
 		contentFilterMode !== "disabled" &&
-		shouldApplyContentFilterToModel(requestedModel);
+		shouldApplyContentFilterToModel(requestedModel) &&
+		!webSearchLoopRound?.followUp;
 	const keywordContentFilterMatch =
 		shouldApplyGatewayContentFilter && contentFilterMethod === "keywords"
 			? checkContentFilter(messages as BaseMessage[])
@@ -8985,13 +9028,117 @@ chat.openapi(completions, async (c) => {
 				reason: skip,
 			});
 		}
-		const query = skip ? null : buildWebSearchQuery(messages as BaseMessage[]);
-		const search = query
-			? await runInternalWebSearch(engine, query, webSearchTool, requestId)
+		// Models that call tools search the way native search does: the model
+		// decides whether and what to search, reads the results, may search
+		// again, then answers. Each model call is its own gateway request.
+		// Excluded: a required search the mapping cannot force; /v1/responses,
+		// which logs its one request under the response id; and a caller
+		// function that already uses the search function's name.
+		const canForceSearchFunction = mappingSupportsToolChoice(
+			usedMappingForSearch,
+			{ type: "function", function: { name: WEB_SEARCH_FUNCTION_NAME } },
+		);
+		const callerUsesSearchName = (tools ?? []).some(
+			(tool) =>
+				tool.type === "function" &&
+				tool.function.name === WEB_SEARCH_FUNCTION_NAME,
+		);
+		if (
+			!skip &&
+			usedMappingForSearch.tools === true &&
+			(n === undefined || n <= 1) &&
+			usedProvider !== "custom" &&
+			!airsideCustomBaseUrl &&
+			apiOrigin !== "responses" &&
+			!callerUsesSearchName &&
+			(!webSearchTool.forced || canForceSearchFunction) &&
+			typeof rawBody === "object" &&
+			rawBody !== null
+		) {
+			const {
+				web_search: _webSearchFlag,
+				web_search_options: _webSearchOptions,
+				...loopBody
+			} = rawBody as Record<string, unknown>;
+			const callerTools = Array.isArray(loopBody.tools)
+				? (loopBody.tools as Array<{ type?: string }>).filter(
+						(tool) => tool?.type !== "web_search",
+					)
+				: [];
+			const callerToolChoice = loopBody.tool_choice;
+			const loopResponse = await runWebSearchLoop({
+				body: {
+					...loopBody,
+					tools: callerTools.length > 0 ? callerTools : undefined,
+					tool_choice:
+						typeof callerToolChoice === "object" &&
+						callerToolChoice !== null &&
+						(callerToolChoice as { type?: string }).type === "web_search"
+							? undefined
+							: callerToolChoice,
+				},
+				pin: {
+					provider: usedProvider,
+					model: usedInternalModel,
+					region: requestedRegion,
+				},
+				stream: stream === true,
+				forced: webSearchTool.forced === true,
+				canForceFunction: canForceSearchFunction,
+				maxSearches: webSearchTool.max_uses,
+				engine,
+				price: GATEWAY_WEB_SEARCH_ENGINES[engine].price,
+				requestId,
+				dispatch: gatewayRoundDispatcher(c, apiOrigin, requestId),
+				search: async (query) =>
+					await runInternalWebSearch(
+						engine,
+						[query],
+						webSearchTool!,
+						requestId,
+					),
+				streamResponse: (pipe) =>
+					streamSSE(c, async (sseStream) => {
+						let eventId = 0;
+						await pipe(async (data) => {
+							await sseStream.writeSSE({ data, id: String(eventId++) });
+						});
+					}),
+			});
+			if (loopResponse) {
+				return loopResponse;
+			}
+		}
+		const fallbackQuery = skip
+			? null
+			: buildWebSearchQuery(messages as BaseMessage[]);
+		// An LLM writes the queries and, for an offered tool, decides whether
+		// the turn needs a search at all. Only where the policy admits the
+		// planner's provider; otherwise the latest message is the query.
+		const plan =
+			fallbackQuery &&
+			(!compliancePolicy ||
+				isProviderIdCompliant(WEB_SEARCH_PLANNER_PROVIDER, compliancePolicy, {
+					effectiveProviders,
+				}))
+				? await planWebSearch(
+						messages as BaseMessage[],
+						webSearchTool.forced === true,
+						requestId,
+					)
+				: null;
+		const queries =
+			!fallbackQuery || plan?.search === false
+				? null
+				: plan?.queries.length
+					? plan.queries
+					: [fallbackQuery];
+		const search = queries
+			? await runInternalWebSearch(engine, queries, webSearchTool, requestId)
 			: null;
 		// `tool_choice: {type: "web_search"}` demands a search: answering
 		// without one would hide that it never ran.
-		if (webSearchTool.forced && (skip || (query && !search))) {
+		if (webSearchTool.forced && (skip || (queries && !search))) {
 			const status =
 				skip === "unfunded_byok_search"
 					? 402
@@ -12773,7 +12920,10 @@ chat.openapi(completions, async (c) => {
 											webSearchCount = 1;
 										}
 									}
-								} else if (streamFormatProvider === "openai") {
+								} else if (
+									streamFormatProvider === "openai" ||
+									streamFormatProvider === "azure"
+								) {
 									// For OpenAI Responses API, count web_search_call.completed
 									// events, unless the terminal event's usage reports the
 									// billable operations itself (DeepSeek).

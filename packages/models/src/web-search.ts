@@ -72,31 +72,42 @@ export function isGatewayWebSearchEngine(
 	return typeof value === "string" && value in GATEWAY_WEB_SEARCH_ENGINES;
 }
 
+/**
+ * Mapping flags of every non-chat endpoint. None of these mappings take a
+ * `web_search` tool, natively or gateway-run.
+ */
+const NON_CHAT_MAPPING_FLAGS = [
+	"imageGenerations",
+	"videoGenerations",
+	"musicGenerations",
+	"embeddings",
+	"speechGenerations",
+	"transcriptions",
+	"realtime",
+	"realtimeTranscription",
+	"ocr",
+	"rerank",
+	"decisions",
+	"search",
+] as const satisfies ReadonlyArray<keyof ProviderModelMapping>;
+
 type WebSearchMapping = Pick<
 	ProviderModelMapping,
-	| "webSearch"
-	| "imageGenerations"
-	| "videoGenerations"
-	| "embeddings"
-	| "speechGenerations"
-	| "realtime"
+	"webSearch" | (typeof NON_CHAT_MAPPING_FLAGS)[number]
 >;
+
+/** Whether the mapping serves chat completions. */
+function isChatMapping(mapping: WebSearchMapping): boolean {
+	return NON_CHAT_MAPPING_FLAGS.every((flag) => mapping[flag] !== true);
+}
 
 /**
  * Whether the gateway runs web search for this mapping: a chat mapping whose
- * upstream has no native search. The gateway searches the caller's latest
- * user message, adds the results to that message, and returns them as
- * `url_citation` annotations.
+ * upstream has no native search. The model calls a `web_search` function and
+ * the gateway runs the searches (`runWebSearchLoop`).
  */
 export function usesGatewayWebSearch(mapping: WebSearchMapping): boolean {
-	return (
-		mapping.webSearch !== true &&
-		mapping.imageGenerations !== true &&
-		mapping.videoGenerations !== true &&
-		mapping.embeddings !== true &&
-		mapping.speechGenerations !== true &&
-		mapping.realtime !== true
-	);
+	return mapping.webSearch !== true && isChatMapping(mapping);
 }
 
 /** Whether a `web_search` tool works on this mapping, natively or not. */

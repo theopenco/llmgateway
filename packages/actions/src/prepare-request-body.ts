@@ -3047,8 +3047,9 @@ export async function prepareRequestBody(
 	// instead of hard-coding per-provider downgrades here.
 	// `tool_choice: {type: "web_search"}` is a gateway-level directive, consumed
 	// via `webSearchTool.forced` and translated into whatever each upstream
-	// understands (DashScope's `search_options.forced_search`, or `"required"`
-	// for a mapping declaring the tool `webSearchFormat`). No provider
+	// understands (DashScope's `search_options.forced_search`, Anthropic's
+	// forced server tool, or `"required"` for a mapping declaring the tool
+	// `webSearchFormat`). No provider
 	// accepts it under this name in a chat-completions body, so it is never
 	// forwarded verbatim.
 	const isWebSearchToolChoice =
@@ -4476,6 +4477,22 @@ export async function prepareRequestBody(
 					// as Anthropic requires a specific schema. Instead, we skip output_config
 					// and rely on system prompt instructions for JSON output.
 				}
+			}
+
+			// `tool_choice: {type: "web_search"}` forces the server tool. Budgeted
+			// thinking and models without forced tool choice reject that, so there
+			// the search stays an offer.
+			if (
+				webSearchTool?.forced &&
+				requestBody.thinking?.type !== "enabled" &&
+				(!providerMappingForOptions ||
+					mappingSupportsToolChoice(providerMappingForOptions, "required"))
+			) {
+				requestBody.tool_choice = {
+					...requestBody.tool_choice,
+					type: "tool",
+					name: "web_search",
+				};
 			}
 
 			if (usedProvider === "vertex-anthropic") {

@@ -138,7 +138,9 @@ Each block is recorded as a **security event** so administrators can review what
 
 ## Web search engines
 
-When a model without native web search gets a `web_search` tool, LLM Gateway sends your latest user message to a [search engine](/features/web-search#gateway-run-search). Your policies apply to that engine with the same rules as a provider:
+When a model without native web search gets a `web_search` tool, LLM Gateway sends the queries the model writes to a [search engine](/features/web-search#gateway-run-search). On the [single-search path](/features/web-search#gateway-run-search) (models that cannot call tools, `/v1/responses`, `n` above 1, and a few other cases listed there), a query model on Google AI Studio writes the queries from the latest turns instead. Your policies apply to both with the same rules as a provider:
+
+- **The query model**, used only on the single-search path, is checked as the Google AI Studio provider. When the policy rejects it, the gateway skips it and searches your latest user message instead.
 
 - **Perplexity** is checked as the Perplexity provider: blocking or not allowing Perplexity also stops its searches.
 - **Exa** is checked against its own data policy: it may retain queries and use them for training. Provider lists address it as `exa`, so a provider allow list blocks it.
