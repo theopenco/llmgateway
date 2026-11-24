@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
 
+import {
+	models,
+	type ModelDefinition,
+	type ProviderModelMapping,
+} from "./models.js";
 import { getProviderDefinition, type ProviderDefinition } from "./providers.js";
 import {
 	formatWebSearchEngine,
@@ -23,9 +28,16 @@ describe("usesGatewayWebSearch", () => {
 		for (const flag of [
 			"imageGenerations",
 			"videoGenerations",
+			"musicGenerations",
 			"embeddings",
 			"speechGenerations",
+			"transcriptions",
 			"realtime",
+			"realtimeTranscription",
+			"ocr",
+			"rerank",
+			"decisions",
+			"search",
 		] as const) {
 			expect(usesGatewayWebSearch({ [flag]: true }), flag).toBe(false);
 			expect(supportsWebSearch({ [flag]: true }), flag).toBe(false);
@@ -43,6 +55,22 @@ describe("usesGatewayWebSearch", () => {
 	test("supportsWebSearch is native or gateway-run", () => {
 		expect(supportsWebSearch({ webSearch: true })).toBe(true);
 		expect(supportsWebSearch({})).toBe(true);
+	});
+
+	// A model that cannot chat must not list web search, so every mapping of a
+	// non-text model needs one of the non-chat flags.
+	test("only chat models list web search in the catalogue", () => {
+		const listed = models.flatMap((model) =>
+			(model.providers as readonly ProviderModelMapping[])
+				.filter(
+					(mapping) =>
+						supportsWebSearch(mapping) &&
+						(model as ModelDefinition).output?.length &&
+						!(model as ModelDefinition).output?.includes("text"),
+				)
+				.map((mapping) => `${mapping.providerId}/${model.id}`),
+		);
+		expect(listed).toEqual([]);
 	});
 });
 
