@@ -26,6 +26,10 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import {
+	DedicatedOrganizationsField,
+	type DedicatedOrganization,
+} from "@/components/dedicated-organizations-field";
 import { ProviderCredentialsSpendOverview } from "@/components/provider-credentials-spend-overview";
 import { ProviderKeyErrorRateCell } from "@/components/provider-key-error-rate-cell";
 import { ProviderKeyInsightsLink } from "@/components/provider-key-insights-link";
@@ -543,7 +547,24 @@ function ManagedCredentialCells({
 					))}
 			</TableCell>
 			<TableCell className="text-sm">
-				{VARIANT_LABELS[credential.variant as Variant] ?? credential.variant}
+				{credential.dedicatedOrganizations.length > 0 ? (
+					<Badge
+						variant="outline"
+						className="max-w-full text-[11px]"
+						title={`Dedicated to: ${credential.dedicatedOrganizations
+							.map((org) => org.name ?? org.id)
+							.join(", ")}`}
+					>
+						<span className="truncate">
+							{credential.dedicatedOrganizations.length === 1
+								? (credential.dedicatedOrganizations[0].name ??
+									credential.dedicatedOrganizations[0].id)
+								: `${credential.dedicatedOrganizations.length} organizations`}
+						</span>
+					</Badge>
+				) : (
+					(VARIANT_LABELS[credential.variant as Variant] ?? credential.variant)
+				)}
 			</TableCell>
 			<TableCell className="text-sm">
 				{getEffectiveCredentialRegion(credential.provider, credential.region) ??
@@ -823,6 +844,10 @@ export function ProviderCredentialsManager({
 	const credentialCounts = useMemo(() => {
 		const counts = new Map<string, VariantCounts>();
 		for (const credential of liveCredentials) {
+			// Dedicated credentials serve only their organizations, not an audience.
+			if (credential.dedicatedOrganizations.length > 0) {
+				continue;
+			}
 			const current = counts.get(credential.provider) ?? {
 				default: 0,
 				enterprise: 0,
@@ -1434,6 +1459,9 @@ export function ProviderCredentialsManager({
 								...values.rateLimits,
 								skipValidation: values.skipValidation,
 								carrierKey: values.carrierKey,
+								dedicatedOrganizationIds: values.dedicatedOrganizations.map(
+									(org) => org.id,
+								),
 							},
 						})
 					}
@@ -1479,6 +1507,9 @@ export function ProviderCredentialsManager({
 								forwardSafetyIdentifier: values.forwardSafetyIdentifier,
 								...values.rateLimits,
 								skipValidation: values.skipValidation,
+								dedicatedOrganizationIds: values.dedicatedOrganizations.map(
+									(org) => org.id,
+								),
 							},
 						})
 					}
@@ -1552,6 +1583,8 @@ interface CredentialFormValues {
 	skipValidation: boolean;
 	/** Custom carriers, on create: serve the carrier with this key. */
 	carrierKey: boolean;
+	/** Organizations the credential is dedicated to; empty means shared. */
+	dedicatedOrganizations: DedicatedOrganization[];
 }
 
 const nonNegativeDecimalPattern = /^\d+(?:\.\d+)?$/;
@@ -1795,6 +1828,10 @@ function CredentialDialog({
 	// worth it when the token, config or region changes.
 	const [skipValidation, setSkipValidation] = useState(isEdit);
 	const [carrierKey, setCarrierKey] = useState(true);
+	const [dedicatedOrganizations, setDedicatedOrganizations] = useState<
+		DedicatedOrganization[]
+	>(credential?.dedicatedOrganizations ?? []);
+	const isDedicated = dedicatedOrganizations.length > 0;
 	const [error, setError] = useState<string | null>(null);
 
 	// Self-test / verify-models probes run against the CURRENT form values (not
@@ -2102,6 +2139,7 @@ function CredentialDialog({
 			rateLimits: parsedRateLimits.limits,
 			skipValidation,
 			carrierKey,
+			dedicatedOrganizations,
 		});
 	}
 
@@ -2337,6 +2375,7 @@ function CredentialDialog({
 							<Select
 								value={variant}
 								onValueChange={(value) => setVariant(value as Variant)}
+								disabled={isDedicated}
 							>
 								<SelectTrigger id="variant">
 									<SelectValue />
@@ -2353,13 +2392,15 @@ function CredentialDialog({
 								</SelectContent>
 							</Select>
 							<p className="text-xs text-muted-foreground">
-								{variant === "default"
-									? "Serves every organization that has no credential for its own audience."
-									: `Serves only these organizations, the way ${
-											selectedEntry?.apiKeyEnvVar
-												? `${selectedEntry.apiKeyEnvVar}${VARIANT_ENV_SUFFIXES[variant]}`
-												: `an ${VARIANT_ENV_SUFFIXES[variant]} env var`
-										} would. They fall back to an "All organizations" credential when none is set here.`}
+								{isDedicated
+									? "Serves only the dedicated organizations below, whatever their plan."
+									: variant === "default"
+										? "Serves every organization that has no credential for its own audience."
+										: `Serves only these organizations, the way ${
+												selectedEntry?.apiKeyEnvVar
+													? `${selectedEntry.apiKeyEnvVar}${VARIANT_ENV_SUFFIXES[variant]}`
+													: `an ${VARIANT_ENV_SUFFIXES[variant]} env var`
+											} would. They fall back to an "All organizations" credential when none is set here.`}
 							</p>
 						</div>
 						<div className="flex flex-col gap-2">
@@ -2412,6 +2453,17 @@ function CredentialDialog({
 							</p>
 						</div>
 					</div>
+
+					<DedicatedOrganizationsField
+						value={dedicatedOrganizations}
+						onChange={(next) => {
+							setDedicatedOrganizations(next);
+							// The API only accepts dedicated credentials for every plan.
+							if (next.length > 0) {
+								setVariant("default");
+							}
+						}}
+					/>
 
 					<div className="flex flex-col gap-3 rounded-md border border-border/60 p-3">
 						<div className="flex flex-wrap items-center justify-between gap-2">

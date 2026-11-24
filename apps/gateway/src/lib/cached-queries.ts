@@ -1116,18 +1116,77 @@ export interface FindManagedProviderKeyOptions {
 	 * traffic keeps the configured strategy.
 	 */
 	rotateEveryCall?: boolean;
+	/**
+	 * Organization the request serves. Selection is scoped to its dedicated
+	 * credentials when it has any; omitted means the shared fleet only.
+	 */
+	organizationId?: string;
+}
+
+interface DedicatedScope {
+	provider: string;
+	dedicatedOrganizationIds: string[] | null;
+}
+
+function isDedicatedTo(
+	key: DedicatedScope,
+	organizationId: string | undefined,
+): boolean {
+	return (
+		organizationId !== undefined &&
+		(key.dedicatedOrganizationIds?.includes(organizationId) ?? false)
+	);
 }
 
 /**
- * Every active platform-managed credential for a provider (cacheable). These
- * rows are the database-backed replacement for the `LLM_*` environment
- * variables: they are not owned by any organization and carry their own base
- * URL, project, region and other provider settings.
+ * The managed credentials an organization may use, per provider: those
+ * dedicated to it when it has any, otherwise the shared ones. A dedicated
+ * credential never serves another organization, and an organization with one
+ * never falls back to shared credentials or the provider's env vars.
+ */
+export function scopeManagedKeysToOrganization<T extends DedicatedScope>(
+	keys: T[],
+	organizationId: string | undefined,
+): T[] {
+	const dedicatedProviders = new Set(
+		keys
+			.filter((key) => isDedicatedTo(key, organizationId))
+			.map((key) => key.provider),
+	);
+	return keys.filter((key) =>
+		dedicatedProviders.has(key.provider)
+			? isDedicatedTo(key, organizationId)
+			: !key.dedicatedOrganizationIds?.length,
+	);
+}
+
+/**
+ * Whether a managed credential may serve the organization, including one that
+ * is no longer active (a reasoning pin to a key pending deletion).
+ */
+export async function managedKeyServesOrganization(
+	key: DedicatedScope,
+	organizationId: string,
+): Promise<boolean> {
+	if (key.dedicatedOrganizationIds?.length) {
+		return isDedicatedTo(key, organizationId);
+	}
+	const keys = await listManagedProviderKeys(key.provider, organizationId);
+	return !keys.some((candidate) => isDedicatedTo(candidate, organizationId));
+}
+
+/**
+ * Every active platform-managed credential for a provider the organization may
+ * use (cacheable; see {@link scopeManagedKeysToOrganization}). These rows are
+ * the database-backed replacement for the `LLM_*` environment variables: they
+ * are not owned by any organization and carry their own base URL, project,
+ * region and other provider settings.
  */
 export async function listManagedProviderKeys(
 	provider: string,
+	organizationId: string | undefined,
 ): Promise<ProviderKey[]> {
-	return await swrWrap(
+	const keys = await swrWrap(
 		`providerKey:managed:${provider}`,
 		[providerKeyTableName],
 		async () =>
@@ -1151,6 +1210,7 @@ export async function listManagedProviderKeys(
 					asc(providerKeyTable.id),
 				),
 	);
+	return scopeManagedKeysToOrganization(keys, organizationId);
 }
 
 /**
@@ -1165,8 +1225,9 @@ export async function listManagedProviderKeys(
  */
 export async function hasManagedProviderCredential(
 	provider: string,
+	organizationId: string | undefined,
 ): Promise<boolean> {
-	return (await listManagedProviderKeys(provider)).length > 0;
+	return (await listManagedProviderKeys(provider, organizationId)).length > 0;
 }
 
 /**
@@ -1233,10 +1294,13 @@ export async function listManagedProviderKeyCandidates(
 	provider: string,
 	options: Pick<
 		FindManagedProviderKeyOptions,
-		"variant" | "region" | "filter"
+		"variant" | "region" | "filter" | "organizationId"
 	> = {},
 ): Promise<ProviderKey[]> {
-	const results = await listManagedProviderKeys(provider);
+	const results = await listManagedProviderKeys(
+		provider,
+		options.organizationId,
+	);
 
 	const candidates = options.filter ? results.filter(options.filter) : results;
 	if (candidates.length === 0) {
@@ -1323,6 +1387,7 @@ function listManagedProviderScopes() {
 					id: providerKeyTable.id,
 					provider: providerKeyTable.provider,
 					variant: providerKeyTable.variant,
+					dedicatedOrganizationIds: providerKeyTable.dedicatedOrganizationIds,
 					region: providerKeyTable.region,
 					allowedModels: providerKeyTable.allowedModels,
 					maxRpm: providerKeyTable.maxRpm,
@@ -1378,15 +1443,20 @@ export async function withModelRateLimitedManagedKeyIds(
 
 /**
  * `rateLimitedKeyIds`, when given, replaces the cap check and must already
- * include the credentials capped for `modelId`.
+ * include the credentials capped for `modelId`. `organizationId` scopes the
+ * fleet to that organization's dedicated credentials; omitted means shared only.
  */
 export async function findManagedProviderAvailability(
 	variant?: EnvVarVariant,
 	modelId?: string,
 	rateLimitedKeyIds?: ReadonlySet<string>,
 	rateLimitExemption?: ProviderKeyRateLimitExemption,
+	organizationId?: string,
 ): Promise<ManagedProviderAvailability> {
-	const rows = await listManagedProviderScopes();
+	const rows = scopeManagedKeysToOrganization(
+		await listManagedProviderScopes(),
+		organizationId,
+	);
 
 	// A credential at one of its own caps cannot serve this request, so a
 	// provider whose every credential is capped is not advertised as usable.

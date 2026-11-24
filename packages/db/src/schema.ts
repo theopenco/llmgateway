@@ -2309,6 +2309,11 @@ export const providerKey = snakeCase.table(
 		variant: text({ enum: ["default", "enterprise", "plans"] })
 			.notNull()
 			.default("default"),
+		// Managed only: organizations this credential is dedicated to. An
+		// organization with an active dedicated credential for the provider uses
+		// only those for its credits-mode traffic, and a dedicated credential
+		// never serves any other organization. NULL = shared fleet.
+		dedicatedOrganizationIds: text().array(),
 		// Region a managed credential is scoped to, mirroring the
 		// `{ENV_VAR}__{REGION}` overrides. NULL means it serves every region the
 		// provider's credential covers.

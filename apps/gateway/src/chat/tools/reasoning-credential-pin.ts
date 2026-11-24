@@ -4,6 +4,7 @@ import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
 	findPinnableProviderKey,
 	hasManagedProviderCredential,
+	managedKeyServesOrganization,
 } from "@/lib/cached-queries.js";
 import { parseCommaSeparatedEnv } from "@/lib/round-robin-env.js";
 
@@ -607,7 +608,10 @@ export async function resolveReasoningCredentialPin(params: {
 
 	if (pin.source === "env") {
 		// Managed credentials supersede the provider's env vars entirely.
-		if (!allowsPlatform || (await hasManagedProviderCredential(pin.provider))) {
+		if (
+			!allowsPlatform ||
+			(await hasManagedProviderCredential(pin.provider, params.organizationId))
+		) {
 			return undefined;
 		}
 		const credential = resolveEnvCredential(pin);
@@ -626,7 +630,11 @@ export async function resolveReasoningCredentialPin(params: {
 		return undefined;
 	}
 	if (pin.source === "managed") {
-		if (!row.managed || !allowsPlatform) {
+		if (
+			!row.managed ||
+			!allowsPlatform ||
+			!(await managedKeyServesOrganization(row, params.organizationId))
+		) {
 			return undefined;
 		}
 		return {

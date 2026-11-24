@@ -65,8 +65,9 @@ function combineFilters(
 export async function hasServiceTierEligiblePlatformCredential(
 	provider: Provider,
 	variant: EnvVarVariant | undefined,
+	organizationId: string | undefined,
 ): Promise<boolean> {
-	const managedKeys = await listManagedProviderKeys(provider);
+	const managedKeys = await listManagedProviderKeys(provider, organizationId);
 	if (managedKeys.length === 0) {
 		return hasServiceTierEligibleEnvCredential(provider, variant);
 	}
@@ -91,6 +92,12 @@ export interface ResolvePlatformCredentialOptions {
 	 */
 	model?: string;
 	variant: EnvVarVariant | undefined;
+	/**
+	 * Organization the request bills. Its dedicated managed credentials, when it
+	 * has any for the provider, are the only ones it may use; undefined (an
+	 * internal call) selects from the shared fleet only.
+	 */
+	organizationId: string | undefined;
 	region: string | undefined;
 	/** True when the request asked for a premium (flex/priority) service tier. */
 	requiresServiceTier: boolean;
@@ -142,6 +149,7 @@ export async function resolvePlatformCredential(
 			: undefined,
 	);
 	const managedKey = await findManagedProviderKey(provider, {
+		organizationId: options.organizationId,
 		variant: options.variant,
 		region: options.region,
 		selectionScope: options.selectionScope,
@@ -161,7 +169,7 @@ export async function resolvePlatformCredential(
 		};
 	}
 
-	if (await hasManagedProviderCredential(provider)) {
+	if (await hasManagedProviderCredential(provider, options.organizationId)) {
 		// The scope is what makes this actionable: the fleet is never empty here,
 		// so the operator needs to know which axis excluded every credential.
 		const scope = [
@@ -178,6 +186,7 @@ export async function resolvePlatformCredential(
 		// Only a 429 when caps alone emptied the pool this request selects from.
 		const candidates = (
 			await listManagedProviderKeyCandidates(provider, {
+				organizationId: options.organizationId,
 				variant: options.variant,
 				region: options.region,
 				filter,
