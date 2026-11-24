@@ -44,6 +44,8 @@ export function ReferralsClient({
 		setOrigin(window.location.origin);
 	}, []);
 
+	// Display only: the API enforces the real rule (net paid top-ups, refunds
+	// subtracted) when a referral is recorded.
 	const totalTopUps = transactions
 		.filter(
 			(t) =>

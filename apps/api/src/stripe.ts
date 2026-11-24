@@ -36,6 +36,7 @@ import {
 
 import { devPlanInvoiceLine } from "./lib/dev-plan-invoice-line.js";
 import { computeReferralBonus } from "./lib/referral-bonus.js";
+import { clawBackReferralEarnings } from "./lib/referral-eligibility.js";
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
 import {
@@ -3977,6 +3978,20 @@ export async function handleChargeRefunded(
 				credits: sql`${tables.organization.credits} - ${creditRefundAmount}`,
 			})
 			.where(eq(tables.organization.id, originalTransaction.organizationId));
+	}
+
+	// The referrer earned 1% on usage this payment funded; a refund means that
+	// usage was never paid for, so take the matching earnings back.
+	try {
+		await clawBackReferralEarnings(
+			originalTransaction.organizationId,
+			refundAmountInDollars,
+		);
+	} catch (error) {
+		logger.error(
+			`Referral earnings clawback failed for organization ${originalTransaction.organizationId}`,
+			error as Error,
+		);
 	}
 
 	// A full refund of a Reset Pass claws back one unredeemed pass from the

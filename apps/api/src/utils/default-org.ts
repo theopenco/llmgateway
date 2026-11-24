@@ -1,4 +1,5 @@
 import { isUserHighRisk } from "@/lib/account-risk.js";
+import { checkReferralAllowed } from "@/lib/referral-eligibility.js";
 
 import { db, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -10,6 +11,8 @@ interface DefaultOrganizationUser {
 
 interface DefaultOrganizationOptions {
 	referralOrganizationId?: string | null;
+	/** Client IP of the signup, compared against the referrer's members. */
+	referralIpAddress?: string | null;
 }
 
 function isActiveDashboardOrganization(userOrganization: {
@@ -129,14 +132,15 @@ export async function getOrCreateDefaultOrganization(
 		});
 
 		if (options.referralOrganizationId) {
-			const referrerOrg = await tx.query.organization.findFirst({
-				where: {
-					id: { eq: options.referralOrganizationId },
-					status: { eq: "active" },
-				},
+			// The cookie is just an org id the client chose, so everything the
+			// referral program requires is enforced here, never in the UI.
+			const decision = await checkReferralAllowed({
+				referrerOrganizationId: options.referralOrganizationId,
+				referredUser: user,
+				ipAddress: options.referralIpAddress,
 			});
 
-			if (referrerOrg) {
+			if (decision.allowed) {
 				await tx.insert(tables.referral).values({
 					referrerOrganizationId: options.referralOrganizationId,
 					referredOrganizationId: organization.id,
@@ -145,6 +149,12 @@ export async function getOrCreateDefaultOrganization(
 				logger.info("Created referral record", {
 					referrerOrgId: options.referralOrganizationId,
 					referredOrgId: organization.id,
+				});
+			} else {
+				logger.warn("Referral rejected", {
+					referrerOrgId: options.referralOrganizationId,
+					referredOrgId: organization.id,
+					reason: decision.reason,
 				});
 			}
 		}

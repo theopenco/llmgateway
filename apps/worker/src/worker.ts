@@ -1570,6 +1570,33 @@ export async function batchProcessLogs(): Promise<number> {
 				pool.remaining = pool.remaining.minus(amount);
 			};
 
+			// Whether a referred organization has real money behind its usage: a
+			// plan, or net (refunds subtracted) paid credit purchases.
+			const hasPaidForUsage = async (
+				referredOrg: typeof organization.$inferSelect,
+			): Promise<boolean> => {
+				if (referredOrg.devPlan !== "none" || referredOrg.chatPlan !== "none") {
+					return true;
+				}
+				const [paid] = await tx
+					.select({
+						total: sql<string>`coalesce(sum(${tables.transaction.creditAmount}), 0)`,
+					})
+					.from(tables.transaction)
+					.where(
+						and(
+							eq(tables.transaction.organizationId, referredOrg.id),
+							eq(tables.transaction.status, "completed"),
+							inArray(tables.transaction.type, [
+								"credit_topup",
+								"credit_manual_payment",
+								"credit_refund",
+							]),
+						),
+					);
+				return new Decimal(paid?.total ?? "0").greaterThan(0);
+			};
+
 			for (const [orgId, buckets] of orgCosts.entries()) {
 				const totalCost = buckets.chat.plus(buckets.other);
 				if (totalCost.lessThanOrEqualTo(0)) {
@@ -1759,15 +1786,38 @@ export async function batchProcessLogs(): Promise<number> {
 					);
 				}
 
-				// 1% referral earnings on the full charge regardless of which pool paid.
+				// 1% referral earnings, but only on spend the referred org actually
+				// paid for: what its plan pools covered plus regular credits up to
+				// the positive balance it held. Usage that pushes a balance negative
+				// or overshoots a plan cap was never paid, and an org without any
+				// paid top-up or plan earns its referrer nothing — otherwise a
+				// referrer farms credits off free or unpaid traffic.
 				const referral = await tx.query.referral.findFirst({
 					where: {
 						referredOrganizationId: { eq: orgId },
 					},
 				});
 
-				if (referral) {
-					const earnings = totalCost.times(0.01);
+				const planCovered = Decimal.max(0, totalCost.minus(remainingCost));
+				const creditsCovered =
+					org &&
+					remainingCost.greaterThan(0) &&
+					!(plannedOverflowOnly && devPool)
+						? Decimal.min(
+								remainingCost,
+								Decimal.max(0, new Decimal(org.credits || "0")),
+							)
+						: new Decimal(0);
+				const paidCost = planCovered.plus(creditsCovered);
+
+				if (
+					referral &&
+					org &&
+					org.status === "active" &&
+					paidCost.greaterThan(0) &&
+					(await hasPaidForUsage(org))
+				) {
+					const earnings = paidCost.times(0.01);
 					const currentEarnings =
 						referralEarnings.get(referral.referrerOrganizationId) ??
 						new Decimal(0);
@@ -1840,6 +1890,22 @@ export async function batchProcessLogs(): Promise<number> {
 			// Apply referral earnings to referrer organizations
 			for (const [referrerOrgId, earnings] of referralEarnings.entries()) {
 				if (earnings.greaterThan(0)) {
+					// A blocked or high-risk referrer keeps nothing: credits it
+					// earned would otherwise stop the admin block (positive balance).
+					const referrer = await tx.query.organization.findFirst({
+						where: { id: { eq: referrerOrgId } },
+						columns: { status: true, riskFlagged: true },
+					});
+					if (
+						!referrer ||
+						referrer.status !== "active" ||
+						referrer.riskFlagged
+					) {
+						logger.info(
+							`Skipped referral earnings for inactive or flagged organization ${referrerOrgId}`,
+						);
+						continue;
+					}
 					const earningsStr = earnings.toString();
 					await tx
 						.update(organization)
