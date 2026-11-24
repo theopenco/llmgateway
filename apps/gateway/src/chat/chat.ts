@@ -494,7 +494,8 @@ import { validateModelCapabilities } from "./tools/validate-model-capabilities.j
 import {
 	gatewayRoundDispatcher,
 	runWebSearchLoop,
-	takeWebSearchLoopBilling,
+	takeWebSearchLoopRound,
+	WEB_SEARCH_FUNCTION_NAME,
 	WEB_SEARCH_LOOP_HEADER,
 } from "./tools/web-search-loop.js";
 import {
@@ -1909,9 +1910,10 @@ chat.openapi(completions, async (c) => {
 		{ search: InternalWebSearch; price: string; count?: number } | undefined;
 	// A round of gateway-run search (`runWebSearchLoop`) bills the searches
 	// that ran since the previous round.
-	const webSearchLoopBilling = isInternalApiOrigin(c)
-		? takeWebSearchLoopBilling(c.req.header(WEB_SEARCH_LOOP_HEADER))
+	const webSearchLoopRound = isInternalApiOrigin(c)
+		? takeWebSearchLoopRound(c.req.header(WEB_SEARCH_LOOP_HEADER))
 		: undefined;
+	const webSearchLoopBilling = webSearchLoopRound?.billing;
 	if (webSearchLoopBilling) {
 		internalWebSearch = {
 			search: {
@@ -2670,7 +2672,11 @@ chat.openapi(completions, async (c) => {
 		? expandedAllModelProviders
 		: modelInfoResult.allModelProviders;
 	let requestedProvider = modelInfoResult.requestedProvider;
-	const explicitRateLimitProvider = modelInfoResult.requestedProvider;
+	// A gateway-run search round is pinned by the gateway, not the caller, so it
+	// gets no pinned-provider rate limit exemption.
+	const explicitRateLimitProvider = webSearchLoopRound
+		? undefined
+		: modelInfoResult.requestedProvider;
 	const explicitRateLimitModel = modelInfoResult.modelInfo.id;
 
 	// If a specific region was requested (e.g. "alibaba/qwen-plus:cn-beijing"),
@@ -5706,9 +5712,12 @@ chat.openapi(completions, async (c) => {
 
 	const contentFilterMode = getContentFilterMode();
 	const contentFilterMethod = getContentFilterMethod();
+	// A follow-up round of gateway-run search repeats the conversation the first
+	// round already filtered, plus web results the caller never wrote.
 	const shouldApplyGatewayContentFilter =
 		contentFilterMode !== "disabled" &&
-		shouldApplyContentFilterToModel(requestedModel);
+		shouldApplyContentFilterToModel(requestedModel) &&
+		!webSearchLoopRound?.followUp;
 	const keywordContentFilterMatch =
 		shouldApplyGatewayContentFilter && contentFilterMethod === "keywords"
 			? checkContentFilter(messages as BaseMessage[])
@@ -9022,12 +9031,27 @@ chat.openapi(completions, async (c) => {
 		// Models that call tools search the way native search does: the model
 		// decides whether and what to search, reads the results, may search
 		// again, then answers. Each model call is its own gateway request.
+		// Excluded: a required search the mapping cannot force; /v1/responses,
+		// which logs its one request under the response id; and a caller
+		// function that already uses the search function's name.
+		const canForceSearchFunction = mappingSupportsToolChoice(
+			usedMappingForSearch,
+			{ type: "function", function: { name: WEB_SEARCH_FUNCTION_NAME } },
+		);
+		const callerUsesSearchName = (tools ?? []).some(
+			(tool) =>
+				tool.type === "function" &&
+				tool.function.name === WEB_SEARCH_FUNCTION_NAME,
+		);
 		if (
 			!skip &&
 			usedMappingForSearch.tools === true &&
 			(n === undefined || n <= 1) &&
 			usedProvider !== "custom" &&
 			!airsideCustomBaseUrl &&
+			apiOrigin !== "responses" &&
+			!callerUsesSearchName &&
+			(!webSearchTool.forced || canForceSearchFunction) &&
 			typeof rawBody === "object" &&
 			rawBody !== null
 		) {
@@ -9045,7 +9069,6 @@ chat.openapi(completions, async (c) => {
 			const loopResponse = await runWebSearchLoop({
 				body: {
 					...loopBody,
-					model: `${usedProvider}/${usedInternalModel}${requestedRegion ? `:${requestedRegion}` : ""}`,
 					tools: callerTools.length > 0 ? callerTools : undefined,
 					tool_choice:
 						typeof callerToolChoice === "object" &&
@@ -9054,12 +9077,14 @@ chat.openapi(completions, async (c) => {
 							? undefined
 							: callerToolChoice,
 				},
+				pin: {
+					provider: usedProvider,
+					model: usedInternalModel,
+					region: requestedRegion,
+				},
 				stream: stream === true,
 				forced: webSearchTool.forced === true,
-				canForceFunction: mappingSupportsToolChoice(usedMappingForSearch, {
-					type: "function",
-					function: { name: "web_search" },
-				}),
+				canForceFunction: canForceSearchFunction,
 				maxSearches: webSearchTool.max_uses,
 				engine,
 				price: GATEWAY_WEB_SEARCH_ENGINES[engine].price,

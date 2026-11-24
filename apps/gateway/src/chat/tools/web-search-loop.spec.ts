@@ -3,7 +3,8 @@ import { describe, expect, test, vi } from "vitest";
 import {
 	runWebSearchLoop,
 	sumUsage,
-	takeWebSearchLoopBilling,
+	mergeReasoningDetail,
+	takeWebSearchLoopRound,
 	WEB_SEARCH_LOOP_HEADER,
 	type WebSearchLoopOptions,
 } from "./web-search-loop.js";
@@ -52,18 +53,21 @@ function options(
 ) {
 	const bodies: Array<Record<string, any>> = [];
 	const headers: Array<Record<string, string>> = [];
+	const rounds: Array<ReturnType<typeof takeWebSearchLoopRound>> = [];
 	const dispatch = vi.fn(
 		async (body: Record<string, any>, h: Record<string, string>) => {
 			bodies.push(body);
 			headers.push(h);
+			// What the round's handler reads on arrival.
+			rounds.push(takeWebSearchLoopRound(h[WEB_SEARCH_LOOP_HEADER]));
 			return responses.shift()!;
 		},
 	);
 	const opts: WebSearchLoopOptions = {
 		body: {
-			model: "aws-bedrock/claude-sonnet-5",
 			messages: [{ role: "user", content: "Who won the race?" }],
 		},
+		pin: { provider: "aws-bedrock", model: "claude-sonnet-5" },
 		stream: false,
 		forced: false,
 		canForceFunction: true,
@@ -75,7 +79,7 @@ function options(
 		streamResponse: () => new Response(),
 		...overrides,
 	};
-	return { opts, bodies, headers, dispatch };
+	return { opts, bodies, headers, rounds, dispatch };
 }
 
 describe("runWebSearchLoop", () => {
@@ -97,7 +101,7 @@ describe("runWebSearchLoop", () => {
 	});
 
 	test("runs the model's searches, feeds results back and bills them on the next call", async () => {
-		const { opts, bodies, headers } = options([
+		const { opts, bodies, headers, rounds } = options([
 			completion(
 				{
 					role: "assistant",
@@ -125,12 +129,18 @@ describe("runWebSearchLoop", () => {
 		expect(history[1]).toMatchObject({ role: "tool", tool_call_id: "c1" });
 		expect(history[1].content).toContain("https://news.test/f1%20winner");
 
-		const billing = takeWebSearchLoopBilling(
-			headers[1][WEB_SEARCH_LOOP_HEADER],
-		);
-		expect(billing).toMatchObject({ count: 2, price: "0.005" });
+		expect(rounds[0]).toEqual({ followUp: false });
+		expect(rounds[1]).toMatchObject({
+			followUp: true,
+			billing: { count: 2, price: "0.005" },
+		});
+		expect(bodies.map((b) => b.model)).toEqual([
+			"aws-bedrock/claude-sonnet-5",
+			"aws-bedrock/claude-sonnet-5",
+		]);
+		// Taken once, and dropped after the dispatch either way.
 		expect(
-			takeWebSearchLoopBilling(headers[1][WEB_SEARCH_LOOP_HEADER]),
+			takeWebSearchLoopRound(headers[1][WEB_SEARCH_LOOP_HEADER]),
 		).toBeUndefined();
 
 		expect(json.choices[0].message.content).toBe("Verstappen");
@@ -177,7 +187,7 @@ describe("runWebSearchLoop", () => {
 					"tool_calls",
 				),
 			],
-			{ body: { model: "m", messages: [], tools: [userTool] } },
+			{ body: { messages: [], tools: [userTool] } },
 		);
 		const res = await runWebSearchLoop(opts);
 		const json = await res!.json();
@@ -208,9 +218,35 @@ describe("runWebSearchLoop", () => {
 		expect(bodies[1].tool_choice).toBeUndefined();
 	});
 
-	test("returns null when the first call fails, so the caller can fall back", async () => {
-		const { opts } = options([new Response("{}", { status: 400 })]);
-		expect(await runWebSearchLoop(opts)).toBeNull();
+	test("falls back only when the first call fails upstream", async () => {
+		expect(
+			await runWebSearchLoop(
+				options([new Response("{}", { status: 502 })]).opts,
+			),
+		).toBeNull();
+		const rejected = await runWebSearchLoop(
+			options([new Response('{"error":{}}', { status: 402 })]).opts,
+		);
+		expect(rejected?.status).toBe(402);
+	});
+
+	test("fails a required search when every search of it failed", async () => {
+		const { opts, bodies } = options(
+			[
+				completion(
+					{
+						role: "assistant",
+						content: "",
+						tool_calls: [searchCall("c1", "q")],
+					},
+					"tool_calls",
+				),
+			],
+			{ forced: true, search: vi.fn(async () => null) },
+		);
+		const res = await runWebSearchLoop(opts);
+		expect(res?.status).toBe(503);
+		expect(bodies).toHaveLength(1);
 	});
 
 	test("streams text live, hides search calls and moves sources ahead of the answer", async () => {
@@ -253,6 +289,13 @@ describe("runWebSearchLoop", () => {
 						completion_tokens: 1,
 						total_tokens: 6,
 					}),
+					// The costed usage chunk repeats the round's totals.
+					{
+						id: "c",
+						model: "m",
+						choices: [],
+						usage: { prompt_tokens: 5, completion_tokens: 1, total_tokens: 6 },
+					},
 				]),
 				sse([
 					delta({ content: "Answer." }),
@@ -298,6 +341,28 @@ describe("runWebSearchLoop", () => {
 			total_tokens: 15,
 		});
 		expect(written.at(-1)).toBe("[DONE]");
+	});
+});
+
+describe("mergeReasoningDetail", () => {
+	test("joins streamed pieces of one entry and keeps distinct entries", () => {
+		const details: Array<Record<string, unknown>> = [];
+		mergeReasoningDetail(details, {
+			type: "reasoning.text",
+			index: 0,
+			text: "a",
+		});
+		mergeReasoningDetail(details, {
+			type: "reasoning.text",
+			index: 0,
+			text: "b",
+			signature: "sig",
+		});
+		mergeReasoningDetail(details, { type: "reasoning.encrypted", data: "x" });
+		expect(details).toEqual([
+			{ type: "reasoning.text", index: 0, text: "ab", signature: "sig" },
+			{ type: "reasoning.encrypted", data: "x" },
+		]);
 	});
 });
 

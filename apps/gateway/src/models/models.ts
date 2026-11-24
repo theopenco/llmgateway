@@ -264,7 +264,6 @@ const modelSchema = z.object({
 		}),
 	),
 	pricing: pricingSchema.extend({
-		web_search: z.string(),
 		internal_reasoning: z.string(),
 	}),
 	context_length: z.number().optional(),
@@ -995,15 +994,14 @@ function serializePeakPricing(peakPricing: PeakPricing) {
 	};
 }
 
-// Model-level pricing always carries web_search and internal_reasoning.
+// Model-level pricing always carries internal_reasoning. web_search is listed
+// only for models that can search.
 function modelLevelPricing(
 	p: ProviderModelMapping | undefined,
 	discount: string | undefined,
 ) {
-	const fields = buildPricingFields(p, discount);
 	return {
-		...fields,
-		web_search: fields.web_search ?? "0",
+		...buildPricingFields(p, discount),
 		internal_reasoning: "0",
 	};
 }

@@ -11,6 +11,7 @@ import {
 import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 
 import { logger } from "@llmgateway/logger";
+import { ONBOARDING_SPONSOR_HEADER } from "@llmgateway/shared";
 
 import { forwardedCustomHeaders } from "./extract-custom-headers.js";
 import {
@@ -37,6 +38,15 @@ export const WEB_SEARCH_FUNCTION_NAME = "web_search";
 /** Internal hop header carrying the key of the searches the round bills. */
 export const WEB_SEARCH_LOOP_HEADER = "x-gateway-web-search-loop";
 const DEFAULT_MAX_SEARCHES = 5;
+const REQUIRED_SEARCH_FAILED = {
+	error: {
+		message:
+			"Web search is required by tool_choice, but the search engine is unavailable. Please retry.",
+		type: "upstream_error",
+		param: null,
+		code: "web_search_unavailable",
+	},
+};
 const MAX_ROUNDS = 6;
 
 const WEB_SEARCH_FUNCTION = {
@@ -62,21 +72,47 @@ export interface WebSearchLoopBilling {
 	count: number;
 }
 
-/**
- * Searches run between two rounds, billed on the round that reads them. Keyed
- * by a random id so a caller cannot attach billing to its own request.
- */
-const pendingBilling = new Map<string, WebSearchLoopBilling>();
+/** What a follow-up round needs to know about the loop it belongs to. */
+export interface WebSearchLoopRound {
+	/** A round after a search: the first round already ran the request's checks on the caller's messages. */
+	followUp: boolean;
+	/** Searches run since the previous round, billed on this one. */
+	billing?: WebSearchLoopBilling;
+}
 
-export function takeWebSearchLoopBilling(
+/**
+ * Follow-up rounds, keyed by a random id so a caller cannot attach billing to
+ * its own request or skip its checks. Entries are taken once; the sweep only
+ * clears keys a cancelled dispatch never delivered.
+ */
+const pendingRounds = new Map<
+	string,
+	{ round: WebSearchLoopRound; createdAt: number }
+>();
+const PENDING_ROUND_TTL_MS = 10 * 60 * 1000;
+
+function registerRound(round: WebSearchLoopRound): string {
+	const now = Date.now();
+	for (const [key, entry] of pendingRounds) {
+		if (now - entry.createdAt > PENDING_ROUND_TTL_MS) {
+			pendingRounds.delete(key);
+		}
+	}
+	const key = randomUUID();
+	pendingRounds.set(key, { round, createdAt: now });
+	return key;
+}
+
+/** The loop context of a round, read once by the round's handler. */
+export function takeWebSearchLoopRound(
 	key: string | undefined,
-): WebSearchLoopBilling | undefined {
+): WebSearchLoopRound | undefined {
 	if (!key) {
 		return undefined;
 	}
-	const billing = pendingBilling.get(key);
-	pendingBilling.delete(key);
-	return billing;
+	const entry = pendingRounds.get(key);
+	pendingRounds.delete(key);
+	return entry?.round;
 }
 
 interface ToolCall {
@@ -89,8 +125,14 @@ type ChatMessage = Record<string, unknown>;
 type Json = Record<string, any>;
 
 export interface WebSearchLoopOptions {
-	/** The caller's request body, model pinned, web search fields removed. */
+	/** The caller's request body, web search fields removed. */
 	body: Json;
+	/**
+	 * The mapping routing chose. Rounds stay on the provider that served the
+	 * previous one, so a conversation's reasoning and tool calls replay where
+	 * they were produced.
+	 */
+	pin: { provider: string; model: string; region?: string };
 	stream: boolean;
 	/** `tool_choice: {type: "web_search"}`: the first round must search. */
 	forced: boolean;
@@ -110,6 +152,7 @@ export interface WebSearchLoopOptions {
 }
 
 const PASSED_HEADERS = [
+	ONBOARDING_SPONSOR_HEADER,
 	"Authorization",
 	"x-api-key",
 	"User-Agent",
@@ -190,6 +233,7 @@ function roundToolChoice(
 
 function buildRound(
 	options: WebSearchLoopOptions,
+	provider: string,
 	history: ChatMessage[],
 	offerSearch: boolean,
 	forceSearch: boolean,
@@ -197,8 +241,10 @@ function buildRound(
 	const tools = offerSearch
 		? [...userTools(options.body), WEB_SEARCH_FUNCTION]
 		: userTools(options.body);
+	const { model, region } = options.pin;
 	const round: Json = {
 		...options.body,
+		model: `${provider}/${model}${region ? `:${region}` : ""}`,
 		messages: [...(options.body.messages as ChatMessage[]), ...history],
 		stream: options.stream,
 		tools: tools.length > 0 ? tools : undefined,
@@ -261,9 +307,12 @@ class LoopState {
 	public queries: string[] = [];
 	public searchCount = 0;
 	public usage: unknown = undefined;
-	public billingKey: string | undefined;
+	public provider: string;
+	private roundKey: string | undefined;
 
-	public constructor(private readonly options: WebSearchLoopOptions) {}
+	public constructor(private readonly options: WebSearchLoopOptions) {
+		this.provider = options.pin.provider;
+	}
 
 	public get maxSearches(): number {
 		return this.options.maxSearches ?? DEFAULT_MAX_SEARCHES;
@@ -307,29 +356,53 @@ class LoopState {
 		});
 		this.searchCount += calls.length;
 		this.queries.push(...billed);
-		if (billed.length > 0) {
-			this.billingKey = randomUUID();
-			pendingBilling.set(this.billingKey, {
-				engine: this.options.engine,
-				price: this.options.price,
-				queries: billed,
-				count: billed.length,
-			});
-		} else {
-			this.billingKey = undefined;
+		this.roundKey = registerRound({
+			followUp: true,
+			...(billed.length > 0 && {
+				billing: {
+					engine: this.options.engine,
+					price: this.options.price,
+					queries: billed,
+					count: billed.length,
+				},
+			}),
+		});
+	}
+
+	/** Registers the first round, which carries no searches yet. */
+	public startFirstRound(): void {
+		this.roundKey = registerRound({ followUp: false });
+	}
+
+	/** Follows the provider that served the last round. */
+	public noteProvider(provider: unknown): void {
+		if (typeof provider === "string" && provider) {
+			this.provider = provider;
 		}
 	}
 
-	public headers(): Record<string, string> {
-		return this.billingKey ? { [WEB_SEARCH_LOOP_HEADER]: this.billingKey } : {};
+	/** Sends the next round with its loop context, which it takes on arrival. */
+	public async dispatchNext(body: Json): Promise<Response> {
+		const key = this.roundKey;
+		this.roundKey = undefined;
+		try {
+			return await this.options.dispatch(
+				body,
+				key ? { [WEB_SEARCH_LOOP_HEADER]: key } : {},
+			);
+		} finally {
+			if (key) {
+				pendingRounds.delete(key);
+			}
+		}
 	}
 
-	/** Drops billing a failed round never consumed. */
-	public discardBilling(): void {
-		if (this.billingKey) {
-			pendingBilling.delete(this.billingKey);
-			this.billingKey = undefined;
-		}
+	/**
+	 * `tool_choice: {type: "web_search"}` demands a search: when every search of
+	 * the forced first round failed, answering would hide that none ran.
+	 */
+	public requiredSearchFailed(round: number): boolean {
+		return round === 0 && this.options.forced && this.searches.length === 0;
 	}
 
 	public canSearchAgain(round: number): boolean {
@@ -399,20 +472,27 @@ async function runNonStreaming(
 	let res = first;
 	for (let round = 0; ; round++) {
 		if (!res.ok) {
-			state.discardBilling();
 			return res;
 		}
 		const json = (await res.json()) as Json;
 		state.usage = sumUsage(state.usage, json.usage);
+		state.noteProvider(json.metadata?.used_provider);
 		const message: Json = json.choices?.[0]?.message ?? {};
 		const { search, other } = splitCalls(message.tool_calls);
 		const offered = round === 0 || state.canSearchAgain(round - 1);
 		if (search.length > 0 && other.length === 0 && offered) {
 			await state.runSearches(replayMessage(message, search), search);
-			const offerSearch = state.canSearchAgain(round);
-			res = await options.dispatch(
-				buildRound(options, state.history, offerSearch, false),
-				state.headers(),
+			if (state.requiredSearchFailed(round)) {
+				return Response.json(REQUIRED_SEARCH_FAILED, { status: 503 });
+			}
+			res = await state.dispatchNext(
+				buildRound(
+					options,
+					state.provider,
+					state.history,
+					state.canSearchAgain(round),
+					false,
+				),
 			);
 			continue;
 		}
@@ -437,6 +517,7 @@ async function runNonStreaming(
 }
 
 interface StreamedRound {
+	usedProvider?: string;
 	content: string;
 	reasoningDetails: unknown[];
 	calls: Map<number, ToolCall>;
@@ -444,6 +525,32 @@ interface StreamedRound {
 	held: Json[];
 	error: boolean;
 	done: boolean;
+}
+
+/**
+ * Streamed reasoning arrives in pieces that share a type and index; the next
+ * round replays them as whole entries, like a non-streamed message.
+ */
+export function mergeReasoningDetail(details: Json[], detail: Json): void {
+	const existing =
+		typeof detail.index === "number"
+			? details.find((d) => d.type === detail.type && d.index === detail.index)
+			: undefined;
+	if (!existing) {
+		details.push({ ...detail });
+		return;
+	}
+	for (const [key, value] of Object.entries(detail)) {
+		if (
+			(key === "text" || key === "summary") &&
+			typeof value === "string" &&
+			typeof existing[key] === "string"
+		) {
+			existing[key] += value;
+		} else if (value !== undefined && value !== null && value !== "") {
+			existing[key] = value;
+		}
+	}
 }
 
 async function* sseEvents(body: ReadableStream<Uint8Array>) {
@@ -521,6 +628,9 @@ async function pipeRound(
 			await write(data);
 			continue;
 		}
+		if (typeof chunk.metadata?.used_provider === "string") {
+			round.usedProvider = chunk.metadata.used_provider;
+		}
 		const choice = chunk.choices?.[0];
 		const delta: Json | undefined = choice?.delta;
 		if (delta) {
@@ -528,7 +638,9 @@ async function pipeRound(
 				round.content += delta.content;
 			}
 			if (Array.isArray(delta.reasoning_details)) {
-				round.reasoningDetails.push(...delta.reasoning_details);
+				for (const detail of delta.reasoning_details as Json[]) {
+					mergeReasoningDetail(round.reasoningDetails as Json[], detail);
+				}
 			}
 			if (Array.isArray(delta.tool_calls)) {
 				const kept: Json[] = [];
@@ -611,7 +723,6 @@ async function runStreaming(
 		let res = first;
 		for (let round = 0; ; round++) {
 			if (!res.ok) {
-				state.discardBilling();
 				const text = await res.text();
 				let error: unknown;
 				try {
@@ -624,11 +735,15 @@ async function runStreaming(
 				return;
 			}
 			const streamed = await pipeRound(res, write);
-			for (const chunk of streamed.held) {
-				if (chunk.usage) {
-					state.usage = sumUsage(state.usage, chunk.usage);
-				}
+			// A round can report usage twice (finish chunk, then the costed
+			// one); the last report is the round's total.
+			const roundUsage = [...streamed.held]
+				.reverse()
+				.find((chunk) => chunk.usage)?.usage;
+			if (roundUsage) {
+				state.usage = sumUsage(state.usage, roundUsage);
 			}
+			state.noteProvider(streamed.usedProvider);
 			const calls = [...streamed.calls.values()];
 			const { search, other } = splitCalls(calls);
 			const offered = round === 0 || state.canSearchAgain(round - 1);
@@ -669,14 +784,19 @@ async function runStreaming(
 						}),
 					);
 				}
-				res = await options.dispatch(
+				if (state.requiredSearchFailed(round)) {
+					await write(JSON.stringify(REQUIRED_SEARCH_FAILED));
+					await write("[DONE]");
+					return;
+				}
+				res = await state.dispatchNext(
 					buildRound(
 						options,
+						state.provider,
 						state.history,
 						state.canSearchAgain(round),
 						false,
 					),
-					state.headers(),
 				);
 				continue;
 			}
@@ -710,23 +830,29 @@ async function runStreaming(
 
 /**
  * Runs the request with gateway-run search. Returns null when the first round
- * fails before anything was sent, so the caller can answer another way.
+ * fails upstream before anything was sent, so the caller can answer another
+ * way.
  */
 export async function runWebSearchLoop(
 	options: WebSearchLoopOptions,
 ): Promise<Response | null> {
 	const state = new LoopState(options);
 	const forceFirst = options.forced && options.canForceFunction;
-	const first = await options.dispatch(
-		buildRound(options, [], true, forceFirst),
-		{},
+	state.startFirstRound();
+	const first = await state.dispatchNext(
+		buildRound(options, state.provider, [], true, forceFirst),
 	);
-	if (!first.ok) {
+	// A rejected request (auth, limits, credits, bad input) is the caller's
+	// answer; only an upstream failure is worth another path.
+	if (first.status >= 500) {
 		logger.warn("Gateway web search loop: first round failed", {
 			requestId: options.requestId,
 			status: first.status,
 		});
 		return null;
+	}
+	if (!first.ok) {
+		return first;
 	}
 	return options.stream
 		? await runStreaming(options, state, first)
