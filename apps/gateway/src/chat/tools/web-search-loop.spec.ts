@@ -11,8 +11,6 @@ import {
 
 import type { InternalWebSearch } from "./internal-web-search.js";
 
-vi.mock("@/app.js", () => ({ app: {} }));
-
 const search = (query: string): InternalWebSearch => ({
 	engine: "perplexity",
 	queries: [query],

@@ -33,6 +33,7 @@ import { batches, files } from "./batches/batches.js";
 import { chat } from "./chat/chat.js";
 import { extractErrorCause } from "./chat/tools/extract-error-cause.js";
 import { isUpstreamTermination } from "./chat/tools/normalize-streaming-error.js";
+import { setWebSearchRoundTarget } from "./chat/tools/web-search-loop.js";
 import { decisionsRoute } from "./decisions/route.js";
 import { embeddingsRoute } from "./embeddings/route.js";
 import { imagesRoute } from "./images/route.js";
@@ -383,6 +384,8 @@ const v1 = new OpenAPIHono<ServerTypes>();
 v1.route("/video-assets", videoAssets);
 
 v1.route("/chat", chat);
+// Gateway-run web search sends each model call back through the app.
+setWebSearchRoundTarget(async (path, init) => await app.request(path, init));
 
 v1.route("/embeddings", embeddingsRoute);
 v1.route("/images", imagesRoute);

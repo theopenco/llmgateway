@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 
 import { Decimal } from "decimal.js";
 
-import { app } from "@/app.js";
 import {
 	hasInternalClientCacheMarkers,
 	internalApiOriginHeaders,
@@ -151,6 +150,21 @@ export interface WebSearchLoopOptions {
 	) => Response | Promise<Response>;
 }
 
+type RoundTarget = (
+	path: string,
+	init: RequestInit,
+) => Response | Promise<Response>;
+
+/**
+ * The gateway app, registered by app.ts. Importing it here would close an
+ * import cycle through chat.ts.
+ */
+let roundTarget: RoundTarget | undefined;
+
+export function setWebSearchRoundTarget(target: RoundTarget): void {
+	roundTarget = target;
+}
+
 const PASSED_HEADERS = [
 	ONBOARDING_SPONSOR_HEADER,
 	"Authorization",
@@ -199,7 +213,10 @@ export function gatewayRoundDispatcher(
 		if (thinkingType && isInternalApiOrigin(c)) {
 			headers["x-llmgateway-thinking-type"] = thinkingType;
 		}
-		return await app.request("/v1/chat/completions", {
+		if (!roundTarget) {
+			throw new Error("Gateway web search round target is not registered");
+		}
+		return await roundTarget("/v1/chat/completions", {
 			method: "POST",
 			headers,
 			body: JSON.stringify(body),
