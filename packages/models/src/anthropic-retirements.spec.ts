@@ -22,14 +22,21 @@ describe("Anthropic Claude API retirements", () => {
 		expect(isLiveMapping(anthropic!, deactivatedAt)).toBe(false);
 	});
 
-	it.each(["aws-bedrock", "vertex-anthropic"])(
-		"keeps %s/claude-opus-4-5-20251101 active",
-		(providerId) => {
-			const entry = mapping(providerId);
+	it("retires aws-bedrock/claude-opus-4-5-20251101 on May 23, 2027", () => {
+		const bedrock = mapping("aws-bedrock");
+		const deactivatedAt = new Date("2027-05-23T08:00:00Z");
 
-			expect(entry).toBeDefined();
-			expect(entry?.deprecatedAt).toBeUndefined();
-			expect(entry?.deactivatedAt).toBeUndefined();
-		},
-	);
+		expect(bedrock?.deprecatedAt).toEqual(new Date("2026-11-23"));
+		expect(bedrock?.deactivatedAt).toEqual(deactivatedAt);
+		expect(isLiveMapping(bedrock!, new Date("2026-11-22"))).toBe(true);
+		expect(isLiveMapping(bedrock!, deactivatedAt)).toBe(false);
+	});
+
+	it("keeps vertex-anthropic/claude-opus-4-5-20251101 active", () => {
+		const entry = mapping("vertex-anthropic");
+
+		expect(entry).toBeDefined();
+		expect(entry?.deprecatedAt).toBeUndefined();
+		expect(entry?.deactivatedAt).toBeUndefined();
+	});
 });

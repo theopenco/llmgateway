@@ -1731,6 +1731,8 @@ export const anthropicModels = [
 				test: "skip",
 				providerId: "aws-bedrock",
 				externalId: "anthropic.claude-opus-4-5-20251101-v1:0",
+				deprecatedAt: new Date("2026-11-23"),
+				deactivatedAt: new Date("2027-05-23T08:00:00Z"),
 				inputPrice: "5.0e-6",
 				outputPrice: "25.0e-6",
 				cachedInputPrice: "0.5e-6",
