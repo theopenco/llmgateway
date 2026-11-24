@@ -62,6 +62,11 @@ export interface SmartRoutingSelectionParams<
 	fallbackModel?: string;
 	/** False when the org's compliance policy disallows the classifier's provider. */
 	classifierAllowed: boolean;
+	/**
+	 * False when the organization has no credits. The classifier is billed as
+	 * credits even for BYOK projects, so it must not run for an empty balance.
+	 */
+	classifierBillable?: boolean;
 	/** The caller set a reasoning effort, which routing never overrides. */
 	callerEffort: boolean;
 	/**
@@ -264,6 +269,10 @@ export async function selectSmartRoutingModel<
 		}
 		if (!params.classifierAllowed) {
 			classifierSkipped = "compliance";
+			return null;
+		}
+		if (params.classifierBillable === false) {
+			classifierSkipped = "no-credits";
 			return null;
 		}
 		// The lookup reads the managed-credential table, which throws when both

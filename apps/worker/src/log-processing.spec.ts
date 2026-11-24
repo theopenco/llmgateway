@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 
 import { Decimal } from "decimal.js";
-import { afterAll, beforeEach, describe, expect, test } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	test,
+} from "vitest";
 
 import {
 	cdb,
@@ -197,6 +204,119 @@ describe("Log Processing", () => {
 			});
 
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.01);
+		});
+
+		describe("referral earnings", () => {
+			const referrerId = () => `${testOrg.id}-referrer`;
+
+			const seedReferral = async (opts: {
+				paidTopUp?: string;
+				referredCredits?: string;
+				referrerStatus?: "active" | "deleted";
+			}) => {
+				await db.insert(organization).values({
+					id: referrerId(),
+					name: "Referrer",
+					billingEmail: `referrer-${testOrg.id}@example.com`,
+					credits: "0",
+					status: opts.referrerStatus ?? "active",
+				});
+				await db.insert(tables.referral).values({
+					referrerOrganizationId: referrerId(),
+					referredOrganizationId: testOrg.id,
+				});
+				if (opts.paidTopUp) {
+					await db.insert(tables.transaction).values({
+						organizationId: testOrg.id,
+						type: "credit_topup",
+						amount: opts.paidTopUp,
+						creditAmount: opts.paidTopUp,
+						currency: "USD",
+						status: "completed",
+					});
+				}
+				if (opts.referredCredits) {
+					await db
+						.update(organization)
+						.set({ credits: opts.referredCredits })
+						.where(eq(organization.id, testOrg.id));
+				}
+			};
+
+			const insertCostLog = async (cost: number) => {
+				await db.insert(log).values({
+					requestId: `referral-${randomUUID()}`,
+					organizationId: testOrg.id,
+					projectId: testProject.id,
+					apiKeyId: testApiKey.id,
+					cost,
+					cached: false,
+					usedMode: "credits",
+					duration: 1000,
+					requestedModel: "openai/gpt-4o-mini",
+					requestedProvider: "openai",
+					usedModel: "gpt-4o-mini",
+					usedProvider: "openai",
+					responseSize: 100,
+					mode: "credits",
+				});
+			};
+
+			const referrerEarnings = async () => {
+				const referrer = await db.query.organization.findFirst({
+					where: { id: { eq: referrerId() } },
+				});
+				return {
+					credits: Number(referrer!.credits),
+					earnings: Number(referrer!.referralEarnings),
+				};
+			};
+
+			afterEach(async () => {
+				await db.delete(organization).where(eq(organization.id, referrerId()));
+				await db
+					.delete(tables.transaction)
+					.where(eq(tables.transaction.organizationId, testOrg.id));
+			});
+
+			test("pays 1% on usage a paying referred org covered", async () => {
+				await seedReferral({ paidTopUp: "100" });
+				await insertCostLog(1);
+
+				await batchProcessLogs();
+
+				expect(await referrerEarnings()).toEqual({
+					credits: 0.01,
+					earnings: 0.01,
+				});
+			});
+
+			test("pays nothing when the referred org never paid", async () => {
+				await seedReferral({});
+				await insertCostLog(1);
+
+				await batchProcessLogs();
+
+				expect(await referrerEarnings()).toEqual({ credits: 0, earnings: 0 });
+			});
+
+			test("pays nothing on the part of a charge that drives the balance negative", async () => {
+				await seedReferral({ paidTopUp: "100", referredCredits: "0.5" });
+				await insertCostLog(1);
+
+				await batchProcessLogs();
+
+				expect((await referrerEarnings()).earnings).toBeCloseTo(0.005);
+			});
+
+			test("pays nothing to a blocked referrer", async () => {
+				await seedReferral({ paidTopUp: "100", referrerStatus: "deleted" });
+				await insertCostLog(1);
+
+				await batchProcessLogs();
+
+				expect(await referrerEarnings()).toEqual({ credits: 0, earnings: 0 });
+			});
 		});
 
 		test("bills a Batch API log exactly like the same live request", async () => {

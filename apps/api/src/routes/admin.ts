@@ -6499,6 +6499,7 @@ const contentFilterSettingsResponseSchema = z
 		internalScope: z.enum(CONTENT_FILTER_INTERNAL_SCOPES),
 		openaiScope: z.enum(CONTENT_FILTER_INTERNAL_SCOPES),
 		moderateImages: z.boolean(),
+		moderateEmbeddings: z.boolean(),
 		blockGroups: z.array(z.enum(CONTENT_FILTER_BLOCK_GROUPS)).nullable(),
 		csamScoreThreshold: z.number(),
 		providers: z.array(
@@ -6536,9 +6537,10 @@ const updateContentFilterSettingsRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					// Optional so a save from an older admin build keeps the stored list.
+					// Optional so a save from an older admin build keeps the stored value.
 					schema: contentFilterSettingsSchema.extend({
 						devPassEnforceProviderIds: z.array(z.string()).optional(),
+						moderateEmbeddings: z.boolean().optional(),
 					}),
 				},
 			},
@@ -6567,6 +6569,7 @@ admin.openapi(getContentFilterSettingsRoute, async (c) => {
 		internalScope: settings.internalScope,
 		openaiScope: settings.openaiScope,
 		moderateImages: settings.moderateImages,
+		moderateEmbeddings: settings.moderateEmbeddings,
 		blockGroups: settings.blockGroups,
 		csamScoreThreshold: settings.csamScoreThreshold,
 		providers: listContentFilterProviders(settings),
@@ -6575,11 +6578,12 @@ admin.openapi(getContentFilterSettingsRoute, async (c) => {
 
 admin.openapi(updateContentFilterSettingsRoute, async (c) => {
 	const input = c.req.valid("json");
+	const stored = await getContentFilterSettings();
 	const settings = await setContentFilterSettings({
 		...input,
 		devPassEnforceProviderIds:
-			input.devPassEnforceProviderIds ??
-			(await getContentFilterSettings()).devPassEnforceProviderIds,
+			input.devPassEnforceProviderIds ?? stored.devPassEnforceProviderIds,
+		moderateEmbeddings: input.moderateEmbeddings ?? stored.moderateEmbeddings,
 	});
 	return c.json({
 		enabled: settings.enabled,
@@ -6592,6 +6596,7 @@ admin.openapi(updateContentFilterSettingsRoute, async (c) => {
 		internalScope: settings.internalScope,
 		openaiScope: settings.openaiScope,
 		moderateImages: settings.moderateImages,
+		moderateEmbeddings: settings.moderateEmbeddings,
 		blockGroups: settings.blockGroups,
 		csamScoreThreshold: settings.csamScoreThreshold,
 		providers: listContentFilterProviders(settings),

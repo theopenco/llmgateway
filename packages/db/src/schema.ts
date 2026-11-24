@@ -2772,7 +2772,8 @@ export const log = snakeCase.table(
 				classifierCost?: number;
 				classifierFailed: boolean;
 				// Why a configured classifier was not consulted at all.
-				classifierSkipped?: "single-candidate" | "compliance" | "no-credential";
+				classifierSkipped?:
+					"single-candidate" | "compliance" | "no-credential" | "no-credits";
 				// True when the configured fallback model served a verdict-less request.
 				usedFallback?: boolean;
 				// True when the verdict served came from another turn of the same

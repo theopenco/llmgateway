@@ -38,6 +38,7 @@ import { calculateContentFilterErrorStatsForHour } from "./content-filter-error-
 import { calculateContentFilterStatsForHour } from "./content-filter-stats-aggregator.js";
 import {
 	excludeAirsideInference,
+	excludeGatewayContentFilterBlocks,
 	excludeRecoveredSameProviderRegionRetry,
 } from "./log-filters.js";
 import { formatUTCTimestamp } from "./project-stats-aggregator.js";
@@ -636,6 +637,7 @@ async function calculateModelHistoryForMinute(
 				lt(log.createdAt, minuteEnd),
 				excludeRecoveredSameProviderRegionRetry(),
 				excludeAirsideInference(),
+				excludeGatewayContentFilterBlocks(),
 			),
 		)
 		.groupBy(usedBaseModelSql, log.usedMode);
@@ -1002,6 +1004,7 @@ async function calculateHistoryForMinute(
 				lt(log.createdAt, minuteEnd),
 				excludeRecoveredSameProviderRegionRetry(),
 				excludeAirsideInference(),
+				excludeGatewayContentFilterBlocks(),
 			),
 		)
 		.groupBy(usedBaseModelSql, log.usedProvider, usedRegionSql, log.usedMode);

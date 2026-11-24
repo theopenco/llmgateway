@@ -104,6 +104,7 @@ describe("admin content filter settings", () => {
 			internalScope: "full",
 			openaiScope: "full",
 			moderateImages: true,
+			moderateEmbeddings: false,
 			blockGroups: null,
 			csamScoreThreshold: 0.01,
 		});
@@ -135,6 +136,30 @@ describe("admin content filter settings", () => {
 		expect(
 			(await getContentFilterSettings()).devPassEnforceProviderIds,
 		).toEqual([]);
+	});
+
+	test("keeps embeddings moderation when a save omits it", async () => {
+		const save = (extra: Record<string, unknown>) =>
+			app.request("/admin/settings/content-filter", {
+				method: "PUT",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					enabled: true,
+					providerIds: [],
+					sampleRatePercent: 100,
+					enforce: false,
+					enforceEnterprise: false,
+					...extra,
+				}),
+			});
+
+		const res = await save({ moderateEmbeddings: true });
+		expect(res.status).toBe(200);
+		expect((await res.json()).moderateEmbeddings).toBe(true);
+		expect((await save({})).status).toBe(200);
+		expect((await getContentFilterSettings()).moderateEmbeddings).toBe(true);
+		expect((await save({ moderateEmbeddings: false })).status).toBe(200);
+		expect((await getContentFilterSettings()).moderateEmbeddings).toBe(false);
 	});
 
 	test("stores shadow classifiers without the deciding one", async () => {

@@ -3799,6 +3799,8 @@ chat.openapi(completions, async (c) => {
 				tools,
 				hasImages,
 				requestSignal: c.req.raw.signal,
+				classifierBillable:
+					getAvailableCredits(organization).totalAvailableCredits > 0,
 			});
 		}
 
@@ -5165,6 +5167,11 @@ chat.openapi(completions, async (c) => {
 			classifierAllowed:
 				!compliancePolicy ||
 				isProviderIdCompliant("typesafe", compliancePolicy),
+			// The classifier is billed as credits before the credit check below
+			// runs, so an empty balance must never reach it: otherwise every
+			// rejected request still costs money and drives the balance negative.
+			classifierBillable:
+				getAvailableCredits(organization).totalAvailableCredits > 0,
 			sessionStore: smartRoutingSessionStore,
 			messages: (messages ?? []) as BaseMessage[],
 			toolNames: (tools ?? [])
@@ -7791,7 +7798,8 @@ chat.openapi(completions, async (c) => {
 		const contentFilterResponseId = `chatcmpl-${Date.now()}`;
 		const contentFilterCreated = Math.floor(Date.now() / 1000);
 
-		// Log the filtered request
+		// Log the filtered request under the model it was routed to; it never
+		// reached that provider, so the usage rollups skip it by finish reason.
 		try {
 			await insertLog(
 				{
@@ -7800,9 +7808,9 @@ chat.openapi(completions, async (c) => {
 						project,
 						apiKey,
 						undefined,
-						"",
-						undefined,
-						"llmgateway",
+						usedModelFormatted,
+						usedModelMapping,
+						usedProvider,
 						requestedModel,
 						requestedProvider,
 						messages as any[],

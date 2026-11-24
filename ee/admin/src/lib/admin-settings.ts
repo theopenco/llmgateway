@@ -50,6 +50,7 @@ export interface ContentFilterSettingsInput {
 	internalScope: "full" | "latest_turn";
 	openaiScope: "full" | "latest_turn";
 	moderateImages: boolean;
+	moderateEmbeddings: boolean;
 	blockGroups: ("csam" | "sexual" | "cyber")[] | null;
 	csamScoreThreshold: number;
 }

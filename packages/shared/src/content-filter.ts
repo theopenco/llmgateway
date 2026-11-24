@@ -126,6 +126,8 @@ export const contentFilterSettingsSchema = z.object({
 	// Whether a text-only classifier (jev, internal) hands image parts to
 	// OpenAI moderation. Off leaves images unmoderated.
 	moderateImages: z.boolean().default(true),
+	// Whether /v1/embeddings text inputs are moderated like chat prompts.
+	moderateEmbeddings: z.boolean().default(false),
 	// Groups whose matches block. Null blocks every matched category.
 	blockGroups: z
 		.array(z.enum(CONTENT_FILTER_BLOCK_GROUPS))
