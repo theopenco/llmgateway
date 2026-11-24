@@ -1,5 +1,3 @@
-import { Decimal } from "decimal.js";
-
 import { renderInvoicePdf } from "@/pdf/invoice-document.js";
 
 import { logger } from "@llmgateway/logger";
@@ -107,11 +105,9 @@ const MANUAL_PAYMENT_METHOD_LABELS: Record<string, string> = {
 // Customer-facing invoice line for a payment received outside Stripe. The
 // stored description is written for the admin audit trail, so it is not used.
 export function manualPaymentLineDescription(transaction: {
-	amount: string | null;
 	paymentMethod?: string | null;
 	externalReference?: string | null;
 }): string {
-	const amount = new Decimal(transaction.amount ?? 0).toFixed(2);
 	const method = transaction.paymentMethod
 		? MANUAL_PAYMENT_METHOD_LABELS[transaction.paymentMethod]
 		: undefined;
@@ -119,7 +115,7 @@ export function manualPaymentLineDescription(transaction: {
 	const reference = transaction.externalReference
 		? ` (Ref: ${transaction.externalReference})`
 		: "";
-	return `Credit Top-up ($${amount})${paidBy}${reference}`;
+	return `Credit Top-up${paidBy}${reference}`;
 }
 
 // The original purchase a refund relates to (via relatedTransactionId). Used to

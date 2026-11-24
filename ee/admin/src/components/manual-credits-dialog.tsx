@@ -120,7 +120,7 @@ export function ManualCreditsDialog({
 						crypto, …). Unlike a gift this counts as revenue, so only use it
 						when the money actually arrived. The payment appears in the
 						organization&apos;s transactions and an invoice is emailed to its
-						billing address.
+						billing address once the owner&apos;s email is verified.
 					</DialogDescription>
 				</DialogHeader>
 

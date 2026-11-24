@@ -608,20 +608,19 @@ describe("buildInvoiceDataForTransaction", () => {
 		expect(data.documentType).toBe("invoice");
 		expect(data.lineItems).toEqual([
 			{
-				description:
-					"Credit Top-up ($250.00) paid by wire transfer (Ref: REF-42)",
+				description: "Credit Top-up paid by wire transfer (Ref: REF-42)",
 				amount: 250,
 			},
 		]);
 	});
 
 	it("omits unknown channels and missing references from the manual payment line", () => {
-		expect(
-			manualPaymentLineDescription({ amount: "10.5", paymentMethod: "other" }),
-		).toBe("Credit Top-up ($10.50)");
-		expect(
-			manualPaymentLineDescription({ amount: "99", paymentMethod: "paypal" }),
-		).toBe("Credit Top-up ($99.00) paid by PayPal");
+		expect(manualPaymentLineDescription({ paymentMethod: "other" })).toBe(
+			"Credit Top-up",
+		);
+		expect(manualPaymentLineDescription({ paymentMethod: "paypal" })).toBe(
+			"Credit Top-up paid by PayPal",
+		);
 	});
 
 	it("marks refunds as a credit note with a negative net total and original context", async () => {
