@@ -123,6 +123,7 @@ import {
 	buildInvoiceDataForTransaction,
 	generateAndEmailInvoice,
 } from "@/utils/invoice.js";
+import { resolveInvoiceBillingDetails } from "@/utils/plan-billing.js";
 
 import { getOrgTierQualifyingSpendUsd } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
@@ -9208,7 +9209,14 @@ admin.openapi(manualCreditsRoute, async (c) => {
 	// Emailed once, when the payment is booked; the same document stays
 	// downloadable from the organization's transactions.
 	try {
-		await generateAndEmailInvoice(buildInvoiceDataForTransaction(txn, org));
+		const billingDetails = await resolveInvoiceBillingDetails(org);
+		await generateAndEmailInvoice(
+			buildInvoiceDataForTransaction(txn, {
+				id: org.id,
+				name: org.name,
+				...billingDetails,
+			}),
+		);
 	} catch (error) {
 		logger.error(
 			"Invoice email failed (manual payment); credits were added",

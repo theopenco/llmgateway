@@ -3,8 +3,9 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import * as emailUtils from "@/utils/email.js";
+import { resolveDevPassBillingDetails } from "@/utils/plan-billing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 
 const ORG_ID = "admin-manual-credits-org";
 
@@ -97,6 +98,41 @@ describe("admin manual credits", () => {
 		);
 		expect(pdf.status).toBe(200);
 		expect(pdf.headers.get("Content-Type")).toBe("application/pdf");
+	});
+
+	test("bills a DevPass org against the owner's main org details", async () => {
+		const sendEmail = vi
+			.spyOn(emailUtils, "sendTransactionalEmail")
+			.mockResolvedValue(undefined);
+		await db
+			.update(tables.organization)
+			.set({ kind: "devpass" })
+			.where(eq(tables.organization.id, ORG_ID));
+		await db.insert(tables.organization).values({
+			id: "admin-manual-credits-main-org",
+			name: "Main Org",
+			billingEmail: "main@example.com",
+			billingCompany: "Main Co",
+		});
+		await db.insert(tables.userOrganization).values([
+			{ userId: "test-user-id", organizationId: ORG_ID, role: "owner" },
+			{
+				userId: "test-user-id",
+				organizationId: "admin-manual-credits-main-org",
+				role: "owner",
+			},
+		]);
+
+		const res = await addCredits({ creditAmount: 30, paymentMethod: "wire" });
+		expect(res.status).toBe(200);
+
+		const devpassOrg = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		const expected = await resolveDevPassBillingDetails(devpassOrg!);
+		expect(expected.billingEmail).not.toBe("manual@example.com");
+		expect(sendEmail).toHaveBeenCalledTimes(1);
+		expect(sendEmail.mock.calls[0][0].to).toBe(expected.billingEmail);
 	});
 
 	test("still credits the org when the invoice email fails", async () => {

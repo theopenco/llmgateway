@@ -70,6 +70,7 @@ import {
 import {
 	resolveChatPlanBillingDetails,
 	resolveDevPassBillingDetails,
+	resolveInvoiceBillingDetails,
 } from "./utils/plan-billing.js";
 import { recordProviderListingPayment } from "./utils/provider-listing-payment.js";
 import { sendReceiptEmail } from "./utils/receipt.js";
@@ -4055,12 +4056,7 @@ export async function handleChargeRefunded(
 
 	// Last, so the credit and Reset Pass side effects never wait on email delivery.
 	try {
-		const billingDetails =
-			organization.kind === "devpass"
-				? await resolveDevPassBillingDetails(organization)
-				: organization.kind === "chat"
-					? await resolveChatPlanBillingDetails(organization)
-					: organization;
+		const billingDetails = await resolveInvoiceBillingDetails(organization);
 		await generateAndEmailInvoice(
 			buildInvoiceDataForTransaction(
 				refundTransaction,

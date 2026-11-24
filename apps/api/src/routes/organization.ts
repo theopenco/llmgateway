@@ -32,6 +32,7 @@ import {
 	isInvoiceableTransaction,
 	isRefundTransaction,
 } from "@/utils/invoice.js";
+import { resolveInvoiceBillingDetails } from "@/utils/plan-billing.js";
 import {
 	providerCacheAutoTtlSchema,
 	providerCacheControlModeSchema,
@@ -325,7 +326,8 @@ const transactionSchema = z.object({
 	description: z.string().nullable(),
 	relatedTransactionId: z.string().nullable(),
 	refundReason: z.string().nullable(),
-	// Off-Stripe channel and its reference, set on manual payments.
+	// Off-Stripe channel and its reference, set on manual payments and
+	// enterprise license fees.
 	paymentMethod: z.enum(["wire", "crypto", "paypal", "other"]).nullable(),
 	externalReference: z.string().nullable(),
 	// Self-refund eligibility, present only on refund-candidate purchase types.
@@ -1747,8 +1749,13 @@ organization.openapi(downloadTransactionInvoice, async (c) => {
 				})
 			: null;
 
+	const billingDetails = await resolveInvoiceBillingDetails(org);
 	const pdf = await generateInvoicePDF(
-		buildInvoiceDataForTransaction(transaction, org, originalTransaction),
+		buildInvoiceDataForTransaction(
+			transaction,
+			{ id: org.id, name: org.name, ...billingDetails },
+			originalTransaction,
+		),
 	);
 
 	const prefix = isRefundTransaction(transaction.type)
