@@ -543,6 +543,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		const platformCredential = await resolvePlatformCredential("openai", {
 			selectionScope: upstreamModel,
 			variant: envVariant,
+			organizationId: project.organizationId,
 			region: undefined,
 			requiresServiceTier: false,
 		});
@@ -572,6 +573,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			const platformCredential = await resolvePlatformCredential("openai", {
 				selectionScope: upstreamModel,
 				variant: envVariant,
+				organizationId: project.organizationId,
 				region: undefined,
 				requiresServiceTier: false,
 			});
@@ -667,6 +669,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			const next = await resolvePlatformCredential("openai", {
 				selectionScope: upstreamModel,
 				variant: envVariant,
+				organizationId: project.organizationId,
 				region: undefined,
 				requiresServiceTier: false,
 				excludedProviderKeyIds: triedManagedKeyIds,

@@ -122,6 +122,19 @@ export function getUnifiedFinishReason(
 				return UnifiedFinishReason.CONTENT_FILTER;
 			}
 			break;
+		case "aws-bedrock":
+			// Claude on Bedrock's Messages API reports Anthropic's raw stop
+			// reasons; Converse and OpenAI-compatible responses are OpenAI-shaped.
+			if (finishReason === "end_turn" || finishReason === "stop_sequence") {
+				return UnifiedFinishReason.COMPLETED;
+			}
+			if (finishReason === "max_tokens") {
+				return UnifiedFinishReason.LENGTH_LIMIT;
+			}
+			if (finishReason === "tool_use") {
+				return UnifiedFinishReason.TOOL_CALLS;
+			}
+			return getUnifiedFinishReason(finishReason, null);
 		case "google-ai-studio":
 		case "google-vertex":
 		case "quartz":
@@ -485,7 +498,11 @@ export async function insertLog(
 		provider: logData.usedProvider || "unknown",
 		finishReason: logData.finishReason ?? null,
 		streaming: logData.streamed ?? false,
-		durationMs: logData.duration || 0,
+		// A content filter block never reached the provider: no latency sample.
+		durationMs:
+			logData.finishReason === "llmgateway_content_filter"
+				? undefined
+				: logData.duration || 0,
 		// Reasoning models stream thinking before any content, so the first
 		// reasoning token is the real first-token latency when present.
 		ttftMs:

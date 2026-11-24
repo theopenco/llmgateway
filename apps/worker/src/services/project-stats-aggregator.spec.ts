@@ -141,6 +141,30 @@ describe("batched project stats refresh", () => {
 		await cleanup();
 	});
 
+	test("counts a content filter block as a request but not a latency sample", async () => {
+		await db.insert(tables.log).values([
+			logValues(),
+			logValues({
+				usedMode: "api-keys",
+				duration: 0,
+				timeToFirstToken: null,
+				finishReason: "llmgateway_content_filter",
+				unifiedFinishReason: "content_filter",
+			}),
+		]);
+		await refreshCurrentHourStats();
+
+		const project = await db.query.projectHourlyStats.findFirst({
+			where: { projectId: { eq: projectIds[0] } },
+		});
+		expect(project).toMatchObject({
+			requestCount: 2,
+			totalDuration: 100,
+			durationCount: 1,
+			apiKeysDurationCount: 0,
+		});
+	});
+
 	test("keeps projects, keys, sources and hour boundaries separate", async () => {
 		await db.insert(tables.log).values([
 			logValues(),

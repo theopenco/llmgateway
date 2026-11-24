@@ -86,6 +86,27 @@ describe("getUnifiedFinishReason", () => {
 		).toBe(UnifiedFinishReason.LENGTH_LIMIT);
 	});
 
+	it("maps aws-bedrock Anthropic Messages and OpenAI-shaped finish reasons", () => {
+		expect(getUnifiedFinishReason("end_turn", "aws-bedrock")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("stop_sequence", "aws-bedrock")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("max_tokens", "aws-bedrock")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("tool_use", "aws-bedrock")).toBe(
+			UnifiedFinishReason.TOOL_CALLS,
+		);
+		expect(getUnifiedFinishReason("stop", "aws-bedrock")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("tool_calls", "aws-bedrock")).toBe(
+			UnifiedFinishReason.TOOL_CALLS,
+		);
+	});
+
 	it("maps Google AI Studio finish reasons correctly (original Google format)", () => {
 		expect(getUnifiedFinishReason("STOP", "google-ai-studio")).toBe(
 			UnifiedFinishReason.COMPLETED,

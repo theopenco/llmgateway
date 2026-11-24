@@ -1,0 +1,47 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "1ee24511-d365-4a39-97c4-903bd2323e7a",
+  "prevIds": [
+    "c453ec95-ff0a-454a-8679-48d601ab58d9"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_key",
+        "dedicated_organization_ids"
+      ],
+      "writes": [
+        "s|col|public.provider_key.dedicated_organization_ids",
+        "n|col|public.provider_key.dedicated_organization_ids",
+        "e|col|public.provider_key.dedicated_organization_ids"
+      ],
+      "reads": [
+        "n|tbl|public.provider_key",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_key",
+        "name": "dedicated_organization_ids",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 1,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

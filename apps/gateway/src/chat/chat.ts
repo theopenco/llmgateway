@@ -1278,6 +1278,7 @@ async function findServiceTierEligibleProviderIds(
 	orgKeys: InferSelectModel<typeof tables.providerKey>[],
 	mode: string,
 	envVariant: EnvVarVariant | undefined,
+	organizationId: string,
 ): Promise<Set<string>> {
 	const eligible = new Set<string>();
 	for (const providerId of new Set(providerIds)) {
@@ -1291,6 +1292,7 @@ async function findServiceTierEligibleProviderIds(
 				(await hasServiceTierEligiblePlatformCredential(
 					providerId as Provider,
 					envVariant,
+					organizationId,
 				)))
 		) {
 			eligible.add(providerId);
@@ -2867,7 +2869,13 @@ chat.openapi(completions, async (c) => {
 	const managedRegionAvailability =
 		project.mode === "api-keys"
 			? EMPTY_MANAGED_PROVIDER_AVAILABILITY
-			: await findManagedProviderAvailability();
+			: await findManagedProviderAvailability(
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					project.organizationId,
+				);
 	if (project.mode === "credits") {
 		modelInfo = {
 			...modelInfo,
@@ -3067,6 +3075,7 @@ chat.openapi(completions, async (c) => {
 			orgKeysForDefaultTier,
 			project.mode,
 			envVariant,
+			project.organizationId,
 		);
 		const supportsDefaultFlex = tierEligibleProviderIds.size > 0;
 		if (supportsDefaultFlex) {
@@ -3315,6 +3324,7 @@ chat.openapi(completions, async (c) => {
 				modelId,
 				rateLimited,
 				rateLimitExemption,
+				project.organizationId,
 			);
 		}
 		const limited = new Set(
@@ -3322,7 +3332,13 @@ chat.openapi(completions, async (c) => {
 				(await findRateLimitedManagedKeyIds(rateLimitExemption, modelId)),
 		);
 		limited.delete(pinnedManagedKeyId);
-		return await findManagedProviderAvailability(variant, modelId, limited);
+		return await findManagedProviderAvailability(
+			variant,
+			modelId,
+			limited,
+			undefined,
+			project.organizationId,
+		);
 	};
 	const createSessionStore = (modelId: string) => {
 		const modelReasoningPin = reasoningPinFor(modelId);
@@ -3817,6 +3833,8 @@ chat.openapi(completions, async (c) => {
 				tools,
 				hasImages,
 				requestSignal: c.req.raw.signal,
+				classifierBillable:
+					getAvailableCredits(organization).totalAvailableCredits > 0,
 			});
 		}
 
@@ -4223,6 +4241,7 @@ chat.openapi(completions, async (c) => {
 			serviceTierOrgKeys,
 			project.mode,
 			envVariant,
+			project.organizationId,
 		);
 		const tierEligibleProviders = iamFilteredModelProviders.filter((provider) =>
 			tierEligibleProviderIds.has(provider.providerId),
@@ -5182,6 +5201,11 @@ chat.openapi(completions, async (c) => {
 			classifierAllowed:
 				!compliancePolicy ||
 				isProviderIdCompliant("typesafe", compliancePolicy),
+			// The classifier is billed as credits before the credit check below
+			// runs, so an empty balance must never reach it: otherwise every
+			// rejected request still costs money and drives the balance negative.
+			classifierBillable:
+				getAvailableCredits(organization).totalAvailableCredits > 0,
 			sessionStore: smartRoutingSessionStore,
 			messages: (messages ?? []) as BaseMessage[],
 			toolNames: (tools ?? [])
@@ -7353,6 +7377,7 @@ chat.openapi(completions, async (c) => {
 				selectionScope: usedInternalModel,
 				model: usedInternalModel,
 				variant: envVariant,
+				organizationId: project.organizationId,
 				region: usedRegion,
 				requiresServiceTier: isRequestedServiceTier(service_tier),
 				rateLimitExemption: providerKeyRateLimitExemption,
@@ -7523,6 +7548,7 @@ chat.openapi(completions, async (c) => {
 					selectionScope: usedInternalModel,
 					model: usedInternalModel,
 					variant: envVariant,
+					organizationId: project.organizationId,
 					region: usedRegion,
 					requiresServiceTier: isRequestedServiceTier(service_tier),
 					rateLimitExemption: providerKeyRateLimitExemption,
@@ -7806,7 +7832,8 @@ chat.openapi(completions, async (c) => {
 		const contentFilterResponseId = `chatcmpl-${Date.now()}`;
 		const contentFilterCreated = Math.floor(Date.now() / 1000);
 
-		// Log the filtered request
+		// Log the filtered request under the model it was routed to; it never
+		// reached that provider, so the usage rollups skip it by finish reason.
 		try {
 			await insertLog(
 				{
@@ -7815,9 +7842,9 @@ chat.openapi(completions, async (c) => {
 						project,
 						apiKey,
 						undefined,
-						"",
-						undefined,
-						"llmgateway",
+						usedModelFormatted,
+						usedModelMapping,
+						usedProvider,
 						requestedModel,
 						requestedProvider,
 						messages as any[],

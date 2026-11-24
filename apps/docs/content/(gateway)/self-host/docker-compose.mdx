@@ -139,10 +139,11 @@ daily points for 7d and 30d, and monthly points for All time. Limits and their
 progress always use all-time spend. Daily spend bars still cover the last seven
 UTC days.
 
-Resolution is per provider: as soon as a provider has at least one managed
-credential, credits-mode requests to it use those credentials and its `LLM_*`
-environment variables are ignored entirely. Providers with no managed credential
-keep reading the environment, so you can migrate one provider at a time.
+Resolution is per provider: as soon as a provider has at least one shared
+(not dedicated) managed credential, credits-mode requests to it use those
+credentials and its `LLM_*` environment variables are ignored entirely.
+Providers with no shared managed credential keep reading the environment, so
+you can migrate one provider at a time.
 
 Managed credentials cover the same axes as the environment variables they replace:
 
@@ -159,6 +160,13 @@ Managed credentials cover the same axes as the environment variables they replac
   leaves out models you removed from the list yourself. Models without a live
   test, such as video generation, stay manual. Each
   run is listed under the credential's sync history.
+- Optional dedicated organizations, searchable by name, email or id. An
+  organization with an active dedicated credential for a provider uses only its
+  dedicated credentials for that provider's credits-mode traffic (still billed
+  to its credits), never shared ones or the environment. No other organization
+  uses a dedicated credential, and a dedicated credential does not supersede the
+  provider's environment variables for them. Dedicated credentials apply to all
+  plans, so they take no audience.
 
 A request that resolves no region is served from the provider's default region,
 so it is served by a region-agnostic credential or by one pinned to that default

@@ -19,6 +19,7 @@ import {
 	queryIncidentMappings,
 	resolveMappingErrorWindow,
 } from "@/lib/mapping-error-shapes.js";
+import { buildOrganizationSearchFilter } from "@/lib/organization-search.js";
 import {
 	allowedModelsSchema,
 	normalizeAllowedModels,
@@ -68,6 +69,7 @@ import {
 } from "@llmgateway/actions";
 import {
 	and,
+	asc,
 	cdb,
 	db,
 	desc,
@@ -75,6 +77,7 @@ import {
 	gte,
 	deletedProviderKeyStatus,
 	inArray,
+	isNull,
 	isRemovedProviderKeyStatus,
 	lt,
 	notInArray,
@@ -136,6 +139,21 @@ const statusSchema = z.enum(["active", "inactive"]);
 // One probe gating a write: a save must not hang, so it keeps a short budget.
 const SAVE_VALIDATION_TIMEOUT_MS = 30_000;
 
+const dedicatedOrganizationSchema = z.object({
+	id: z.string(),
+	/** Null when the organization no longer exists. */
+	name: z.string().nullable(),
+	billingEmail: z.string().nullable(),
+});
+
+type DedicatedOrganization = z.infer<typeof dedicatedOrganizationSchema>;
+
+const dedicatedOrganizationIdsSchema = z
+	.array(z.string().min(1).max(64))
+	.max(100)
+	.nullable()
+	.optional();
+
 const credentialSchema = z.object({
 	id: z.string(),
 	createdAt: z.date(),
@@ -175,6 +193,11 @@ const credentialSchema = z.object({
 	forwardSafetyIdentifier: z.boolean(),
 	/** Request and token caps; the credential leaves rotation while at one. */
 	...providerKeyRateLimitsOutputShape,
+	/**
+	 * Organizations this credential is dedicated to. Each uses only its
+	 * dedicated credentials for the provider; empty means the shared fleet.
+	 */
+	dedicatedOrganizations: z.array(dedicatedOrganizationSchema),
 });
 
 /**
@@ -336,7 +359,97 @@ type CredentialRow = typeof tables.providerKey.$inferSelect;
  * its mask, its note, and `tokenHash`, which matches `log.usedApiKeyHash` on
  * the requests it served.
  */
-function toCredential(row: CredentialRow, carrierKeyIds: Set<string>) {
+interface CredentialContext {
+	carrierKeyIds: Set<string>;
+	organizations: Map<string, DedicatedOrganization>;
+}
+
+async function findDedicatedOrganizations(
+	ids: string[],
+): Promise<Map<string, DedicatedOrganization>> {
+	if (ids.length === 0) {
+		return new Map();
+	}
+	const rows = await db
+		.select({
+			id: tables.organization.id,
+			name: tables.organization.name,
+			billingEmail: tables.organization.billingEmail,
+		})
+		.from(tables.organization)
+		.where(inArray(tables.organization.id, ids));
+	return new Map(rows.map((row) => [row.id, row]));
+}
+
+/** What {@link toCredential} needs beyond the row, loaded once per response. */
+async function loadCredentialContext(
+	rows: CredentialRow[],
+): Promise<CredentialContext> {
+	const [carrierKeyIds, organizations] = await Promise.all([
+		linkedCarrierKeyIds(),
+		findDedicatedOrganizations([
+			...new Set(rows.flatMap((row) => row.dedicatedOrganizationIds ?? [])),
+		]),
+	]);
+	return { carrierKeyIds, organizations };
+}
+
+/**
+ * Dedupes the submitted organization ids and rejects unknown or deleted ones
+ * not already in `current`. An empty list clears the dedication (null).
+ */
+async function normalizeDedicatedOrganizationIds(
+	ids: string[] | null | undefined,
+	current: string[] | null = null,
+): Promise<string[] | null> {
+	const unique = [
+		...new Set((ids ?? []).map((id) => id.trim()).filter(Boolean)),
+	];
+	if (unique.length === 0) {
+		return null;
+	}
+	// Organizations already on the credential stay even once deleted, so an
+	// unrelated edit still saves; newly added ones must exist and be live.
+	const added = unique.filter((id) => !current?.includes(id));
+	if (added.length === 0) {
+		return unique;
+	}
+	const live = await db
+		.select({ id: tables.organization.id })
+		.from(tables.organization)
+		.where(
+			and(
+				inArray(tables.organization.id, added),
+				sql`${tables.organization.status} IS DISTINCT FROM 'deleted'`,
+			),
+		);
+	const found = new Set(live.map((row) => row.id));
+	const missing = added.filter((id) => !found.has(id));
+	if (missing.length > 0) {
+		throw new HTTPException(400, {
+			message: `Unknown or deleted organization: ${missing.join(", ")}`,
+		});
+	}
+	return unique;
+}
+
+/**
+ * A dedicated credential serves its organizations whatever their plan, so it
+ * cannot also be scoped to a plan variant.
+ */
+function assertDedicatedVariant(
+	dedicatedOrganizationIds: string[] | null,
+	variant: ProviderKeyVariant,
+) {
+	if (dedicatedOrganizationIds && variant !== "default") {
+		throw new HTTPException(400, {
+			message:
+				'A credential dedicated to organizations must apply to "All organizations".',
+		});
+	}
+}
+
+function toCredential(row: CredentialRow, context: CredentialContext) {
 	return {
 		id: row.id,
 		createdAt: row.createdAt,
@@ -352,12 +465,16 @@ function toCredential(row: CredentialRow, carrierKeyIds: Set<string>) {
 		usageLimit: row.usageLimit,
 		usage: row.usage,
 		maskedToken: maskToken(readProviderKey(row), 6, 4),
-		carrierKey: carrierKeyIds.has(row.id),
+		carrierKey: context.carrierKeyIds.has(row.id),
 		tokenHash: row.tokenHash,
 		allowedModels: row.allowedModels,
 		modelSyncEnabled: row.modelSyncEnabled,
 		forwardSafetyIdentifier: row.forwardSafetyIdentifier,
 		...pickProviderKeyRateLimits(row),
+		dedicatedOrganizations: (row.dedicatedOrganizationIds ?? []).map(
+			(id) =>
+				context.organizations.get(id) ?? { id, name: null, billingEmail: null },
+		),
 	};
 }
 
@@ -924,22 +1041,21 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 
 	const credentialIds = rows.map((row) => row.id);
 	const now = new Date();
-	const [recent, daily, bucketed, carrierKeyIds, windowUsage] =
-		await Promise.all([
-			getRecentCredentialStats(credentialIds),
-			getDailyCredentialStats(credentialIds),
-			getBucketedCredentialErrorSeries(credentialIds, errorWindow, now),
-			linkedCarrierKeyIds(),
-			usageWindow === "all"
-				? null
-				: getCredentialWindowUsage(credentialIds, usageWindow, now),
-		]);
+	const [recent, daily, bucketed, context, windowUsage] = await Promise.all([
+		getRecentCredentialStats(credentialIds),
+		getDailyCredentialStats(credentialIds),
+		getBucketedCredentialErrorSeries(credentialIds, errorWindow, now),
+		loadCredentialContext(rows),
+		usageWindow === "all"
+			? null
+			: getCredentialWindowUsage(credentialIds, usageWindow, now),
+	]);
 
 	return c.json({
 		credentials: rows.map((row) => {
 			const last7dDaily = daily.get(row.id) ?? buildEmptyDailySeries();
 			return {
-				...toCredential(row, carrierKeyIds),
+				...toCredential(row, context),
 				windowUsage:
 					windowUsage === null ? row.usage : (windowUsage.get(row.id) ?? "0"),
 				last24h: recent.get(row.id) ?? NO_RECENT_STATS,
@@ -2105,6 +2221,55 @@ adminProviderCredentials.openapi(getSpendOverview, async (c) => {
 	});
 });
 
+const searchCredentialOrganizations = createRoute({
+	method: "get",
+	path: "/provider-credentials/organizations",
+	request: {
+		query: z.object({
+			/** Organization name, billing or member email, or id. */
+			search: z.string().max(200),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						organizations: z.array(dedicatedOrganizationSchema),
+					}),
+				},
+			},
+			description: "Organizations a credential can be dedicated to.",
+		},
+	},
+});
+
+const ORGANIZATION_SEARCH_LIMIT = 20;
+
+adminProviderCredentials.openapi(searchCredentialOrganizations, async (c) => {
+	const { search } = c.req.valid("query");
+	const filter = buildOrganizationSearchFilter(search);
+	if (!filter) {
+		return c.json({ organizations: [] });
+	}
+	const organizations = await db
+		.select({
+			id: tables.organization.id,
+			name: tables.organization.name,
+			billingEmail: tables.organization.billingEmail,
+		})
+		.from(tables.organization)
+		.where(
+			and(
+				filter,
+				sql`${tables.organization.status} IS DISTINCT FROM 'deleted'`,
+			),
+		)
+		.orderBy(asc(tables.organization.name), asc(tables.organization.id))
+		.limit(ORGANIZATION_SEARCH_LIMIT);
+	return c.json({ organizations });
+});
+
 const createCredential = createRoute({
 	method: "post",
 	path: "/provider-credentials",
@@ -2126,6 +2291,8 @@ const createCredential = createRoute({
 						forwardSafetyIdentifier: z.boolean().optional(),
 						...providerKeyRateLimitsInputShape,
 						skipValidation: z.boolean().optional(),
+						/** Organizations this credential is dedicated to; empty or null = shared. */
+						dedicatedOrganizationIds: dedicatedOrganizationIdsSchema,
 						/**
 						 * Custom carriers only: serve the carrier with this key,
 						 * retiring its current provider key. A carrier without one
@@ -2155,6 +2322,10 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 	const config = normalizeConfig(body.config);
 	const allowedModels = normalizeAllowedModels(body.allowedModels);
 	const region = body.region?.trim() || null;
+	const dedicatedOrganizationIds = await normalizeDedicatedOrganizationIds(
+		body.dedicatedOrganizationIds,
+	);
+	assertDedicatedVariant(dedicatedOrganizationIds, body.variant ?? "default");
 
 	await validateConfig(body.provider, config);
 	validateRegion(body.provider, region, { required: true });
@@ -2204,6 +2375,7 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 				tokenHash: getApiKeyFingerprint(body.token),
 				comment: body.comment?.trim() || null,
 				variant: body.variant ?? "default",
+				dedicatedOrganizationIds,
 				selectionStrategy: body.selectionStrategy ?? "ordered",
 				region,
 				config,
@@ -2235,12 +2407,15 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 		credentialId: created.id,
 		provider: created.provider,
 		variant: created.variant,
+		dedicatedOrganizationIds: created.dedicatedOrganizationIds ?? undefined,
 		region: created.region ?? undefined,
 		userId: user.id,
 	});
 
 	return c.json(
-		{ credential: toCredential(created, await linkedCarrierKeyIds()) },
+		{
+			credential: toCredential(created, await loadCredentialContext([created])),
+		},
 		201,
 	);
 });
@@ -2272,6 +2447,8 @@ const updateCredential = createRoute({
 						forwardSafetyIdentifier: z.boolean().optional(),
 						...providerKeyRateLimitsInputShape,
 						skipValidation: z.boolean().optional(),
+						/** Organizations this credential is dedicated to; empty or null = shared. */
+						dedicatedOrganizationIds: dedicatedOrganizationIdsSchema,
 					}),
 				},
 			},
@@ -2324,11 +2501,12 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 			body.config !== undefined ||
 			body.region !== undefined ||
 			body.variant !== undefined ||
+			body.dedicatedOrganizationIds !== undefined ||
 			body.allowedModels !== undefined)
 	) {
 		throw new HTTPException(400, {
 			message:
-				"A credential pending deletion cannot change its token, config, region, variant or allowed models.",
+				"A credential pending deletion cannot change its token, config, region, variant, dedicated organizations or allowed models.",
 		});
 	}
 
@@ -2437,6 +2615,23 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	if (body.variant !== undefined) {
 		updates.variant = body.variant;
 	}
+	if (body.dedicatedOrganizationIds !== undefined) {
+		updates.dedicatedOrganizationIds = await normalizeDedicatedOrganizationIds(
+			body.dedicatedOrganizationIds,
+			existing.dedicatedOrganizationIds,
+		);
+	}
+	if (
+		body.dedicatedOrganizationIds !== undefined ||
+		body.variant !== undefined
+	) {
+		assertDedicatedVariant(
+			updates.dedicatedOrganizationIds !== undefined
+				? updates.dedicatedOrganizationIds
+				: existing.dedicatedOrganizationIds,
+			updates.variant ?? existing.variant,
+		);
+	}
 	if (body.selectionStrategy !== undefined) {
 		updates.selectionStrategy = body.selectionStrategy;
 	}
@@ -2476,9 +2671,24 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 
 	if (Object.keys(updates).length === 0) {
 		return c.json({
-			credential: toCredential(existing, await linkedCarrierKeyIds()),
+			credential: toCredential(
+				existing,
+				await loadCredentialContext([existing]),
+			),
 		});
 	}
+
+	// A dedicated credential must keep the default variant. When only one of the
+	// two is written, pin the other to a compatible value so a concurrent
+	// update of it cannot commit the combination validated against above.
+	const dedicationGuard =
+		updates.variant !== undefined &&
+		updates.variant !== "default" &&
+		updates.dedicatedOrganizationIds === undefined
+			? isNull(tables.providerKey.dedicatedOrganizationIds)
+			: updates.dedicatedOrganizationIds && updates.variant === undefined
+				? eq(tables.providerKey.variant, "default")
+				: undefined;
 
 	// The status predicate pins the deleted-or-not state the read saw, so a
 	// concurrent delete cannot have this write resurrect (or rotate the token
@@ -2497,11 +2707,18 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 					: notInArray(tables.providerKey.status, [
 							...REMOVED_PROVIDER_KEY_STATUSES,
 						]),
+				dedicationGuard,
 			),
 		)
 		.returning();
 
 	if (!updated) {
+		if (dedicationGuard) {
+			throw new HTTPException(409, {
+				message:
+					"The credential's audience or dedicated organizations changed while saving. Reload and try again.",
+			});
+		}
 		throw new HTTPException(404, { message: "Credential not found" });
 	}
 
@@ -2513,7 +2730,7 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	});
 
 	return c.json({
-		credential: toCredential(updated, await linkedCarrierKeyIds()),
+		credential: toCredential(updated, await loadCredentialContext([updated])),
 	});
 });
 
@@ -3184,12 +3401,12 @@ adminProviderCredentials.openapi(reorderCredentials, async (c) => {
 	});
 
 	const byId = new Map(updated.map((row) => [row.id, row]));
-	const carrierKeyIds = await linkedCarrierKeyIds();
+	const context = await loadCredentialContext(updated);
 	return c.json({
 		credentials: credentialIds
 			.map((id) => byId.get(id))
 			.filter((row): row is (typeof updated)[number] => row !== undefined)
-			.map((row) => toCredential(row, carrierKeyIds)),
+			.map((row) => toCredential(row, context)),
 	});
 });
 

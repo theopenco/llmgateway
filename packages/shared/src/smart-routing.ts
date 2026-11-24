@@ -119,6 +119,9 @@ export const SMART_ROUTING_CLASSIFIER_SKIP_REASONS = [
 	"single-candidate",
 	"compliance",
 	"no-credential",
+	// The classifier is billed as credits, so an org without any is never
+	// classified: a rejected request must not still cost it (and us) money.
+	"no-credits",
 ] as const;
 export type SmartRoutingClassifierSkipReason =
 	(typeof SMART_ROUTING_CLASSIFIER_SKIP_REASONS)[number];
@@ -330,6 +333,7 @@ const CLASSIFIER_SKIP_DESCRIPTIONS: Record<
 	"single-candidate": "only one candidate model was available",
 	compliance: "the compliance policy does not allow TypeSafe",
 	"no-credential": "no TypeSafe credential was available",
+	"no-credits": "the organization has no credits to pay for it",
 };
 
 function percent(value: number): string {

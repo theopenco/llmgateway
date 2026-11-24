@@ -22,6 +22,11 @@ interface ResolveDynamicRouteClassificationParams {
 	tools?: { type?: string; function?: { name?: string } }[];
 	hasImages: boolean;
 	requestSignal?: AbortSignal;
+	/**
+	 * False when the organization has no credits. The classifier call is billed
+	 * as credits, so an empty balance is never classified.
+	 */
+	classifierBillable?: boolean;
 }
 
 /**
@@ -37,6 +42,10 @@ interface ResolveDynamicRouteClassificationParams {
 export async function resolveDynamicRouteClassification(
 	params: ResolveDynamicRouteClassificationParams,
 ): Promise<RequestClassification | null> {
+	if (params.classifierBillable === false) {
+		return null;
+	}
+
 	// The classifier sends prompt text to TypeSafe, so an organization whose
 	// compliance policy disallows that provider must not have its prompts sent
 	// there — the same fail-closed rule the content filter applies.
