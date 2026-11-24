@@ -134,8 +134,11 @@ describe("anthropic thinking signature retry", () => {
 	}
 
 	/** One assistant turn per signature, oldest first. */
-	function turn(signatures: string[], stream = false) {
-		const messages: unknown[] = [{ role: "user", content: "Start" }];
+	function turn(signatures: string[], stream = false, system = "Agent") {
+		const messages: unknown[] = [
+			{ role: "system", content: system },
+			{ role: "user", content: "Start" },
+		];
 		for (const signature of signatures) {
 			messages.push(
 				{
@@ -202,6 +205,21 @@ describe("anthropic thinking signature retry", () => {
 		expect(bodies).toHaveLength(3);
 		expect(bodies[2]).not.toContain("stale-signature");
 		expect(bodies[2]).toContain("fresh-signature");
+	});
+
+	test("a rejection only holds under the system prompt it came with", async () => {
+		await harness.setProjectMode("credits");
+		const bodies = mockUpstream(
+			(body) =>
+				body.includes("Summarizer") && body.includes('"type":"thinking"'),
+		);
+
+		expect((await turn(["signature"], false, "Summarizer")).status).toBe(200);
+		expect(bodies).toHaveLength(2);
+
+		expect((await turn(["signature"])).status).toBe(200);
+		expect(bodies).toHaveLength(3);
+		expect(replaysThinking(bodies[2])).toBe(true);
 	});
 
 	test("does not retry a rejected replay more than once", async () => {

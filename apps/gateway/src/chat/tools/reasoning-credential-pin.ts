@@ -144,23 +144,46 @@ export function stripAnthropicThinking<T extends StrippableMessage>(
 	);
 }
 
-function anthropicThinkingId(detail: ReasoningDetail): string | undefined {
-	if (detail?.format !== ANTHROPIC_REASONING_FORMAT) {
-		return undefined;
-	}
-	const opaque = detail.signature ?? detail.data;
-	return typeof opaque === "string" && opaque.length > 0
-		? `athink:${opaque}`
-		: undefined;
+/**
+ * Claude binds a thinking block to the system prompt it was created under, so
+ * a rejection only holds for that block under the same system prompt: the
+ * same blocks stay valid in the requests that keep the original prompt.
+ */
+function anthropicThinkingKey(
+	messages: readonly { role: string; content?: unknown }[],
+): (detail: ReasoningDetail) => string | undefined {
+	const system = createHash("sha256")
+		.update(
+			JSON.stringify(
+				messages
+					.filter((m) => m.role === "system" || m.role === "developer")
+					.map((m) => m.content),
+			),
+		)
+		.digest("hex")
+		.slice(0, 16);
+	return (detail) => {
+		if (detail?.format !== ANTHROPIC_REASONING_FORMAT) {
+			return undefined;
+		}
+		const opaque = detail.signature ?? detail.data;
+		return typeof opaque === "string" && opaque.length > 0
+			? `athink:${system}:${opaque}`
+			: undefined;
+	};
 }
 
-/** Ids of the Anthropic thinking a request replays, newest first, capped. */
-function anthropicThinkingIds<
-	T extends { role: string; reasoning_details?: unknown },
->(messages: readonly T[]): string[] {
+/** Ids of every Anthropic thinking block a request replays. */
+function anthropicThinkingIds(
+	messages: readonly {
+		role: string;
+		content?: unknown;
+		reasoning_details?: unknown;
+	}[],
+): string[] {
+	const key = anthropicThinkingKey(messages);
 	const ids = new Set<string>();
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const message = messages[i];
+	for (const message of messages) {
 		if (
 			message.role !== "assistant" ||
 			!Array.isArray(message.reasoning_details)
@@ -168,26 +191,28 @@ function anthropicThinkingIds<
 			continue;
 		}
 		for (const detail of message.reasoning_details as ReasoningDetail[]) {
-			const id = anthropicThinkingId(detail);
+			const id = key(detail);
 			if (id) {
 				ids.add(id);
 			}
 		}
-		if (ids.size >= MAX_PIN_LOOKUP_IDS) {
-			break;
-		}
 	}
-	return [...ids].slice(0, MAX_PIN_LOOKUP_IDS);
+	return [...ids];
 }
 
 /**
- * Record every thinking block a rejected request replayed, so later turns of
- * the conversation leave them out up front instead of failing first. Blocks
- * created afterwards are not marked and replay as usual.
+ * Record every thinking block a rejected request replayed, so later turns
+ * with the same system prompt leave them out up front instead of failing
+ * first. Blocks created afterwards are not marked and replay as usual.
  */
-export async function rememberRejectedAnthropicThinking<
-	T extends { role: string; reasoning_details?: unknown },
->(organizationId: string, messages: readonly T[]): Promise<void> {
+export async function rememberRejectedAnthropicThinking(
+	organizationId: string,
+	messages: readonly {
+		role: string;
+		content?: unknown;
+		reasoning_details?: unknown;
+	}[],
+): Promise<void> {
 	await markDiscardedReasoning(organizationId, anthropicThinkingIds(messages));
 }
 
@@ -202,9 +227,19 @@ export async function stripRejectedAnthropicThinking<
 	if (ids.length === 0) {
 		return { messages: [...messages], stripped: false };
 	}
-	let pins: Map<string, StoredPin>;
+	const pins = new Map<string, StoredPin>();
 	try {
-		pins = await readPins(organizationId, ids);
+		// Bounded batches, but the whole history: rejected blocks are the
+		// oldest ones, so a cap on the newest would miss them.
+		for (let i = 0; i < ids.length; i += MAX_PIN_LOOKUP_IDS) {
+			const batch = await readPins(
+				organizationId,
+				ids.slice(i, i + MAX_PIN_LOOKUP_IDS),
+			);
+			for (const [id, pin] of batch) {
+				pins.set(id, pin);
+			}
+		}
 	} catch (error) {
 		logger.warn("Failed to read rejected thinking", { organizationId, error });
 		return { messages: [...messages], stripped: false };
@@ -234,8 +269,9 @@ export async function stripRejectedAnthropicThinking<
 			error,
 		});
 	}
+	const key = anthropicThinkingKey(messages);
 	return stripReasoningDetails(messages, (detail) => {
-		const id = anthropicThinkingId(detail);
+		const id = key(detail);
 		return id !== undefined && rejectedIds.has(id);
 	});
 }
