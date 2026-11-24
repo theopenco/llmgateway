@@ -261,6 +261,8 @@ with a "web search" toggle, leaving the tool attached with the default
 `tool_choice` is usually what you want, so that follow-ups like "shorter,
 please" do not trigger a search.
 
+Claude cannot be forced to search while extended thinking runs with a token budget (`reasoning.max_tokens` on budget-based models); there the search stays an offer.
+
 A few upstreams have no model-elected search at all and can only search when
 asked to. Requiring a search is the only way to use their search; without it
 they behave like a model that decided not to search, and the gateway prefers to
