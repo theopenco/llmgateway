@@ -394,11 +394,12 @@ async function loadCredentialContext(
 }
 
 /**
- * Dedupes the submitted organization ids and rejects unknown ones. An empty
- * list clears the dedication (null).
+ * Dedupes the submitted organization ids and rejects unknown or deleted ones
+ * not already in `current`. An empty list clears the dedication (null).
  */
 async function normalizeDedicatedOrganizationIds(
 	ids: string[] | null | undefined,
+	current: string[] | null = null,
 ): Promise<string[] | null> {
 	const unique = [
 		...new Set((ids ?? []).map((id) => id.trim()).filter(Boolean)),
@@ -406,11 +407,26 @@ async function normalizeDedicatedOrganizationIds(
 	if (unique.length === 0) {
 		return null;
 	}
-	const found = await findDedicatedOrganizations(unique);
-	const missing = unique.filter((id) => !found.has(id));
+	// Organizations already on the credential stay even once deleted, so an
+	// unrelated edit still saves; newly added ones must exist and be live.
+	const added = unique.filter((id) => !current?.includes(id));
+	if (added.length === 0) {
+		return unique;
+	}
+	const live = await db
+		.select({ id: tables.organization.id })
+		.from(tables.organization)
+		.where(
+			and(
+				inArray(tables.organization.id, added),
+				sql`${tables.organization.status} IS DISTINCT FROM 'deleted'`,
+			),
+		);
+	const found = new Set(live.map((row) => row.id));
+	const missing = added.filter((id) => !found.has(id));
 	if (missing.length > 0) {
 		throw new HTTPException(400, {
-			message: `Unknown organization: ${missing.join(", ")}`,
+			message: `Unknown or deleted organization: ${missing.join(", ")}`,
 		});
 	}
 	return unique;
@@ -2484,11 +2500,12 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 			body.config !== undefined ||
 			body.region !== undefined ||
 			body.variant !== undefined ||
+			body.dedicatedOrganizationIds !== undefined ||
 			body.allowedModels !== undefined)
 	) {
 		throw new HTTPException(400, {
 			message:
-				"A credential pending deletion cannot change its token, config, region, variant or allowed models.",
+				"A credential pending deletion cannot change its token, config, region, variant, dedicated organizations or allowed models.",
 		});
 	}
 
@@ -2600,6 +2617,7 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 	if (body.dedicatedOrganizationIds !== undefined) {
 		updates.dedicatedOrganizationIds = await normalizeDedicatedOrganizationIds(
 			body.dedicatedOrganizationIds,
+			existing.dedicatedOrganizationIds,
 		);
 	}
 	if (

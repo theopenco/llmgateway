@@ -287,6 +287,116 @@ describe("admin provider credentials", () => {
 		expect((await patch({ variant: "enterprise" })).status).toBe(200);
 	});
 
+	test("dedicated organization search escapes LIKE wildcards and hides deleted orgs", async () => {
+		await db.insert(tables.organization).values([
+			{ id: "org-like-a", name: "Plain Org", billingEmail: "a@plain.test" },
+			{
+				id: "org-like-b",
+				name: "100% Org",
+				billingEmail: "b@pct.test",
+			},
+			{
+				id: "org-like-gone",
+				name: "Gone Org",
+				billingEmail: "c@gone.test",
+				status: "deleted",
+			},
+		]);
+
+		const search = async (query: string, headers: HeadersInit = {}) =>
+			await app.request(
+				`/admin/provider-credentials/organizations?search=${encodeURIComponent(query)}`,
+				{ headers },
+			);
+		expect((await search("org")).status).toBe(401);
+
+		const ids = async (query: string) =>
+			(
+				(await (await search(query, { Cookie: cookie })).json()) as {
+					organizations: { id: string }[];
+				}
+			).organizations.map((org) => org.id);
+		expect(await ids("%")).toEqual(["org-like-b"]);
+		expect(await ids("gone")).toEqual([]);
+	});
+
+	test("rejects deleted organizations on create but keeps ones already dedicated", async () => {
+		await db.insert(tables.organization).values([
+			{ id: "org-keep", name: "Keep Org", billingEmail: "k@keep.test" },
+			{
+				id: "org-deleted",
+				name: "Deleted Org",
+				billingEmail: "d@deleted.test",
+				status: "deleted",
+			},
+		]);
+
+		expect(
+			(
+				await create({
+					provider: "openai",
+					token: "test-dedicated-token",
+					skipValidation: true,
+					dedicatedOrganizationIds: ["org-deleted"],
+				})
+			).status,
+		).toBe(400);
+		expect(
+			(
+				await create({
+					provider: "openai",
+					token: "test-dedicated-token",
+					skipValidation: true,
+					variant: "enterprise",
+					dedicatedOrganizationIds: ["org-keep"],
+				})
+			).status,
+		).toBe(400);
+
+		const res = await create({
+			provider: "openai",
+			token: "test-dedicated-token",
+			skipValidation: true,
+			dedicatedOrganizationIds: ["org-keep"],
+		});
+		expect(res.status).toBe(201);
+		const { credential } = (await res.json()) as { credential: Credential };
+
+		await db
+			.update(tables.organization)
+			.set({ status: "deleted" })
+			.where(eq(tables.organization.id, "org-keep"));
+
+		const patch = async (body: Record<string, unknown>) =>
+			await app.request(`/admin/provider-credentials/${credential.id}`, {
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+		// The editor resubmits the list on every save.
+		expect(
+			(
+				await patch({
+					comment: "renamed",
+					dedicatedOrganizationIds: ["org-keep"],
+				})
+			).status,
+		).toBe(200);
+		expect(
+			(
+				await patch({
+					dedicatedOrganizationIds: ["org-keep", "org-deleted"],
+				})
+			).status,
+		).toBe(400);
+
+		await db
+			.update(tables.providerKey)
+			.set({ status: "pending_deletion" })
+			.where(eq(tables.providerKey.id, credential.id));
+		expect((await patch({ dedicatedOrganizationIds: [] })).status).toBe(400);
+	});
+
 	test("creates round-robin credentials and rejects invalid strategies", async () => {
 		const body = {
 			provider: "openai",

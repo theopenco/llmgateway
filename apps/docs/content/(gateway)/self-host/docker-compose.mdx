@@ -139,10 +139,11 @@ daily points for 7d and 30d, and monthly points for All time. Limits and their
 progress always use all-time spend. Daily spend bars still cover the last seven
 UTC days.
 
-Resolution is per provider: as soon as a provider has at least one managed
-credential, credits-mode requests to it use those credentials and its `LLM_*`
-environment variables are ignored entirely. Providers with no managed credential
-keep reading the environment, so you can migrate one provider at a time.
+Resolution is per provider: as soon as a provider has at least one shared
+(not dedicated) managed credential, credits-mode requests to it use those
+credentials and its `LLM_*` environment variables are ignored entirely.
+Providers with no shared managed credential keep reading the environment, so
+you can migrate one provider at a time.
 
 Managed credentials cover the same axes as the environment variables they replace:
 
