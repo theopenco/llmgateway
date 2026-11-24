@@ -99,7 +99,10 @@ function embeddingsContentFilterTests() {
 		});
 
 	test("skips moderation when the provider is not enabled", async () => {
-		await harness.setContentFilterSettings({ providerIds: ["google-vertex"] });
+		await harness.setContentFilterSettings({
+			providerIds: ["google-vertex"],
+			moderateEmbeddings: true,
+		});
 
 		const res = await embed("embed-tier-provider-off", "Embed this text");
 		expect(res.status).toBe(200);
@@ -110,8 +113,26 @@ function embeddingsContentFilterTests() {
 		expect(log.gatewayContentFilterEvaluation).toBeNull();
 	});
 
+	test("skips moderation while embeddings moderation is off", async () => {
+		await harness.setContentFilterSettings({
+			providerIds: ["openai"],
+			enforce: true,
+		});
+
+		const res = await embed("embed-tier-setting-off", "Embed this text");
+		expect(res.status).toBe(200);
+		expect(moderationCalls).toBe(0);
+		expect(embeddingCalls).toBe(1);
+
+		const log = await waitForLogByRequestId("embed-tier-setting-off");
+		expect(log.gatewayContentFilterEvaluation).toBeNull();
+	});
+
 	test("attaches a log-only evaluation to the log", async () => {
-		await harness.setContentFilterSettings({ providerIds: ["openai"] });
+		await harness.setContentFilterSettings({
+			providerIds: ["openai"],
+			moderateEmbeddings: true,
+		});
 
 		const res = await embed("embed-tier-log-only", [
 			"First passage to embed",
@@ -143,6 +164,7 @@ function embeddingsContentFilterTests() {
 		await harness.setContentFilterSettings({
 			providerIds: ["openai"],
 			enforce: true,
+			moderateEmbeddings: true,
 		});
 
 		const res = await embed("embed-tier-token-ids", [1, 2, 3]);
@@ -157,6 +179,7 @@ function embeddingsContentFilterTests() {
 		await harness.setContentFilterSettings({
 			providerIds: ["openai"],
 			enforce: true,
+			moderateEmbeddings: true,
 		});
 
 		const res = await embed("embed-tier-block", "Embed this text");

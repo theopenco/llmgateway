@@ -22,6 +22,7 @@ describe("parseContentFilterSettings", () => {
 			internalScope: "full",
 			openaiScope: "latest_turn",
 			moderateImages: true,
+			moderateEmbeddings: false,
 			blockGroups: null,
 			csamScoreThreshold: 0.01,
 		});
@@ -52,6 +53,7 @@ describe("parseContentFilterSettings", () => {
 			internalScope: "full",
 			openaiScope: "latest_turn",
 			moderateImages: true,
+			moderateEmbeddings: false,
 			blockGroups: null,
 			csamScoreThreshold: 0.01,
 		});

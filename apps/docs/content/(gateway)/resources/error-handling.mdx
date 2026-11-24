@@ -136,7 +136,7 @@ By default the filter only records its findings. Blocking can be active for some
 - **Images**: HTTP `200` with an empty `data` array.
 - **Videos**: HTTP `403` with the explanation in `error.message`; no job is created.
 - **Speech** (`/v1/audio/speech`): HTTP `403` with the explanation in `error.message`; the `input` text is screened and no audio is generated.
-- **Embeddings** (`/v1/embeddings`): HTTP `403` with the explanation in `error.message`; text inputs are screened (token-ID inputs are not) and no embeddings are generated.
+- **Embeddings** (`/v1/embeddings`): screened only where LLM Gateway has turned embeddings screening on. HTTP `403` with the explanation in `error.message`; text inputs are screened (token-ID inputs are not) and no embeddings are generated.
 
 A moderation outage never fails a request: if the moderation model is unavailable, the request goes through as normal.
 

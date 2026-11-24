@@ -1070,12 +1070,13 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	let pendingTieredContentFilter: Promise<TieredContentFilterOutcome> | null =
 		null;
 	const moderationMessages = getEmbeddingModerationMessages(input);
+	const contentFilterSettings = await getContentFilterSettings();
 	const tieredContentFilterPlan =
-		moderationMessages.length > 0
+		contentFilterSettings.moderateEmbeddings && moderationMessages.length > 0
 			? await resolveTieredContentFilterPlan(
 					organization,
 					providerId,
-					await getContentFilterSettings(),
+					contentFilterSettings,
 				)
 			: null;
 	if (tieredContentFilterPlan) {
