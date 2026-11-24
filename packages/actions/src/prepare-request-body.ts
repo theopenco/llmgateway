@@ -653,6 +653,56 @@ function convertOpenAISchemaToGoogle(
 	return converted;
 }
 
+interface CacheMarked {
+	cache_control?: { ttl?: string };
+	content?: unknown;
+	type?: unknown;
+}
+
+function asCacheMarkedList(value: unknown): CacheMarked[] {
+	return Array.isArray(value)
+		? value.filter(
+				(item): item is CacheMarked => !!item && typeof item === "object",
+			)
+		: [];
+}
+
+/**
+ * Anthropic processes breakpoints in order (tools, system, messages) and
+ * rejects a ttl="1h" one after a shorter one. Drops the shorter markers that
+ * precede the last 1h marker, keeping the breakpoint the caller paid the 1h
+ * write premium for.
+ */
+function dropCacheMarkersBeforeLongerTtl(body: {
+	tools?: unknown;
+	system?: unknown;
+	messages?: unknown;
+}): void {
+	const blocks = [
+		...asCacheMarkedList(body.tools),
+		...asCacheMarkedList(body.system),
+		...asCacheMarkedList(body.messages).flatMap((message) =>
+			asCacheMarkedList(message.content).flatMap((block) => [
+				block,
+				...(block.type === "tool_result"
+					? asCacheMarkedList(block.content)
+					: []),
+			]),
+		),
+	].filter((block) => block.cache_control);
+	let lastOneHour = -1;
+	blocks.forEach((block, index) => {
+		if (block.cache_control?.ttl === "1h") {
+			lastOneHour = index;
+		}
+	});
+	for (const block of blocks.slice(0, Math.max(lastOneHour, 0))) {
+		if (block.cache_control?.ttl !== "1h") {
+			delete block.cache_control;
+		}
+	}
+}
+
 /**
  * Recursively sanitizes schemas for Cerebras:
  * - Ensures additionalProperties: false is set on all object schemas
@@ -4494,6 +4544,8 @@ export async function prepareRequestBody(
 					name: "web_search",
 				};
 			}
+
+			dropCacheMarkersBeforeLongerTtl(requestBody);
 
 			if (usedProvider === "vertex-anthropic") {
 				requestBody.anthropic_version = "vertex-2023-10-16";
