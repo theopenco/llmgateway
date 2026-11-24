@@ -36,6 +36,7 @@ import {
 
 import { devPlanInvoiceLine } from "./lib/dev-plan-invoice-line.js";
 import { computeReferralBonus } from "./lib/referral-bonus.js";
+import { clawBackReferralEarnings } from "./lib/referral-eligibility.js";
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
 import {
@@ -3951,33 +3952,49 @@ export async function handleChargeRefunded(
 		return;
 	}
 
-	const [refundTransaction] = await db
-		.insert(tables.transaction)
-		.values({
-			organizationId: originalTransaction.organizationId,
-			type: "credit_refund",
-			amount: refundAmountInDollars.toString(),
-			creditAmount: (-creditRefundAmount).toString(),
-			currency: originalTransaction.currency,
-			status: "completed",
-			stripePaymentIntentId: payment_intent as string,
-			stripeRefundId: latestRefund.id,
-			relatedTransactionId: originalTransaction.id,
-			refundReason: latestRefund.reason ?? null,
-			description: `Credit refund: $${refundAmountInDollars.toFixed(2)} (${(refundRatio * 100).toFixed(1)}% of original purchase)`,
-		})
-		.returning();
-
-	// Deduct credits from organization (allow negative) — only for credit_topup
-	// refunds, since dev plan / subscription purchases don't add to credits.
-	if (isCreditTopup && creditRefundAmount !== 0) {
-		await db
-			.update(tables.organization)
-			.set({
-				credits: sql`${tables.organization.credits} - ${creditRefundAmount}`,
+	// The refund row, the credit deduction and the referral clawback commit
+	// together: the row is also the dedupe key for webhook retries, so a
+	// clawback that failed after it committed would never be retried.
+	const refundTransaction = await db.transaction(async (tx) => {
+		const [inserted] = await tx
+			.insert(tables.transaction)
+			.values({
+				organizationId: originalTransaction.organizationId,
+				type: "credit_refund",
+				amount: refundAmountInDollars.toString(),
+				creditAmount: (-creditRefundAmount).toString(),
+				currency: originalTransaction.currency,
+				status: "completed",
+				stripePaymentIntentId: payment_intent as string,
+				stripeRefundId: latestRefund.id,
+				relatedTransactionId: originalTransaction.id,
+				refundReason: latestRefund.reason ?? null,
+				description: `Credit refund: $${refundAmountInDollars.toFixed(2)} (${(refundRatio * 100).toFixed(1)}% of original purchase)`,
 			})
-			.where(eq(tables.organization.id, originalTransaction.organizationId));
-	}
+			.returning();
+
+		// Deduct credits from organization (allow negative) — only for
+		// credit_topup refunds, since dev plan / subscription purchases don't
+		// add to credits.
+		if (isCreditTopup && creditRefundAmount !== 0) {
+			await tx
+				.update(tables.organization)
+				.set({
+					credits: sql`${tables.organization.credits} - ${creditRefundAmount}`,
+				})
+				.where(eq(tables.organization.id, originalTransaction.organizationId));
+		}
+
+		// The referrer earned 1% on usage this payment funded; a refund means
+		// that usage was never paid for, so take the matching earnings back.
+		await clawBackReferralEarnings(
+			originalTransaction.organizationId,
+			refundAmountInDollars,
+			tx,
+		);
+
+		return inserted;
+	});
 
 	// A full refund of a Reset Pass claws back one unredeemed pass from the
 	// tier-bound inventory the purchase granted, clamped at zero when the pass

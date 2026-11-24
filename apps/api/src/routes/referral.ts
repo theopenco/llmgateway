@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
+import { checkReferrerEligibility } from "@/lib/referral-eligibility.js";
 import { createRoute } from "@/utils/create-route.js";
 
 import { db } from "@llmgateway/db";
@@ -46,6 +47,13 @@ const referralRoute = createRoute({
 
 referral.openapi(referralRoute, async (c) => {
 	const { ref } = c.req.valid("json");
+
+	// Only an eligible referrer gets a cookie. Signup checks again (the cookie
+	// can be forged), this just stops ineligible links from being tracked.
+	const eligibility = await checkReferrerEligibility(ref);
+	if (!eligibility.eligible) {
+		return c.json({ success: false });
+	}
 
 	const expires = new Date();
 	expires.setDate(expires.getDate() + REFERRAL_COOKIE_DAYS);

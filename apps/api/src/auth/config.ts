@@ -1437,6 +1437,9 @@ The LLM Gateway Team`.trim();
 									referralOrganizationId: referralMatch
 										? decodeURIComponent(referralMatch[1])
 										: null,
+									referralIpAddress:
+										newSession.session.ipAddress ||
+										getClientIpFromHeaders(ctx.headers),
 								},
 							);
 						}
