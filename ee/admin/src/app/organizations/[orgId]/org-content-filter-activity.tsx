@@ -29,6 +29,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { contentFilterModelLabel } from "@/lib/content-filter-model";
 import { useApi } from "@/lib/fetch-client";
 
 import {
@@ -226,7 +227,7 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 												key={`${model.usedProvider}/${model.usedModel}`}
 											>
 												<TableCell className="font-medium">
-													{model.usedModel}
+													{contentFilterModelLabel(model.usedModel)}
 												</TableCell>
 												<TableCell className="text-right tabular-nums">
 													{formatNumber(model.sampledCount)}

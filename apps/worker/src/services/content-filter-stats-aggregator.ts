@@ -90,7 +90,8 @@ function hourWindow(targetHour: Date) {
  * Provider retries write one row per attempt under the same request id with
  * the evaluation copied onto each, so counts are per request id. Evaluations
  * whose moderation call failed never scored anything, so they are left out of
- * sampledCount to keep the violation rate honest during an outage.
+ * sampledCount to keep the violation rate honest during an outage; a partial
+ * failure that still flagged a violation is sampled, so the rate stays <= 100%.
  *
  * Every row is keyed by classifier, role and, for the internal classifier, the
  * scope it read. Each shadow classifier on the evaluation adds its own rows
@@ -218,7 +219,7 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			classifier,
 			role,
 			internal_scope,
-			count(distinct request_id) filter (where not moderation_failed)::int as sampled_count,
+			count(distinct request_id) filter (where violation or not moderation_failed)::int as sampled_count,
 			count(distinct request_id) filter (where violation)::int as violation_count,
 			count(distinct request_id) filter (where blocked)::int as blocked_count,
 			coalesce(

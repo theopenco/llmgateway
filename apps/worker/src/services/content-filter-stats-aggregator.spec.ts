@@ -216,6 +216,16 @@ describe("content filter stats aggregator", () => {
 			logRow({
 				gatewayContentFilterEvaluation: evaluation({ moderationFailed: true }),
 			}),
+			// A partial failure that still flagged a violation is sampled, so the
+			// rate cannot exceed 100%.
+			logRow({
+				gatewayContentFilterEvaluation: evaluation({
+					violation: true,
+					action: "blocked",
+					matchedCategories: ["violence"],
+					moderationFailed: true,
+				}),
+			}),
 			// Not sampled: must not count at all.
 			logRow(),
 			// Outside the hour: ignored.
@@ -235,9 +245,9 @@ describe("content filter stats aggregator", () => {
 				organizationId: "cf-org",
 				projectId: "cf-proj",
 				category: "all",
-				sampledCount: 3,
-				violationCount: 2,
-				blockedCount: 1,
+				sampledCount: 4,
+				violationCount: 3,
+				blockedCount: 2,
 			},
 			{
 				organizationId: "cf-org",
@@ -252,7 +262,7 @@ describe("content filter stats aggregator", () => {
 				projectId: "cf-proj",
 				category: "violence",
 				sampledCount: 0,
-				violationCount: 2,
+				violationCount: 3,
 				blockedCount: 0,
 			},
 		]);
