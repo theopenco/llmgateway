@@ -144,6 +144,102 @@ export function stripAnthropicThinking<T extends StrippableMessage>(
 	);
 }
 
+function anthropicThinkingId(detail: ReasoningDetail): string | undefined {
+	if (detail?.format !== ANTHROPIC_REASONING_FORMAT) {
+		return undefined;
+	}
+	const opaque = detail.signature ?? detail.data;
+	return typeof opaque === "string" && opaque.length > 0
+		? `athink:${opaque}`
+		: undefined;
+}
+
+/** Ids of the Anthropic thinking a request replays, newest first, capped. */
+function anthropicThinkingIds<
+	T extends { role: string; reasoning_details?: unknown },
+>(messages: readonly T[]): string[] {
+	const ids = new Set<string>();
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i];
+		if (
+			message.role !== "assistant" ||
+			!Array.isArray(message.reasoning_details)
+		) {
+			continue;
+		}
+		for (const detail of message.reasoning_details as ReasoningDetail[]) {
+			const id = anthropicThinkingId(detail);
+			if (id) {
+				ids.add(id);
+			}
+		}
+		if (ids.size >= MAX_PIN_LOOKUP_IDS) {
+			break;
+		}
+	}
+	return [...ids].slice(0, MAX_PIN_LOOKUP_IDS);
+}
+
+/**
+ * Record every thinking block a rejected request replayed, so later turns of
+ * the conversation leave them out up front instead of failing first. Blocks
+ * created afterwards are not marked and replay as usual.
+ */
+export async function rememberRejectedAnthropicThinking<
+	T extends { role: string; reasoning_details?: unknown },
+>(organizationId: string, messages: readonly T[]): Promise<void> {
+	await markDiscardedReasoning(organizationId, anthropicThinkingIds(messages));
+}
+
+/** The messages without thinking blocks an upstream already rejected. */
+export async function stripRejectedAnthropicThinking<
+	T extends StrippableMessage,
+>(
+	organizationId: string,
+	messages: readonly T[],
+): Promise<{ messages: T[]; stripped: boolean }> {
+	const ids = anthropicThinkingIds(messages);
+	if (ids.length === 0) {
+		return { messages: [...messages], stripped: false };
+	}
+	let pins: Map<string, StoredPin>;
+	try {
+		pins = await readPins(organizationId, ids);
+	} catch (error) {
+		logger.warn("Failed to read rejected thinking", { organizationId, error });
+		return { messages: [...messages], stripped: false };
+	}
+	const rejected = ids.filter((id) => {
+		const pin = pins.get(id);
+		return pin !== undefined && isRejectedPin(pin);
+	});
+	if (rejected.length === 0) {
+		return { messages: [...messages], stripped: false };
+	}
+	const rejectedIds = new Set(rejected);
+	// Refresh the tombstones: a client replays its full history, so a rejected
+	// block would otherwise resurface once its tombstone expires.
+	const pipeline = redisClient.pipeline();
+	for (const id of rejected) {
+		pipeline.expire(
+			pinKey(organizationId, id),
+			REASONING_CREDENTIAL_PIN_TTL_SECONDS,
+		);
+	}
+	try {
+		await pipeline.exec();
+	} catch (error) {
+		logger.warn("Failed to refresh rejected thinking", {
+			organizationId,
+			error,
+		});
+	}
+	return stripReasoningDetails(messages, (detail) => {
+		const id = anthropicThinkingId(detail);
+		return id !== undefined && rejectedIds.has(id);
+	});
+}
+
 /**
  * An Anthropic rejection of a replayed thinking signature, e.g. a block bound
  * to a conversation whose system prompt has since changed.
@@ -152,7 +248,8 @@ export function isInvalidThinkingSignatureError(
 	errorText: string | undefined,
 ): boolean {
 	return (
-		errorText?.includes("Invalid `signature` in `thinking` block") ?? false
+		errorText !== undefined &&
+		/Invalid `\w+` in `(redacted_)?thinking` block/.test(errorText)
 	);
 }
 

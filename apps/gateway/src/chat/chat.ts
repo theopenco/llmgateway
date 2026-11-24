@@ -414,6 +414,8 @@ import {
 	stripAccountBoundReasoning,
 	stripAnthropicThinking,
 	stripForeignReasoning,
+	stripRejectedAnthropicThinking,
+	rememberRejectedAnthropicThinking,
 	rememberDroppedReasoning,
 } from "./tools/reasoning-credential-pin.js";
 import {
@@ -9185,13 +9187,18 @@ chat.openapi(completions, async (c) => {
 	// Encrypted reasoning another credential produced, or that an account
 	// already rejected, cannot verify here, so it is left out up front rather
 	// than cost a rejected attempt on every turn of the conversation.
+	// Thinking blocks an upstream already rejected are left out the same way.
+	const thinkingReplay = await stripRejectedAnthropicThinking(
+		project.organizationId,
+		messages,
+	);
 	const initialReplay = usedProviderEncryptsReasoning()
 		? await stripForeignReasoning(
 				project.organizationId,
-				messages,
+				thinkingReplay.messages,
 				currentReasoningCredential(),
 			)
-		: { messages, stripped: false };
+		: { messages: thinkingReplay.messages, stripped: false };
 	if (initialReplay.stripped && routingMetadata) {
 		routingMetadata.encryptedReasoningDropped = true;
 	}
@@ -9420,8 +9427,8 @@ chat.openapi(completions, async (c) => {
 		// the encrypted reasoning another account produced, so it goes without.
 		const replay = stripAccountBoundReasoning(
 			retriedWithoutAnthropicThinking
-				? stripAnthropicThinking(messages).messages
-				: messages,
+				? stripAnthropicThinking(thinkingReplay.messages).messages
+				: thinkingReplay.messages,
 		);
 		const ctx = await resolveProviderContext(
 			providerMapping,
@@ -9729,11 +9736,15 @@ chat.openapi(completions, async (c) => {
 			retriedWithoutAnthropicThinking ||
 			!usedProvider ||
 			!isInvalidThinkingSignatureError(errorText) ||
-			!stripAnthropicThinking(messages).stripped
+			!stripAnthropicThinking(thinkingReplay.messages).stripped
 		) {
 			return null;
 		}
 		retriedWithoutAnthropicThinking = true;
+		await rememberRejectedAnthropicThinking(
+			retryProjectContext.organizationId,
+			thinkingReplay.messages,
+		);
 		try {
 			const nextContext = await resolveProviderContextForRetry(
 				{

@@ -55,20 +55,66 @@ describe("anthropic thinking signature retry", () => {
 		}
 	});
 
-	/** Rejects every request that replays a thinking block. */
-	function mockUpstream(): boolean[] {
-		const replayedThinking: boolean[] = [];
+	const sse = (events: object[]) =>
+		events
+			.map(
+				(event) =>
+					`event: ${(event as { type: string }).type}\ndata: ${JSON.stringify(event)}\n\n`,
+			)
+			.join("");
+
+	/** Rejects requests `reject` matches with the signature error. */
+	function mockUpstream(
+		reject: (body: string) => boolean = (body) =>
+			body.includes('"type":"thinking"'),
+	): string[] {
+		const bodies: string[] = [];
 		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
 			const body = typeof init?.body === "string" ? init.body : "";
-			const replays = body.includes('"type":"thinking"');
-			replayedThinking.push(replays);
-			if (replays) {
+			bodies.push(body);
+			if (reject(body)) {
 				return new Response(
 					JSON.stringify({
 						type: "error",
 						error: { type: "invalid_request_error", message: SIGNATURE_ERROR },
 					}),
 					{ status: 400, headers: { "Content-Type": "application/json" } },
+				);
+			}
+			const usage = { input_tokens: 5, output_tokens: 5 };
+			if (body.includes('"stream":true')) {
+				return new Response(
+					sse([
+						{
+							type: "message_start",
+							message: {
+								id: "msg_retry",
+								type: "message",
+								role: "assistant",
+								model: "claude-sonnet-4-6",
+								content: [],
+								usage,
+							},
+						},
+						{
+							type: "content_block_start",
+							index: 0,
+							content_block: { type: "text", text: "" },
+						},
+						{
+							type: "content_block_delta",
+							index: 0,
+							delta: { type: "text_delta", text: "Done" },
+						},
+						{ type: "content_block_stop", index: 0 },
+						{
+							type: "message_delta",
+							delta: { stop_reason: "end_turn" },
+							usage,
+						},
+						{ type: "message_stop" },
+					]),
+					{ status: 200, headers: { "Content-Type": "text/event-stream" } },
 				);
 			}
 			return new Response(
@@ -79,19 +125,28 @@ describe("anthropic thinking signature retry", () => {
 					model: "claude-sonnet-4-6",
 					content: [{ type: "text", text: "Done" }],
 					stop_reason: "end_turn",
-					usage: { input_tokens: 5, output_tokens: 5 },
+					usage,
 				}),
 				{ status: 200, headers: { "Content-Type": "application/json" } },
 			);
 		});
-		return replayedThinking;
+		return bodies;
 	}
 
-	test("retries once without thinking blocks the upstream rejects", async () => {
-		await harness.setProjectMode("credits");
-		const replayedThinking = mockUpstream();
-
-		const res = await app.request("/v1/chat/completions", {
+	/** One assistant turn per signature, oldest first. */
+	function turn(signatures: string[], stream = false) {
+		const messages: unknown[] = [{ role: "user", content: "Start" }];
+		for (const signature of signatures) {
+			messages.push(
+				{
+					role: "assistant",
+					content: "Done",
+					reasoning_details: [thinking(`anthropic:${signature}`)],
+				},
+				{ role: "user", content: "Continue" },
+			);
+		}
+		return app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
 				Authorization: "Bearer real-token",
@@ -99,20 +154,22 @@ describe("anthropic thinking signature retry", () => {
 			},
 			body: JSON.stringify({
 				model: "anthropic/claude-sonnet-4-6",
-				messages: [
-					{ role: "user", content: "Start" },
-					{
-						role: "assistant",
-						content: "Done",
-						reasoning_details: [thinking("anthropic:stale-signature")],
-					},
-					{ role: "user", content: "Continue" },
-				],
+				messages,
+				stream,
 			}),
 		});
+	}
+
+	const replaysThinking = (body: string) => body.includes('"type":"thinking"');
+
+	test("retries once without thinking blocks the upstream rejects", async () => {
+		await harness.setProjectMode("credits");
+		const bodies = mockUpstream();
+
+		const res = await turn(["stale-signature"]);
 
 		expect(res.status).toBe(200);
-		expect(replayedThinking).toEqual([true, false]);
+		expect(bodies.map(replaysThinking)).toEqual([true, false]);
 
 		const logs = await waitForLogs(2);
 		const failed = logs.find((log) => log.hasError);
@@ -120,6 +177,41 @@ describe("anthropic thinking signature retry", () => {
 		expect(failed?.retried).toBe(true);
 		expect(failed?.retriedByLogId).toBe(success?.id);
 		expect(success?.unifiedFinishReason).toBe("completed");
+	});
+
+	test("retries a streaming request the same way", async () => {
+		await harness.setProjectMode("credits");
+		const bodies = mockUpstream();
+
+		const res = await turn(["stale-signature"], true);
+
+		expect(res.status).toBe(200);
+		expect(await res.text()).toContain("Done");
+		expect(bodies.map(replaysThinking)).toEqual([true, false]);
+	});
+
+	test("later turns leave rejected thinking out and replay newer thinking", async () => {
+		await harness.setProjectMode("credits");
+		const bodies = mockUpstream((body) => body.includes("stale-signature"));
+
+		expect((await turn(["stale-signature"])).status).toBe(200);
+		expect(bodies).toHaveLength(2);
+
+		const res = await turn(["stale-signature", "fresh-signature"]);
+		expect(res.status).toBe(200);
+		expect(bodies).toHaveLength(3);
+		expect(bodies[2]).not.toContain("stale-signature");
+		expect(bodies[2]).toContain("fresh-signature");
+	});
+
+	test("does not retry a rejected replay more than once", async () => {
+		await harness.setProjectMode("credits");
+		const bodies = mockUpstream(() => true);
+
+		const res = await turn(["stale-signature"]);
+
+		expect(res.status).toBe(400);
+		expect(bodies.map(replaysThinking)).toEqual([true, false]);
 	});
 });
 
