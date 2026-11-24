@@ -138,6 +138,7 @@ export async function getOrCreateDefaultOrganization(
 				referrerOrganizationId: options.referralOrganizationId,
 				referredUser: user,
 				ipAddress: options.referralIpAddress,
+				tx,
 			});
 
 			if (decision.allowed) {

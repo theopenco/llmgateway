@@ -177,6 +177,32 @@ describe("referral eligibility", () => {
 		).toEqual({ allowed: true });
 	});
 
+	test("refuses referrals past the daily cap, inside the inserting transaction", async () => {
+		await seedReferrer({ paid: "100" });
+		for (let i = 0; i < 10; i++) {
+			await db.insert(tables.organization).values({
+				id: `${REFERRED_ORG}-${i}`,
+				name: "Referred",
+				billingEmail: `r${i}@other.test`,
+			});
+			await db.insert(tables.referral).values({
+				referrerOrganizationId: REFERRER_ORG,
+				referredOrganizationId: `${REFERRED_ORG}-${i}`,
+			});
+		}
+		const decision = await db.transaction((tx) =>
+			checkReferralAllowed({
+				referrerOrganizationId: REFERRER_ORG,
+				referredUser: newUser("friend@other.test"),
+				tx,
+			}),
+		);
+		expect(decision).toEqual({
+			allowed: false,
+			reason: "referrer_daily_limit",
+		});
+	});
+
 	test("claws back referral earnings after a refund, clamped to what was earned", async () => {
 		await seedReferrer({ paid: "100" });
 		await db

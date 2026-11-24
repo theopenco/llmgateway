@@ -1760,6 +1760,10 @@ export async function batchProcessLogs(): Promise<number> {
 				const plannedOverflowOnly =
 					org && org.devPlan !== "none" && !org.devPlanPaygEnabled;
 
+				// Regular credits that a positive balance covered; only the debit
+				// below sets it (a plan-pool overshoot is never paid for).
+				let creditsCovered = new Decimal(0);
+
 				if (remainingCost.greaterThan(0) && plannedOverflowOnly && devPool) {
 					await deductFromPlanPool(
 						orgId,
@@ -1772,12 +1776,26 @@ export async function batchProcessLogs(): Promise<number> {
 					);
 				} else if (remainingCost.greaterThan(0)) {
 					const costStr = remainingCost.toString();
-					await tx
+					const [debited] = await tx
 						.update(organization)
 						.set({
 							credits: sql`${organization.credits} - ${costStr}`,
 						})
-						.where(eq(organization.id, orgId));
+						.where(eq(organization.id, orgId))
+						.returning({ credits: organization.credits });
+
+					// The part of this debit a positive balance actually covered,
+					// derived from the row the debit left rather than the earlier
+					// unlocked read, so a concurrent write cannot inflate it.
+					if (debited) {
+						creditsCovered = Decimal.min(
+							remainingCost,
+							Decimal.max(
+								0,
+								new Decimal(debited.credits || "0").plus(remainingCost),
+							),
+						);
+					}
 
 					deductedOrgIds.push(orgId);
 
@@ -1799,15 +1817,6 @@ export async function batchProcessLogs(): Promise<number> {
 				});
 
 				const planCovered = Decimal.max(0, totalCost.minus(remainingCost));
-				const creditsCovered =
-					org &&
-					remainingCost.greaterThan(0) &&
-					!(plannedOverflowOnly && devPool)
-						? Decimal.min(
-								remainingCost,
-								Decimal.max(0, new Decimal(org.credits || "0")),
-							)
-						: new Decimal(0);
 				const paidCost = planCovered.plus(creditsCovered);
 
 				if (

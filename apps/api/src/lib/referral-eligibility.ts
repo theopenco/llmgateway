@@ -16,6 +16,8 @@ export const REFERRAL_MIN_NET_TOP_UPS_USD = 100;
 /** Referrals one organization may collect per day before new ones are refused. */
 export const REFERRAL_MAX_PER_DAY = 10;
 
+type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** How far back member sessions are compared against the new user's IP. */
@@ -123,6 +125,8 @@ export async function checkReferralAllowed(params: {
 	referrerOrganizationId: string;
 	referredUser: { id: string; email: string };
 	ipAddress?: string | null;
+	/** The transaction that inserts the referral; serializes the daily cap. */
+	tx?: DbTransaction;
 }): Promise<
 	{ allowed: true } | { allowed: false; reason: ReferralRejectionReason }
 > {
@@ -178,8 +182,17 @@ export async function checkReferralAllowed(params: {
 		}
 	}
 
+	// Concurrent signups for one referrer must see each other's inserts before
+	// the cap is checked, so the count runs in the caller's transaction behind
+	// a per-referrer lock that is held until that transaction commits.
+	const executor = params.tx ?? db;
+	if (params.tx) {
+		await params.tx.execute(
+			sql`select pg_advisory_xact_lock(hashtext(${`referral:${referrerOrganizationId}`}))`,
+		);
+	}
 	const dayAgo = new Date(Date.now() - DAY_MS);
-	const [recent] = await db
+	const [recent] = await executor
 		.select({ count: sql<number>`count(*)::int` })
 		.from(tables.referral)
 		.where(
@@ -203,18 +216,19 @@ export async function checkReferralAllowed(params: {
 export async function clawBackReferralEarnings(
 	referredOrganizationId: string,
 	refundedAmountUsd: number,
+	executor: typeof db | DbTransaction = db,
 ): Promise<void> {
 	if (!(refundedAmountUsd > 0)) {
 		return;
 	}
-	const referral = await db.query.referral.findFirst({
+	const referral = await executor.query.referral.findFirst({
 		where: { referredOrganizationId: { eq: referredOrganizationId } },
 	});
 	if (!referral) {
 		return;
 	}
 	const clawback = new Decimal(refundedAmountUsd).times(0.01).toString();
-	const [updated] = await db
+	const [updated] = await executor
 		.update(tables.organization)
 		.set({
 			credits: sql`${tables.organization.credits} - LEAST(${clawback}::numeric, ${tables.organization.referralEarnings})`,
