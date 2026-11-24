@@ -77,6 +77,7 @@ import {
 	gte,
 	deletedProviderKeyStatus,
 	inArray,
+	isNull,
 	isRemovedProviderKeyStatus,
 	lt,
 	notInArray,
@@ -2677,6 +2678,18 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		});
 	}
 
+	// A dedicated credential must keep the default variant. When only one of the
+	// two is written, pin the other to a compatible value so a concurrent
+	// update of it cannot commit the combination validated against above.
+	const dedicationGuard =
+		updates.variant !== undefined &&
+		updates.variant !== "default" &&
+		updates.dedicatedOrganizationIds === undefined
+			? isNull(tables.providerKey.dedicatedOrganizationIds)
+			: updates.dedicatedOrganizationIds && updates.variant === undefined
+				? eq(tables.providerKey.variant, "default")
+				: undefined;
+
 	// The status predicate pins the deleted-or-not state the read saw, so a
 	// concurrent delete cannot have this write resurrect (or rotate the token
 	// of) a row soft-deleted between the read above and this statement.
@@ -2694,11 +2707,18 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 					: notInArray(tables.providerKey.status, [
 							...REMOVED_PROVIDER_KEY_STATUSES,
 						]),
+				dedicationGuard,
 			),
 		)
 		.returning();
 
 	if (!updated) {
+		if (dedicationGuard) {
+			throw new HTTPException(409, {
+				message:
+					"The credential's audience or dedicated organizations changed while saving. Reload and try again.",
+			});
+		}
 		throw new HTTPException(404, { message: "Credential not found" });
 	}
 
