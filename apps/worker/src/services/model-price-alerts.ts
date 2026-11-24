@@ -327,9 +327,14 @@ interface PriceEvent {
 function digestEvent(
 	events: PriceEvent[],
 ): Omit<PriceEvent, "modelId" | "name" | "lines"> {
-	// Models sharing the same change are listed together under it.
+	// Models sharing the same change are listed together under it, in name
+	// order so the message does not depend on query order.
 	const byLine = new Map<string, string[]>();
-	for (const event of events) {
+	const sorted = [...events].sort(
+		(a, b) =>
+			a.name.localeCompare(b.name) || a.modelId.localeCompare(b.modelId),
+	);
+	for (const event of sorted) {
 		for (const line of new Set(event.lines)) {
 			byLine.set(line, [...(byLine.get(line) ?? []), event.name]);
 		}
