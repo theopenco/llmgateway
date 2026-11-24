@@ -40,7 +40,7 @@ const DEFAULT_MAX_SEARCHES = 5;
 const REQUIRED_SEARCH_FAILED = {
 	error: {
 		message:
-			"Web search is required by tool_choice, but the search engine is unavailable. Please retry.",
+			"Web search is required by tool_choice, but no search could run. Please retry.",
 		type: "upstream_error",
 		param: null,
 		code: "web_search_unavailable",
@@ -422,6 +422,11 @@ class LoopState {
 		return round === 0 && this.options.forced && this.searches.length === 0;
 	}
 
+	/** The forced first round answered without calling the search at all. */
+	public requiredSearchSkipped(round: number, searchCalls: number): boolean {
+		return round === 0 && this.options.forced && searchCalls === 0;
+	}
+
 	public canSearchAgain(round: number): boolean {
 		return this.searchCount < this.maxSearches && round + 1 < MAX_ROUNDS;
 	}
@@ -512,6 +517,9 @@ async function runNonStreaming(
 				),
 			);
 			continue;
+		}
+		if (state.requiredSearchSkipped(round, search.length)) {
+			return Response.json(REQUIRED_SEARCH_FAILED, { status: 503 });
 		}
 		if (search.length > 0) {
 			message.tool_calls = other.length > 0 ? other : undefined;
@@ -614,6 +622,7 @@ async function* sseEvents(body: ReadableStream<Uint8Array>) {
 async function pipeRound(
 	res: Response,
 	write: (data: string) => Promise<void>,
+	firstRound: boolean,
 ): Promise<StreamedRound> {
 	const round: StreamedRound = {
 		content: "",
@@ -720,10 +729,12 @@ async function pipeRound(
 			round.held.push(chunk);
 			continue;
 		}
+		// The caller sees one assistant turn: only the first round opens it.
 		const hasPayload =
 			!delta ||
 			Object.keys(delta).some((key) => key !== "role") ||
-			chunk.metadata !== undefined;
+			chunk.metadata !== undefined ||
+			(firstRound && delta.role !== undefined);
 		if (hasPayload) {
 			await write(JSON.stringify(chunk));
 		}
@@ -751,7 +762,7 @@ async function runStreaming(
 				await write("[DONE]");
 				return;
 			}
-			const streamed = await pipeRound(res, write);
+			const streamed = await pipeRound(res, write, round === 0);
 			// A round can report usage twice (finish chunk, then the costed
 			// one); the last report is the round's total.
 			const roundUsage = [...streamed.held]
@@ -816,6 +827,11 @@ async function runStreaming(
 					),
 				);
 				continue;
+			}
+			if (state.requiredSearchSkipped(round, search.length)) {
+				await write(JSON.stringify(REQUIRED_SEARCH_FAILED));
+				await write("[DONE]");
+				return;
 			}
 			let lastUsage = -1;
 			streamed.held.forEach((chunk, i) => {

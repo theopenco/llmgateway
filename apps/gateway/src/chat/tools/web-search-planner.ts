@@ -32,9 +32,13 @@ export interface WebSearchPlan {
 }
 
 function messageText(message: BaseMessage): string {
-	const content = message.content;
+	// Tool-call turns may carry `content: null`.
+	const content = message.content as BaseMessage["content"] | null | undefined;
 	if (typeof content === "string") {
 		return content;
+	}
+	if (!Array.isArray(content)) {
+		return "";
 	}
 	return content
 		.map((part) => (part.type === "text" ? part.text : ""))

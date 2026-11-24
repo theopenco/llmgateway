@@ -228,6 +228,15 @@ describe("runWebSearchLoop", () => {
 		expect(rejected?.status).toBe(402);
 	});
 
+	test("fails a required search the model answered without", async () => {
+		const { opts } = options(
+			[completion({ role: "assistant", content: "from memory" })],
+			{ forced: true },
+		);
+		const res = await runWebSearchLoop(opts);
+		expect(res?.status).toBe(503);
+	});
+
 	test("fails a required search when every search of it failed", async () => {
 		const { opts, bodies } = options(
 			[

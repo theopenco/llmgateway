@@ -43,6 +43,25 @@ describe("buildPlannerConversation", () => {
 		expect(out).toMatch(/\[user\] …x+ and second\?$/);
 		expect(out.length).toBeLessThan(2_200);
 	});
+
+	test("skips turns without text, such as tool calls with null content", () => {
+		const out = buildPlannerConversation([
+			{ role: "user", content: "Weather in Paris?" },
+			{
+				role: "assistant",
+				content: null as unknown as string,
+				tool_calls: [
+					{
+						id: "c",
+						type: "function",
+						function: { name: "get_weather", arguments: "{}" },
+					},
+				],
+			},
+			{ role: "tool", tool_call_id: "c", content: "Sunny" },
+		]);
+		expect(out).toBe("[user] Weather in Paris?\n[tool] Sunny");
+	});
 });
 
 describe("parsePlan", () => {
