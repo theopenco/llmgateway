@@ -11,7 +11,6 @@ import {
 	getProviderFilterReasons,
 	mergeFilteredProvider,
 	preferDeclaredReasoningEffortProviders,
-	preferNativeWebSearchProviders,
 	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 	type FilteredProvider,
@@ -755,37 +754,5 @@ describe("preferDeclaredReasoningEffortProviders", () => {
 				reasoningPinnedProvider: "undeclared",
 			}),
 		).toEqual([undeclared, declared]);
-	});
-});
-
-describe("preferNativeWebSearchProviders", () => {
-	const anthropic = mapping({ providerId: "anthropic", webSearch: true });
-	const bedrock = mapping({ providerId: "aws-bedrock" });
-
-	it("drops gateway-searched mappings when a native one remains", () => {
-		const filteredOut: FilteredProvider[] = [];
-		expect(
-			preferNativeWebSearchProviders(
-				[bedrock, anthropic],
-				{ webSearchTool: true },
-				filteredOut,
-			),
-		).toEqual([anthropic]);
-		expect(filteredOut).toEqual([
-			expect.objectContaining({
-				providerId: "aws-bedrock",
-				codes: ["web_search"],
-			}),
-		]);
-	});
-
-	it("keeps every mapping without a web_search tool or a native mapping", () => {
-		expect(preferNativeWebSearchProviders([bedrock, anthropic], {})).toEqual([
-			bedrock,
-			anthropic,
-		]);
-		expect(
-			preferNativeWebSearchProviders([bedrock], { webSearchTool: true }),
-		).toEqual([bedrock]);
 	});
 });

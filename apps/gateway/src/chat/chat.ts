@@ -19,6 +19,7 @@ import {
 } from "@/lib/api-key-usage-limits.js";
 import {
 	hasInternalClientCacheMarkers,
+	isInternalApiOrigin,
 	resolveChatApiOrigin,
 } from "@/lib/api-origin.js";
 import {
@@ -206,6 +207,7 @@ import {
 	promptTokensShowSearchContext,
 	reportedWebSearchCount,
 	billedServerToolUseCount,
+	mappingSupportsToolChoice,
 } from "@llmgateway/actions";
 import {
 	generateCacheKey,
@@ -395,7 +397,6 @@ import {
 	getProviderFilterReasons,
 	mergeFilteredProvider,
 	preferDeclaredReasoningEffortProviders,
-	preferNativeWebSearchProviders,
 	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 } from "./tools/provider-filter-reasons.js";
@@ -490,6 +491,12 @@ import {
 } from "./tools/transform-streaming-to-openai.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 import { validateModelCapabilities } from "./tools/validate-model-capabilities.js";
+import {
+	gatewayRoundDispatcher,
+	runWebSearchLoop,
+	takeWebSearchLoopBilling,
+	WEB_SEARCH_LOOP_HEADER,
+} from "./tools/web-search-loop.js";
 import {
 	planWebSearch,
 	WEB_SEARCH_PLANNER_PROVIDER,
@@ -1007,11 +1014,7 @@ function filterEligibleModelProviders(
 				provider.providerId !== "custom" && !effortRanked.includes(provider),
 		),
 	);
-	return preferNativeWebSearchProviders(
-		preferToolChoiceCapableProviders(effortRanked, options, filteredOut),
-		options,
-		filteredOut,
-	);
+	return preferToolChoiceCapableProviders(effortRanked, options, filteredOut);
 }
 
 interface ContentFilterRoutingDecision {
@@ -1901,7 +1904,24 @@ chat.openapi(completions, async (c) => {
 	// native search (`usesGatewayWebSearch`). Billed by the calculateCosts wrapper
 	// and recorded on the log by insertLogEntry.
 	let internalWebSearch:
-		{ search: InternalWebSearch; price: string } | undefined;
+		{ search: InternalWebSearch; price: string; count?: number } | undefined;
+	// A round of gateway-run search (`runWebSearchLoop`) bills the searches
+	// that ran since the previous round.
+	const webSearchLoopBilling = isInternalApiOrigin(c)
+		? takeWebSearchLoopBilling(c.req.header(WEB_SEARCH_LOOP_HEADER))
+		: undefined;
+	if (webSearchLoopBilling) {
+		internalWebSearch = {
+			search: {
+				engine: webSearchLoopBilling.engine,
+				queries: webSearchLoopBilling.queries,
+				results: [],
+				engineCostUsd: null,
+			},
+			price: webSearchLoopBilling.price,
+			count: webSearchLoopBilling.count,
+		};
+	}
 	// Native searches the latest cost calculation billed, for the log row.
 	let nativeWebSearchCount = 0;
 
@@ -1914,7 +1934,11 @@ chat.openapi(completions, async (c) => {
 		const costs = await _calculateCosts(...args);
 		nativeWebSearchCount = costs.webSearchCount;
 		if (internalWebSearch) {
-			addInternalWebSearchCost(costs, internalWebSearch.price);
+			addInternalWebSearchCost(
+				costs,
+				internalWebSearch.price,
+				internalWebSearch.count,
+			);
 		}
 		if (sponsoredOnboarding) {
 			zeroInferenceCosts(costs);
@@ -2512,6 +2536,7 @@ chat.openapi(completions, async (c) => {
 				logData,
 				internalWebSearch?.search.engine,
 				nativeWebSearchCount,
+				internalWebSearch?.count,
 			),
 			...(await getRoutingBaselineFields(logData)),
 			...logData,
@@ -5009,17 +5034,13 @@ chat.openapi(completions, async (c) => {
 				autoFilterOpts,
 				filteredOutForModel,
 			);
-			const toolChoiceSuitableProviders = preferNativeWebSearchProviders(
-				dynamicRouteSelection
-					? preferToolChoiceCapableProviders(
-							effortSuitableProviders,
-							autoFilterOpts,
-							filteredOutForModel,
-						)
-					: effortSuitableProviders,
-				autoFilterOpts,
-				filteredOutForModel,
-			);
+			const toolChoiceSuitableProviders = dynamicRouteSelection
+				? preferToolChoiceCapableProviders(
+						effortSuitableProviders,
+						autoFilterOpts,
+						filteredOutForModel,
+					)
+				: effortSuitableProviders;
 			effortDemotedByModel.set(
 				modelDef.id,
 				suitableProviders.filter(
@@ -8970,6 +8991,71 @@ chat.openapi(completions, async (c) => {
 				engine,
 				reason: skip,
 			});
+		}
+		// Models that call tools search the way native search does: the model
+		// decides whether and what to search, reads the results, may search
+		// again, then answers. Each model call is its own gateway request.
+		if (
+			!skip &&
+			usedMappingForSearch.tools === true &&
+			(n === undefined || n <= 1) &&
+			usedProvider !== "custom" &&
+			!airsideCustomBaseUrl &&
+			typeof rawBody === "object" &&
+			rawBody !== null
+		) {
+			const {
+				web_search: _webSearchFlag,
+				web_search_options: _webSearchOptions,
+				...loopBody
+			} = rawBody as Record<string, unknown>;
+			const callerTools = Array.isArray(loopBody.tools)
+				? (loopBody.tools as Array<{ type?: string }>).filter(
+						(tool) => tool?.type !== "web_search",
+					)
+				: [];
+			const callerToolChoice = loopBody.tool_choice;
+			const loopResponse = await runWebSearchLoop({
+				body: {
+					...loopBody,
+					model: `${usedProvider}/${usedInternalModel}${requestedRegion ? `:${requestedRegion}` : ""}`,
+					tools: callerTools.length > 0 ? callerTools : undefined,
+					tool_choice:
+						typeof callerToolChoice === "object" &&
+						callerToolChoice !== null &&
+						(callerToolChoice as { type?: string }).type === "web_search"
+							? undefined
+							: callerToolChoice,
+				},
+				stream: stream === true,
+				forced: webSearchTool.forced === true,
+				canForceFunction: mappingSupportsToolChoice(usedMappingForSearch, {
+					type: "function",
+					function: { name: "web_search" },
+				}),
+				maxSearches: webSearchTool.max_uses,
+				engine,
+				price: GATEWAY_WEB_SEARCH_ENGINES[engine].price,
+				requestId,
+				dispatch: gatewayRoundDispatcher(c, apiOrigin, requestId),
+				search: async (query) =>
+					await runInternalWebSearch(
+						engine,
+						[query],
+						webSearchTool!,
+						requestId,
+					),
+				streamResponse: (pipe) =>
+					streamSSE(c, async (sseStream) => {
+						let eventId = 0;
+						await pipe(async (data) => {
+							await sseStream.writeSSE({ data, id: String(eventId++) });
+						});
+					}),
+			});
+			if (loopResponse) {
+				return loopResponse;
+			}
 		}
 		const fallbackQuery = skip
 			? null
