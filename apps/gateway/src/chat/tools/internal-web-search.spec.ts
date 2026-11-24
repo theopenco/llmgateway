@@ -23,7 +23,7 @@ vi.mock("./content-filter-credential.js", () => ({
 
 const search: InternalWebSearch = {
 	engine: "exa",
-	query: "q",
+	queries: ["q"],
 	results: [
 		{
 			url: "https://example.com/a",
@@ -252,7 +252,7 @@ describe("runInternalWebSearch", () => {
 
 		const result = await runInternalWebSearch(
 			"exa",
-			"q",
+			["q", "unsent"],
 			{
 				type: "web_search",
 				search_context_size: "high",
@@ -272,6 +272,7 @@ describe("runInternalWebSearch", () => {
 		expect(result?.results.map((r) => r.url)).toEqual([
 			"https://example.com/a",
 		]);
+		expect(result?.queries).toEqual(["q"]);
 		expect(result?.engineCostUsd).toBe(0.007);
 	});
 
@@ -295,7 +296,7 @@ describe("runInternalWebSearch", () => {
 
 		const result = await runInternalWebSearch(
 			"perplexity",
-			"q",
+			["q", "r"],
 			{
 				type: "web_search",
 				search_context_size: "low",
@@ -309,7 +310,7 @@ describe("runInternalWebSearch", () => {
 		expect(url).toBe("https://api.perplexity.ai/search");
 		expect(init.headers.authorization).toBe("Bearer pk");
 		expect(JSON.parse(init.body)).toEqual({
-			query: "q",
+			query: ["q", "r"],
 			max_results: 3,
 			max_tokens_per_page: 250,
 			search_domain_filter: ["-spam.com"],
@@ -330,7 +331,7 @@ describe("runInternalWebSearch", () => {
 		vi.stubGlobal("fetch", fetchMock);
 
 		await expect(
-			runInternalWebSearch("exa", "q", { type: "web_search" }, "req"),
+			runInternalWebSearch("exa", ["q"], { type: "web_search" }, "req"),
 		).resolves.toBeNull();
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
@@ -349,7 +350,7 @@ describe("runInternalWebSearch", () => {
 
 		await runInternalWebSearch(
 			"perplexity",
-			"q",
+			["q"],
 			{ type: "web_search" },
 			"req",
 		);
@@ -370,7 +371,7 @@ describe("runInternalWebSearch", () => {
 		vi.stubGlobal("fetch", fetchMock);
 
 		await expect(
-			runInternalWebSearch("perplexity", "q", { type: "web_search" }, "req"),
+			runInternalWebSearch("perplexity", ["q"], { type: "web_search" }, "req"),
 		).resolves.toBeNull();
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
@@ -381,7 +382,7 @@ describe("runInternalWebSearch", () => {
 		vi.stubGlobal("fetch", fetchMock);
 
 		await expect(
-			runInternalWebSearch("exa", "q", { type: "web_search" }, "req"),
+			runInternalWebSearch("exa", ["q"], { type: "web_search" }, "req"),
 		).resolves.toBeNull();
 		expect(fetchMock).not.toHaveBeenCalled();
 	});

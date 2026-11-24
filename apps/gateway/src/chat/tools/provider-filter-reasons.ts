@@ -226,6 +226,46 @@ export function preferDeclaredReasoningEffortProviders(
 }
 
 /**
+ * Narrow a candidate list to the mappings that search natively when the
+ * request carries a `web_search` tool and at least one of them does.
+ *
+ * Any chat mapping takes the tool (`supportsWebSearch`), but without native
+ * search the gateway runs the search itself, so a cheaper gateway-searched
+ * deployment would otherwise outrank the model's own search on price alone.
+ */
+export function preferNativeWebSearchProviders(
+	providers: ProviderModelMapping[],
+	options: ProviderFilterOptions,
+	filteredOut?: FilteredProvider[],
+): ProviderModelMapping[] {
+	if (!options.webSearchTool) {
+		return providers;
+	}
+
+	const native = providers.filter((provider) => provider.webSearch === true);
+	if (native.length === 0 || native.length === providers.length) {
+		return providers;
+	}
+
+	if (filteredOut) {
+		// Record a provider only when none of its mappings survived, as for
+		// tool_choice above.
+		const nativeProviderIds = new Set(native.map((p) => p.providerId));
+		for (const provider of providers) {
+			if (!nativeProviderIds.has(provider.providerId)) {
+				recordFilteredProvider(filteredOut, provider.providerId, [
+					exclusionReason(
+						"web_search",
+						"Another provider of this model has native web search",
+					),
+				]);
+			}
+		}
+	}
+	return native;
+}
+
+/**
  * Collects the reasons why a provider mapping would be filtered out during routing.
  * Returns an empty array if the provider passes all checks.
  */

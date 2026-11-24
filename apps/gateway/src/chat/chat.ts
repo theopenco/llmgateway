@@ -395,6 +395,7 @@ import {
 	getProviderFilterReasons,
 	mergeFilteredProvider,
 	preferDeclaredReasoningEffortProviders,
+	preferNativeWebSearchProviders,
 	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 } from "./tools/provider-filter-reasons.js";
@@ -489,6 +490,10 @@ import {
 } from "./tools/transform-streaming-to-openai.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 import { validateModelCapabilities } from "./tools/validate-model-capabilities.js";
+import {
+	planWebSearch,
+	WEB_SEARCH_PLANNER_PROVIDER,
+} from "./tools/web-search-planner.js";
 
 import type {
 	FilteredProvider,
@@ -1002,7 +1007,11 @@ function filterEligibleModelProviders(
 				provider.providerId !== "custom" && !effortRanked.includes(provider),
 		),
 	);
-	return preferToolChoiceCapableProviders(effortRanked, options, filteredOut);
+	return preferNativeWebSearchProviders(
+		preferToolChoiceCapableProviders(effortRanked, options, filteredOut),
+		options,
+		filteredOut,
+	);
 }
 
 interface ContentFilterRoutingDecision {
@@ -5000,13 +5009,17 @@ chat.openapi(completions, async (c) => {
 				autoFilterOpts,
 				filteredOutForModel,
 			);
-			const toolChoiceSuitableProviders = dynamicRouteSelection
-				? preferToolChoiceCapableProviders(
-						effortSuitableProviders,
-						autoFilterOpts,
-						filteredOutForModel,
-					)
-				: effortSuitableProviders;
+			const toolChoiceSuitableProviders = preferNativeWebSearchProviders(
+				dynamicRouteSelection
+					? preferToolChoiceCapableProviders(
+							effortSuitableProviders,
+							autoFilterOpts,
+							filteredOutForModel,
+						)
+					: effortSuitableProviders,
+				autoFilterOpts,
+				filteredOutForModel,
+			);
 			effortDemotedByModel.set(
 				modelDef.id,
 				suitableProviders.filter(
@@ -8958,13 +8971,36 @@ chat.openapi(completions, async (c) => {
 				reason: skip,
 			});
 		}
-		const query = skip ? null : buildWebSearchQuery(messages as BaseMessage[]);
-		const search = query
-			? await runInternalWebSearch(engine, query, webSearchTool, requestId)
+		const fallbackQuery = skip
+			? null
+			: buildWebSearchQuery(messages as BaseMessage[]);
+		// An LLM writes the queries and, for an offered tool, decides whether
+		// the turn needs a search at all. Only where the policy admits the
+		// planner's provider; otherwise the latest message is the query.
+		const plan =
+			fallbackQuery &&
+			(!compliancePolicy ||
+				isProviderIdCompliant(WEB_SEARCH_PLANNER_PROVIDER, compliancePolicy, {
+					effectiveProviders,
+				}))
+				? await planWebSearch(
+						messages as BaseMessage[],
+						webSearchTool.forced === true,
+						requestId,
+					)
+				: null;
+		const queries =
+			!fallbackQuery || plan?.search === false
+				? null
+				: plan?.queries.length
+					? plan.queries
+					: [fallbackQuery];
+		const search = queries
+			? await runInternalWebSearch(engine, queries, webSearchTool, requestId)
 			: null;
 		// `tool_choice: {type: "web_search"}` demands a search: answering
 		// without one would hide that it never ran.
-		if (webSearchTool.forced && (skip || (query && !search))) {
+		if (webSearchTool.forced && (skip || (queries && !search))) {
 			const status =
 				skip === "unfunded_byok_search"
 					? 402
@@ -12746,7 +12782,10 @@ chat.openapi(completions, async (c) => {
 											webSearchCount = 1;
 										}
 									}
-								} else if (streamFormatProvider === "openai") {
+								} else if (
+									streamFormatProvider === "openai" ||
+									streamFormatProvider === "azure"
+								) {
 									// For OpenAI Responses API, count web_search_call.completed
 									// events, unless the terminal event's usage reports the
 									// billable operations itself (DeepSeek).
