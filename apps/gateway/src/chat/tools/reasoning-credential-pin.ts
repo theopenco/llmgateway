@@ -128,6 +128,34 @@ export function isInvalidEncryptedContentError(
 	return errorText?.includes("invalid_encrypted_content") ?? false;
 }
 
+const ANTHROPIC_REASONING_FORMAT = "anthropic-claude-v1";
+
+/**
+ * The messages without Anthropic thinking blocks. Omitting all of them is
+ * accepted upstream, so a replay whose signatures no longer verify can be
+ * served without them.
+ */
+export function stripAnthropicThinking<T extends StrippableMessage>(
+	messages: readonly T[],
+): { messages: T[]; stripped: boolean } {
+	return stripReasoningDetails(
+		messages,
+		(detail) => detail?.format === ANTHROPIC_REASONING_FORMAT,
+	);
+}
+
+/**
+ * An Anthropic rejection of a replayed thinking signature, e.g. a block bound
+ * to a conversation whose system prompt has since changed.
+ */
+export function isInvalidThinkingSignatureError(
+	errorText: string | undefined,
+): boolean {
+	return (
+		errorText?.includes("Invalid `signature` in `thinking` block") ?? false
+	);
+}
+
 /** An assistant message or streamed delta that may carry bound reasoning. */
 export interface ReasoningCarrier {
 	reasoning_details?: unknown;
