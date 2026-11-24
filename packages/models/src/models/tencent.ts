@@ -323,7 +323,6 @@ export const tencentModels = [
 				tools: true,
 				jsonOutput: true,
 				jsonOutputSchema: true,
-				supportsAssistantPrefill: false,
 			},
 		],
 	},
