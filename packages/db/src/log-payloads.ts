@@ -94,8 +94,6 @@ export const gatewayContentFilterEvaluationSchema = z.object({
 	// evaluations. With `blockGroups` set, only these decide `action`.
 	matchedGroups: contentFilterBlockGroupsSchema.optional(),
 	moderationFailed: z.boolean(),
-	// Model the request was routed to, set when a chat block logs it without one.
-	model: z.string().optional(),
 	// Absent on evaluations written before the classifier became selectable;
 	// those all ran on OpenAI moderation.
 	classifier: contentFilterClassifierSchema.optional(),

@@ -7697,14 +7697,8 @@ chat.openapi(completions, async (c) => {
 	const tierContentFilterBlocked =
 		tieredContentFilter?.evaluation.action === "blocked";
 
-	// A blocked request is logged without a model; record the one it was routed
-	// to so the content filter rollup attributes the block to it.
-	const contentFilterRoutedModel = usedModelFormatted;
 	const contentFilterLogFields = (tiered: TieredContentFilterOutcome) => {
-		const evaluation =
-			tiered?.evaluation.action === "blocked"
-				? { ...tiered.evaluation, model: contentFilterRoutedModel }
-				: (tiered?.evaluation ?? null);
+		const evaluation = tiered?.evaluation ?? null;
 		const results = envContentFilterResult ? [envContentFilterResult] : [];
 		for (const result of tiered?.results ?? []) {
 			if (!results.includes(result)) {
@@ -7778,7 +7772,8 @@ chat.openapi(completions, async (c) => {
 		const contentFilterResponseId = `chatcmpl-${Date.now()}`;
 		const contentFilterCreated = Math.floor(Date.now() / 1000);
 
-		// Log the filtered request
+		// Log the filtered request under the model it was routed to; it never
+		// reached that provider, so the usage rollups skip it by finish reason.
 		try {
 			await insertLog(
 				{
@@ -7787,9 +7782,9 @@ chat.openapi(completions, async (c) => {
 						project,
 						apiKey,
 						undefined,
-						"",
-						undefined,
-						"llmgateway",
+						usedModelFormatted,
+						usedModelMapping,
+						usedProvider,
 						requestedModel,
 						requestedProvider,
 						messages as any[],
