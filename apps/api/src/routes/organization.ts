@@ -325,6 +325,9 @@ const transactionSchema = z.object({
 	description: z.string().nullable(),
 	relatedTransactionId: z.string().nullable(),
 	refundReason: z.string().nullable(),
+	// Off-Stripe channel and its reference, set on manual payments.
+	paymentMethod: z.enum(["wire", "crypto", "paypal", "other"]).nullable(),
+	externalReference: z.string().nullable(),
 	// Self-refund eligibility, present only on refund-candidate purchase types.
 	refund: refundEligibilitySchema.optional(),
 });

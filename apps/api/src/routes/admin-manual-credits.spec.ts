@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
+import * as emailUtils from "@/utils/email.js";
 
 import { db, tables } from "@llmgateway/db";
 
@@ -33,7 +34,83 @@ describe("admin manual credits", () => {
 	});
 
 	afterEach(async () => {
+		vi.restoreAllMocks();
 		await deleteAll();
+	});
+
+	function addCredits(body: Record<string, unknown>) {
+		return app.request(`/admin/organizations/${ORG_ID}/manual-credits`, {
+			method: "POST",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		});
+	}
+
+	test("emails the invoice once and lets the org download it", async () => {
+		const sendEmail = vi
+			.spyOn(emailUtils, "sendTransactionalEmail")
+			.mockResolvedValue(undefined);
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+
+		const res = await addCredits({
+			creditAmount: 250,
+			paymentMethod: "wire",
+			externalReference: "REF-20260810-ACME",
+		});
+		expect(res.status).toBe(200);
+
+		const [txn] = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(sendEmail).toHaveBeenCalledTimes(1);
+		const email = sendEmail.mock.calls[0][0];
+		expect(email.to).toBe("manual@example.com");
+		expect(email.organizationId).toBe(ORG_ID);
+		expect(email.subject).toContain(txn.id);
+		expect(email.attachments?.[0]?.filename).toBe(`invoice-${txn.id}.pdf`);
+
+		const list = await app.request(`/orgs/${ORG_ID}/transactions`, {
+			headers: { Cookie: cookie },
+		});
+		expect(list.status).toBe(200);
+		const { transactions } = (await list.json()) as {
+			transactions: {
+				id: string;
+				type: string;
+				externalReference: string | null;
+			}[];
+		};
+		expect(transactions).toHaveLength(1);
+		expect(transactions[0]).toMatchObject({
+			id: txn.id,
+			type: "credit_manual_payment",
+			externalReference: "REF-20260810-ACME",
+		});
+
+		const pdf = await app.request(
+			`/orgs/${ORG_ID}/transactions/${txn.id}/invoice`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(pdf.status).toBe(200);
+		expect(pdf.headers.get("Content-Type")).toBe("application/pdf");
+	});
+
+	test("still credits the org when the invoice email fails", async () => {
+		vi.spyOn(emailUtils, "sendTransactionalEmail").mockRejectedValue(
+			new Error("smtp down"),
+		);
+
+		const res = await addCredits({ creditAmount: 40, paymentMethod: "crypto" });
+		expect(res.status).toBe(200);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(Number(org!.credits)).toBe(50);
 	});
 
 	test("credits the org and records a manual payment transaction", async () => {
