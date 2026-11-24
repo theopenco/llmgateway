@@ -7772,7 +7772,8 @@ chat.openapi(completions, async (c) => {
 		const contentFilterResponseId = `chatcmpl-${Date.now()}`;
 		const contentFilterCreated = Math.floor(Date.now() / 1000);
 
-		// Log the filtered request
+		// Log the filtered request under the model it was routed to; it never
+		// reached that provider, so the usage rollups skip it by finish reason.
 		try {
 			await insertLog(
 				{
@@ -7781,9 +7782,9 @@ chat.openapi(completions, async (c) => {
 						project,
 						apiKey,
 						undefined,
-						"",
-						undefined,
-						"llmgateway",
+						usedModelFormatted,
+						usedModelMapping,
+						usedProvider,
 						requestedModel,
 						requestedProvider,
 						messages as any[],

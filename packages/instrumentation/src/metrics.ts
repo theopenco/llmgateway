@@ -126,7 +126,8 @@ export interface ChatCompletionMetrics {
 	provider: string;
 	finishReason: string | null;
 	streaming: boolean;
-	durationMs: number;
+	// Omitted for requests that never reached the provider.
+	durationMs?: number;
 	ttftMs?: number;
 	inputTokens?: number;
 	outputTokens?: number;
@@ -161,10 +162,11 @@ export function recordChatCompletionMetrics(metrics: ChatCompletionMetrics) {
 		.labels(model, provider, normalizedFinishReason, streamingLabel)
 		.inc();
 
-	// Record duration
-	chatCompletionDuration
-		.labels(model, provider, streamingLabel)
-		.observe(durationMs / 1000);
+	if (durationMs !== undefined) {
+		chatCompletionDuration
+			.labels(model, provider, streamingLabel)
+			.observe(durationMs / 1000);
+	}
 
 	// Record TTFT for streaming requests
 	if (streaming && ttftMs !== undefined && ttftMs > 0) {

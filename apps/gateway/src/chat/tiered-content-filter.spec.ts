@@ -303,6 +303,8 @@ describe("tiered gateway content filter", () => {
 		expect(log.unifiedFinishReason).toBe("content_filter");
 		expect(log.hasError).toBe(false);
 		expect(log.internalContentFilter).toBe(true);
+		expect(log.usedModel).toBe("llmgateway/custom");
+		expect(log.usedProvider).toBe("llmgateway");
 		expect(log.gatewayContentFilterEvaluation).toMatchObject({
 			action: "blocked",
 			enforced: true,

@@ -16,6 +16,15 @@ export function excludeAirsideInference() {
 }
 
 /**
+ * Drop requests the gateway content filter blocked. They are logged under the
+ * model they were routed to but never reached its provider, so they carry no
+ * usage, latency or availability signal for it.
+ */
+export function excludeGatewayContentFilterBlocks() {
+	return sql<boolean>`${log.finishReason} is distinct from 'llmgateway_content_filter'`;
+}
+
+/**
  * Drop the failed attempt of a request that was retried and recovered on the
  * same provider and region.
  *
