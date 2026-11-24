@@ -7697,8 +7697,14 @@ chat.openapi(completions, async (c) => {
 	const tierContentFilterBlocked =
 		tieredContentFilter?.evaluation.action === "blocked";
 
+	// A blocked request is logged without a model; record the one it was routed
+	// to so the content filter rollup attributes the block to it.
+	const contentFilterRoutedModel = usedModelFormatted;
 	const contentFilterLogFields = (tiered: TieredContentFilterOutcome) => {
-		const evaluation = tiered?.evaluation ?? null;
+		const evaluation =
+			tiered?.evaluation.action === "blocked"
+				? { ...tiered.evaluation, model: contentFilterRoutedModel }
+				: (tiered?.evaluation ?? null);
 		const results = envContentFilterResult ? [envContentFilterResult] : [];
 		for (const result of tiered?.results ?? []) {
 			if (!results.includes(result)) {

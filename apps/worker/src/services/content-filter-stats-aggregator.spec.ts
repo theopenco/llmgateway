@@ -326,6 +326,54 @@ describe("content filter stats aggregator", () => {
 		]);
 	});
 
+	it("attributes a block logged without a model to the routed model", async () => {
+		await db.insert(log).values([
+			logRow({ gatewayContentFilterEvaluation: evaluation() }),
+			logRow({
+				usedModel: "",
+				usedProvider: "llmgateway",
+				gatewayContentFilterEvaluation: evaluation({
+					violation: true,
+					action: "blocked",
+					matchedCategories: ["violence"],
+					provider: "openai",
+					model: "openai/gpt-5.6-sol",
+				}),
+			}),
+			// Written before the routed model was recorded: stays unattributed.
+			logRow({
+				usedModel: "",
+				usedProvider: "llmgateway",
+				gatewayContentFilterEvaluation: evaluation({
+					violation: true,
+					action: "blocked",
+				}),
+			}),
+		]);
+
+		await calculateContentFilterStatsForHour(HOUR);
+		expect(
+			(await modelStatsRows()).filter((row) => row.category === "all"),
+		).toEqual([
+			{
+				usedModel: "",
+				usedProvider: "llmgateway",
+				category: "all",
+				sampledCount: 1,
+				violationCount: 1,
+				blockedCount: 1,
+			},
+			{
+				usedModel: "openai/gpt-5.6-sol",
+				usedProvider: "openai",
+				category: "all",
+				sampledCount: 2,
+				violationCount: 1,
+				blockedCount: 1,
+			},
+		]);
+	});
+
 	it("breaks the rollup down by the API key that sent the request", async () => {
 		await db.insert(log).values([
 			logRow({

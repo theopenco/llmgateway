@@ -303,10 +303,12 @@ describe("tiered gateway content filter", () => {
 		expect(log.unifiedFinishReason).toBe("content_filter");
 		expect(log.hasError).toBe(false);
 		expect(log.internalContentFilter).toBe(true);
+		expect(log.usedModel).toBe("");
 		expect(log.gatewayContentFilterEvaluation).toMatchObject({
 			action: "blocked",
 			enforced: true,
 			matchedCategories: ["violence"],
+			model: "llmgateway/custom",
 		});
 		// The org retains payloads, so the blocked request survives insertLog.
 		expect(log.content).toBe(GATEWAY_CONTENT_FILTER_MESSAGE);

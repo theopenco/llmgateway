@@ -97,9 +97,10 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 						<CardDescription>
 							Requests the gateway content filter sampled for this organization
 							over the selected window, and how many crossed their tier&apos;s
-							thresholds, broken down by category, by the model that served the
-							request and by the API key that sent it. Sampled counts every
-							moderated request; blocked is the subset actually rejected.
+							thresholds, broken down by category, by the model the request was
+							routed to and by the API key that sent it. Sampled counts every
+							moderated request; blocked is the subset rejected before reaching
+							the model.
 						</CardDescription>
 					</div>
 					<Link

@@ -1,5 +1,5 @@
-// The gateway logs a request its content filter blocks with no model (provider
-// "llmgateway"), so blocked requests roll up under an empty usedModel.
+// Chat blocks logged before the routed model was recorded roll up under an
+// empty usedModel (provider "llmgateway").
 export function contentFilterModelLabel(usedModel: string): string {
-	return usedModel || "Blocked before reaching a model";
+	return usedModel || "Blocked (model not recorded)";
 }

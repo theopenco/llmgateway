@@ -122,8 +122,12 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 				${log.organizationId} as organization_id,
 				${log.projectId} as project_id,
 				${log.apiKeyId} as api_key_id,
-				${log.usedModel} as used_model,
-				${log.usedProvider} as used_provider,
+				-- A blocked chat request is logged without a model; attribute it to
+				-- the model it was routed to.
+				case when ${log.usedModel} = '' and evaluation.model is not null
+					then evaluation.model else ${log.usedModel} end as used_model,
+				case when ${log.usedModel} = '' and evaluation.model is not null
+					then evaluation.provider else ${log.usedProvider} end as used_provider,
 				evaluation.classifier,
 				evaluation.violation,
 				evaluation.action,
@@ -147,7 +151,9 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 				"classifierDurationMs" double precision,
 				"classifierRequests" integer,
 				"imageDurationMs" double precision,
-				shadows jsonb
+				shadows jsonb,
+				model text,
+				provider text
 			)
 			where ${log.createdAt} >= ${startUtc}::timestamp
 				and ${log.createdAt} < ${startUtc}::timestamp + interval '1 hour'
