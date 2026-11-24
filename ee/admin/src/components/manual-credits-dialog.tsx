@@ -118,7 +118,9 @@ export function ManualCreditsDialog({
 					<DialogDescription>
 						Credit {orgName} for a payment received outside Stripe (wire,
 						crypto, …). Unlike a gift this counts as revenue, so only use it
-						when the money actually arrived.
+						when the money actually arrived. The payment appears in the
+						organization&apos;s transactions and an invoice is emailed to its
+						billing address once the owner&apos;s email is verified.
 					</DialogDescription>
 				</DialogHeader>
 
@@ -174,8 +176,8 @@ export function ManualCreditsDialog({
 							maxLength={255}
 						/>
 						<p className="text-xs text-muted-foreground">
-							Identifier for the payment on its own channel, kept as a separate
-							field for reconciliation
+							Identifier for the payment on its own channel; shown to the
+							customer and printed on the invoice
 						</p>
 					</div>
 
@@ -189,7 +191,8 @@ export function ManualCreditsDialog({
 							rows={3}
 						/>
 						<p className="text-xs text-muted-foreground">
-							Stored in the transaction description
+							Stored in the transaction description, visible to the customer in
+							their transaction history
 						</p>
 					</div>
 

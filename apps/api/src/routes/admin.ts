@@ -119,6 +119,11 @@ import {
 	pickMappingHistoryTable,
 	pickModelHistoryTable,
 } from "@/utils/history-window.js";
+import {
+	buildInvoiceDataForTransaction,
+	generateAndEmailInvoice,
+} from "@/utils/invoice.js";
+import { resolveInvoiceBillingDetails } from "@/utils/plan-billing.js";
 
 import { getOrgTierQualifyingSpendUsd } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
@@ -9152,7 +9157,7 @@ admin.openapi(manualCreditsRoute, async (c) => {
 		? `Manual payment (${paymentMethod}) credited by Administrator: ${comment}`
 		: `Manual payment (${paymentMethod}) credited by Administrator`;
 
-	const { transactionId, updatedCredits } = await db.transaction(async (tx) => {
+	const { txn, updatedCredits } = await db.transaction(async (tx) => {
 		const [txn] = await tx
 			.insert(tables.transaction)
 			.values({
@@ -9169,7 +9174,7 @@ admin.openapi(manualCreditsRoute, async (c) => {
 				paymentMethod,
 				externalReference: externalReference || null,
 			})
-			.returning({ id: tables.transaction.id });
+			.returning();
 
 		const [updatedOrg] = await tx
 			.update(tables.organization)
@@ -9180,10 +9185,11 @@ admin.openapi(manualCreditsRoute, async (c) => {
 			.returning({ credits: tables.organization.credits });
 
 		return {
-			transactionId: txn.id,
+			txn,
 			updatedCredits: String(updatedOrg.credits),
 		};
 	});
+	const transactionId = txn.id;
 
 	await logAuditEvent({
 		organizationId: orgId,
@@ -9199,6 +9205,24 @@ admin.openapi(manualCreditsRoute, async (c) => {
 			transactionId,
 		},
 	});
+
+	// Emailed once, when the payment is booked; the same document stays
+	// downloadable from the organization's transactions.
+	try {
+		const billingDetails = await resolveInvoiceBillingDetails(org);
+		await generateAndEmailInvoice(
+			buildInvoiceDataForTransaction(txn, {
+				id: org.id,
+				name: org.name,
+				...billingDetails,
+			}),
+		);
+	} catch (error) {
+		logger.error(
+			"Invoice email failed (manual payment); credits were added",
+			error as Error,
+		);
+	}
 
 	return c.json({
 		message: "Credits added successfully",
