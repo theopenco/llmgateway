@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
 import { buildRoutingAttempt } from "@/chat/tools/build-routing-attempt.js";
+import { isContentFilterClassifierCompliant } from "@/chat/tools/content-filter-classifier.js";
 import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
@@ -17,6 +18,12 @@ import {
 	isRetryableErrorType,
 	shouldRetryAlternateKey,
 } from "@/chat/tools/retry-with-fallback.js";
+import {
+	getContentFilterLogResponse,
+	startTieredContentFilter,
+	type TieredContentFilterOutcome,
+} from "@/chat/tools/run-tiered-content-filter.js";
+import { resolveTieredContentFilterPlan } from "@/chat/tools/tiered-content-filter.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
@@ -35,10 +42,12 @@ import {
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
+	getContentFilterSettings,
 } from "@/lib/cached-queries.js";
 import { raceClientAbort } from "@/lib/client-abort.js";
 import {
 	assertProviderCompliant,
+	getActiveCompliancePolicy,
 	getEffectiveRetentionLevel,
 } from "@/lib/compliance.js";
 import {
@@ -54,9 +63,13 @@ import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { fetchProvider } from "@/lib/fetch-provider.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
-import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import {
+	calculateDataStorageCost,
+	insertLog as _insertLog,
+} from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { trackPendingWork } from "@/lib/pending-work.js";
 import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
@@ -77,12 +90,13 @@ import {
 	readProviderKey,
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 import {
 	models as modelDefinitions,
 	resolveVertexTokenType,
 	type VertexTokenType,
 } from "@llmgateway/models";
+import { GATEWAY_CONTENT_FILTER_MESSAGE } from "@llmgateway/shared";
 import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
@@ -91,6 +105,7 @@ import type { ServerTypes } from "@/vars.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
+import type { ContentFilterClassifier } from "@llmgateway/shared";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
 import type { Context } from "hono";
 
@@ -190,6 +205,14 @@ function normalizeEmbeddingInputToMessages(input: unknown) {
 			content: previewItem(input),
 		},
 	];
+}
+
+/** The text inputs to moderate; token-ID inputs carry no readable text. */
+function getEmbeddingModerationMessages(input: unknown) {
+	const items = Array.isArray(input) ? input : [input];
+	return items
+		.filter((item): item is string => typeof item === "string" && item !== "")
+		.map((content) => ({ role: "user" as const, content }));
 }
 
 function getResponseContent(responseJson: unknown): string | null {
@@ -999,34 +1022,31 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 	}
 	let attempt: EmbeddingAttempt = initialResult.attempt;
 
-	const controller = new AbortController();
-	const onAbort = () => {
-		controller.abort();
-	};
-	c.req.raw.signal.addEventListener("abort", onAbort);
-
-	try {
-		while (true) {
-			const attemptLogId = shortid();
-			const usedApiKeyHash = getApiKeyFingerprint(attempt.usedToken);
-			// BYOK only when the organization's own key served the attempt; a
-			// platform-managed credential is LLM Gateway's key and bills as credits.
-			const credentialSource: RoutingCredentialSource = attempt.providerKey
-				? "byok"
-				: "platform";
-			// Named only for the organization's own key; providerKeyLabel()
-			// refuses to describe a platform-managed credential.
-			const providerKeyId = attempt.providerKey?.id;
-			const keyLabel = providerKeyLabel(attempt.providerKey);
-			const usedProviderKey = { id: providerKeyId, label: keyLabel };
-			const baseLogEntry = createLogEntry({
+	const describeAttempt = (current: EmbeddingAttempt) => {
+		const usedApiKeyHash = getApiKeyFingerprint(current.usedToken);
+		// BYOK only when the organization's own key served the attempt; a
+		// platform-managed credential is LLM Gateway's key and bills as credits.
+		const credentialSource: RoutingCredentialSource = current.providerKey
+			? "byok"
+			: "platform";
+		// Named only for the organization's own key; providerKeyLabel()
+		// refuses to describe a platform-managed credential.
+		const providerKeyId = current.providerKey?.id;
+		const keyLabel = providerKeyLabel(current.providerKey);
+		return {
+			usedApiKeyHash,
+			credentialSource,
+			providerKeyId,
+			keyLabel,
+			usedProviderKey: { id: providerKeyId, label: keyLabel },
+			baseLogEntry: createLogEntry({
 				requestId,
 				project,
 				apiKey,
 				// BYOK only: a managed credential is the platform's own key and its
 				// traffic must still bill as credits.
-				organizationProviderKeyId: attempt.providerKey?.id,
-				usedProviderKeyId: attempt.providerKey?.id ?? attempt.managedKey?.id,
+				organizationProviderKeyId: current.providerKey?.id,
+				usedProviderKeyId: current.providerKey?.id ?? current.managedKey?.id,
 				usedModel: `${providerId}/${modelDefId}`,
 				usedModelMapping: upstreamModel,
 				usedProvider: providerId,
@@ -1039,8 +1059,174 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				debugMode,
 				userAgent,
 				rawRequest: rawBody,
-				upstreamRequest: attempt.requestBody,
+				upstreamRequest: current.requestBody,
+			}),
+		};
+	};
+
+	// Tiered gateway content filter on the text inputs, keyed on the provider
+	// the request is routed to; same semantics as chat completions.
+	let tieredContentFilter: TieredContentFilterOutcome = null;
+	let pendingTieredContentFilter: Promise<TieredContentFilterOutcome> | null =
+		null;
+	const moderationMessages = getEmbeddingModerationMessages(input);
+	const contentFilterSettings = await getContentFilterSettings();
+	const tieredContentFilterPlan =
+		contentFilterSettings.moderateEmbeddings && moderationMessages.length > 0
+			? await resolveTieredContentFilterPlan(
+					organization,
+					providerId,
+					contentFilterSettings,
+				)
+			: null;
+	if (tieredContentFilterPlan) {
+		// Prompts never reach a classifier's provider when the org's compliance
+		// policy excludes it.
+		const compliancePolicy = getActiveCompliancePolicy(organization, apiKey);
+		const classifierAllowed = (classifier: ContentFilterClassifier) =>
+			isContentFilterClassifierCompliant(classifier, compliancePolicy);
+		const started = await startTieredContentFilter({
+			plan: tieredContentFilterPlan,
+			messages: moderationMessages,
+			context: {
+				requestId,
+				organizationId: project.organizationId,
+				projectId: project.id,
+				apiKeyId: apiKey.id,
+			},
+			signal: c.req.raw.signal,
+			imagesAllowed: classifierAllowed("openai"),
+			classifierAllowed,
+		});
+		tieredContentFilter = started.outcome;
+		pendingTieredContentFilter = started.pending;
+	}
+
+	const publishLog = (
+		tiered: TieredContentFilterOutcome,
+		logData: Parameters<typeof _insertLog>[0],
+		options: Parameters<typeof _insertLog>[1],
+	) => {
+		const evaluation = tiered?.evaluation ?? null;
+		return _insertLog(
+			{
+				...logData,
+				internalContentFilter:
+					evaluation?.violation === true ? true : logData.internalContentFilter,
+				gatewayContentFilterResponse:
+					logData.gatewayContentFilterResponse ??
+					getContentFilterLogResponse(tiered?.results ?? []),
+				gatewayContentFilterEvaluation:
+					logData.gatewayContentFilterEvaluation ?? evaluation,
+			},
+			options,
+		);
+	};
+	const insertLog = async (
+		logData: Parameters<typeof _insertLog>[0],
+		options: Parameters<typeof _insertLog>[1],
+	): Promise<void> => {
+		if (!pendingTieredContentFilter) {
+			await publishLog(tieredContentFilter, logData, options);
+			return;
+		}
+		// Never hold the response for a background evaluation: publish the row
+		// once it settles.
+		void trackPendingWork(
+			pendingTieredContentFilter
+				.then((tiered) => publishLog(tiered, logData, options))
+				.catch((error: unknown) => {
+					logger.error("Failed to insert log after content filter", {
+						requestId,
+						error: toError(error),
+					});
+				}),
+		);
+	};
+
+	if (tieredContentFilter?.evaluation.action === "blocked") {
+		const blocked = describeAttempt(attempt);
+		try {
+			await insertLog(
+				{
+					...blocked.baseLogEntry,
+					id: finalLogId,
+					routingMetadata: buildEmbeddingRoutingMetadata(
+						blocked.usedApiKeyHash,
+						blocked.credentialSource,
+						blocked.usedProviderKey,
+					),
+					duration: Date.now() - startedAt,
+					timeToFirstToken: null,
+					timeToFirstReasoningToken: null,
+					responseSize: GATEWAY_CONTENT_FILTER_MESSAGE.length,
+					content: null,
+					reasoningContent: null,
+					finishReason: "llmgateway_content_filter",
+					unifiedFinishReason: "content_filter",
+					internalContentFilter: true,
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: false,
+					streamed: false,
+					canceled: false,
+					errorDetails: {
+						statusCode: 403,
+						statusText: "Forbidden",
+						responseText: GATEWAY_CONTENT_FILTER_MESSAGE,
+					},
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: 0,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost: 0,
+					estimatedCost: false,
+					discount: null,
+					pricingTier: null,
+					dataStorageCost: "0",
+					cached: false,
+					toolResults: null,
+				},
+				{ retentionLevel },
+			);
+		} catch (error) {
+			logger.error("Failed to log gateway content filter block", {
+				requestId,
+				error: toError(error),
 			});
+		}
+		throw new HTTPException(403, { message: GATEWAY_CONTENT_FILTER_MESSAGE });
+	}
+
+	const controller = new AbortController();
+	const onAbort = () => {
+		controller.abort();
+	};
+	// The client may have hung up while an enforced check was awaited.
+	if (c.req.raw.signal.aborted) {
+		controller.abort();
+	}
+	c.req.raw.signal.addEventListener("abort", onAbort);
+
+	try {
+		while (true) {
+			const attemptLogId = shortid();
+			const {
+				usedApiKeyHash,
+				credentialSource,
+				providerKeyId,
+				keyLabel,
+				usedProviderKey,
+				baseLogEntry,
+			} = describeAttempt(attempt);
 
 			let upstreamResponse: Response;
 			let upstreamText = "";

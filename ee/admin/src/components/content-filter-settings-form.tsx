@@ -72,6 +72,7 @@ interface ContentFilterSettingsFormProps {
 		internalScope: Scope;
 		openaiScope: Scope;
 		moderateImages: boolean;
+		moderateEmbeddings: boolean;
 		blockGroups: BlockGroup[] | null;
 		csamScoreThreshold: number;
 		providers: ContentFilterProvider[];
@@ -111,6 +112,9 @@ export function ContentFilterSettingsForm({
 	);
 	const [openaiScope, setOpenaiScope] = useState<Scope>(settings.openaiScope);
 	const [moderateImages, setModerateImages] = useState(settings.moderateImages);
+	const [moderateEmbeddings, setModerateEmbeddings] = useState(
+		settings.moderateEmbeddings,
+	);
 	const [limitGroups, setLimitGroups] = useState(settings.blockGroups !== null);
 	const [blockGroups, setBlockGroups] = useState<BlockGroup[]>(
 		settings.blockGroups ?? [],
@@ -209,6 +213,7 @@ export function ContentFilterSettingsForm({
 					internalScope,
 					openaiScope,
 					moderateImages,
+					moderateEmbeddings,
 					blockGroups: limitGroups ? blockGroups : null,
 					csamScoreThreshold,
 					providerIds,
@@ -542,6 +547,28 @@ export function ContentFilterSettingsForm({
 					</div>
 				</div>
 			)}
+
+			<div className="flex items-center gap-3">
+				<Switch
+					id="content-filter-moderate-embeddings"
+					checked={moderateEmbeddings}
+					disabled={pending || readOnly}
+					onCheckedChange={(checked) => {
+						setSaved(false);
+						setModerateEmbeddings(checked);
+					}}
+				/>
+				<div className="space-y-0.5">
+					<Label htmlFor="content-filter-moderate-embeddings">
+						Moderate embeddings
+					</Label>
+					<p className="text-xs text-muted-foreground">
+						On screens /v1/embeddings text inputs with the same providers,
+						sampling and blocking as chat. Token-ID inputs are never checked.
+						Off leaves embeddings unmoderated.
+					</p>
+				</div>
+			</div>
 
 			<div className="space-y-2">
 				<div className="flex items-center justify-between gap-3">
