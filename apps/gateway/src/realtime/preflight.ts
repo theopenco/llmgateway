@@ -399,6 +399,7 @@ async function runRealtimePreflightInner(
 				selectionScope: match.modelId,
 				model: match.modelId,
 				variant: envVariant,
+				organizationId: project.organizationId,
 				region: undefined,
 				requiresServiceTier: false,
 				advanceRoundRobin: input.advanceRoundRobin,

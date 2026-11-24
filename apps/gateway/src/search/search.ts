@@ -674,6 +674,7 @@ search.openapi(createSearch, async (c): Promise<any> => {
 					selectionScope: upstreamModel,
 					model: modelDefId,
 					variant: envVariant,
+					organizationId: project.organizationId,
 					region: undefined,
 					requiresServiceTier: false,
 					excludedEnvIndices: excludedEnvKeyIndices,

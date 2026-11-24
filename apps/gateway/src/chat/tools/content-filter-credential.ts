@@ -99,7 +99,7 @@ export async function resolveContentFilterCredential(
 		...(avoidIds.size > 0 ? [new Set<string>()] : []),
 	];
 
-	if (await hasManagedProviderCredential(provider)) {
+	if (await hasManagedProviderCredential(provider, undefined)) {
 		for (const excludedKeyIds of preferences) {
 			const managedKey = await findManagedProviderKey(provider, {
 				selectionScope,
@@ -155,7 +155,7 @@ export async function resolveContentFilterCredential(
 export async function hasContentFilterCredential(
 	provider: ProviderId,
 ): Promise<boolean> {
-	if (await hasManagedProviderCredential(provider)) {
+	if (await hasManagedProviderCredential(provider, undefined)) {
 		return true;
 	}
 	return getEnvKeyCount(getProviderEnvVar(provider)) > 0;

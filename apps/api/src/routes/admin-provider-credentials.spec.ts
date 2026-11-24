@@ -210,6 +210,83 @@ describe("admin provider credentials", () => {
 		).toBe(false);
 	});
 
+	test("dedicates a credential to organizations found by name or email", async () => {
+		await db.insert(tables.organization).values([
+			{ id: "org-dedicated-a", name: "Acme Corp", billingEmail: "a@acme.test" },
+			{
+				id: "org-dedicated-b",
+				name: "Beta Inc",
+				billingEmail: "ops@beta.test",
+			},
+		]);
+
+		const search = async (query: string) => {
+			const res = await app.request(
+				`/admin/provider-credentials/organizations?search=${encodeURIComponent(query)}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			return ((await res.json()) as { organizations: { id: string }[] })
+				.organizations;
+		};
+		expect((await search("acme")).map((org) => org.id)).toEqual([
+			"org-dedicated-a",
+		]);
+		expect((await search("ops@beta")).map((org) => org.id)).toEqual([
+			"org-dedicated-b",
+		]);
+		expect(await search("  ")).toEqual([]);
+
+		const res = await create({
+			provider: "openai",
+			token: "test-dedicated-token",
+			skipValidation: true,
+			dedicatedOrganizationIds: ["org-dedicated-a", "org-dedicated-a"],
+		});
+		expect(res.status).toBe(201);
+		const { credential } = (await res.json()) as {
+			credential: Credential & {
+				dedicatedOrganizations: { id: string; name: string | null }[];
+			};
+		};
+		expect(credential.dedicatedOrganizations).toEqual([
+			{ id: "org-dedicated-a", name: "Acme Corp", billingEmail: "a@acme.test" },
+		]);
+
+		const patch = async (body: Record<string, unknown>) =>
+			await app.request(`/admin/provider-credentials/${credential.id}`, {
+				method: "PATCH",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+		expect(
+			(
+				await patch({
+					dedicatedOrganizationIds: ["org-dedicated-a", "org-dedicated-b"],
+				})
+			).status,
+		).toBe(200);
+		const row = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+		});
+		expect(row?.dedicatedOrganizationIds).toEqual([
+			"org-dedicated-a",
+			"org-dedicated-b",
+		]);
+
+		expect(
+			(await patch({ dedicatedOrganizationIds: ["org-missing"] })).status,
+		).toBe(400);
+		expect((await patch({ variant: "enterprise" })).status).toBe(400);
+
+		expect((await patch({ dedicatedOrganizationIds: [] })).status).toBe(200);
+		const cleared = await db.query.providerKey.findFirst({
+			where: { id: { eq: credential.id } },
+		});
+		expect(cleared?.dedicatedOrganizationIds).toBeNull();
+		expect((await patch({ variant: "enterprise" })).status).toBe(200);
+	});
+
 	test("creates round-robin credentials and rejects invalid strategies", async () => {
 		const body = {
 			provider: "openai",

@@ -1873,9 +1873,11 @@ function getManagedVideoCredentialFilter(
 async function hasManagedVideoCredential(
 	providerId: Provider,
 	defaultBaseUrl: string | null,
+	organizationId: string,
 	variant?: EnvVarVariant,
 ): Promise<boolean> {
 	const managedKey = await findManagedProviderKey(providerId, {
+		organizationId,
 		variant,
 		filter: getManagedVideoCredentialFilter(providerId),
 		advanceRoundRobin: false,
@@ -2086,6 +2088,7 @@ async function resolveProviderContext(
 	if (project.mode === "credits") {
 		return await resolvePlatformVideoProviderContext(
 			providerId,
+			organizationId,
 			requestId,
 			selectionScope,
 			envVariant,
@@ -2108,8 +2111,16 @@ async function resolveProviderContext(
 	// A provider with any managed credential is served only by those: its
 	// `LLM_*` vars are superseded and no longer count, even when no managed
 	// credential is video-eligible.
-	const platformCanServe = (await hasManagedProviderCredential(providerId))
-		? await hasManagedVideoCredential(providerId, defaultBaseUrl, envVariant)
+	const platformCanServe = (await hasManagedProviderCredential(
+		providerId,
+		organizationId,
+	))
+		? await hasManagedVideoCredential(
+				providerId,
+				defaultBaseUrl,
+				organizationId,
+				envVariant,
+			)
 		: hasProviderEnvironmentToken(providerId);
 	if (!platformCanServe) {
 		throw new HTTPException(400, {
@@ -2119,6 +2130,7 @@ async function resolveProviderContext(
 
 	return await resolvePlatformVideoProviderContext(
 		providerId,
+		organizationId,
 		requestId,
 		selectionScope,
 		envVariant,
@@ -2135,6 +2147,7 @@ async function resolveProviderContext(
  */
 async function resolvePlatformVideoProviderContext(
 	providerId: Provider,
+	organizationId: string,
 	requestId: string,
 	selectionScope: string,
 	envVariant: EnvVarVariant | undefined,
@@ -2144,6 +2157,7 @@ async function resolvePlatformVideoProviderContext(
 	const videoExcludedEnvIndices = getVideoExcludedConfigIndices(providerId);
 	const platformCredential = await resolvePlatformCredential(providerId, {
 		selectionScope,
+		organizationId,
 		variant: envVariant,
 		region: undefined,
 		requiresServiceTier: false,
@@ -2312,10 +2326,15 @@ async function hasPlatformVideoConfiguration(
 	defaultBaseUrl: string | null,
 	organizationId: string,
 ): Promise<boolean> {
-	if (await hasManagedProviderCredential(providerId)) {
+	if (await hasManagedProviderCredential(providerId, organizationId)) {
 		const organization = await findOrganizationById(organizationId);
 		const variant = getLicensedOrganizationEnvVariant(organization);
-		return await hasManagedVideoCredential(providerId, defaultBaseUrl, variant);
+		return await hasManagedVideoCredential(
+			providerId,
+			defaultBaseUrl,
+			organizationId,
+			variant,
+		);
 	}
 	return hasVideoEnvConfiguration(providerId, defaultBaseUrl);
 }

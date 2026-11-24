@@ -34,6 +34,7 @@ import {
 	findProviderKey,
 	findRateLimitedManagedKeyIds,
 	hasManagedProviderCredential,
+	managedKeyServesOrganization,
 	withModelRateLimitedManagedKeyIds,
 } from "./cached-queries.js";
 import { withManagedKeySelection } from "./managed-key-selection.js";
@@ -493,8 +494,10 @@ describe("findManagedProviderAvailability", () => {
 			new Set(["eu-central-1"]),
 		);
 
-		expect(await hasManagedProviderCredential("aws-bedrock")).toBe(true);
-		expect(await hasManagedProviderCredential("openai")).toBe(false);
+		expect(await hasManagedProviderCredential("aws-bedrock", undefined)).toBe(
+			true,
+		);
+		expect(await hasManagedProviderCredential("openai", undefined)).toBe(false);
 	});
 
 	it("offers the provider once a region-agnostic credential exists", async () => {
@@ -632,6 +635,7 @@ describe("allowedModels restriction", () => {
 				selectionScope: "gpt-4o-mini",
 				model: "gpt-4o-mini",
 				variant: undefined,
+				organizationId: undefined,
 				region: undefined,
 				requiresServiceTier: false,
 			}),
@@ -649,6 +653,7 @@ describe("allowedModels restriction", () => {
 			selectionScope: "gpt-5.2",
 			model: "gpt-5.2",
 			variant: undefined,
+			organizationId: undefined,
 			region: undefined,
 			requiresServiceTier: false,
 		});
@@ -658,6 +663,7 @@ describe("allowedModels restriction", () => {
 			selectionScope: "some-other-model",
 			model: "some-other-model",
 			variant: undefined,
+			organizationId: undefined,
 			region: undefined,
 			requiresServiceTier: false,
 		});
@@ -681,6 +687,7 @@ describe("allowedModels restriction", () => {
 					selectionScope: "some-other-model",
 					model: "some-other-model",
 					variant: undefined,
+					organizationId: undefined,
 					region: undefined,
 					requiresServiceTier: false,
 				}),
@@ -744,6 +751,152 @@ describe("allowedModels restriction", () => {
  * do not go stale. They deliberately never touch redisClient after the first
  * read — a manual flush would hide exactly the bug being guarded against.
  */
+describe("organization-dedicated managed credentials", () => {
+	const DEDICATED_ORG = "org-dedicated";
+	const SECOND_DEDICATED_ORG = "org-dedicated-2";
+	const OTHER_ORG = "org-other";
+
+	beforeEach(async () => {
+		resetKeyHealth();
+		await waitForSwrMirrorWrites();
+		await db.delete(providerKey);
+		await redisClient.flushdb();
+	});
+
+	afterEach(async () => {
+		await db.delete(providerKey);
+	});
+
+	const resolveFor = (organizationId: string | undefined) =>
+		resolvePlatformCredential("openai", {
+			selectionScope: "gpt-4o-mini",
+			model: "gpt-4o-mini",
+			variant: undefined,
+			organizationId,
+			region: undefined,
+			requiresServiceTier: false,
+		});
+
+	it("serves only its organizations, which use nothing else", async () => {
+		await insertManaged({ id: "shared-key", sortOrder: 0 });
+		await insertManaged({
+			id: "dedicated-key",
+			sortOrder: 1,
+			dedicatedOrganizationIds: [DEDICATED_ORG, SECOND_DEDICATED_ORG],
+		});
+
+		expect((await resolveFor(DEDICATED_ORG)).managedKey?.id).toBe(
+			"dedicated-key",
+		);
+		expect((await resolveFor(SECOND_DEDICATED_ORG)).managedKey?.id).toBe(
+			"dedicated-key",
+		);
+		expect((await resolveFor(OTHER_ORG)).managedKey?.id).toBe("shared-key");
+		expect((await resolveFor(undefined)).managedKey?.id).toBe("shared-key");
+	});
+
+	it("never falls back to shared credentials for a dedicated organization", async () => {
+		await insertManaged({ id: "shared-key" });
+		await insertManaged({
+			id: "dedicated-key",
+			dedicatedOrganizationIds: [DEDICATED_ORG],
+		});
+
+		await expect(
+			resolvePlatformCredential("openai", {
+				selectionScope: "gpt-4o-mini",
+				model: "gpt-4o-mini",
+				variant: undefined,
+				organizationId: DEDICATED_ORG,
+				region: undefined,
+				requiresServiceTier: false,
+				excludedProviderKeyIds: new Set(["dedicated-key"]),
+			}),
+		).rejects.toThrow(/No managed credential available for provider: openai/);
+	});
+
+	it("does not supersede the env vars for other organizations", async () => {
+		await insertManaged({
+			id: "dedicated-key",
+			dedicatedOrganizationIds: [DEDICATED_ORG],
+		});
+
+		const previousEnvKey = process.env.LLM_OPENAI_API_KEY;
+		process.env.LLM_OPENAI_API_KEY = "sk-from-env";
+		try {
+			expect(await hasManagedProviderCredential("openai", OTHER_ORG)).toBe(
+				false,
+			);
+			expect(await hasManagedProviderCredential("openai", DEDICATED_ORG)).toBe(
+				true,
+			);
+			const other = await resolveFor(OTHER_ORG);
+			expect(other.managedKey).toBeUndefined();
+			expect(other.envVarName).toBe("LLM_OPENAI_API_KEY");
+			expect((await resolveFor(DEDICATED_ORG)).managedKey?.id).toBe(
+				"dedicated-key",
+			);
+		} finally {
+			if (previousEnvKey === undefined) {
+				delete process.env.LLM_OPENAI_API_KEY;
+			} else {
+				process.env.LLM_OPENAI_API_KEY = previousEnvKey;
+			}
+		}
+	});
+
+	it("routes the provider only for its organizations", async () => {
+		await insertManaged({
+			id: "dedicated-key",
+			dedicatedOrganizationIds: [DEDICATED_ORG],
+		});
+
+		const dedicated = await findManagedProviderAvailability(
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			DEDICATED_ORG,
+		);
+		expect(dedicated.configured).toContain("openai");
+		expect(dedicated.usable).toContain("openai");
+
+		const other = await findManagedProviderAvailability(
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			OTHER_ORG,
+		);
+		expect(other.configured).not.toContain("openai");
+		expect(other.usable).not.toContain("openai");
+	});
+
+	it("only lets an organization keep pins to credentials it may use", async () => {
+		await insertManaged({ id: "shared-key" });
+		await insertManaged({
+			id: "dedicated-key",
+			dedicatedOrganizationIds: [DEDICATED_ORG],
+		});
+		const shared = { provider: "openai", dedicatedOrganizationIds: null };
+		const dedicated = {
+			provider: "openai",
+			dedicatedOrganizationIds: [DEDICATED_ORG],
+		};
+
+		expect(await managedKeyServesOrganization(shared, OTHER_ORG)).toBe(true);
+		expect(await managedKeyServesOrganization(shared, DEDICATED_ORG)).toBe(
+			false,
+		);
+		expect(await managedKeyServesOrganization(dedicated, DEDICATED_ORG)).toBe(
+			true,
+		);
+		expect(await managedKeyServesOrganization(dedicated, OTHER_ORG)).toBe(
+			false,
+		);
+	});
+});
+
 describe("managed credential cache invalidation", () => {
 	beforeEach(async () => {
 		resetKeyHealth();
@@ -1042,6 +1195,7 @@ describe("managed credential per-model rate limits", () => {
 				selectionScope: "gpt-5.2",
 				model: "gpt-5.2",
 				variant: undefined,
+				organizationId: undefined,
 				region: undefined,
 				requiresServiceTier: false,
 			}),

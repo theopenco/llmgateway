@@ -159,6 +159,13 @@ Managed credentials cover the same axes as the environment variables they replac
   leaves out models you removed from the list yourself. Models without a live
   test, such as video generation, stay manual. Each
   run is listed under the credential's sync history.
+- Optional dedicated organizations, searchable by name, email or id. An
+  organization with an active dedicated credential for a provider uses only its
+  dedicated credentials for that provider's credits-mode traffic (still billed
+  to its credits), never shared ones or the environment. No other organization
+  uses a dedicated credential, and a dedicated credential does not supersede the
+  provider's environment variables for them. Dedicated credentials apply to all
+  plans, so they take no audience.
 
 A request that resolves no region is served from the provider's default region,
 so it is served by a region-agnostic credential or by one pinned to that default

@@ -678,6 +678,7 @@ export async function handleDecisionRequest(
 				{
 					selectionScope: upstreamModel,
 					variant: envVariant,
+					organizationId: project.organizationId,
 					region: undefined,
 					requiresServiceTier: false,
 					excludedEnvIndices: excludedEnvKeyIndices,
