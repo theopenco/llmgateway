@@ -122,6 +122,19 @@ export function getUnifiedFinishReason(
 				return UnifiedFinishReason.CONTENT_FILTER;
 			}
 			break;
+		case "aws-bedrock":
+			// Claude on Bedrock's Messages API reports Anthropic's raw stop
+			// reasons; Converse and OpenAI-compatible responses are OpenAI-shaped.
+			if (finishReason === "end_turn" || finishReason === "stop_sequence") {
+				return UnifiedFinishReason.COMPLETED;
+			}
+			if (finishReason === "max_tokens") {
+				return UnifiedFinishReason.LENGTH_LIMIT;
+			}
+			if (finishReason === "tool_use") {
+				return UnifiedFinishReason.TOOL_CALLS;
+			}
+			return getUnifiedFinishReason(finishReason, null);
 		case "google-ai-studio":
 		case "google-vertex":
 		case "quartz":
