@@ -39,13 +39,17 @@ function sponsoredCallKey(userId: string) {
 // against an inflated count and hand back nothing, and the key's lifetime would
 // drift away from the window it is meant to measure. Setting the expiry in the
 // same script also closes the gap where a crash between INCR and EXPIRE would
-// leave a counter that never resets.
+// leave a counter that never resets. Every attempt pushes the expiry a full
+// window out, so a counter cannot lapse while its account is still eligible,
+// including counters created with a shorter TTL.
 const RESERVE_SPONSORED_CALL = `
 local used = tonumber(redis.call('get', KEYS[1]) or '0')
-if used >= tonumber(ARGV[1]) then return 0 end
-if redis.call('incr', KEYS[1]) == 1 then
+if used >= tonumber(ARGV[1]) then
 	redis.call('expire', KEYS[1], ARGV[2])
+	return 0
 end
+redis.call('incr', KEYS[1])
+redis.call('expire', KEYS[1], ARGV[2])
 return 1
 `;
 

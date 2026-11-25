@@ -361,6 +361,16 @@ describe("chat completion proxy", () => {
 		expect(ttl).toBeGreaterThan(6 * 24 * 60 * 60);
 	});
 
+	test("extends a counter created with a shorter expiry", async () => {
+		const key = "onboarding_sponsored_calls:test-user-id";
+		await redisClient.set(key, "5", "EX", 24 * 60 * 60);
+
+		await onboardingRequest();
+
+		expect(gatewayRequests[0].sponsor).toBeNull();
+		expect(await redisClient.ttl(key)).toBeGreaterThan(6 * 24 * 60 * 60);
+	});
+
 	test("does not assert sponsorship when no secret is configured", async () => {
 		Reflect.deleteProperty(process.env, "ONBOARDING_SPONSOR_SECRET");
 
