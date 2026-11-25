@@ -34,6 +34,21 @@ const invalidBodies: Record<string, string> = {
 	"messages not an array": JSON.stringify({ messages: "hello" }),
 	"empty conversation": JSON.stringify({ messages: [] }),
 	"malformed JSON": "{",
+	"file part": JSON.stringify({
+		messages: [
+			{
+				...validMessage,
+				parts: [
+					...validMessage.parts,
+					{
+						type: "file",
+						mediaType: "image/png",
+						url: "http://metadata.google.internal/computeMetadata/v1/",
+					},
+				],
+			},
+		],
+	}),
 };
 
 function post(ip: string, body: string) {
