@@ -48,6 +48,9 @@ The schema accepts aliases, extra fields, duplicate keys, coercions, nested free
 **Unbounded delegated action loops**
 A bounded request can enqueue repeated spend, send, mutation, or external API work without a per-request budget, per-action authorization, cancellation, or idempotency control. Confirm impact on shared cost, quotas, other users, or durable state. Do not test by exhausting a service; use code-level accounting and a locally bounded loop.
 
+**Attachment and URL ingestion (SSRF)**
+Client-supplied messages carry file, image, or document parts with URLs that the LLM SDK or provider adapter fetches server-side before the model call. Grep every `streamText`, `generateText`, `convertToModelMessages`, and provider-adapter entry point that takes client messages; check the part types the route accepts, whether the SDK's download hook is overridden, and whether any built-in URL guard survives the runtime's `fetch`. A URL in prompt text is not a fetch; a URL in a file part is.
+
 ## MCP and sub-agent trust classes (subagent_type: `general`)
 
 **Sub-agent and MCP trust inheritance**

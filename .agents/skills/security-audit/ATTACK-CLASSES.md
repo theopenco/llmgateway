@@ -51,7 +51,7 @@ For complex access models, split into separate agents for auth bypass vs authori
 **Resource and file handling** (subagent_type: `general`)
 
 - Path traversal (reading/writing outside intended directories) — including through symlinks, encoded sequences, and null bytes
-- SSRF (making the application fetch attacker-controlled URLs) — including through redirects, DNS rebinding, and URL parser differentials
+- SSRF (making the application fetch attacker-controlled URLs) — including through redirects, DNS rebinding, and URL parser differentials, and fetches a dependency makes on our behalf (LLM SDK attachment downloads, image optimizers, PDF/HTML renderers, link unfurlers). List those as sinks, and confirm any built-in guard actually runs in the deployed runtime
 - Unsafe deserialization, archive extraction (zip slip), temp file handling
 - Memory safety (if applicable): buffer overflows, use-after-free, integer overflow
 - Race conditions on file operations (TOCTOU between check and use)

@@ -7,6 +7,7 @@ import { readJsonBody } from "@/lib/read-json-body";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { catalog } from "@llmgateway/canvas/catalog";
+import { deferDownloadsToGateway } from "@llmgateway/shared/ai-sdk-download";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
@@ -69,6 +70,7 @@ export async function POST(req: Request) {
 	const selectedModel = model || "anthropic/claude-sonnet-4-20250514";
 
 	const result = streamText({
+		experimental_download: deferDownloadsToGateway,
 		model: llmgateway.chat(
 			selectedModel as Parameters<typeof llmgateway.chat>[0],
 		),

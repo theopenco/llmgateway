@@ -14,6 +14,7 @@ import {
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { deferDownloadsToGateway } from "@llmgateway/shared/ai-sdk-download";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getEscapeReasoningEffort } from "@llmgateway/shared/escape-reasoning";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
@@ -185,6 +186,7 @@ escapeMove.openapi(
 		try {
 			signal.throwIfAborted();
 			result = await generateText({
+				experimental_download: deferDownloadsToGateway,
 				model: gateway.chat(body.model, { usage: { include: true } }),
 				instructions: ESCAPE_SYSTEM_PROMPT,
 				messages: [{ role: "user", content: buildTurnPrompt(state) }],

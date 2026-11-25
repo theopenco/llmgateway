@@ -21,6 +21,7 @@ import { isUpstreamError } from "@/utils/upstream-error.js";
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { deferDownloadsToGateway } from "@llmgateway/shared/ai-sdk-download";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import {
 	ASSISTANT_KEY_DESCRIPTION,
@@ -219,6 +220,7 @@ assistant.openapi(
 			},
 		});
 		const result = streamText({
+			experimental_download: deferDownloadsToGateway,
 			// "auto" needs no setup; "smart" only works where an organization
 			// configured Smart Routing.
 			model: llmgateway.chat(process.env.ASSISTANT_MODEL || "auto"),

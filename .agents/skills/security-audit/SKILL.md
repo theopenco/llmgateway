@@ -72,6 +72,14 @@ Seed reconnaissance from these; they are not the whole attack surface.
 - User-supplied URLs (SSRF): `packages/actions/src/process-image-url.ts`,
   `packages/shared/src/url-safety-node.ts`, `apps/api/src/routes/platform-webhooks.ts`.
   Rules live in the `gateway` skill.
+- Fetches a library makes for us (SSRF without a `fetch(` in our code): AI SDK
+  `streamText`/`generateText` download URL file parts from client messages
+  unless `experimental_download` is set (ESLint enforces it). The SDK's own
+  guard is skipped under Next.js's patched `fetch`. Check that a library's
+  guard runs in the deployed runtime before relying on it.
+- Every Next.js `app/api/**/route.ts`, including `apps/docs` and
+  `apps/playground`: these are public or user-facing servers inside the
+  cluster, not content-only apps.
 - Billing: `apps/api/src/stripe.ts` webhook signature handling, credit math (`billing` skill).
 - Client IP trust: `packages/shared/src/client-ip.ts` (`infrastructure` skill).
 - MCP: `apps/gateway/src/mcp/`.

@@ -85,8 +85,15 @@ export default [
 				{
 					selector:
 						"MemberExpression[property.name='token'][object.name=/^(providerKey|managedKey|credential|existing|keyRow|providerKeyRow)$/]",
+					message: "Use readProviderKey(row) from @llmgateway/actions.",
+				},
+				// The AI SDK downloads file URLs from messages in process, and its
+				// SSRF guard is skipped under Next.js's patched fetch.
+				{
+					selector:
+						"CallExpression[callee.name=/^(streamText|generateText|streamObject|generateObject)$/] > ObjectExpression.arguments:first-child:not(:has(> Property[key.name='experimental_download']))",
 					message:
-						"Use readProviderKey(row) from @llmgateway/actions.",
+						"Set experimental_download (deferDownloadsToGateway from @llmgateway/shared/ai-sdk-download) so message URLs are never fetched in process.",
 				},
 			],
 			"no-restricted-properties": [

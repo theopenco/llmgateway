@@ -8,6 +8,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { deferDownloadsToGateway } from "@llmgateway/shared/ai-sdk-download";
 
 const gatewayUrl = process.env.LOUNGE_E2E_GATEWAY_URL;
 
@@ -24,6 +25,7 @@ describe.skipIf(!gatewayUrl)("Lounge SDK against a live gateway", () => {
 
 	it("streams text and usage with the upgraded provider", async () => {
 		const result = streamText({
+			experimental_download: deferDownloadsToGateway,
 			model,
 			instructions: "Reply with the single word READY.",
 			prompt: `SDK streaming check ${Date.now()}`,
@@ -40,6 +42,7 @@ describe.skipIf(!gatewayUrl)("Lounge SDK against a live gateway", () => {
 	it("runs a dynamic tool and returns its result to the model", async () => {
 		const inputs: unknown[] = [];
 		const result = await generateText({
+			experimental_download: deferDownloadsToGateway,
 			model,
 			prompt: `Use lookup to look up the code for "lounge", then report the code. Check ${Date.now()}`,
 			tools: {
