@@ -210,6 +210,33 @@ describe("processImageUrl size limits", () => {
 		).rejects.toThrow("Failed to process image from URL");
 	});
 
+	it.each([
+		[
+			"self-signed certificate in certificate chain",
+			"SELF_SIGNED_CERT_IN_CHAIN",
+		],
+		["read ECONNRESET", "ECONNRESET"],
+	])(
+		"rejects an unreachable host (%s) as a client error",
+		async (msg, code) => {
+			vi.spyOn(globalThis, "fetch").mockRejectedValue(
+				new TypeError("fetch failed", {
+					cause: Object.assign(new Error(msg), { code }),
+				}),
+			);
+
+			const error = await processImageUrl(
+				REMOTE_URL,
+				false,
+				MAX_SIZE_MB,
+				"free",
+			).catch((e: unknown) => e);
+
+			expect(error).toBeInstanceOf(RequestError);
+			expect((error as RequestError).statusCode).toBe(400);
+		},
+	);
+
 	it("refuses redirects even when the URL guard is disabled", async () => {
 		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
 		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
