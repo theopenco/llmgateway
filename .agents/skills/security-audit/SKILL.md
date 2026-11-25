@@ -1,6 +1,6 @@
 ---
 name: security-audit
-description: Security best practices, vulnerability review, and full security audits for LLM Gateway. Use when writing security-sensitive code (auth, sessions, API keys, provider keys, billing, webhooks, user-supplied URLs, admin routes, CORS, rendering user content), when asked for a security review, security report, vulnerability research, pen test, or security audit, and for the monthly audit routine that fixes confirmed findings in a PR.
+description: Security best practices, vulnerability review, and full security audits for LLM Gateway. Use when writing security-sensitive code (auth, sessions, API keys, provider keys, billing, webhooks, user-supplied URLs, admin routes, CORS, rendering user content), when asked for a security review, security report, vulnerability research, pen test, or security audit, and for the weekly audit routine.
 ---
 
 # Security audit
@@ -19,7 +19,7 @@ and Cloudflare's `security-audit` (evidence-first audit workflow). Licenses:
 | Working nearby and something looks wrong       | Passive           | Flag critical issues only; ask before fixing           |
 | Security question, focused review, triage      | Guidance          | Relevant companions from the table below               |
 | "Audit", "pen test", full/comprehensive review | Full audit        | [AUDIT-WORKFLOW.md](AUDIT-WORKFLOW.md), all six phases |
-| Monthly routine                                | Routine           | Full audit (`quick` profile), then [Fix](#fix)         |
+| Weekly routine                                 | Routine           | [Routine](#routine)                                    |
 
 If a request could mean guidance or full audit, ask one question first.
 
@@ -109,6 +109,26 @@ node .agents/skills/security-audit/validate-coverage-ledger.cjs <run-dir>/covera
 
 Never commit `findings.json` or reports: they describe unfixed vulnerabilities.
 Share them only in private channels. `SECURITY.md` governs external disclosure.
+
+## Routine
+
+The weekly Claude Code routine runs this mode. Its prompt only points here, so
+change the procedure in this file, not in the routine.
+
+1. Run a full audit per `AUDIT-WORKFLOW.md` with the `quick` profile over the
+   whole repo. Put units touched since the last run
+   (`git log --since="8 days ago"`) first, without dropping the rest.
+2. Every hunter assignment carries the `ATTACK-CLASSES.md` blocks and
+   `AI-AND-LLM.md` (core discipline and every class), seeded from
+   [High-value surfaces](#high-value-surfaces-in-this-repo): library-made fetches
+   and every Next.js `app/api/**/route.ts` included.
+3. Keep the run directory under `.context/` and pass both validators.
+4. Report only: no commits, branches, or PRs, because findings are unfixed
+   vulnerabilities in a public repo. Send the owner one notification: confirmed
+   critical and high findings (class, `file:line`, who can exploit it, impact,
+   fix), then `needs_validation` records, then lower severities in one line,
+   then what was checked clean. Fixes happen later in an attended session via
+   [Fix](#fix).
 
 ## Fix
 
