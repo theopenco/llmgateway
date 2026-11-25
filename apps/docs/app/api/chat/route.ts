@@ -164,9 +164,13 @@ const systemPrompt = [
 	"If you cannot find the answer in the search results, say you do not know and point the user to https://docs.llmgateway.io or contact@llmgateway.io.",
 ].join("\n");
 
-// Defense in depth: never fetch a URL from a message server-side.
-const refuseDownload: Experimental_DownloadFunction = () => {
-	throw new Error("Ask AI does not download message URLs");
+// Defense in depth: never fetch a URL from a message server-side. The SDK
+// calls this on every request, with an empty list for text-only prompts.
+const refuseDownload: Experimental_DownloadFunction = async (files) => {
+	if (files.length > 0) {
+		throw new Error("Ask AI does not download message URLs");
+	}
+	return [];
 };
 
 export type SearchTool = typeof searchTool;

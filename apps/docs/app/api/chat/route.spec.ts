@@ -8,9 +8,16 @@ vi.mock("@/lib/source", () => ({ source: { getPages: () => [] } }));
 vi.mock("@llmgateway/ai-sdk-provider", () => ({
 	createLLMGateway: () => ({ chat: () => ({}) }),
 }));
+const streamTextCalls = vi.hoisted(
+	() => [] as Parameters<typeof AiModule.streamText>[0][],
+);
+
 vi.mock("ai", async (importOriginal: () => Promise<typeof AiModule>) => ({
 	...(await importOriginal()),
-	streamText: () => ({ toUIMessageStreamResponse: () => new Response("ok") }),
+	streamText: (options: Parameters<typeof AiModule.streamText>[0]) => {
+		streamTextCalls.push(options);
+		return { toUIMessageStreamResponse: () => new Response("ok") };
+	},
 }));
 
 afterEach(() => vi.unstubAllEnvs());
@@ -78,4 +85,25 @@ test("invalid conversations cannot consume the global model-attempt allowance", 
 		JSON.stringify({ messages: [validMessage] }),
 	);
 	expect(response.status).toBe(200);
+});
+
+test("model calls never download message URLs", async () => {
+	vi.stubEnv("DOCS_AI_SUPPORT_CHAT_API_KEY", "test-token");
+	vi.stubEnv("CLIENT_IP_HEADER", "x-forwarded-for");
+	const response = await post(
+		"198.19.0.2",
+		JSON.stringify({ messages: [validMessage] }),
+	);
+	expect(response.status).toBe(200);
+	const download = streamTextCalls.at(-1)?.experimental_download;
+	expect(download).toBeDefined();
+	await expect(download?.([])).resolves.toEqual([]);
+	await expect(
+		download?.([
+			{
+				url: new URL("http://metadata.google.internal/computeMetadata/v1/"),
+				isUrlSupportedByModel: false,
+			},
+		]),
+	).rejects.toThrow();
 });
