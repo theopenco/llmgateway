@@ -336,6 +336,31 @@ describe("chat completion proxy", () => {
 		expect(gatewayRequests[0].sponsor).toBeNull();
 	});
 
+	test("does not sponsor an account older than the allowance window", async () => {
+		const eightDaysMs = 8 * 24 * 60 * 60 * 1000;
+		await db
+			.update(tables.user)
+			.set({ createdAt: new Date(Date.now() - eightDaysMs) })
+			.where(eq(tables.user.id, "test-user-id"));
+
+		await onboardingRequest();
+
+		expect(gatewayRequests[0].authorization).toBe("Bearer user-token");
+		expect(gatewayRequests[0].sponsor).toBeNull();
+		expect(gatewayRequests[0].body.model).toBe("auto");
+	});
+
+	test("keeps the allowance spent for the whole window", async () => {
+		for (let attempt = 0; attempt < 5; attempt++) {
+			await onboardingRequest();
+		}
+
+		const ttl = await redisClient.ttl(
+			"onboarding_sponsored_calls:test-user-id",
+		);
+		expect(ttl).toBeGreaterThan(6 * 24 * 60 * 60);
+	});
+
 	test("does not assert sponsorship when no secret is configured", async () => {
 		Reflect.deleteProperty(process.env, "ONBOARDING_SPONSOR_SECRET");
 
