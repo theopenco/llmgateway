@@ -301,6 +301,7 @@ import {
 import { completionsRequestSchema } from "./schemas/completions.js";
 import {
 	anthropicRequestNeedsEffortBeta,
+	anthropicThinkingBetas,
 	anthropicToolBetas,
 	appendAnthropicBeta,
 } from "./tools/anthropic-effort-beta.js";
@@ -10374,10 +10375,10 @@ chat.openapi(completions, async (c) => {
 						) {
 							appendAnthropicBeta(headers, "structured-outputs-2025-11-13");
 						}
-						for (const beta of anthropicToolBetas(
-							transportProvider,
-							requestBody,
-						)) {
+						for (const beta of [
+							...anthropicToolBetas(transportProvider, requestBody),
+							...anthropicThinkingBetas(transportProvider, requestBody),
+						]) {
 							appendAnthropicBeta(headers, beta);
 						}
 
@@ -14869,7 +14870,10 @@ chat.openapi(completions, async (c) => {
 			) {
 				appendAnthropicBeta(headers, "structured-outputs-2025-11-13");
 			}
-			for (const beta of anthropicToolBetas(transportProvider, requestBody)) {
+			for (const beta of [
+				...anthropicToolBetas(transportProvider, requestBody),
+				...anthropicThinkingBetas(transportProvider, requestBody),
+			]) {
 				appendAnthropicBeta(headers, beta);
 			}
 
