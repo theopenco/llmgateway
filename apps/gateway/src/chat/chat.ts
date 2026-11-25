@@ -404,6 +404,7 @@ import { assertProviderKeysNotRateLimited } from "./tools/provider-key-rate-limi
 import { readTencentImageBody } from "./tools/read-tencent-image-body.js";
 import {
 	isInvalidEncryptedContentError,
+	isInvalidThinkingSignatureError,
 	lookupReasoningPin,
 	reasoningPinBindsModel,
 	rememberRejectedReasoning,
@@ -411,7 +412,10 @@ import {
 	rememberReasoningCredential,
 	resolveReasoningCredentialPin,
 	stripAccountBoundReasoning,
+	stripAnthropicThinking,
 	stripForeignReasoning,
+	stripRejectedAnthropicThinking,
+	rememberRejectedAnthropicThinking,
 	rememberDroppedReasoning,
 } from "./tools/reasoning-credential-pin.js";
 import {
@@ -9183,13 +9187,18 @@ chat.openapi(completions, async (c) => {
 	// Encrypted reasoning another credential produced, or that an account
 	// already rejected, cannot verify here, so it is left out up front rather
 	// than cost a rejected attempt on every turn of the conversation.
+	// Thinking blocks an upstream already rejected are left out the same way.
+	const thinkingReplay = await stripRejectedAnthropicThinking(
+		project.organizationId,
+		messages,
+	);
 	const initialReplay = usedProviderEncryptsReasoning()
 		? await stripForeignReasoning(
 				project.organizationId,
-				messages,
+				thinkingReplay.messages,
 				currentReasoningCredential(),
 			)
-		: { messages, stripped: false };
+		: { messages: thinkingReplay.messages, stripped: false };
 	if (initialReplay.stripped && routingMetadata) {
 		routingMetadata.encryptedReasoningDropped = true;
 	}
@@ -9403,6 +9412,9 @@ chat.openapi(completions, async (c) => {
 		failedKeys.remember(providerId, region, options);
 	}
 
+	// Set once a replayed thinking signature was rejected; every later attempt
+	// of this request then goes without Anthropic thinking blocks.
+	let retriedWithoutAnthropicThinking = false;
 	async function resolveProviderContextForRetry(
 		providerMapping: {
 			providerId: string;
@@ -9413,7 +9425,11 @@ chat.openapi(completions, async (c) => {
 	) {
 		// A retry moves to another credential or provider, which cannot verify
 		// the encrypted reasoning another account produced, so it goes without.
-		const replay = stripAccountBoundReasoning(messages);
+		const replay = stripAccountBoundReasoning(
+			retriedWithoutAnthropicThinking
+				? stripAnthropicThinking(thinkingReplay.messages).messages
+				: thinkingReplay.messages,
+		);
 		const ctx = await resolveProviderContext(
 			providerMapping,
 			retryProjectContext,
@@ -9690,6 +9706,44 @@ chat.openapi(completions, async (c) => {
 			initialReplay.messages,
 			currentReasoningCredential(),
 			errorText,
+		);
+		try {
+			const nextContext = await resolveProviderContextForRetry(
+				{
+					providerId: usedProvider,
+					externalId: usedExternalId,
+					region: usedRegion,
+				},
+				streamValue,
+			);
+			if ((await consumeProviderRateLimit(usedProvider, false)).rateLimited) {
+				return null;
+			}
+			return nextContext;
+		} catch {
+			return null;
+		}
+	}
+
+	// Self-heal: the upstream rejected a replayed thinking signature (e.g. the
+	// client changed the system prompt the block is bound to). Retry once on
+	// the same provider without thinking blocks, which the upstream accepts.
+	async function tryResolveRetryWithoutAnthropicThinking(
+		streamValue: boolean,
+		errorText: string | undefined,
+	): Promise<Awaited<ReturnType<typeof resolveProviderContext>> | null> {
+		if (
+			retriedWithoutAnthropicThinking ||
+			!usedProvider ||
+			!isInvalidThinkingSignatureError(errorText) ||
+			!stripAnthropicThinking(thinkingReplay.messages).stripped
+		) {
+			return null;
+		}
+		retriedWithoutAnthropicThinking = true;
+		await rememberRejectedAnthropicThinking(
+			retryProjectContext.organizationId,
+			thinkingReplay.messages,
 		);
 		try {
 			const nextContext = await resolveProviderContextForRetry(
@@ -10902,6 +10956,11 @@ chat.openapi(completions, async (c) => {
 								true,
 								errorResponseText,
 							);
+						sameProviderRetryContext ??=
+							await tryResolveRetryWithoutAnthropicThinking(
+								true,
+								errorResponseText,
+							);
 
 						// Check if we should retry before logging so we can mark the log as retried
 						const willRetryHttpError = shouldRetryRequest({
@@ -11259,6 +11318,11 @@ chat.openapi(completions, async (c) => {
 						}
 						sameProviderRetryContext ??=
 							await tryResolveRetryWithoutEncryptedReasoning(
+								true,
+								errorResponseText,
+							);
+						sameProviderRetryContext ??=
+							await tryResolveRetryWithoutAnthropicThinking(
 								true,
 								errorResponseText,
 							);
@@ -15344,6 +15408,11 @@ chat.openapi(completions, async (c) => {
 			}
 			sameProviderRetryContext ??=
 				await tryResolveRetryWithoutEncryptedReasoning(
+					stream,
+					errorResponseText,
+				);
+			sameProviderRetryContext ??=
+				await tryResolveRetryWithoutAnthropicThinking(
 					stream,
 					errorResponseText,
 				);
