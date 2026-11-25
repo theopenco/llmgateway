@@ -209,6 +209,11 @@
 			"import": "./dist/lounge-stream.js",
 			"default": "./dist/lounge-stream.js"
 		},
+		"./ai-sdk-download": {
+			"types": "./dist/ai-sdk-download.d.ts",
+			"import": "./dist/ai-sdk-download.js",
+			"default": "./dist/ai-sdk-download.js"
+		},
 		"./lounge-tool-approval": {
 			"types": "./dist/lounge-tool-approval.d.ts",
 			"import": "./dist/lounge-tool-approval.js",

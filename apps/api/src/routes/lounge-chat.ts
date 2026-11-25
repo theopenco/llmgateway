@@ -18,6 +18,7 @@ import { isUpstreamError } from "@/utils/upstream-error.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { logger } from "@llmgateway/logger";
+import { deferDownloadsToGateway } from "@llmgateway/shared/ai-sdk-download";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import { loungeConnectorIds } from "@llmgateway/shared/lounge-connectors";
@@ -187,8 +188,7 @@ loungeChat.openapi(
 			tools,
 			toolApproval: () => "user-approval",
 			experimental_toolApprovalSecret: getLoungeToolApprovalSecret(user.id),
-			// The gateway owns remote attachment fetching and URL validation.
-			experimental_download: async (urls) => urls.map(() => null),
+			experimental_download: deferDownloadsToGateway,
 			temperature: body.temperature,
 			maxOutputTokens: body.maxTokens,
 			maxRetries: 0,
