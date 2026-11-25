@@ -1,3 +1,5 @@
+import { THINKING_BINDING_BETA } from "@llmgateway/actions";
+
 import type {
 	AnthropicRequestBody,
 	ProviderRequestBody,
@@ -67,6 +69,25 @@ export function anthropicToolBetas(
 		betas.push("web-fetch-2025-09-10");
 	}
 	return betas;
+}
+
+/**
+ * `thinking.block_binding` rides on its own beta. Bedrock takes it in the body
+ * instead, and Vertex gets no binding.
+ */
+export function anthropicThinkingBetas(
+	usedProvider: string,
+	requestBody: ProviderRequestBody | FormData,
+): string[] {
+	if (
+		(usedProvider !== "anthropic" && usedProvider !== "azure-anthropic") ||
+		requestBody instanceof FormData
+	) {
+		return [];
+	}
+	return (requestBody as AnthropicRequestBody).thinking?.block_binding
+		? [THINKING_BINDING_BETA]
+		: [];
 }
 
 /** Append a beta to `anthropic-beta`, keeping the header free of duplicates. */

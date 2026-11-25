@@ -40,6 +40,9 @@ import { FAL_IMAGE_SIZES } from "@llmgateway/shared/image-generation-config";
 
 import {
 	anthropicThinkingBlocksFor,
+	DROP_MISMATCHED_THINKING,
+	THINKING_BINDING_BETA,
+	thinkingAcceptsBinding,
 	toConverseReasoningContent,
 } from "./anthropic-thinking.js";
 import {
@@ -4547,6 +4550,26 @@ export async function prepareRequestBody(
 
 			dropCacheMarkersBeforeLongerTtl(requestBody);
 
+			// Claude hosts verified to take the binding beta; Vertex is not yet.
+			// Bedrock's Messages API arrives here as `anthropic`.
+			const claudeHost = resolvedProviderMapping?.providerId ?? usedProvider;
+			if (
+				(claudeHost === "anthropic" ||
+					claudeHost === "azure-anthropic" ||
+					claudeHost === "aws-bedrock") &&
+				thinkingAcceptsBinding(requestBody.thinking) &&
+				requestBody.messages.some(
+					(message: { content: unknown }) =>
+						Array.isArray(message.content) &&
+						message.content.some(
+							(block: { type?: unknown }) =>
+								block.type === "thinking" || block.type === "redacted_thinking",
+						),
+				)
+			) {
+				requestBody.thinking.block_binding = DROP_MISMATCHED_THINKING;
+			}
+
 			if (usedProvider === "vertex-anthropic") {
 				requestBody.anthropic_version = "vertex-2023-10-16";
 				delete requestBody.model;
@@ -5248,6 +5271,25 @@ export async function prepareRequestBody(
 				requestBody.additionalModelRequestFields.anthropic_beta = [
 					...(requestBody.additionalModelRequestFields.anthropic_beta ?? []),
 					"fine-grained-tool-streaming-2025-05-14",
+				];
+			}
+
+			if (
+				usesBedrockClaudeConverse &&
+				thinkingAcceptsBinding(
+					requestBody.additionalModelRequestFields?.thinking,
+				) &&
+				bedrockMessages.some((message) =>
+					message.content.some(
+						(block: { reasoningContent?: unknown }) => block.reasoningContent,
+					),
+				)
+			) {
+				requestBody.additionalModelRequestFields.thinking.block_binding =
+					DROP_MISMATCHED_THINKING;
+				requestBody.additionalModelRequestFields.anthropic_beta = [
+					...(requestBody.additionalModelRequestFields.anthropic_beta ?? []),
+					THINKING_BINDING_BETA,
 				];
 			}
 

@@ -560,6 +560,11 @@ export interface AnthropicSystemContent {
 	};
 }
 
+/** Sent only with the `thinking-binding-controls-2026-08-01` beta. */
+export interface AnthropicThinkingBinding {
+	prefix_mismatch_behavior: "drop_block";
+}
+
 export interface AnthropicRequestBody extends BaseRequestBody {
 	messages: AnthropicMessage[];
 	system?: string | AnthropicSystemContent[];
@@ -570,10 +575,12 @@ export interface AnthropicRequestBody extends BaseRequestBody {
 				type: "enabled";
 				budget_tokens: number;
 				display?: "summarized" | "omitted";
+				block_binding?: AnthropicThinkingBinding;
 		  }
 		| {
 				type: "adaptive";
 				display?: "summarized" | "omitted";
+				block_binding?: AnthropicThinkingBinding;
 		  };
 	output_config?: {
 		effort?: "low" | "medium" | "high" | "xhigh" | "max";
