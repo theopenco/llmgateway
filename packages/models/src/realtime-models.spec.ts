@@ -105,6 +105,29 @@ describe("realtime model catalogue validation", () => {
 		expect(mapping.tools).toBe(true);
 	});
 
+	it("declares the Gemini 3.8 Live mapping exactly", () => {
+		const entry = realtimeEntries.find((e) => e.model.id === "gemini-3.8-live");
+		expect(entry).toBeDefined();
+		const { model, mapping } = entry!;
+		expect(model.output).toEqual(["text", "audio"]);
+		expect(mapping.providerId).toBe("google-ai-studio");
+		expect(mapping.externalId).toBe("gemini-3.8-live");
+		expect(mapping.contextSize).toBe(131072);
+		expect(mapping.maxOutput).toBe(65536);
+		// https://ai.google.dev/gemini-api/docs/pricing — $0.75 text in,
+		// $3.00 audio in, $4.50 text out (thinking included), $12.00 audio out.
+		expect(mapping.inputPrice).toBe("0.75e-6");
+		expect(mapping.inputAudioPrice).toBe("3.0e-6");
+		expect(mapping.outputPrice).toBe("4.5e-6");
+		expect(mapping.outputAudioPrice).toBe("12.0e-6");
+		expect(mapping.requestPrice).toBe("0");
+		expect(mapping.cachedInputPrice).toBe(mapping.inputPrice);
+		expect(mapping.cachedInputAudioPrice).toBe(mapping.inputAudioPrice);
+		expect(mapping.imageInputPrice).toBeUndefined();
+		expect(mapping.tools).toBe(true);
+		expect(mapping.deactivatedAt).toBeUndefined();
+	});
+
 	it("declares the Grok Voice 3.0 mapping exactly", () => {
 		const entry = realtimeEntries.find((e) => e.model.id === "grok-voice-3-0");
 		expect(entry).toBeDefined();
