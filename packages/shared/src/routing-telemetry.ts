@@ -57,6 +57,8 @@ export const ROUTING_EXCLUSION_REASON_MESSAGES = {
 	rate_limited: "provider is rate limited",
 	low_uptime: "custom provider uptime is below the fallback threshold",
 	content_filter: "excluded by content-filter routing",
+	provider_access_restriction:
+		"provider access is restricted for this organization",
 	compliance: "excluded by the organization's compliance policy",
 	// Which compliance rule fired. These are details of `compliance`, not
 	// siblings of it: a compliance drop records the parent code plus every
@@ -126,6 +128,7 @@ export const ROUTING_EXCLUSION_REASON_LABELS: Record<
 	rate_limited: "Rate limited",
 	low_uptime: "Low uptime",
 	content_filter: "Content filter",
+	provider_access_restriction: "Access restriction",
 	compliance: "Compliance",
 	compliance_soc2: "SOC 2",
 	compliance_soc2_type2: "SOC 2 Type 2",

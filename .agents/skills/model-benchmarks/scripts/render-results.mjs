@@ -3,8 +3,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 
-import { renderBenchmarkResult } from "../../../../packages/benchmarks/dist/src/reporters.js";
-import { summarizeNumbers } from "../../../../packages/benchmarks/dist/src/statistics.js";
+import { renderBenchmarkResult } from "../../../../packages/benchmarks/dist/reporters.js";
+import { summarizeNumbers } from "../../../../packages/benchmarks/dist/statistics.js";
 
 function formatNumber(value) {
 	return value === null || value === undefined ? "—" : value.toFixed(1);

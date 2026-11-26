@@ -13,7 +13,7 @@ export const errorDetails = z.object({
 export const toolFunction = z.object({
 	name: z.string(),
 	description: z.string().optional(),
-	parameters: z.record(z.any()).optional(),
+	parameters: z.record(z.string(), z.any()).optional(),
 });
 
 export const functionTool = z.object({
@@ -189,6 +189,12 @@ export type LogInsertData = Omit<
 	"id" | "createdAt" | "updatedAt"
 > & {
 	id?: string;
+};
+
+/** A LOG_QUEUE message: the row plus queue metadata that is not a column. */
+export type QueuedLogData = LogInsertData & {
+	/** Epoch ms when the gateway published the row; absent on older publishers. */
+	enqueuedAt?: number;
 };
 
 type SerializedOrganizationBase = Omit<

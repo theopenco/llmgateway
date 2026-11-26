@@ -22,8 +22,15 @@ export const metadata: Metadata = {
 			"Routing, multimodal APIs, observability, governance and payments behind one OpenAI-compatible API.",
 		type: "website",
 		url: "https://llmgateway.io/features",
+		images: ["/opengraph.png"],
 	},
 };
+
+const HERO_COLUMNS = 7;
+const heroTiles = features.slice(
+	0,
+	features.length - (features.length % HERO_COLUMNS),
+);
 
 const sections = featureCategories.map((category) => ({
 	...category,
@@ -74,7 +81,7 @@ export default function FeaturesPage() {
 							aria-hidden
 							className="animate-hero-enter hero-enter-delay-2 grid w-full max-w-xl grid-cols-7 gap-2 lg:ml-auto"
 						>
-							{features.map((feature, index) => {
+							{heroTiles.map((feature, index) => {
 								const Icon = feature.icon;
 								const accent = featureCategories.find(
 									(category) => category.id === feature.category,

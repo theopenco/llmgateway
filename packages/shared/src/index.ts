@@ -56,6 +56,7 @@ export {
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
+	DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
 	DEV_PLAN_RESET_PASS_PRICES,
 	DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE,
 	DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
@@ -65,6 +66,8 @@ export {
 	getDevPlanCycleUsageFraction,
 	getDevPlanDailyLimit,
 	getDevPlanPremiumWeeklyLimit,
+	getDevPlanRenewalCredits,
+	getDevPlanRenewalRolloverCap,
 	getDevPlanUpgradeCredits,
 	getIncludedResetPassesRemaining,
 	getRemainingDailyAllowance,
@@ -100,22 +103,28 @@ export {
 	getChatPlanCreditsLimit,
 	getChatPlanCreditsMultiplier,
 	getChatPlanCreditsMultipliers,
+	getChatPlanMinimumTier,
 	isChatPlanModelAllowed,
 } from "./chat-plans.js";
 
 export {
+	discountLookupFromMappings,
 	getModelCategory,
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
 	isPremiumModel,
 	isPremiumUsedModel,
 	type ModelCategory,
+	type PremiumDiscountLookup,
+	usedModelBaseId,
 } from "./model-categories.js";
 
 export {
+	getAppVersion,
 	HealthChecker,
 	type HealthCheckResult,
 	type HealthCheckOptions,
+	type ReadinessGateOptions,
 	type HealthCheckDependencies,
 	type HealthResponse,
 } from "./health-check.js";
@@ -151,9 +160,12 @@ export {
 	formatDateTime,
 	formatDayKey,
 	formatZoneName,
+	isDayKey,
 	isDayString,
 	isNaiveDateTimeString,
 	shiftDayKey,
+	startOfWeekDayKey,
+	thisWeekDayKeyRange,
 } from "./lib/format-date.js";
 
 export {
@@ -203,8 +215,10 @@ export {
 } from "./provider-model-ids.js";
 
 export {
+	FAL_IMAGE_SIZES,
 	getModelImageConfig,
 	GPT_IMAGE_SIZES,
+	isFalImageModel,
 	type AspectRatio,
 } from "./image-generation-config.js";
 
@@ -236,11 +250,8 @@ export {
 	LOUNGE_SOURCE,
 } from "./lounge-source.js";
 
-export {
-	getActiveProviderPromo,
-	MARKETING_STATS,
-	SCX_PROMO,
-} from "./marketing.js";
+export { ENTERPRISE_BOOKING_URL, MARKETING_STATS } from "./marketing.js";
+export { FIRST_USAGE_YEAR } from "./usage-years.js";
 
 export {
 	type DiscordEmbed,
@@ -261,6 +272,14 @@ export {
 } from "./model-error-rate-alerts.js";
 
 export {
+	FAILING_CREDENTIAL_ERROR_RATE,
+	FAILING_CREDENTIAL_MIN_REQUESTS,
+	FAILING_CREDENTIAL_WINDOW_HOURS,
+	failingCredentialWindowStart,
+	getFailingCredentialRate,
+} from "./failing-credentials.js";
+
+export {
 	deriveStabilityMetrics,
 	type StabilityCounts,
 	type StabilityMetrics,
@@ -275,14 +294,19 @@ export {
 } from "./onboarding.js";
 
 export {
+	CONTENT_FILTER_BLOCK_GROUPS,
 	CONTENT_FILTER_CLASSIFIERS,
 	CONTENT_FILTER_INTERNAL_SCOPES,
 	CONTENT_FILTER_SETTING_ID,
 	contentFilterSettingsSchema,
 	DEFAULT_CONTENT_FILTER_SETTINGS,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
+	getContentFilterCategoryGroup,
+	getContentFilterRuleGroup,
+	INTERNAL_CLASSIFIER_MODEL,
 	isContentFilterErrorText,
 	parseContentFilterSettings,
+	type ContentFilterBlockGroup,
 	type ContentFilterClassifier,
 	type ContentFilterInternalScope,
 	type ContentFilterSettings,
@@ -308,6 +332,8 @@ export {
 
 export {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_REGEX,
 	CUSTOM_PROVIDER_NAME_REGEX,
 	isProviderBaseUrlOverrideAllowed,
 	isProviderHostnameLabel,
@@ -333,6 +359,7 @@ export {
 export {
 	estimateChatMessageTokens,
 	estimateTokensFromText,
+	estimateTokensFromTextLength,
 	type TokenEstimateFallback,
 } from "./token-estimate.js";
 

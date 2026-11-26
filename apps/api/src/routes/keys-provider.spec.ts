@@ -85,6 +85,83 @@ describe("provider keys route", () => {
 		});
 	});
 
+	test("rejects the removed azure-ai-foundry provider", async () => {
+		const res = await app.request("/keys/provider", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({
+				provider: "azure-ai-foundry",
+				token: "test-token",
+				organizationId: "test-org-id",
+				allowedModels: ["grok-4-3"],
+			}),
+		});
+		expect(res.status).toBe(400);
+	});
+
+	test("does not expose or accept managed selection strategy on BYOK keys", async () => {
+		const headers = { Cookie: token, "Content-Type": "application/json" };
+		const created = await app.request("/keys/provider", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({
+				provider: "inference.net",
+				token: "test-selection-token",
+				organizationId: "test-org-id",
+				selectionStrategy: "round_robin",
+			}),
+		});
+		expect(created.status).toBe(200);
+		const { providerKey } = await created.json();
+		expect(providerKey).not.toHaveProperty("selectionStrategy");
+		const updated = await app.request(`/keys/provider/${providerKey.id}`, {
+			method: "PATCH",
+			headers,
+			body: JSON.stringify({
+				status: "active",
+				selectionStrategy: "round_robin",
+			}),
+		});
+		expect(updated.status).toBe(200);
+		expect((await updated.json()).providerKey).not.toHaveProperty(
+			"selectionStrategy",
+		);
+		const listed = await app.request("/keys/provider", { headers });
+		expect(listed.status).toBe(200);
+		for (const key of (await listed.json()).providerKeys) {
+			expect(key).not.toHaveProperty("selectionStrategy");
+		}
+		const stored = await db.query.providerKey.findFirst({
+			where: { id: { eq: providerKey.id } },
+		});
+		expect(stored?.selectionStrategy).toBe("ordered");
+	});
+
+	test("does not expose or accept the managed-only safety identifier setting", async () => {
+		const headers = { Cookie: token, "Content-Type": "application/json" };
+		const updated = await app.request("/keys/provider/test-provider-key-id", {
+			method: "PATCH",
+			headers,
+			body: JSON.stringify({
+				status: "active",
+				forwardSafetyIdentifier: false,
+			}),
+		});
+		expect(updated.status).toBe(200);
+		expect((await updated.json()).providerKey).not.toHaveProperty(
+			"forwardSafetyIdentifier",
+		);
+		const listed = await app.request("/keys/provider", { headers });
+		expect(listed.status).toBe(200);
+		for (const key of (await listed.json()).providerKeys) {
+			expect(key).not.toHaveProperty("forwardSafetyIdentifier");
+		}
+		const stored = await db.query.providerKey.findFirst({
+			where: { id: { eq: "test-provider-key-id" } },
+		});
+		expect(stored?.forwardSafetyIdentifier).toBe(true);
+	});
+
 	test("GET /keys/provider unauthorized", async () => {
 		const res = await app.request("/keys/provider");
 		expect(res.status).toBe(401);
@@ -491,6 +568,37 @@ describe("provider keys route", () => {
 		});
 	});
 
+	describe("POST /keys/provider cloudflare account id", () => {
+		const postCloudflareKey = (options?: Record<string, string>) =>
+			app.request("/keys/provider", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({
+					provider: "cloudflare",
+					token: "cloudflare-test-token",
+					organizationId: "test-org-id",
+					options,
+				}),
+			});
+
+		test("requires an account id", async () => {
+			const res = await postCloudflareKey();
+			expect(res.status).toBe(400);
+			expect(await res.text()).toContain("account ID");
+		});
+
+		test.each(["../evil", "0123456789ABCDEF0123456789ABCDEF", "abc"])(
+			"rejects an account id that is not 32 lowercase hex chars (%s)",
+			async (cloudflare_account_id) => {
+				const res = await postCloudflareKey({ cloudflare_account_id });
+				expect(res.status).toBe(400);
+			},
+		);
+	});
+
 	test("POST /keys/provider with invalid provider", async () => {
 		const res = await app.request("/keys/provider", {
 			method: "POST",
@@ -619,8 +727,8 @@ describe("provider keys route", () => {
 				Cookie: token,
 			},
 			body: JSON.stringify({
-				provider: "glacier",
-				token: "glacier-test-token",
+				provider: "quartz",
+				token: "quartz-test-token",
 				organizationId: "test-org-id",
 			}),
 		});
@@ -632,7 +740,7 @@ describe("provider keys route", () => {
 		const providerKey = await db.query.providerKey.findFirst({
 			where: {
 				provider: {
-					eq: "glacier",
+					eq: "quartz",
 				},
 			},
 		});
@@ -1008,6 +1116,77 @@ describe("provider keys route", () => {
 		test("PATCH rejects caps below 1", async () => {
 			const res = await patchKey({ maxRpm: 0 });
 			expect(res.status).toBe(400);
+		});
+
+		describe("per model", () => {
+			const [first, second] = getProviderModelIds("openai");
+
+			test("PATCH sets, normalizes and clears per-model caps", async () => {
+				const valid = await patchKey({
+					modelRateLimits: {
+						[second]: { maxRpm: 12, maxTpd: null },
+						[first]: { maxTpm: 5000 },
+						// A model with no cap left is dropped before validation.
+						"not-an-openai-model": { maxRpm: null },
+					},
+				});
+				expect(valid.status).toBe(200);
+				const json = await valid.json();
+				expect(json.providerKey.modelRateLimits).toEqual({
+					[first]: { maxTpm: 5000 },
+					[second]: { maxRpm: 12 },
+				});
+				// Key-wide caps are untouched.
+				expect(json.providerKey.maxRpm).toBeNull();
+
+				const emptied = await patchKey({
+					modelRateLimits: { [first]: { maxRpm: null } },
+				});
+				expect((await emptied.json()).providerKey.modelRateLimits).toBeNull();
+
+				await patchKey({ modelRateLimits: { [first]: { maxRpm: 1 } } });
+				const cleared = await patchKey({ modelRateLimits: null });
+				expect(cleared.status).toBe(200);
+				expect((await cleared.json()).providerKey.modelRateLimits).toBeNull();
+			});
+
+			test("PATCH rejects models the provider does not serve and invalid caps", async () => {
+				const unknown = await patchKey({
+					modelRateLimits: { "not-an-openai-model": { maxRpm: 1 } },
+				});
+				expect(unknown.status).toBe(400);
+				expect(await unknown.text()).toContain("not-an-openai-model");
+
+				expect(
+					(await patchKey({ modelRateLimits: { [first]: { maxRpm: 0 } } }))
+						.status,
+				).toBe(400);
+				expect(
+					(await patchKey({ modelRateLimits: { [first]: { maxRpx: 1 } } }))
+						.status,
+				).toBe(400);
+			});
+
+			test("PATCH audits per-model cap changes", async () => {
+				const res = await patchKey({
+					modelRateLimits: { [first]: { maxRpm: 12 } },
+				});
+				expect(res.status).toBe(200);
+
+				const entry = await db.query.auditLog.findFirst({
+					where: {
+						resourceId: { eq: "test-provider-key-id" },
+						action: { eq: "provider_key.update" },
+					},
+				});
+				expect(
+					(
+						entry?.metadata as {
+							changes?: { modelRateLimits?: { old: unknown; new: unknown } };
+						}
+					)?.changes?.modelRateLimits,
+				).toEqual({ old: null, new: { [first]: { maxRpm: 12 } } });
+			});
 		});
 	});
 

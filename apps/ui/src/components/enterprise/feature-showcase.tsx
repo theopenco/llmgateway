@@ -1,5 +1,3 @@
-"use client";
-
 import { ChevronDown, Coins, Hash, MoreHorizontal, Zap } from "lucide-react";
 
 import {

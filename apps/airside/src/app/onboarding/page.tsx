@@ -310,15 +310,21 @@ function RegisterCarrierDialog({
 								</>
 							) : domainState === "endpoint-path" ? (
 								<>
-									Base URL only — we append{" "}
+									Remove <span className="font-mono">/v1</span> and any endpoint
+									path — we append{" "}
 									<span className="font-mono">/v1/chat/completions</span>{" "}
-									ourselves.
+									ourselves, so this URL would call{" "}
+									<span className="font-mono">/v1/v1/chat/completions</span> and
+									fail every request.
 								</>
 							) : (
 								<>
 									Must be on{" "}
 									<span className="font-mono">{claimDomains.join(" or ")}</span>
-									.
+									. Base URL only, without{" "}
+									<span className="font-mono">/v1</span> — we append{" "}
+									<span className="font-mono">/v1/chat/completions</span>{" "}
+									ourselves.
 								</>
 							)}
 						</p>
@@ -914,6 +920,18 @@ function OnboardingContent() {
 										<div className="text-muted-foreground font-mono text-xs">
 											{claim.providerId} · {claim.customBaseUrl}
 										</div>
+										{claim.customBaseUrl &&
+										providerBaseUrlHasEndpointPath(claim.customBaseUrl) ? (
+											<div className="text-destructive mt-1 text-xs">
+												This base URL includes{" "}
+												<span className="font-mono">/v1</span> or an endpoint
+												path, but we append{" "}
+												<span className="font-mono">/v1/chat/completions</span>{" "}
+												ourselves, so preflight and traffic fail. Contact us to
+												drop <span className="font-mono">/v1</span> and anything
+												after it, keeping any path prefix before it.
+											</div>
+										) : null}
 										<div className="text-muted-foreground mt-1 text-xs">
 											Filed <RelativeDate date={claim.createdAt} />
 										</div>

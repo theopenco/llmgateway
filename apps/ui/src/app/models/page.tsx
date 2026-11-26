@@ -6,6 +6,7 @@ import { HeroRSC } from "@/components/landing/hero-rsc";
 import { AllModels } from "@/components/models/all-models";
 import { JsonLd } from "@/components/seo/json-ld";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
+import { pageTitle } from "@/lib/page-title";
 
 const CATEGORY_LINKS: ReadonlyArray<{ href: string; label: string }> = [
 	{ href: "/models/coding", label: "Best models for coding" },
@@ -14,6 +15,11 @@ const CATEGORY_LINKS: ReadonlyArray<{ href: string; label: string }> = [
 	{ href: "/models/creative-writing", label: "Creative writing models" },
 	{ href: "/models/translation", label: "Translation models" },
 	{ href: "/models/math", label: "Best models for math" },
+	{ href: "/models/cyber-security", label: "Best models for cyber security" },
+	{
+		href: "/models/reverse-engineering",
+		label: "Best models for reverse engineering",
+	},
 	{ href: "/models/long-context", label: "Long context models" },
 	{ href: "/models/cheapest", label: "Cheapest models" },
 	{ href: "/models/premium", label: "Premium models" },
@@ -34,7 +40,7 @@ export const metadata = {
 	alternates: {
 		canonical: "https://llmgateway.io/models",
 	},
-	title: "LLM Models List — Compare 250+ AI Models & Live Prices",
+	title: pageTitle("LLM Models List — Compare 250+ AI Models & Live Prices"),
 	description:
 		"Browse the full LLM models list: 250+ AI models from OpenAI, Anthropic, Google, and 40+ providers with live prices, context size and capabilities. Call any model via one API.",
 	openGraph: {
@@ -197,6 +203,37 @@ export default async function ModelsPage() {
 										</p>
 									</div>
 								</div>
+							</section>
+							<section className="container mx-auto px-4 pb-16">
+								<h2 className="text-2xl font-bold mb-4">
+									Which models each Lounge plan includes
+								</h2>
+								<p className="text-muted-foreground leading-relaxed max-w-3xl">
+									<a
+										href="https://lounge.llmgateway.io/pricing"
+										className="text-foreground underline underline-offset-4"
+									>
+										Lounge Starter
+									</a>{" "}
+									includes every image, video, and audio model, and every text
+									model except the frontier flagships and text models priced
+									above Claude Sonnet. Plus and Pro include everything. Set the
+									Lounge Plan filter, or open the{" "}
+									<Link
+										href="/models?lounge=starter&filters=1"
+										className="text-foreground underline underline-offset-4"
+									>
+										Starter list
+									</Link>{" "}
+									or the{" "}
+									<Link
+										href="/models?lounge=plus&filters=1"
+										className="text-foreground underline underline-offset-4"
+									>
+										Plus &amp; Pro only list
+									</Link>
+									. Models that need Plus carry a Plus badge in the table.
+								</p>
 							</section>
 						</>
 					}

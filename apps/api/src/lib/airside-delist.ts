@@ -1,8 +1,7 @@
+import { dematerializeAirsideModel } from "@llmgateway/actions";
 import { and, eq, tables } from "@llmgateway/db";
 
-import { dematerializeAirsideModel } from "./airside-catalogue.js";
-
-import type { CatalogueTransaction } from "./airside-catalogue.js";
+import type { CatalogueTransaction } from "@llmgateway/actions";
 
 /**
  * Takes an active listing out of service: it stops routing, its pending

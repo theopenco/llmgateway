@@ -3,9 +3,11 @@ import { z } from "zod";
 export const moderationApiPayloadResultSchema = z
 	.object({
 		flagged: z.boolean().optional(),
-		categories: z.record(z.boolean()).optional(),
-		category_scores: z.record(z.number()).optional(),
-		category_applied_input_types: z.record(z.array(z.string())).optional(),
+		categories: z.record(z.string(), z.boolean()).optional(),
+		category_scores: z.record(z.string(), z.number()).optional(),
+		category_applied_input_types: z
+			.record(z.string(), z.array(z.string()))
+			.optional(),
 	})
 	.passthrough();
 
@@ -51,6 +53,27 @@ export const contentFilterModerationErrorSchema = z.object({
 	message: z.string(),
 });
 
+/** Policy groups a verdict matched; mirrors CONTENT_FILTER_BLOCK_GROUPS. */
+const contentFilterBlockGroupsSchema = z.array(
+	z.enum(["csam", "sexual", "cyber"]),
+);
+
+export const contentFilterShadowVerdictSchema = z.object({
+	classifier: contentFilterClassifierSchema,
+	violation: z.boolean(),
+	flagged: z.boolean(),
+	matchedCategories: z.array(z.string()),
+	categoryScores: z.record(z.string(), z.number()),
+	matchedGroups: contentFilterBlockGroupsSchema.optional(),
+	moderationFailed: z.boolean(),
+	durationMs: z.number().nonnegative(),
+	classifierDurationMs: z.number().nonnegative().optional(),
+	classifierRequests: z.number().int().nonnegative().optional(),
+	imageDurationMs: z.number().nonnegative().optional(),
+	internalScope: z.enum(["full", "latest_turn"]).optional(),
+	moderationErrors: z.array(contentFilterModerationErrorSchema).optional(),
+});
+
 export const gatewayContentFilterEvaluationSchema = z.object({
 	sampled: z.literal(true),
 	provider: z.string(),
@@ -66,7 +89,10 @@ export const gatewayContentFilterEvaluationSchema = z.object({
 	flagged: z.boolean(),
 	matchedCategories: z.array(z.string()),
 	// Highest score per category across every moderation result.
-	categoryScores: z.record(z.number()),
+	categoryScores: z.record(z.string(), z.number()),
+	// Policy groups the matched categories belong to; absent on older
+	// evaluations. With `blockGroups` set, only these decide `action`.
+	matchedGroups: contentFilterBlockGroupsSchema.optional(),
 	moderationFailed: z.boolean(),
 	// Absent on evaluations written before the classifier became selectable;
 	// those all ran on OpenAI moderation.
@@ -87,15 +113,17 @@ export const gatewayContentFilterEvaluationSchema = z.object({
 	// Moderation calls that failed during the check, at most a handful; why
 	// `moderationFailed` is set. Absent on older evaluations and on clean checks.
 	moderationErrors: z.array(contentFilterModerationErrorSchema).optional(),
-	// Legacy: verdict of the removed shadow classifier, present only on older
-	// evaluations. It never changed `action`.
+	// Verdicts of the shadow classifiers that scored the same request in the
+	// background, one per classifier. They never change `action`.
+	shadows: z.array(contentFilterShadowVerdictSchema).optional(),
+	// Legacy: verdict of the single shadow classifier of older evaluations.
 	shadow: z
 		.object({
 			classifier: contentFilterClassifierSchema,
 			violation: z.boolean(),
 			flagged: z.boolean(),
 			matchedCategories: z.array(z.string()),
-			categoryScores: z.record(z.number()),
+			categoryScores: z.record(z.string(), z.number()),
 			moderationFailed: z.boolean(),
 			durationMs: z.number().nonnegative().optional(),
 			/** True when the shadow classifier disagreed with the deciding one. */
@@ -116,6 +144,9 @@ export type ContentFilterModerationError = z.infer<
 export type ModerationApiPayload = z.infer<typeof moderationApiPayloadSchema>;
 export type GatewayContentFilterResponse = z.infer<
 	typeof gatewayContentFilterResponseSchema
+>;
+export type ContentFilterShadowVerdict = z.infer<
+	typeof contentFilterShadowVerdictSchema
 >;
 export type GatewayContentFilterEvaluation = z.infer<
 	typeof gatewayContentFilterEvaluationSchema

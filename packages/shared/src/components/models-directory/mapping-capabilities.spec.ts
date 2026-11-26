@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { getMappingCapabilities } from "./mapping-capabilities";
+import {
+	batchSupportDescription,
+	getMappingCapabilities,
+} from "./mapping-capabilities";
 
 describe("getMappingCapabilities", () => {
 	it("uses provider mapping metadata instead of model-wide metadata", () => {
@@ -29,5 +32,24 @@ describe("getMappingCapabilities", () => {
 		expect(
 			getMappingCapabilities({ streaming: false, vision: null, tools: false }),
 		).toEqual([]);
+	});
+
+	it("advertises Batch only when the mapping has batch endpoints", () => {
+		expect(
+			getMappingCapabilities({
+				batchEndpoints: ["/v1/chat/completions", "/v1/responses"],
+			}).map(({ label }) => label),
+		).toEqual(["Batch"]);
+		expect(getMappingCapabilities({ batchEndpoints: [] })).toEqual([]);
+		expect(getMappingCapabilities({ batchEndpoints: null })).toEqual([]);
+	});
+});
+
+describe("batchSupportDescription", () => {
+	it("lists the endpoints and states batch pricing", () => {
+		const text = batchSupportDescription(["/v1/embeddings"]);
+		expect(text).toContain("(/v1/embeddings)");
+		expect(text).toContain("same per-token price as live requests");
+		expect(text).toContain("No batch discount");
 	});
 });

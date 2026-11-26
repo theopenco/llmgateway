@@ -3,6 +3,10 @@ import { join } from "path";
 import { withContentCollections } from "@content-collections/next";
 
 import { prerenderedModelOgMappings } from "./src/lib/model-og-params";
+import {
+	removedModelRedirects,
+	renamedModelRedirects,
+} from "./src/lib/model-redirects";
 
 import type { NextConfig } from "next";
 
@@ -16,7 +20,14 @@ const nextConfig: NextConfig = {
 	reactCompiler: true,
 	transpilePackages: ["shiki"],
 	experimental: {
-		agentUpgrade: "latest",
+		agentUpgrade: "security",
+		// Barrel entry points re-exporting dozens of modules; rewrite to direct
+		// imports so dev compiles and cold starts skip the unused ones.
+		optimizePackageImports: [
+			"@llmgateway/models",
+			"@llmgateway/shared",
+			"@llmgateway/shared/components",
+		],
 		serverSourceMaps: true,
 	},
 	async redirects() {
@@ -44,31 +55,6 @@ const nextConfig: NextConfig = {
 			"v1_videos_log_content",
 			"v1_videos_retrieve",
 		];
-		// Models that were renamed: sub-pages (provider, uptime) exist at the
-		// new slug, so preserve the rest of the path.
-		const renamedModelRedirects: Record<string, string> = {
-			"qwen37-max": "qwen3.7-max",
-			"seedream-4.0": "seedream-4-0",
-			"grok-4-fast": "grok-4-fast-reasoning",
-			"grok-4-1-fast": "grok-4-1-fast-reasoning",
-		};
-		// Models that were removed before the "deactivate, never delete"
-		// policy existed. Their pages are indexed, so 301 them (including any
-		// sub-pages) to the closest surviving model page.
-		const removedModelRedirects: Record<string, string> = {
-			"gpt-oss-20b-free": "/models/gpt-oss-20b",
-			"gpt-4.1-free": "/models/gpt-4.1",
-			"glm-4.5-air-free": "/models/glm-4.5-air",
-			"llama-3.3-70b-instruct-free": "/models/llama-3.3-70b-instruct",
-			"llama-4-scout-free": "/models/llama-4-scout",
-			"llama-4-maverick-free": "/models/llama-4-maverick-17b-instruct",
-			"kimi-k2-0905-free": "/models/kimi-k2",
-			"kimi-k2-0905": "/models/kimi-k2",
-			"deepseek-r1t2-chimera-free": "/models/deepseek-r1-0528",
-			"mistral-7b-instruct-together": "/models",
-			"mixtral-8x7b-instruct-together": "/models",
-			"nemotron-nano-9b-v2": "/models",
-		};
 		// Providers that were removed entirely; their pages and backlinks are
 		// still indexed.
 		const removedProviderRedirects: Record<string, string> = {
@@ -80,6 +66,51 @@ const nextConfig: NextConfig = {
 			"anthropic-discount": "/providers",
 			bluestone: "/providers",
 			obsidian: "/providers",
+			glacier: "/providers",
+			granite: "/providers",
+			iceberg: "/providers",
+			embercloud: "/providers",
+			nanogpt: "/providers",
+			ranoai: "/providers",
+			reve: "/providers",
+		};
+		// REST-style gateway paths that crawlers resolve against this domain.
+		const apiPathReferenceSlugs: Record<string, string> = {
+			"audio/speech": "v1_audio_speech",
+			"audio/transcriptions": "v1_audio_transcriptions",
+			"chat/completions": "v1_chat_completions",
+			decisions: "v1_decisions",
+			embeddings: "v1_embeddings",
+			"images/edits": "v1_images_edits",
+			"images/generations": "v1_images_generations",
+			messages: "v1_messages",
+			models: "v1_models",
+			moderations: "v1_moderations",
+			ocr: "v1_ocr",
+			realtime: "v1_realtime_client_secrets",
+			rerank: "v1_rerank",
+			responses: "v1_chat_completions",
+			search: "v1_search",
+			systemone: "v1_systemone",
+			videos: "v1_videos_create",
+		};
+		// Posts whose slug changed after they were indexed or linked.
+		const renamedContentRedirects: Record<string, string> = {
+			"/blog/perplexity-sonar-retirement":
+				"/blog/perplexity-sonar-api-retirement",
+			"/blog/self-host-llm-gateway": "/blog/how-to-self-host-llm-gateway",
+			"/blog/how-configure-claude-code-with-llmgateway":
+				"/blog/how-to-configure-claude-code-with-llmgateway",
+			"/blog/ai-gateway-fees-compared-11": "/blog/ai-gateway-fees-compared",
+			"/blog/ai-gateway-fees-compared-14": "/blog/ai-gateway-fees-compared",
+			"/blog/ai-gateway-pricing-fees-markups-compared-2026":
+				"/blog/ai-gateway-fees-compared",
+			"/changelog/pro-features-are-now-free":
+				"/changelog/pro-features-now-free",
+			"/changelog/v1-0": "/changelog/gateway-v1-launch",
+			"/changelog/devpass": "/changelog/devpass-product-hunt-launch",
+			"/compare/bedrock": "/compare/aws-bedrock",
+			"/compare/azure-foundry": "/compare/azure-ai-foundry",
 		};
 		return [
 			{
@@ -99,6 +130,16 @@ const nextConfig: NextConfig = {
 			},
 			{
 				source: "/models/sherlock-think-alpha",
+				destination: "/models/grok-4-1-fast-reasoning",
+				permanent: true,
+			},
+			{
+				source: "/models/sherlock-dash-alpha/:path+",
+				destination: "/models/grok-4-1-fast-non-reasoning",
+				permanent: true,
+			},
+			{
+				source: "/models/sherlock-think-alpha/:path+",
 				destination: "/models/grok-4-1-fast-reasoning",
 				permanent: true,
 			},
@@ -204,7 +245,23 @@ const nextConfig: NextConfig = {
 			},
 			{
 				source: "/models/grok-4.3/azure-ai-foundry",
-				destination: "/models/grok-4-3/azure-ai-foundry",
+				destination: "/models/grok-4-3/azure",
+				permanent: true,
+			},
+			// The azure-ai-foundry provider was removed; azure serves its models.
+			{
+				source: "/providers/azure-ai-foundry",
+				destination: "/providers/azure",
+				permanent: true,
+			},
+			{
+				source: "/models/grok-4-1-fast-non-reasoning/azure-ai-foundry",
+				destination: "/models/grok-4-1-fast-non-reasoning",
+				permanent: true,
+			},
+			{
+				source: "/models/:model/azure-ai-foundry",
+				destination: "/models/:model/azure",
 				permanent: true,
 			},
 			// Docs content indexed on the wrong domain (see comment above).
@@ -305,21 +362,18 @@ const nextConfig: NextConfig = {
 				destination: "https://docs.llmgateway.io/v1_videos_create",
 				permanent: true,
 			},
-			{
-				source: "/v1/chat/completions",
-				destination: "https://docs.llmgateway.io/v1_chat_completions",
+			...Object.entries(apiPathReferenceSlugs).map(([path, slug]) => ({
+				source: `/v1/${path}`,
+				destination: `https://docs.llmgateway.io/${slug}`,
 				permanent: true,
-			},
-			{
-				source: "/v1/images/generations",
-				destination: "https://docs.llmgateway.io/v1_images_generations",
-				permanent: true,
-			},
-			{
-				source: "/v1/images/edits",
-				destination: "https://docs.llmgateway.io/v1_images_edits",
-				permanent: true,
-			},
+			})),
+			...Object.entries(renamedContentRedirects).map(
+				([source, destination]) => ({
+					source,
+					destination,
+					permanent: true,
+				}),
+			),
 			// Removed/renamed models and providers.
 			...Object.entries(renamedModelRedirects).flatMap(([slug, target]) => [
 				{
@@ -347,12 +401,23 @@ const nextConfig: NextConfig = {
 					},
 				],
 			),
-			...Object.entries(removedProviderRedirects).map(
-				([slug, destination]) => ({
-					source: `/providers/${slug}`,
-					destination,
-					permanent: true,
-				}),
+			...Object.entries(removedProviderRedirects).flatMap(
+				([slug, destination]) => [
+					{
+						source: `/providers/${slug}`,
+						destination,
+						permanent: true,
+					},
+					// The model outlives the provider, so its provider sub-page
+					// lands on the successor's listing or the model itself.
+					{
+						source: `/models/:model/${slug}`,
+						destination: destination.startsWith("/providers/")
+							? `/models/:model/${destination.slice("/providers/".length)}`
+							: "/models/:model",
+						permanent: true,
+					},
+				],
 			),
 			// xAI is often referred to as "SpaceXAI" in external links; the
 			// provider id is "xai".

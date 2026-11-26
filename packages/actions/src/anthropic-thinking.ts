@@ -151,6 +151,26 @@ export function anthropicThinkingBlocksFor(
 	);
 }
 
+/**
+ * Claude binds a thinking signature to the prompt it was created under, so a
+ * client that changes its system prompt mid-session gets a 400 when it replays
+ * earlier thinking. With this binding Claude drops such blocks instead; omitting
+ * thinking is always accepted. Valid only on enabled or adaptive thinking, and
+ * only with `THINKING_BINDING_BETA`.
+ */
+export const DROP_MISMATCHED_THINKING = {
+	prefix_mismatch_behavior: "drop_block",
+} as const;
+
+export const THINKING_BINDING_BETA = "thinking-binding-controls-2026-08-01";
+
+/** Whether a `thinking` config accepts `block_binding`. */
+export function thinkingAcceptsBinding(
+	thinking: { type?: unknown } | undefined,
+): boolean {
+	return thinking?.type === "enabled" || thinking?.type === "adaptive";
+}
+
 interface ConverseReasoningContent {
 	reasoningText?: { text?: string; signature?: string };
 	redactedContent?: string;

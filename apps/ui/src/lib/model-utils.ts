@@ -1,3 +1,4 @@
+import { isMappingDeactivated } from "@llmgateway/shared/deactivation";
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
 import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
@@ -47,6 +48,54 @@ export function getLoungeStudioPath(
 		return "/audio";
 	}
 	return "";
+}
+
+interface LoungeMapping {
+	providerId: string;
+	deactivatedAt?: Date | string | null;
+	streaming?: boolean | "only" | null;
+	realtime?: boolean | null;
+	realtimeTranscription?: boolean | null;
+}
+
+/**
+ * Whether a new Lounge account can chat with the model through `routes`, the
+ * mappings a page offers. Lounge chat streams text and routes the bare model
+ * id, so every live mapping has to stream and stay off the realtime socket.
+ */
+export function isLoungeChatModel(
+	model: {
+		id: string;
+		output?: readonly string[] | null;
+		enterpriseOnly?: boolean;
+		providers: readonly LoungeMapping[];
+	},
+	routes: readonly LoungeMapping[],
+): boolean {
+	if (model.enterpriseOnly || model.output?.some((kind) => kind !== "text")) {
+		return false;
+	}
+	// Smart Route needs an organization config and Custom a base URL.
+	if (
+		model.id !== "auto" &&
+		model.providers.some((mapping) => mapping.providerId === "llmgateway")
+	) {
+		return false;
+	}
+	const live = model.providers.filter(
+		(mapping) => !isMappingDeactivated(mapping),
+	);
+	if (
+		live.some(
+			(mapping) =>
+				mapping.realtime ||
+				mapping.realtimeTranscription ||
+				mapping.streaming === false,
+		)
+	) {
+		return false;
+	}
+	return routes.some((mapping) => !isMappingDeactivated(mapping));
 }
 
 export function getModelCapabilities(model: ModelDefinition): string[] {

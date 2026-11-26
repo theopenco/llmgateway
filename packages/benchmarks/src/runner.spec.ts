@@ -338,3 +338,45 @@ describe("runBenchmark", () => {
 		).rejects.toThrow("Benchmark case ids must be unique");
 	});
 });
+
+it("omits opaque replay data when responses are private", async () => {
+	const metadata = {
+		reasoning_details: [
+			{ type: "reasoning.encrypted", data: "opaque-replay-fixture" },
+		],
+		anthropic_native_blocks: [
+			{ type: "opaque", data: "native-replay-fixture" },
+		],
+		extra_content: { value: "extra-replay-fixture" },
+		provider_extra: { value: "provider-replay-fixture" },
+		phase: "commentary",
+	};
+	const result = await runBenchmark({
+		client: { url: "https://gateway.example" },
+		targets: [{ id: "fixture", model: "fixture" }],
+		runs: 1,
+		warmupRuns: 0,
+		includeResponses: false,
+		cases: [
+			{
+				id: "replay",
+				name: "replay",
+				kind: "performance",
+				request: { messages: [] },
+			},
+		],
+		fetch: async () =>
+			new Response(
+				`data: ${JSON.stringify({ choices: [{ delta: { ...metadata, content: "DONE" }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
+			),
+	});
+	const serialized = JSON.stringify(result.trials);
+	for (const value of [
+		"opaque-replay-fixture",
+		"native-replay-fixture",
+		"extra-replay-fixture",
+		"provider-replay-fixture",
+	]) {
+		expect(serialized).not.toContain(value);
+	}
+});

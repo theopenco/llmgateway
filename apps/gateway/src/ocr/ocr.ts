@@ -9,6 +9,7 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
+import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -53,8 +54,10 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { clientSafetyIdentifierFields } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
 
 import {
 	getProviderDefaultBaseUrl,
@@ -109,6 +112,7 @@ const ocrDocumentSchema = z
 
 const ocrRequestSchema = z
 	.object({
+		...clientSafetyIdentifierFields,
 		model: z.string().openapi({
 			description: "ID of the OCR model to use.",
 			example: "mistral-ocr-latest",
@@ -128,8 +132,8 @@ const ocrRequestSchema = z
 		}),
 		image_limit: z.number().int().optional(),
 		image_min_size: z.number().int().optional(),
-		bbox_annotation_format: z.record(z.unknown()).optional(),
-		document_annotation_format: z.record(z.unknown()).optional(),
+		bbox_annotation_format: z.record(z.string(), z.unknown()).optional(),
+		document_annotation_format: z.record(z.string(), z.unknown()).optional(),
 	})
 	.passthrough();
 
@@ -137,8 +141,8 @@ const ocrPageSchema = z
 	.object({
 		index: z.number().int().optional(),
 		markdown: z.string().optional(),
-		images: z.array(z.record(z.unknown())).optional(),
-		dimensions: z.record(z.unknown()).nullable().optional(),
+		images: z.array(z.record(z.string(), z.unknown())).optional(),
+		dimensions: z.record(z.string(), z.unknown()).nullable().optional(),
 	})
 	.passthrough();
 
@@ -155,6 +159,7 @@ const ocrResponseSchema = z
 		model: z.string().optional(),
 		document_annotation: z.string().nullable().optional(),
 		usage_info: ocrUsageInfoSchema.optional(),
+		usage: usageWithCostSchema.optional(),
 	})
 	.passthrough()
 	.openapi({
@@ -372,7 +377,32 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 		);
 	}
 
-	const { model: requestedModel, ...ocrParams } = validationResult.data;
+	// The end-user identifier is only logged (from the raw body), never sent.
+	const {
+		model: requestedModel,
+		safety_identifier: _safetyIdentifier,
+		user: _user,
+		...ocrParams
+	} = validationResult.data;
+
+	// Authenticate before model resolution so unauthenticated callers get a
+	// 401 instead of catalogue-dependent errors.
+	const token = extractApiToken(c);
+	const apiKey = await findApiKeyByToken(token);
+
+	if (!apiKey) {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
+	if (apiKey.status !== "active") {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
 
 	const match = findOcrMapping(requestedModel);
 	if (!match) {
@@ -413,23 +443,6 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 	const normalizedMessages = [
 		{ role: "user" as const, content: previewDocument(ocrParams.document) },
 	];
-
-	const token = extractApiToken(c);
-	const apiKey = await findApiKeyByToken(token);
-
-	if (!apiKey) {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
-		});
-	}
-
-	if (apiKey.status !== "active") {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
-		});
-	}
 
 	const baseProject = await findProjectById(apiKey.projectId);
 	if (!baseProject) {
@@ -482,7 +495,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 		});
 	}
 
-	const retentionLevel = getEffectiveRetentionLevel(organization);
+	const retentionLevel = getEffectiveRetentionLevel(organization, apiKey);
 
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
@@ -500,12 +513,17 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 	// Enterprise provider compliance policy: OCR resolves to a single provider,
 	// so block the request before any data is sent if that provider doesn't meet
 	// the org's required certifications/data policies.
-	await assertProviderCompliant(organization, providerId, {
-		organizationId: project.organizationId,
-		modelId: modelDefId,
-		apiKeyId: apiKey.id,
-		model: requestedModel,
-	});
+	await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: modelDefId,
+			apiKeyId: apiKey.id,
+			model: requestedModel,
+		},
+		apiKey,
+	);
 
 	const finalLogId = shortid();
 	const failedKeys = createFailedKeyTracker();
@@ -582,6 +600,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (!providerKey) {
 				throw new HTTPException(400, {
@@ -601,7 +620,9 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 
 			const platformCredential = await resolvePlatformCredential(providerId, {
 				selectionScope: upstreamModel,
+				model: modelDefId,
 				variant: envVariant,
+				organizationId: project.organizationId,
 				region: undefined,
 				requiresServiceTier: false,
 				excludedEnvIndices: excludedEnvKeyIndices,
@@ -617,6 +638,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (providerKey) {
 				usedToken = readProviderKey(providerKey);
@@ -632,7 +654,9 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 
 				const platformCredential = await resolvePlatformCredential(providerId, {
 					selectionScope: upstreamModel,
+					model: modelDefId,
 					variant: envVariant,
+					organizationId: project.organizationId,
 					region: undefined,
 					requiresServiceTier: false,
 					excludedEnvIndices: excludedEnvKeyIndices,
@@ -1193,10 +1217,17 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				{ retentionLevel },
 			);
 
-			return c.json({
-				...(upstreamJson as z.infer<typeof ocrResponseSchema>),
-				model: responseModel,
-			});
+			return c.json(
+				withUsageCost(
+					{
+						...(upstreamJson as z.infer<typeof ocrResponseSchema>),
+						model: responseModel,
+					},
+					cost,
+					{ page_cost: pageCost, request_cost: requestCost },
+					pagesProcessed !== null ? { pages_processed: pagesProcessed } : {},
+				),
+			);
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

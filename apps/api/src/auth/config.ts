@@ -12,10 +12,13 @@ import {
 	MIN_PASSWORD_LENGTH,
 } from "@/auth/password-policy.js";
 import { serializedPasswordReset } from "@/auth/password-reset.js";
+import { getAuthSecret } from "@/auth/secret.js";
+import { resolveSignupMethod } from "@/auth/signup-method.js";
 import { verificationCallback } from "@/auth/verification-callback.js";
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
 import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
+import { posthog } from "@/posthog.js";
 import {
 	getBlockedSignupCountries,
 	isCountryBlocked,
@@ -41,7 +44,6 @@ import {
 	getClientIpFromHeaders,
 	getClientIpHeaderName,
 } from "@llmgateway/shared/client-ip";
-import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 const apiUrl = getApiBaseUrl();
@@ -521,162 +523,6 @@ export async function checkRateLimit(
 	}
 }
 
-export async function createResendContact(
-	email: string,
-	name?: string,
-	attributes?: Record<string, string | number | boolean>,
-): Promise<void> {
-	const client = getResendClient();
-
-	if (!client) {
-		logger.debug("RESEND_API_KEY not configured, skipping contact creation");
-		return;
-	}
-
-	try {
-		const firstName = name?.split(" ")[0];
-		const lastName = name?.split(" ").slice(1).join(" ");
-
-		const properties: Record<string, string | number | null> = {};
-		if (attributes) {
-			for (const [key, value] of Object.entries(attributes)) {
-				// Resend expects string | number | null, so convert booleans to strings
-				properties[key] = typeof value === "boolean" ? String(value) : value;
-			}
-		}
-
-		logger.debug("Attempting to create Resend contact", {
-			email,
-			firstName,
-			lastName,
-			properties,
-		});
-
-		const { data, error } = await client.contacts.create({
-			audienceId: resendAudienceId,
-			email,
-			firstName: firstName ?? undefined,
-			lastName: lastName ?? undefined,
-			unsubscribed: false,
-			...(Object.keys(properties).length > 0 && { properties }),
-		});
-
-		if (error) {
-			throw new Error(`Resend API error: ${error.message}`);
-		}
-
-		logger.info("Successfully created Resend contact", {
-			email,
-			contactId: data?.id,
-		});
-	} catch (error) {
-		logger.error("Failed to create Resend contact", {
-			...(error instanceof Error ? { err: error } : { error }),
-			email,
-			name,
-			attributes,
-		});
-	}
-}
-
-export async function deleteResendContact(email: string): Promise<void> {
-	const client = getResendClient();
-
-	if (!client) {
-		logger.debug("RESEND_API_KEY not configured, skipping contact deletion");
-		return;
-	}
-
-	try {
-		const { error } = await client.contacts.remove({
-			audienceId: resendAudienceId,
-			email,
-		});
-
-		if (error) {
-			logger.warn("Resend API error during contact deletion", {
-				email,
-				errorMessage: error.message,
-			});
-			return;
-		}
-
-		logger.info("Successfully deleted Resend contact", { email });
-	} catch (error) {
-		logger.error("Failed to delete Resend contact", {
-			...(error instanceof Error ? { err: error } : { error }),
-			email,
-		});
-	}
-}
-
-export async function updateResendContact(
-	email: string,
-	options?: {
-		name?: string | null;
-		attributes?: Record<string, string | number | boolean>;
-	},
-): Promise<void> {
-	const client = getResendClient();
-
-	if (!client) {
-		logger.debug("RESEND_API_KEY not configured, skipping contact update");
-		return;
-	}
-
-	try {
-		const firstName = options?.name?.split(" ")[0];
-		const lastName = options?.name?.split(" ").slice(1).join(" ");
-
-		const properties: Record<string, string | number | null> = {};
-		if (options?.attributes) {
-			for (const [key, value] of Object.entries(options.attributes)) {
-				// Resend expects string | number | null, so convert booleans to strings
-				properties[key] = typeof value === "boolean" ? String(value) : value;
-			}
-		}
-
-		logger.debug("Attempting to update Resend contact", {
-			email,
-			firstName,
-			lastName,
-			properties,
-		});
-
-		const { data, error } = await client.contacts.update({
-			audienceId: resendAudienceId,
-			email,
-			...(firstName && { firstName }),
-			...(lastName && { lastName }),
-			...(Object.keys(properties).length > 0 && { properties }),
-		});
-
-		if (error) {
-			if (error.message?.includes("not found")) {
-				logger.warn("Resend contact not found, skipping update", {
-					email,
-				});
-				return;
-			}
-			logger.error("Resend API error during contact update", {
-				email,
-				errorMessage: error.message,
-			});
-			return;
-		}
-
-		logger.info("Successfully updated Resend contact", {
-			email,
-			contactId: data?.id,
-		});
-	} catch (error) {
-		logger.error("Failed to update Resend contact", {
-			...(error instanceof Error ? { err: error } : { error }),
-			email,
-		});
-	}
-}
-
 /**
  * Malformed JSON request bodies (almost always bot/scanner traffic hitting the
  * auth endpoints) make Better Auth throw a SyntaxError while parsing the body.
@@ -709,8 +555,12 @@ export function isClientJsonError(message: string, args: unknown[]): boolean {
  * `state_not_found` parse failure mean the OAuth/SSO callback had no `state`
  * param at all (bots, hand-built URLs, provider errors without state).
  * Replayed or expired callbacks still carry `state` and surface as
- * `state_mismatch`, which stays at error. Logging any of these at error
- * severity only trips production alerting.
+ * `state_mismatch`, which stays at error. `Invalid callbackURL: <url>` (and
+ * the redirect/errorCallback/newUserCallback variants) is the origin check
+ * rejecting an untrusted redirect target with a 403 — open-redirect probes.
+ * `Invalid origin` stays at error: a missing trustedOrigins entry breaks
+ * every sign-in. Logging any of these at error severity only trips
+ * production alerting.
  */
 const clientAuthErrorMessages = new Set([
 	"signup_disabled",
@@ -719,12 +569,18 @@ const clientAuthErrorMessages = new Set([
 	"State not found",
 ]);
 
+const untrustedRedirectUrlMessage =
+	/^Invalid (?:callbackURL|redirectURL|errorCallbackURL|newUserCallbackURL): /;
+
 export function isClientAuthError(
 	message: string,
 	args: unknown[] = [],
 ): boolean {
 	const text = message.trim();
-	if (clientAuthErrorMessages.has(text)) {
+	if (
+		clientAuthErrorMessages.has(text) ||
+		untrustedRedirectUrlMessage.test(text)
+	) {
 		return true;
 	}
 	return (
@@ -795,6 +651,28 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 				},
 				defaultCookieAttributes: {
 					domain: cookieDomain,
+				},
+			},
+			databaseHooks: {
+				user: {
+					create: {
+						// Counted here, not in the browser: the client event is lost
+						// to blockers and OAuth redirects. The user id joins it to the
+						// browser's person once the dashboard identifies them.
+						after: async (
+							user: { id: string },
+							ctx?: { path?: string; headers?: Headers } | null,
+						) => {
+							posthog.capture({
+								distinctId: user.id,
+								event: "account_created",
+								properties: {
+									method: resolveSignupMethod(ctx?.path),
+									country: getCountryFromHeaders(ctx?.headers),
+								},
+							});
+						},
+					},
 				},
 			},
 			session: {
@@ -947,7 +825,7 @@ If you didn't request this, you can safely ignore this email. Your password won'
 				},
 			},
 			baseURL: apiUrl || "http://localhost:4002",
-			secret: process.env.AUTH_SECRET ?? "dev-secret-key-must-be-32-chars!",
+			secret: getAuthSecret(),
 			database: createAuthDatabase(db),
 			socialProviders: {
 				// Social sign-in must never silently create an account: the login
@@ -980,18 +858,6 @@ If you didn't request this, you can safely ignore this email. Your password won'
 							},
 							request?: Request,
 						) => {
-							// Fetch the user's onboarding status to include in Resend
-							const dbUser = await db.query.user.findFirst({
-								where: {
-									id: {
-										eq: user.id,
-									},
-								},
-								columns: {
-									onboardingCompleted: true,
-								},
-							});
-
 							// The email is now proven to belong to this user, so honor any
 							// team invitations that were waiting on the address.
 							await acceptPendingInvitesForUser({
@@ -1006,11 +872,6 @@ If you didn't request this, you can safely ignore this email. Your password won'
 								userId: user.id,
 								source: "email_verification",
 								headers: request?.headers,
-							});
-
-							// Add verified email to Resend contacts with onboarding status
-							await createResendContact(user.email, user.name ?? undefined, {
-								onboarding_completed: dbUser?.onboardingCompleted ?? false,
 							});
 
 							// Send Discord notification for new verified signup
@@ -1576,6 +1437,9 @@ The LLM Gateway Team`.trim();
 									referralOrganizationId: referralMatch
 										? decodeURIComponent(referralMatch[1])
 										: null,
+									referralIpAddress:
+										newSession.session.ipAddress ||
+										getClientIpFromHeaders(ctx.headers),
 								},
 							);
 						}
@@ -1629,7 +1493,7 @@ The LLM Gateway Team`.trim();
 					}
 
 					// Check if this is a social login by querying the account table
-					// For OAuth signups, we need to send notifications and create Resend contacts
+					// OAuth signups are announced here; email signups on verification.
 					if (isHosted) {
 						const account = await db.query.account.findFirst({
 							where: {
@@ -1650,11 +1514,6 @@ The LLM Gateway Team`.trim();
 								newSession.user.name,
 								providerName,
 								getCountryFromHeaders(ctx.headers),
-							);
-
-							await createResendContact(
-								newSession.user.email,
-								newSession.user.name || undefined,
 							);
 						}
 					}

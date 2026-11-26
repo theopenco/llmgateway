@@ -12,6 +12,7 @@ export interface Comparison {
 	keyDifference: string;
 	betterForThem: string;
 	migrationSlug?: string;
+	checkedOn?: string;
 }
 
 export const comparisons: Comparison[] = [
@@ -77,21 +78,25 @@ export const comparisons: Comparison[] = [
 		keyDifference:
 			"LLM Gateway offers managed hosting and prepaid inference; LiteLLM gives you a Python SDK and a gateway you operate with your own providers.",
 		betterForThem:
-			"Your team wants Python-level extensibility and can operate the gateway, database, monitoring and upgrades.",
+			"Your team wants Python-level extensibility and can operate the gateway, database, monitoring, upgrades and supply-chain response.",
 		migrationSlug: "litellm",
+		checkedOn: "October 24, 2026",
 		sources: [
-			{ label: "Pricing and editions", href: "https://www.litellm.ai/pricing" },
 			{
-				label: "Enterprise controls",
-				href: "https://docs.litellm.ai/docs/enterprise",
+				label: "March 2026 compromise (FutureSearch)",
+				href: "https://futuresearch.ai/blog/litellm-pypi-supply-chain-attack/",
 			},
 			{
-				label: "Admin UI quickstart",
-				href: "https://docs.litellm.ai/docs/proxy/docker_quick_start",
+				label: "March 2026 compromise (The Hacker News)",
+				href: "https://thehackernews.com/2026/03/teampcp-backdoors-litellm-versions.html",
 			},
 			{
-				label: "Model playground",
-				href: "https://docs.litellm.ai/docs/proxy/model_compare_ui",
+				label: "October 2026 compromise (Aikido)",
+				href: "https://www.aikido.dev/blog/litellm-compromised-infostealer-rat",
+			},
+			{
+				label: "October 2026 compromise (JFrog)",
+				href: "https://research.jfrog.com/post/litellm-hijacked-again/",
 			},
 		],
 	},

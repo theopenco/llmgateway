@@ -12,6 +12,8 @@ import {
 	validateAllowedModels,
 } from "@/lib/provider-key-allowed-models.js";
 import {
+	modelRateLimitModelIds,
+	normalizeModelRateLimits,
 	pickProviderKeyRateLimits,
 	providerKeyRateLimitChanges,
 	providerKeyRateLimitsInputShape,
@@ -62,6 +64,8 @@ import {
 	RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAMES,
 	PROVIDER_HOSTNAME_LABEL_REGEX,
+	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_REGEX,
 } from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
@@ -72,7 +76,11 @@ import {
 } from "@llmgateway/shared/url-safety-node";
 
 import type { ServerTypes } from "@/vars.js";
-import type { ProviderKeyComplianceAttestation } from "@llmgateway/db";
+import type {
+	ProviderKeyComplianceAttestation,
+	ProviderKeyModelRateLimits,
+	ProviderKeyOptions,
+} from "@llmgateway/db";
 import type { ProviderId } from "@llmgateway/models";
 
 export const keysProvider = new OpenAPIHono<ServerTypes>();
@@ -134,17 +142,23 @@ export const providerKeySchema = z.object({
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
 			azure_validation_model: z.string().optional(),
 			azure_deployment_name: z.string().optional(),
-			azure_ai_foundry_resource: z.string().optional(),
-			azure_ai_foundry_api_version: z.string().optional(),
 			azure_anthropic_resource: z.string().optional(),
 			alibaba_region: z
-				.enum(["singapore", "eu-frankfurt", "us-virginia", "cn-beijing"])
+				.enum([
+					"singapore",
+					"eu-frankfurt",
+					"us-virginia",
+					"cn-beijing",
+					"cn-hongkong",
+					"ap-tokyo",
+				])
 				.optional(),
 			alibaba_workspace_id: z.string().optional(),
 			aws_mantle_region: z
 				.enum(["us-east-1", "us-east-2", "us-west-2"])
 				.optional(),
 			vertex_openai_project_id: z.string().optional(),
+			cloudflare_account_id: z.string().optional(),
 		})
 		.nullable(),
 	status: z.enum(["active", "inactive", "deleted"]).nullable(),
@@ -227,6 +241,28 @@ export function toPublicProviderKey(row: ProviderKeyRow) {
 		allowedModels: row.allowedModels,
 		...pickProviderKeyRateLimits(row),
 	};
+}
+
+/**
+ * Per-model caps need canonical model ids the provider serves, so custom
+ * provider keys (whose models are org-defined) cannot carry them.
+ */
+async function validateModelRateLimits(
+	provider: string,
+	limits: ProviderKeyModelRateLimits | null,
+	options: ProviderKeyOptions | undefined,
+	stored?: ProviderKeyModelRateLimits | null,
+): Promise<void> {
+	const modelIds = modelRateLimitModelIds(limits, stored);
+	if (!modelIds) {
+		return;
+	}
+	if (provider === "custom") {
+		throw new HTTPException(400, {
+			message: "modelRateLimits cannot be set on custom provider keys.",
+		});
+	}
+	await validateAllowedModels(provider, modelIds, options);
 }
 
 /**
@@ -465,11 +501,16 @@ const createProviderKeySchema = z.object({
 			azure_deployment_type: z.enum(["openai", "ai-foundry"]).optional(),
 			azure_validation_model: azurePathSegmentSchema.optional(),
 			azure_deployment_name: azurePathSegmentSchema.optional(),
-			azure_ai_foundry_resource: azureResourceSchema.optional(),
-			azure_ai_foundry_api_version: azurePathSegmentSchema.optional(),
 			azure_anthropic_resource: azureResourceSchema.optional(),
 			alibaba_region: z
-				.enum(["singapore", "eu-frankfurt", "us-virginia", "cn-beijing"])
+				.enum([
+					"singapore",
+					"eu-frankfurt",
+					"us-virginia",
+					"cn-beijing",
+					"cn-hongkong",
+					"ap-tokyo",
+				])
 				.optional(),
 			alibaba_workspace_id: z
 				.string()
@@ -480,6 +521,10 @@ const createProviderKeySchema = z.object({
 				.optional(),
 			google_vertex_project_id: gcpProjectIdSchema.optional(),
 			vertex_openai_project_id: gcpProjectIdSchema.optional(),
+			cloudflare_account_id: z
+				.string()
+				.regex(CLOUDFLARE_ACCOUNT_ID_REGEX, CLOUDFLARE_ACCOUNT_ID_MESSAGE)
+				.optional(),
 		})
 		.superRefine(validateWorkspaceScopedRegion)
 		.optional(),
@@ -645,6 +690,16 @@ keysProvider.openapi(create, async (c) => {
 		}
 	}
 
+	if (
+		provider === "cloudflare" &&
+		!baseUrl &&
+		!options?.cloudflare_account_id
+	) {
+		throw new HTTPException(400, {
+			message: "Cloudflare keys require an account ID",
+		});
+	}
+
 	// Stealth providers have no default base URL and an undisclosed platform, so
 	// users can't self-configure a working key for them. They are hidden from the
 	// UI selector; reject here too as defense in depth against direct API calls.
@@ -678,6 +733,11 @@ keysProvider.openapi(create, async (c) => {
 		assertAllowedModelsSupported(provider);
 		await validateAllowedModels(provider, allowedModels, options);
 	}
+	await validateModelRateLimits(
+		provider,
+		normalizeModelRateLimits(rateLimitInput.modelRateLimits),
+		options,
+	);
 
 	// A restricted key is probed with one of its own allowed models instead of
 	// the provider's default validation model: users restrict a key precisely
@@ -833,6 +893,9 @@ keysProvider.openapi(create, async (c) => {
 			provider,
 			hasCustomBaseUrl: !!baseUrl,
 			allowedModels,
+			...(providerKey.modelRateLimits && {
+				modelRateLimits: providerKey.modelRateLimits,
+			}),
 			...(providerKey.forwardCacheControl && { forwardCacheControl: true }),
 		},
 	});
@@ -1229,6 +1292,15 @@ keysProvider.openapi(updateStatus, async (c) => {
 		);
 	}
 
+	if (rateLimitUpdates.modelRateLimits !== undefined) {
+		await validateModelRateLimits(
+			providerKey.provider,
+			rateLimitUpdates.modelRateLimits,
+			providerKey.options ?? undefined,
+			providerKey.modelRateLimits,
+		);
+	}
+
 	if (complianceAttestation !== undefined) {
 		if (providerKey.provider !== "custom") {
 			throw new HTTPException(400, {
@@ -1269,6 +1341,7 @@ keysProvider.openapi(updateStatus, async (c) => {
 		maxTpm?: number | null;
 		maxTpd?: number | null;
 		rateLimitMode?: "strict" | "soft" | "lax";
+		modelRateLimits?: ProviderKeyModelRateLimits | null;
 	} = { ...rateLimitUpdates };
 	if (status !== undefined) {
 		updates.status = status;

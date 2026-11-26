@@ -1,0 +1,1 @@
+ALTER TABLE "provider_key" ADD COLUMN "forward_safety_identifier" boolean DEFAULT true NOT NULL;

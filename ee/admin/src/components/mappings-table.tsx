@@ -18,7 +18,11 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { useHistoryClient } from "@/lib/history-client";
-import { MAPPING_USAGE_MODE_DEFAULT, type UsageMode } from "@/lib/usage-mode";
+import {
+	CATALOG_USAGE_MODE_DEFAULT,
+	catalogModeParam,
+	type UsageMode,
+} from "@/lib/usage-mode";
 
 import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
@@ -85,8 +89,7 @@ function SortableHeader({
 	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
-	const modeParam =
-		usageMode === MAPPING_USAGE_MODE_DEFAULT ? "" : `&mode=${usageMode}`;
+	const modeParam = catalogModeParam(usageMode, "&");
 	const href = `/model-provider-mappings?sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${modeParam}${filterQuery}`;
 
 	return (
@@ -163,7 +166,7 @@ function MappingRow({
 				<TableCell>
 					<div>
 						<Link
-							href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}${usageMode === MAPPING_USAGE_MODE_DEFAULT ? "" : `?mode=${usageMode}`}`}
+							href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}${catalogModeParam(usageMode, "?")}`}
 							className="font-medium hover:underline"
 							onClick={(e) => e.stopPropagation()}
 						>
@@ -262,7 +265,7 @@ export function MappingsTable({
 	sortOrder = "desc",
 	search = "",
 	pageWindow,
-	usageMode = MAPPING_USAGE_MODE_DEFAULT,
+	usageMode = CATALOG_USAGE_MODE_DEFAULT,
 	filterQuery = "",
 }: {
 	mappings: ModelProviderMappingEntry[];

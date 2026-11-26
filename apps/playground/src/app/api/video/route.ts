@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
+import { readJsonBody } from "@/lib/read-json-body";
 
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
@@ -13,6 +14,7 @@ import { getGatewayErrorMessage, readGatewayResponseBody } from "./utils";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
+	const bodyPromise = readJsonBody(req);
 	const user = await getUser();
 	if (!user) {
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -25,7 +27,11 @@ export async function POST(req: Request) {
 		return NextResponse.json({ error: "Missing API key" }, { status: 400 });
 	}
 
-	const requestBody = await req.json();
+	const bodyResult = await bodyPromise;
+	if (!bodyResult.ok) {
+		throw bodyResult.error;
+	}
+	const requestBody = bodyResult.body;
 	const noFallback = req.headers.get("x-no-fallback");
 
 	const response = await fetch(`${getGatewayApiBaseUrl()}/videos`, {

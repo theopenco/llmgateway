@@ -4,9 +4,10 @@ import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { AllModels } from "@/components/models/all-models";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
+import { pageTitle } from "@/lib/page-title";
 
 export const metadata = {
-	title: "Tool-Calling Models - AI Models with Function Calling",
+	title: pageTitle("Tool-Calling Models - AI Models with Function Calling"),
 	description:
 		"Browse and compare AI models with tool and function calling support. Build agentic applications with models that can call APIs and execute functions.",
 	openGraph: {

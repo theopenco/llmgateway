@@ -16,16 +16,13 @@ import { AdminOnly } from "@/components/role-gate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-	UsageModeSelector,
+	CatalogDetailUsageMode,
 	useUsageMode,
 } from "@/components/usage-mode-selector";
 import { useApi } from "@/lib/fetch-client";
 import { useHistoryClient } from "@/lib/history-client";
 import { publicModelUrl } from "@/lib/public-urls";
-import {
-	MAPPING_USAGE_MODE_DEFAULT,
-	usageModeDescription,
-} from "@/lib/usage-mode";
+import { CATALOG_USAGE_MODE_DEFAULT } from "@/lib/usage-mode";
 
 import { getProviderIcon } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
@@ -72,7 +69,7 @@ export function MappingDetailClient({
 	const router = useRouter();
 	const pathname = usePathname();
 	const window = parseHistoryWindow(searchParams.get("window"));
-	const mode = useUsageMode(MAPPING_USAGE_MODE_DEFAULT);
+	const mode = useUsageMode(CATALOG_USAGE_MODE_DEFAULT);
 	// The server renders the stats for the current mode and the initial
 	// window; only refetch for other windows.
 	const [initialWindow] = useState(window);
@@ -139,7 +136,6 @@ export function MappingDetailClient({
 		? `mapping=${encodeURIComponent(`${mapping.providerId}/${mapping.modelId}:${mapping.region}`)}`
 		: `modelId=${encodeURIComponent(mapping.modelId)}`;
 	const recentErrorsHref = `/unstable-mappings?${recentErrorsScope}${mode === "credits" ? "" : "&includeByok=true"}`;
-	const modeDescription = usageModeDescription(mode);
 
 	return (
 		<>
@@ -194,14 +190,7 @@ export function MappingDetailClient({
 				</ModelVerificationDialog>
 			</header>
 
-			<div className="flex flex-wrap items-center gap-2">
-				<UsageModeSelector compact defaultMode={MAPPING_USAGE_MODE_DEFAULT} />
-				{modeDescription && (
-					<span className="text-xs text-muted-foreground">
-						{modeDescription}
-					</span>
-				)}
-			</div>
+			<CatalogDetailUsageMode />
 
 			<div className="flex flex-wrap items-center gap-1">
 				{windowOptions.map((opt) => (

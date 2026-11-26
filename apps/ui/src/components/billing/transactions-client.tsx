@@ -79,6 +79,7 @@ interface Transaction {
 	amount: string | null;
 	status: "pending" | "completed" | "failed";
 	description: string | null;
+	externalReference?: string | null;
 	refund?: RefundEligibility;
 }
 
@@ -439,6 +440,13 @@ function TransactionCard({
 					</div>
 				)}
 
+				{transaction.externalReference && (
+					<div>
+						<p className="text-muted-foreground text-xs">Payment Reference</p>
+						<p className="text-sm break-all">{transaction.externalReference}</p>
+					</div>
+				)}
+
 				{(isInvoiceable(transaction) || transaction.refund) && (
 					<div className="pt-1 flex gap-2">
 						<InvoiceDownloadButton orgId={orgId} transaction={transaction} />
@@ -570,6 +578,11 @@ export function TransactionsClient({
 												</td>
 												<td className="p-4 align-middle text-sm text-muted-foreground max-w-xs truncate">
 													{transaction.description ?? "—"}
+													{transaction.externalReference && (
+														<div className="truncate text-xs">
+															Ref: {transaction.externalReference}
+														</div>
+													)}
 												</td>
 												<td className="p-4 align-middle whitespace-nowrap text-right">
 													{isInvoiceable(transaction) || transaction.refund ? (

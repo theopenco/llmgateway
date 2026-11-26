@@ -474,6 +474,33 @@ describe("organization route", () => {
 		});
 	});
 
+	test("compliance policies keep model refs that left the catalogue", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise" })
+			.where(eq(tables.organization.id, "test-org-id"));
+		const policy = {
+			enabled: true,
+			blockApiTraining: true,
+			blockedModels: ["gpt-4o-mini", "airside-only-model"],
+		};
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ providerCompliancePolicy: policy }),
+		});
+
+		expect(response.status).toBe(200);
+		expect(
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: "test-org-id" } },
+				})
+			)?.providerCompliancePolicy,
+		).toEqual(policy);
+	});
+
 	test("compliance countries include active Airside carrier headquarters", async () => {
 		await db
 			.update(tables.organization)

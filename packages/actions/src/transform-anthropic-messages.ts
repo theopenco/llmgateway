@@ -4,6 +4,9 @@ import {
 	type AnthropicNativeBlock,
 	type BaseMessage,
 	type CacheControl,
+	type DocumentContent,
+	type FileContent,
+	isFileContent,
 	isImageUrlContent,
 	isTextContent,
 	isToolResultContent,
@@ -21,6 +24,11 @@ import {
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
+import {
+	InvalidFileContentError,
+	parseFileDataUrl,
+	UnsupportedDocumentFormatError,
+} from "./transform-google-messages.js";
 
 /**
  * Breakpoints a request may carry across tools, system and messages together.
@@ -83,6 +91,47 @@ export function getToolResultText(message: BaseMessage): string {
 			return content;
 		}),
 	);
+}
+
+/**
+ * Lowers an OpenAI `file` part to an Anthropic `document` block. Anthropic
+ * reads PDFs as base64 and every other document as plain text.
+ */
+function toAnthropicDocument(part: FileContent): DocumentContent {
+	if (!part.file.file_data) {
+		throw new InvalidFileContentError(
+			"Anthropic providers require base64 file_data on `file` content blocks; file_id references are not supported.",
+		);
+	}
+	const parsed = parseFileDataUrl(part.file.file_data);
+	if (!parsed?.data) {
+		throw new InvalidFileContentError(
+			"Invalid file_data: expected a base64-encoded data URL (e.g. 'data:application/pdf;base64,...').",
+		);
+	}
+	const mimeType = parsed.mimeType.toLowerCase();
+	const title = part.file.filename?.trim();
+	if (mimeType === "application/pdf") {
+		return {
+			type: "document",
+			source: { type: "base64", media_type: mimeType, data: parsed.data },
+			...(title && { title }),
+		};
+	}
+	if (mimeType.startsWith("text/")) {
+		const text = Buffer.from(parsed.data, "base64").toString("utf8");
+		if (!text.trim()) {
+			throw new InvalidFileContentError(
+				"Invalid file_data: the text document is empty.",
+			);
+		}
+		return {
+			type: "document",
+			source: { type: "text", media_type: "text/plain", data: text },
+			...(title && { title }),
+		};
+	}
+	throw new UnsupportedDocumentFormatError(parsed.mimeType, "Anthropic");
 }
 
 async function toolResultBlocksWithImages(
@@ -176,14 +225,17 @@ export async function transformAnthropicMessages(
 	minCacheableChars = 1024 * 4,
 	autoInjectCacheControl = true,
 	automaticCacheTtl?: "1h",
+	unsignedThinkingReplay = false,
 ): Promise<AnthropicMessage[]> {
 	const results: AnthropicMessage[] = [];
 
 	// Long-block markers are placed before the caller's later markers are
-	// counted, so they can take a caller's slot. Keep them on direct Anthropic,
-	// where they always ran, until caller markers are reserved first.
+	// counted, so they can take a caller's slot. Keep them on direct Anthropic
+	// and AWS Bedrock, where they always ran, until caller markers are reserved
+	// first.
 	const shouldApplyCacheControl =
-		provider === "anthropic" && autoInjectCacheControl;
+		(provider === "anthropic" || provider === "aws-bedrock") &&
+		autoInjectCacheControl;
 
 	// Continue the budget the tools and system passes already spent from.
 	let cacheControlCount = initialCacheControlCount;
@@ -244,7 +296,7 @@ export async function transformAnthropicMessages(
 		}
 	}
 
-	for (const m of groupedMessages) {
+	for (const [messageIndex, m] of groupedMessages.entries()) {
 		let content: MessageContent[] = [];
 
 		// A tool-result message has its content rebuilt into a tool_result block
@@ -307,6 +359,9 @@ export async function transformAnthropicMessages(
 								text: "[Image failed to load]",
 							} as TextContent;
 						}
+					}
+					if (isFileContent(part)) {
+						return toAnthropicDocument(part);
 					}
 					if (isTextContent(part) && part.text?.trim()) {
 						if (part.cache_control) {
@@ -568,6 +623,22 @@ export async function transformAnthropicMessages(
 			m.role === "assistant" && provider
 				? anthropicThinkingBlocksFor(provider, m.reasoning_details)
 				: [];
+		// DeepSeek's Anthropic API 400s a thinking-mode tool loop unless every
+		// assistant message in it carries thinking, but accepts it unsigned.
+		// Responses API clients split a turn's text and tool calls into two
+		// assistant messages, so cover every one except a trailing prefill.
+		if (
+			unsignedThinkingReplay &&
+			m.role === "assistant" &&
+			thinkingBlocks.length === 0 &&
+			(m.tool_calls?.length || messageIndex < groupedMessages.length - 1)
+		) {
+			thinkingBlocks.push({
+				type: "thinking",
+				thinking: (m.reasoning_content ?? m.reasoning ?? "").trim(),
+				signature: "",
+			});
+		}
 
 		results.push({
 			content: [...thinkingBlocks, ...anthropicContent],

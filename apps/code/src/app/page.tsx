@@ -39,7 +39,10 @@ import {
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	alternates: { canonical: "/" },
+	alternates: {
+		canonical: "/",
+		languages: { en: "/", ko: "/ko", "x-default": "/" },
+	},
 };
 
 const modelCount = parseInt(MARKETING_STATS.models, 10);

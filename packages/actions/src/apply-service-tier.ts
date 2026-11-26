@@ -17,7 +17,6 @@ import type { ProviderId, ProviderRequestBody } from "@llmgateway/models";
  */
 const BODY_TIER_PROVIDERS: ReadonlySet<ProviderId> = new Set<ProviderId>([
 	"google-ai-studio",
-	"glacier",
 ]);
 
 /**
@@ -71,7 +70,7 @@ export function providerCredentialSupportsServiceTier(
  *
  * - Vertex AI reports the served tier in `usageMetadata.trafficType`
  *   (`ON_DEMAND_PRIORITY` / `ON_DEMAND_FLEX` / `ON_DEMAND`).
- * - The Gemini Developer API (AI Studio / glacier) reports it in the
+ * - The Gemini Developer API (AI Studio) reports it in the
  *   `x-gemini-service-tier` response header (`priority` / `flex` / `standard`)
  *   on unary responses, but streaming responses omit that header and instead
  *   carry it in the body as `usageMetadata.serviceTier` (`flex` / `priority` /

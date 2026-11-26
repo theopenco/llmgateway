@@ -2,6 +2,7 @@ import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { modelBreakdownSql } from "@/lib/admin-model-breakdown.js";
 import { eachDay } from "@/lib/date-range.js";
 import { modeSplitFields } from "@/lib/mode-split.js";
 import { formatInTimeZone, zonedTimeToUtc } from "@/utils/timezone.js";
@@ -19,6 +20,7 @@ import {
 	tables,
 } from "@llmgateway/db";
 
+import type { AdminModelView } from "@/lib/admin-model-breakdown.js";
 import type {
 	UsageCounts,
 	UsageGroup,
@@ -110,7 +112,7 @@ export async function getOrganizationTimeseries({
 	endDate: Date;
 	bucket: "hour" | "day";
 	groupBy: UsageGroup;
-	modelView?: "canonical" | "mapping";
+	modelView?: AdminModelView;
 	timeZone?: string;
 	model?: string;
 	apiKeyId?: string;
@@ -150,10 +152,7 @@ export async function getOrganizationTimeseries({
 		);
 	const canonical = (
 		table: typeof projectHourlyModelStats | typeof apiKeyHourlyModelStats,
-	) =>
-		modelView === "mapping"
-			? sql<string>`${table.usedModel}`
-			: sql<string>`split_part(regexp_replace(${table.usedModel}, '^[^/]+/', ''), ':', 1)`;
+	) => modelBreakdownSql(table, modelView);
 	const timestamp = (
 		table: typeof projectHourlyModelStats | typeof apiKeyHourlyModelStats,
 	) =>

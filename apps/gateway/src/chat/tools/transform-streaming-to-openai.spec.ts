@@ -169,6 +169,38 @@ describe("transformStreamingToOpenai", () => {
 		]);
 	});
 
+	it("streams only the final Google image, not Vertex thought images", () => {
+		const chunk = (part: Record<string, unknown>) => ({
+			candidates: [{ content: { role: "model", parts: [part] } }],
+		});
+		const thought = transformStreamingToOpenai(
+			"google-vertex",
+			"gemini-3-pro-image-preview",
+			chunk({
+				inlineData: { mimeType: "image/png", data: "aW50ZXJpbQ==" },
+				thought: true,
+			}),
+			[],
+		) as any;
+		const final = transformStreamingToOpenai(
+			"google-vertex",
+			"gemini-3-pro-image-preview",
+			chunk({
+				inlineData: { mimeType: "image/png", data: "ZmluYWw=" },
+				thoughtSignature: "sig",
+			}),
+			[],
+		) as any;
+
+		expect(thought?.choices?.[0]?.delta?.images).toBeUndefined();
+		expect(final.choices[0].delta.images).toEqual([
+			{
+				type: "image_url",
+				image_url: { url: "data:image/png;base64,ZmluYWw=" },
+			},
+		]);
+	});
+
 	it("generates a unique id per streamed google tool call", () => {
 		// The id is the `thought_signature:<id>` Redis key. A name+timestamp id
 		// collided whenever two callers invoked the same tool within the same

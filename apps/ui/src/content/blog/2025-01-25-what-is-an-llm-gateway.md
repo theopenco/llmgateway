@@ -6,6 +6,11 @@ updatedAt: "2026-08-05"
 title: "What is an LLM Gateway?"
 summary: Learn what an LLM Gateway is, why you need one, and how it simplifies integrating, managing, and deploying large language models in production.
 categories: ["Guides"]
+faqs:
+  - question: "What does an LLM gateway do?"
+    answer: "An LLM gateway sits between your application and model providers and exposes one OpenAI-compatible API for many models. It handles request routing, failover, caching, cost tracking, and access control, and returns a standardized response."
+  - question: "Should I use a managed or a self-hosted LLM gateway?"
+    answer: "A managed gateway runs the infrastructure for you and suits teams that want to start quickly. A self-hosted gateway runs on your own infrastructure and suits teams that need more control over where requests and data go."
 image:
   src: "/blog/what-is-an-llm-gateway.png"
   alt: "What is an LLM Gateway?"

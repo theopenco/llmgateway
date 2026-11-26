@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 
+import { BlogMentionsList } from "@/components/blog/blog-mentions-list";
 import { CompareFaq } from "@/components/compare/compare-faq";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
@@ -7,8 +8,10 @@ import { adaptProviderMapping } from "@/components/models/adapt-model";
 import { Hero } from "@/components/providers/hero";
 import { ProviderModelsGrid } from "@/components/providers/provider-models-grid";
 import { ProviderStatsRow } from "@/components/providers/provider-stats-row";
+import { DataAsOf } from "@/components/seo/data-as-of";
 import { JsonLd } from "@/components/seo/json-ld";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
+import { pageTitle } from "@/lib/page-title";
 
 import {
 	models as modelDefinitions,
@@ -87,7 +90,8 @@ async function renderDynamicProviderPage(id: string) {
 				<ProviderStatsRow providerId={id} />
 				<section className="py-12 bg-background">
 					<div className="container mx-auto px-4">
-						<h2 className="text-3xl font-bold mb-8">Available Models</h2>
+						<h2 className="text-3xl font-bold mb-2">Available Models</h2>
+						<DataAsOf className="mb-8" />
 						<ProviderModelsGrid models={providerModels} />
 					</div>
 				</section>
@@ -127,6 +131,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 	]);
 	const apiProvider = apiProviders.find((p) => p.id === id);
 	const uploadedLogo = apiProvider?.airsideLogoUrl ?? undefined;
+	const apiModelById = new Map(apiModels.map((m) => [m.id, m]));
 	const discountByModelId = new Map<string, string>();
 	for (const apiModel of apiModels) {
 		for (const mapping of apiModel.mappings) {
@@ -153,11 +158,12 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 				providerInfo,
 			},
 			def.id,
+			def.output,
 		);
 
 		return {
 			id: def.id,
-			premium: isPremiumModel(def.id),
+			premium: apiModelById.get(def.id)?.premium ?? isPremiumModel(def.id),
 			createdAt: new Date().toISOString(),
 			releasedAt: def.releasedAt?.toISOString() ?? null,
 			name: def.name ?? null,
@@ -336,8 +342,16 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 
 				<section className="py-12 bg-background">
 					<div className="container mx-auto px-4">
-						<h2 className="text-3xl font-bold mb-8">Available Models</h2>
+						<h2 className="text-3xl font-bold mb-2">Available Models</h2>
+						<DataAsOf className="mb-8" />
 						<ProviderModelsGrid models={providerModels} />
+						<div className="mt-12">
+							<BlogMentionsList
+								kind="provider"
+								id={provider.id}
+								name={provider.name}
+							/>
+						</div>
 					</div>
 				</section>
 				<CompareFaq
@@ -364,43 +378,81 @@ export async function generateMetadata({
 	const { id } = await params;
 
 	const provider = providerDefinitions.find((p) => p.id === id);
+	const apiModels = await fetchModels();
+	const activeModelCount = (providerId: string) =>
+		apiModels.filter((model) =>
+			model.mappings.some(
+				(mapping) =>
+					mapping.providerId === providerId &&
+					mapping.status === "active" &&
+					!isMappingDeactivated(mapping),
+			),
+		).length;
+	const describe = (name: string, modelCount: number) =>
+		`Access ${modelCount} ${name} ${
+			modelCount === 1 ? "model" : "models"
+		} through LLM Gateway's OpenAI-compatible API with per-token pricing, automatic fallback, caching, and cost analytics.`;
 
 	if (!provider || provider.name === "LLM Gateway") {
 		const apiProvider = (await fetchProviders()).find((p) => p.id === id);
 		if (!apiProvider) {
 			return {};
 		}
+		const name = apiProvider.name ?? apiProvider.id;
+		const title = `${name} API — Models & Pricing`;
+		const description = describe(name, activeModelCount(apiProvider.id));
 		return {
-			title: `${apiProvider.name} API — Models & Pricing`,
+			title: pageTitle(title),
+			description,
 			alternates: { canonical: `/providers/${id}` },
 			// The segment's OG card only prerenders static providers
 			// (dynamicParams=false); advertise the site card instead of a 404.
-			openGraph: { images: ["/opengraph.png"] },
+			openGraph: {
+				title: `${title} | LLM Gateway`,
+				description,
+				type: "website",
+				url: `https://llmgateway.io/providers/${id}`,
+				images: ["/opengraph.png"],
+			},
+			twitter: {
+				card: "summary_large_image",
+				title: `${title} | LLM Gateway`,
+				description,
+				images: ["/opengraph.png"],
+			},
 		};
 	}
 
-	const apiModels = await fetchModels();
-	const apiModelCount = apiModels.filter((model) =>
-		model.mappings.some(
-			(mapping) =>
-				mapping.providerId === provider.id &&
-				mapping.status === "active" &&
-				!isMappingDeactivated(mapping),
-		),
-	).length;
-	const modelCount =
-		apiModelCount ||
-		(modelDefinitions as readonly ModelDefinition[]).filter((model) =>
+	const servedModelIds = new Set(
+		apiModels
+			.filter((model) =>
+				model.mappings.some(
+					(mapping) =>
+						mapping.providerId === provider.id && mapping.status === "active",
+				),
+			)
+			.map((model) => model.id),
+	);
+	const unlistedModelIds = new Set(
+		apiModels
+			.filter((model) => model.unlistedProviderIds?.includes(provider.id))
+			.map((model) => model.id),
+	);
+	const staticFallbackCount = (
+		modelDefinitions as readonly ModelDefinition[]
+	).filter(
+		(model) =>
+			!servedModelIds.has(model.id) &&
+			!unlistedModelIds.has(model.id) &&
 			model.providers.some(
 				(p) => p.providerId === provider.id && !isMappingDeactivated(p),
 			),
-		).length;
-	const description = `Access ${modelCount} ${provider.name} ${
-		modelCount === 1 ? "model" : "models"
-	} through LLM Gateway's OpenAI-compatible API with per-token pricing, automatic fallback, caching, and cost analytics.`;
+	).length;
+	const modelCount = activeModelCount(provider.id) + staticFallbackCount;
+	const description = describe(provider.name, modelCount);
 
 	return {
-		title: `${provider.name} API — Models & Pricing`,
+		title: pageTitle(`${provider.name} API — Models & Pricing`),
 		description,
 		alternates: { canonical: `/providers/${provider.id}` },
 		openGraph: {

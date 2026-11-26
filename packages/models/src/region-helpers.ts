@@ -55,11 +55,15 @@ function multiplyPricingTier(
 
 const AWS_BEDROCK_REGIONAL_MULTIPLIER = 1.1;
 
+// AWS prices geographic and in-region profiles 10% above the global profile.
+// Models without a global profile bill their rate card as is.
 function applyAwsBedrockRegionalPricing(
 	mapping: ProviderModelMapping,
+	hasGlobalProfile: boolean,
 ): ProviderModelMapping {
 	if (
 		mapping.providerId !== "aws-bedrock" ||
+		!hasGlobalProfile ||
 		!mapping.region ||
 		mapping.region === "global"
 	) {
@@ -105,12 +109,16 @@ export function expandProviderRegions(
 
 	const { regions: _, ...base } = mapping;
 
+	const hasGlobalProfile = mapping.regions.some(({ id }) => id === "global");
 	const regionEntries = mapping.regions.map(({ id, ...overrides }) =>
-		applyAwsBedrockRegionalPricing({
-			...base,
-			...overrides,
-			region: id,
-		}),
+		applyAwsBedrockRegionalPricing(
+			{
+				...base,
+				...overrides,
+				region: id,
+			},
+			hasGlobalProfile,
+		),
 	);
 
 	return [base, ...regionEntries];

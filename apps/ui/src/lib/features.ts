@@ -69,6 +69,8 @@ export interface FeatureDefinition {
 	category: FeatureCategory;
 	visual: FeatureVisual;
 	docsPath?: string;
+	// A page on this site that is the feature itself, linked instead of docs.
+	cta?: { label: string; href: string };
 	enterprise?: boolean;
 	developerSnippet?: boolean;
 	benefits: Array<{
@@ -281,9 +283,10 @@ export const features: FeatureDefinition[] = [
 		slug: "secure-key-management",
 		title: "Secure Key Management",
 		subtitle: "Centralized API key management",
-		description: "Manage API keys for different providers in one secure place.",
+		description:
+			"Manage every API key in your organization from one page, with spend caps, IAM rules, expiry and bulk actions.",
 		longDescription:
-			"Securely store and manage API keys for all your LLM providers in one place. Create project-specific keys, set usage limits, and track usage per key. Rotate keys without downtime and audit key usage.",
+			"See every key across every project in one table, with usage for the last 24 hours to 90 days and when each key was last used. Unused keys are flagged after 30 and 90 days, low-use keys get a suggested spend cap, and you can deactivate, reactivate or delete many keys at once.",
 		icon: KeyRound,
 		category: "security",
 		docsPath: "/features/api-keys",
@@ -291,30 +294,33 @@ export const features: FeatureDefinition[] = [
 			kind: "feed",
 			title: "Project · API keys",
 			items: [
-				{ title: "production", meta: "llmgtwy_••••a91f", tone: "ok" },
-				{ title: "staging", meta: "$50 budget", tone: "info" },
-				{ title: "ci-evals", meta: "80% of limit", tone: "warn" },
-				{ title: "old-intern-key", meta: "revoked", tone: "error" },
+				{ title: "production", meta: "used 2m ago", tone: "ok" },
+				{ title: "staging", meta: "suggest $25 / week", tone: "info" },
+				{ title: "ci-evals", meta: "unused 34d", tone: "warn" },
+				{ title: "old-intern-key", meta: "unused 97d", tone: "error" },
 			],
 		},
 		demoComponent: "api-key",
 		benefits: [
 			{
-				title: "Centralized Storage",
+				title: "Organization view",
 				description:
-					"Store all provider API keys in one secure, encrypted location",
+					"Every key across every project in one table, filterable by project",
 			},
 			{
 				title: "Granular Access Control",
-				description: "Create project-specific keys with custom permissions",
+				description:
+					"IAM rules for models, providers, pricing and IP ranges per key",
 			},
 			{
-				title: "Usage Limits",
-				description: "Set spending limits and rate limits per API key",
+				title: "Spend caps & expiry",
+				description:
+					"All-time and recurring limits, TTLs, and one-click cap suggestions",
 			},
 			{
-				title: "Audit Logs",
-				description: "Track all API key usage and changes",
+				title: "Bulk actions",
+				description:
+					"Deactivate, reactivate or delete many keys, with unused-key warnings",
 			},
 		],
 		useCases: [
@@ -514,7 +520,7 @@ export const features: FeatureDefinition[] = [
 		description:
 			"Monitor error rate, cache hit rate, and reliability trends directly from the dashboard.",
 		longDescription:
-			"Keep your LLM applications running smoothly with comprehensive error and reliability monitoring. Track error rates, identify issues before they become problems, and ensure high availability.",
+			"Keep your LLM applications running smoothly with comprehensive error and reliability monitoring. Track error rates, see similar errors grouped together instead of hundreds of near-duplicate rows, and spot issues before they reach your users.",
 		icon: BarChart3,
 		category: "observability",
 		visual: {
@@ -534,8 +540,8 @@ export const features: FeatureDefinition[] = [
 				description: "Monitor error rates across all providers and models",
 			},
 			{
-				title: "Cache Hit Rate",
-				description: "Track cache efficiency and optimize for cost savings",
+				title: "Grouped Errors",
+				description: "Similar errors collapse into one row with a count",
 			},
 			{
 				title: "Reliability Metrics",
@@ -568,11 +574,12 @@ export const features: FeatureDefinition[] = [
 		title: "Project-Level Usage Explorer",
 		subtitle: "Deep-dive into your usage",
 		description:
-			"Drill into each project's requests, models, errors, cache, and costs with dedicated charts and tables.",
+			"See every project's traffic, spend and errors on one page, then drill into each one's requests, models, cache and costs.",
 		longDescription:
-			"Explore your LLM usage at the project level with detailed charts, tables, and analytics. See every request, track model usage, monitor errors, and analyze costs for each of your projects.",
+			"The Projects page shows each project as a card with its traffic, spend, error rate and last activity, finds idle and never-used projects, and edits or archives several in one step. Open a project for every request, model usage, errors and costs, with usage charts grouped by day, week or month.",
 		icon: FolderKanban,
 		category: "observability",
+		docsPath: "/learn/projects",
 		visual: {
 			kind: "ranking",
 			title: "Projects · requests this week",
@@ -585,20 +592,23 @@ export const features: FeatureDefinition[] = [
 		demoComponent: "activity-logs",
 		benefits: [
 			{
+				title: "All Projects at a Glance",
+				description:
+					"Traffic, spend, error rate and last activity for every project on one page",
+			},
+			{
 				title: "Request-Level Details",
 				description: "View every request with full context and metadata",
 			},
 			{
-				title: "Model Usage Tracking",
-				description: "See which models are used most in each project",
+				title: "Day, Week or Month",
+				description:
+					"Group usage charts by the grain that fits your date range",
 			},
 			{
-				title: "Error Analysis",
-				description: "Identify and debug errors at the project level",
-			},
-			{
-				title: "Cost Breakdown",
-				description: "Track costs per project for accurate billing",
+				title: "Bulk Edits",
+				description:
+					"Change settings on several projects, or archive them, in one step",
 			},
 		],
 		useCases: [

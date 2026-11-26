@@ -90,3 +90,57 @@ describe("GPT-6.1 Sol", () => {
 		expect(azure).not.toHaveProperty("serviceTiers");
 	});
 });
+
+describe("GPT-6.1 Terra", () => {
+	const model = models.find((entry) => entry.id === "gpt-6.1-terra");
+	const mapping = model?.providers.find(
+		(entry) => entry.providerId === "openai",
+	);
+
+	it("routes supported capabilities through the Responses API", () => {
+		expect(model).toMatchObject({ name: "GPT-6.1 Terra", family: "openai" });
+		expect(mapping).toMatchObject({
+			externalId: "gpt-6.1-terra",
+			contextSize: 1050000,
+			maxOutput: 128000,
+			streaming: true,
+			vision: true,
+			tools: true,
+			supportsResponsesApi: true,
+			jsonOutput: true,
+			jsonOutputSchema: true,
+			reasoning: true,
+			reasoningOutput: "omit",
+			reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+			supportedToolChoices: ["auto", "none", "required", "function"],
+			serviceTiers: ["flex", "priority"],
+			serviceTierMultipliers: { priority: 2 },
+		});
+	});
+
+	it("uses the published short- and long-context cache rates", () => {
+		expect(mapping).toMatchObject({
+			inputPrice: "1.0e-6",
+			outputPrice: "5.0e-6",
+			cachedInputPrice: "0.05e-6",
+			cacheWriteInputPrice: "1.25e-6",
+			pricingTiers: [
+				{
+					upToTokens: 272000,
+					inputPrice: "1.0e-6",
+					outputPrice: "5.0e-6",
+					cachedInputPrice: "0.05e-6",
+					cacheWriteInputPrice: "1.25e-6",
+				},
+				{
+					upToTokens: Infinity,
+					inputPrice: "2.0e-6",
+					outputPrice: "7.5e-6",
+					cachedInputPrice: "0.1e-6",
+					cacheWriteInputPrice: "2.5e-6",
+				},
+			],
+		});
+		expect(supportsOpenAIExplicitPromptCache("gpt-6.1-terra")).toBe(true);
+	});
+});

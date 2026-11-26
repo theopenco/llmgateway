@@ -1,0 +1,47 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "43b80ca5-b397-41f5-82fe-771ce81d59db",
+  "prevIds": [
+    "9d934d30-96e9-42a7-b235-df50156a388d"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key",
+        "provider_compliance_policy"
+      ],
+      "writes": [
+        "s|col|public.api_key.provider_compliance_policy",
+        "n|col|public.api_key.provider_compliance_policy",
+        "e|col|public.api_key.provider_compliance_policy"
+      ],
+      "reads": [
+        "n|tbl|public.api_key",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "api_key",
+        "name": "provider_compliance_policy",
+        "type": "json",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

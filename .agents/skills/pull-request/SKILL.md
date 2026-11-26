@@ -1,6 +1,6 @@
 ---
 name: pull-request
-description: Create, update, illustrate, and hand off pull requests in this repo. Use when opening a PR, pushing a branch for review, writing or revising a PR title/description, embedding a screenshot or image in a PR body, triggering e2e CI on a PR, or whenever the user mentions "PR", "pull request", "open a PR", "update the PR", or "attach a screenshot to the PR".
+description: Create, update, illustrate, and hand off pull requests in this repo. Use when opening a PR, pushing a branch for review, writing or revising a PR title/description, embedding a screenshot or image in a PR body, or whenever the user mentions "PR", "pull request", "open a PR", "update the PR", or "attach a screenshot to the PR".
 ---
 
 # Pull requests
@@ -39,21 +39,50 @@ Most review happens before the PR exists. Before `gh pr create`:
 
 - `pr-risk` labels the PR `risk: low|medium|high` and requests a maintainer
   review on `risk: high`.
-- CodeRabbit posts findings as threads. Fix each one or resolve it
-  with a one-line reason; unresolved threads block the merge.
+- CodeRabbit posts a pre-merge checks table and findings as threads. Wait
+  for both (`gh pr checks <n>` shows `CodeRabbit` as completed) and fix every
+  failed check (title length, description, rollback).
+  Docstring Coverage is CodeRabbit's default, not a repo rule; ignore it.
+- Open review feedback blocks the merge, from CodeRabbit or a human:
+  auto-merge never lands while a thread is unresolved or a change request
+  stands. Address every item: implement the fix and push, or dismiss it with
+  a one-line reason, then resolve the thread.
 - When the same finding comes back on a second PR, fix it at the source
   (ESLint rule, skill line, `REVIEW.md`) in that PR.
 
+## Review agents
+
+Once the first revision is up, harden it with independent review subagents on
+top of CodeRabbit and human reviews. Rate the change yourself:
+
+- **Simple** (copy, config, a small contained fix): none.
+- **Medium** size or risk (one feature area, a schema or billing touch): at
+  least one.
+- **Big** (cross-app features, request path, billing, security, migrations):
+  two or three, each with a different focus (correctness and edge cases;
+  security, billing and data isolation; tests and simplification).
+
+Brief each agent with the PR number, the intended behaviour and `REVIEW.md`,
+not your own reasoning, so it reviews with fresh context. Each one reads the
+PR's own diff (`gh pr diff <n>`; on a stacked layer, not `origin/main...HEAD`),
+fixes what it finds, runs the affected tests and lint, and pushes to the same
+PR. Run them one after another on a shared branch, or in separate worktrees
+that each `git fetch origin <branch> && git rebase origin/<branch>` right
+before `git push origin HEAD:<branch>`, never force-pushing, so no agent drops
+another's fix. Then reply to and resolve any review threads their fixes
+address, and wait for checks again.
+
 ## Creating the PR
 
+Write the body from `.github/pull_request_template.md` into `.context/pr-body.md`:
+Summary, Verification, Rollback (tick the plain-revert box or list the steps),
+and Database migration only when the PR adds one.
+
 ```bash
-gh pr create --base main --title "<type>(<scope>): <summary>" --body "$(cat <<'EOF'
-...
-EOF
-)"
+gh pr create --base main --title "<type>(<scope>): <summary>" --body-file .context/pr-body.md
 ```
 
-- Title uses conventional-commit format and is **max 50 characters**.
+- Title uses conventional-commit format and is **max 50 characters**, `type(scope): ` included. Count it (`printf %s "<title>" | wc -c`) before creating or editing the PR.
 - Always **ready-for-review**, never a draft, unless the user explicitly asks for a draft.
 - Always write both a title **and** a description. If later commits change the scope, update both before handing the PR off — a stale description is worse than none.
 - A good description states the problem first, then the approach, then anything a reviewer would otherwise have to reverse-engineer (non-obvious constraints, deliberate omissions, verification performed).
@@ -150,24 +179,43 @@ Why it is shaped this way:
 
 Use the `verify` skill to launch an isolated stack and capture the screenshot.
 
-## CI
-
-The e2e workflow does **not** run automatically on PRs — e2e spends real money on provider API calls. Trigger it on demand by commenting `/e2e` on the PR (maintainers/collaborators only, and only for branches in this repository, not forks), or via `workflow_dispatch`.
-
 ## Auto-merge means ship it
 
 When the user explicitly asks to set a PR to auto-merge, enable it
 (`gh pr merge <n> --auto --squash`) and own the PR until it runs in production:
 
-1. Watch the required checks and reviews. On a failing check, a merge conflict,
-   or requested changes, push a fix to the PR branch and keep watching. Never
-   bypass checks (see `AGENTS.md`).
-2. Confirm the PR merged.
-3. Follow the rollout through the deployment repository: the image-bump PR for
-   the merge commit, its merge, and the deploy run it triggers. A later image
-   bump also ships the commit. If the deploy fails for a reason unrelated to the
-   change, report it rather than changing shared infrastructure.
-4. Confirm every deployment runs the merge commit's image (check with
-   `kubectl` when it is set up), then send a final message saying it is live.
+1. Run `.agents/skills/pull-request/scripts/wait-for-pr.sh <n>` as a background
+   job until it exits 0 (merged). Exit 3 means the PR needs you: a failed check,
+   a merge conflict, a branch behind its base branch, a green PR still blocked
+   (usually a required review), or an unresolved review thread. Unresolved threads block auto-merge even when every
+   check is green, and CodeRabbit can open new ones after each push. Fix the
+   cause or reply and resolve the thread (see "After opening"), push, and run
+   the script again. Exit 1 means the PR closed without merging or the watch
+   timed out; check the PR before rerunning. Exit 4 means GitHub requests kept
+   failing; check network and `gh auth status`, then rerun. Never bypass checks
+   (see `AGENTS.md`).
+2. Follow the rollout through the deployment repository: the image-bump PR for
+   the merge commit, its merge, and the deploy run it triggers. If the deploy
+   fails for a reason unrelated to the change, report it rather than changing
+   shared infrastructure.
+3. With `kubectl` pointed at production, run
+   `.agents/skills/pull-request/scripts/wait-for-rollout.sh <merge-sha>`
+   (extra arguments go to `kubectl`, e.g. `--context <ctx>`). It exits 0 once
+   every deployment of our `ghcr.io/theopenco/llmgateway-*` images is ready on
+   one tag whose commit contains the merge commit. A later image bump often
+   ships the commit first, so the merge commit's own tag may never run;
+   third-party images are skipped. Exit 4 means `kubectl` failed several times
+   in a row, or the selected context and namespace hold no deployment of our
+   images (third-party ones do not count); fix access or point it at the
+   production namespace. Exit 1 means the timeout passed without a live
+   rollout: report what is stuck (its last output shows the tags and the
+   deployments not ready) and do not call it live. Only on exit 0, send a final
+   message saying it is live.
 
-Monitor with a background job instead of polling in the conversation.
+Run both scripts as background jobs instead of polling in the conversation.
+Without `kubectl` access, confirm the deploy run succeeded and say the pods were
+not checked.
+
+Once the change is live (or the PR was already merged without a rollout watch),
+remove the local worktrees this session created for it (`git worktree remove`).
+Leave every other worktree alone.

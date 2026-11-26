@@ -41,10 +41,18 @@ export interface ContentFilterSettingsInput {
 	providerIds: string[];
 	sampleRatePercent: number;
 	enforce: boolean;
+	enforceProviderIds: string[];
+	devPassEnforceProviderIds: string[];
+	enforceSampleRatePercent: number;
 	enforceEnterprise: boolean;
 	classifier: "openai" | "jev" | "internal";
+	shadowClassifiers: ("openai" | "jev" | "internal")[];
 	internalScope: "full" | "latest_turn";
+	openaiScope: "full" | "latest_turn";
 	moderateImages: boolean;
+	moderateEmbeddings: boolean;
+	blockGroups: ("csam" | "sexual" | "cyber")[] | null;
+	csamScoreThreshold: number;
 }
 
 export async function getContentFilterSettings() {

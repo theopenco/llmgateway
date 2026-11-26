@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import {
+	getContextSizeDeviation,
+	getReferenceContextSize,
+} from "./context-tier.js";
 import { getSupportedServiceTiers, supportsServiceTier } from "./helpers.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { xaiModels } from "./models/xai.js";
@@ -31,7 +35,7 @@ const getRegionIds = (provider: unknown) =>
 
 describe("provider legal metadata", () => {
 	it("has no definitions or mappings for removed providers", () => {
-		for (const id of ["iceberg", "granite"]) {
+		for (const id of ["iceberg", "granite", "nanogpt"]) {
 			expect(providers.some((provider) => provider.id === id)).toBe(false);
 			expect(
 				models.some((model) =>
@@ -39,6 +43,22 @@ describe("provider legal metadata", () => {
 				),
 			).toBe(false);
 		}
+	});
+
+	it("preserves canonical models after provider removal", () => {
+		for (const id of ["gpt-oss-120b", "gpt-oss-20b"]) {
+			const model = models.find((entry) => entry.id === id);
+			expect(model).toBeDefined();
+			expect(
+				model?.providers.some((mapping) => mapping.providerId === "groq"),
+			).toBe(true);
+		}
+		expect(
+			models.find((model) => model.id === "seed-2-1-turbo")?.providers,
+		).toEqual([]);
+		expect(providers.some((provider) => provider.id === "bytedance")).toBe(
+			true,
+		);
 	});
 
 	it("is complete for providers with websites", () => {
@@ -54,6 +74,27 @@ describe("provider legal metadata", () => {
 			.map((provider) => provider.name);
 
 		expect(incompleteProviders).toEqual([]);
+	});
+});
+
+describe("cloudflare mappings", () => {
+	// Cloudflare is added selectively; a smaller-window deployment would get no
+	// traffic for requests that don't name a provider.
+	it("serve each model's full context window", () => {
+		const belowTier = models.flatMap((model) =>
+			model.providers
+				.filter((mapping) => mapping.providerId === "cloudflare")
+				.filter(
+					(mapping) =>
+						getContextSizeDeviation(
+							mapping.contextSize,
+							getReferenceContextSize(model.id),
+						) === "below",
+				)
+				.map(() => model.id),
+		);
+
+		expect(belowTier).toEqual([]);
 	});
 });
 
@@ -345,7 +386,7 @@ describe("model service tier support", () => {
 
 describe("isStealthProvider", () => {
 	it("flags providers that require a baseUrl env var (no default endpoint)", () => {
-		for (const id of ["glacier", "quartz"]) {
+		for (const id of ["quartz"]) {
 			expect(isStealthProvider(id)).toBe(true);
 		}
 	});
@@ -450,13 +491,17 @@ describe("AWS Bedrock Anthropic regions", () => {
 				bedrockMapping ? [bedrockMapping] : [],
 			);
 			const baseMapping = expandedMappings.find((provider) => !provider.region);
+			const hasGlobalProfile = expandedMappings.some(
+				(provider) => provider.region === "global",
+			);
 
 			expect(baseMapping).toBeDefined();
 
 			for (const regionMapping of expandedMappings.filter(
 				(provider) => provider.region,
 			)) {
-				const multiplier = regionMapping.region === "global" ? 1 : 1.1;
+				const multiplier =
+					hasGlobalProfile && regionMapping.region !== "global" ? 1.1 : 1;
 
 				for (const field of TOKEN_PRICE_FIELDS) {
 					const basePrice = baseMapping?.[field];
@@ -465,8 +510,10 @@ describe("AWS Bedrock Anthropic regions", () => {
 						continue;
 					}
 
-					expect(Number(regionMapping[field])).toBeCloseTo(
-						Number(basePrice) * multiplier,
+					// Per-million units: the default precision cannot see 10% of 1e-6.
+					expect(Number(regionMapping[field]) * 1e6).toBeCloseTo(
+						Number(basePrice) * multiplier * 1e6,
+						6,
 					);
 				}
 			}
@@ -517,6 +564,25 @@ describe("AWS Bedrock Anthropic regions", () => {
 			inputPrice: "5.5e-6",
 			outputPrice: "27.5e-6",
 		});
+	});
+
+	it("bills the rate card in every region of a model without a global profile", () => {
+		const pixtral = models.find(
+			(candidate) => candidate.id === "pixtral-large-2502",
+		);
+		const bedrockMapping = pixtral?.providers.find(
+			(provider) => provider.providerId === "aws-bedrock",
+		);
+		const expandedMappings = expandAllProviderRegions(
+			bedrockMapping ? [bedrockMapping] : [],
+		);
+
+		expect(getRegionIds(bedrockMapping)).toEqual(["us", "eu"]);
+		for (const region of ["us", "eu"]) {
+			expect(
+				expandedMappings.find((provider) => provider.region === region),
+			).toMatchObject({ inputPrice: "2.0e-6", outputPrice: "6.0e-6" });
+		}
 	});
 
 	it("exposes Grok 4.6 cross-region profiles and us-west-2 in-region", () => {
@@ -626,6 +692,19 @@ describe("AtlasCloud video models", () => {
 				true,
 			],
 			[
+				"kling-v3-0-pro",
+				"kwaivgi/kling-v3.0-pro",
+				{
+					default_audio: "0.168",
+					default_video: "0.112",
+					"1080p_audio": "0.168",
+					"1080p_video": "0.112",
+				},
+				[5, 10],
+				["1920x1080", "1080x1920"],
+				true,
+			],
+			[
 				"kling-v3-0-turbo",
 				"kwaivgi/kling-v3.0-turbo",
 				{
@@ -663,5 +742,25 @@ describe("AtlasCloud video models", () => {
 				supportsVideoWithoutAudio ?? true,
 			);
 		}
+	});
+});
+
+describe("countryName", () => {
+	it("loads without Intl.DisplayNames, as in Hermes", async () => {
+		vi.resetModules();
+		vi.stubGlobal("Intl", { ...Intl, DisplayNames: undefined });
+		try {
+			const { countryName } = await import("./providers.js");
+			expect(countryName("US")).toBe("United States");
+			expect(countryName("DE")).toBe("DE");
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it("names countries with Intl.DisplayNames", async () => {
+		vi.resetModules();
+		const { countryName } = await import("./providers.js");
+		expect(countryName("DE")).toBe("Germany");
 	});
 });

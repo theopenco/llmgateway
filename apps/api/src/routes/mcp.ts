@@ -14,6 +14,10 @@ import {
 	mcpUsageBreakdownSchema,
 } from "@llmgateway/shared";
 import { getApiKeyFingerprints } from "@llmgateway/shared/api-key-hash";
+import {
+	getClientIpFromRequest,
+	isIpAllowedByIamRules,
+} from "@llmgateway/shared/client-ip";
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { z } from "zod";
@@ -68,6 +72,28 @@ mcp.use("*", async (c, next) => {
 			message: "Organization membership required.",
 		});
 	}
+	const clientIp = getClientIpFromRequest(c);
+	const ruleGroups = await Promise.all([
+		member.role === "developer" && member.teamId
+			? db.query.organizationTeamIamRule.findMany({
+					where: { teamId: member.teamId, status: "active" },
+				})
+			: Promise.resolve([]),
+		db.query.userIamRule.findMany({
+			where: { userOrganizationId: member.id, status: "active" },
+		}),
+		db.query.apiKeyIamRule.findMany({
+			where: { apiKeyId: key.id, status: "active" },
+		}),
+	]);
+	for (const rules of ruleGroups) {
+		if (!isIpAllowedByIamRules(rules, clientIp)) {
+			throw new HTTPException(403, {
+				message: "Access denied by an IP restriction",
+			});
+		}
+	}
+
 	const period = getApiKeyCurrentPeriodState(key);
 	c.set("mcpAccount", {
 		user,

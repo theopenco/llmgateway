@@ -4,8 +4,10 @@ import { useSearchParams } from "next/navigation";
 
 import { SegmentedUrlSelector } from "@/components/segmented-url-selector";
 import {
+	CATALOG_USAGE_MODE_DEFAULT,
 	parseUsageMode,
 	USAGE_MODE_OPTIONS,
+	usageModeDescription,
 	type UsageMode,
 } from "@/lib/usage-mode";
 
@@ -41,5 +43,20 @@ export function UsageModeSelector({
 			compact={compact}
 			extraParams={extraParams}
 		/>
+	);
+}
+
+/** Usage-mode selector for provider, model and mapping detail pages. */
+export function CatalogDetailUsageMode() {
+	const description = usageModeDescription(
+		useUsageMode(CATALOG_USAGE_MODE_DEFAULT),
+	);
+	return (
+		<div className="flex flex-wrap items-center gap-2">
+			<UsageModeSelector compact defaultMode={CATALOG_USAGE_MODE_DEFAULT} />
+			{description && (
+				<span className="text-xs text-muted-foreground">{description}</span>
+			)}
+		</div>
 	);
 }

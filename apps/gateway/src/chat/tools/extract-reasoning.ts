@@ -45,7 +45,6 @@ export function extractReasoning(
 			return "";
 		}
 		case "google-ai-studio":
-		case "glacier":
 		case "google-vertex":
 		case "quartz": {
 			const chunk = data as GoogleStreamChunk;

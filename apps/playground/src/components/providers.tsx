@@ -52,6 +52,9 @@ export function Providers({ children, config }: ProvidersProps) {
 				ui_host: host,
 				capture_pageview: "history_change",
 				autocapture: true,
+				// The project runs no surveys, but posthog-js still downloads
+				// surveys.js unless they are disabled here.
+				disable_surveys: true,
 				loaded: flushPendingIdentity,
 			});
 		};

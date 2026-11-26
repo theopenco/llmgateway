@@ -1,3 +1,4 @@
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
@@ -7,12 +8,15 @@ import {
 	listEligibleProviderKeys,
 } from "@/lib/cached-queries.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
+import { usesServiceAccountAccessToken } from "@/lib/gcp-token.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
+import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 import { posthog } from "@/posthog.js";
 
 import {
 	getGcpServiceAccountAccessToken,
 	getProviderApiTransport,
+	getRequestApiFormat,
 	getUpstreamModelId,
 	getProviderEndpoint,
 	getProviderHeaders,
@@ -24,11 +28,13 @@ import {
 	routeProjectlessVertexEndpoint,
 	selectProviderMapping,
 } from "@llmgateway/actions";
-import { providerKeyAllowsModel } from "@llmgateway/db";
+import {
+	providerKeyAllowsModel,
+	isPremiumModelAfterDiscounts,
+} from "@llmgateway/db";
 import {
 	type BaseMessage,
 	getRegionSpecificEnvVarName,
-	getVariantEnvVarNameFor,
 	hasMaxTokens,
 	type ModelDefinition,
 	type OpenAIRequestBody,
@@ -51,7 +57,7 @@ import {
 	getRemainingDailyAllowance,
 	type DevPlanTier,
 	getRemainingPremiumWeeklyAllowance,
-	isPremiumModel,
+	getDevPlanDailyLimit,
 } from "@llmgateway/shared";
 
 import { clampTemperature } from "./clamp-temperature.js";
@@ -65,6 +71,7 @@ import {
 } from "./service-tier.js";
 
 import type { ProviderKeyRateLimitExemption } from "@/lib/provider-key-rate-limit.js";
+import type { SvgImageOptions } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
 
 export interface ProviderContext {
@@ -110,6 +117,12 @@ export interface ProviderContext {
 	supportsReasoning: boolean;
 	splitTaggedReasoning: boolean;
 	healStreamingJsonOutput: boolean;
+	/**
+	 * The effort the prepared body was built with. A fallback re-picks an
+	 * auto-routed effort per mapping, so the caller mirrors this into the
+	 * value it logs.
+	 */
+	reasoning_effort: ProviderContextOptions["reasoning_effort"];
 	temperature: number | undefined;
 	max_tokens: number | undefined;
 	top_p: number | undefined;
@@ -168,7 +181,7 @@ export interface ProviderContextOptions {
 	prompt_cache_retention: PromptCacheRetention | undefined;
 	prompt_cache_options: PromptCacheOptions | undefined;
 	session_id: string | undefined;
-	/** Opaque per-API-key identifier forwarded to providers for abuse attribution. */
+	/** Per-organization identifier forwarded to providers for abuse attribution. */
 	safetyIdentifier: string;
 	effort: "low" | "medium" | "high" | undefined;
 	webSearchTool: WebSearchTool | undefined;
@@ -178,6 +191,10 @@ export interface ProviderContextOptions {
 				image_size?: string;
 				image_quality?: string;
 				moderation?: string;
+				background?: string;
+				output_format?: string;
+				svg?: SvgImageOptions | null;
+				output_compression?: number;
 				n?: number;
 				seed?: number;
 		  }
@@ -326,7 +343,7 @@ export function buildDevPlanCreditLimitError(
  * tracking there would emit one event per fallback candidate — including for
  * requests that ultimately succeed on another key.
  */
-export function assertDevPlanPremiumCapNotExceeded(
+export async function assertDevPlanPremiumCapNotExceeded(
 	organization: Pick<
 		OrgInfo,
 		| "id"
@@ -343,11 +360,11 @@ export function assertDevPlanPremiumCapNotExceeded(
 	>,
 	modelInfo: Pick<ModelDefinition, "id">,
 	trackRejection = false,
-): void {
+): Promise<void> {
 	if (organization.devPlan === "none") {
 		return;
 	}
-	if (!isPremiumModel(modelInfo.id)) {
+	if (!(await isPremiumModelAfterDiscounts(modelInfo.id))) {
 		return;
 	}
 	const tier = organization.devPlan as DevPlanTier;
@@ -487,11 +504,20 @@ export function assertDevPlanDailyCapNotExceeded(
 			// Telemetry must never turn this billing gate into a 500.
 		}
 	}
+	const dailyLimit = getDevPlanDailyLimit(
+		tier,
+		organization.devPlanCreditsLimit,
+	);
+	const resetsAt = new Date(dayStart.getTime() + DEV_PLAN_DAY_LENGTH_MS);
 	const paygHint = organization.devPlanPaygEnabled
 		? " Pay-as-you-go overflow is enabled but your credits balance is empty — top up from your DevPass dashboard to keep going."
-		: " Enable pay-as-you-go overflow in your DevPass dashboard to keep going past the daily pace.";
+		: new Decimal(organization.credits ?? "0").lte(0)
+			? " Enable pay-as-you-go overflow and top up credits in your DevPass dashboard to keep going past the daily usage cap."
+			: " Enable pay-as-you-go overflow in your DevPass dashboard to keep going past the daily usage cap.";
+	const upgradeHint =
+		tier === "max" ? "" : " Upgrade for a higher daily allowance.";
 	throw new HTTPException(402, {
-		message: `You've reached the daily pacing allowance on the ${tier} plan. Upgrade for a higher daily allowance, or wait for the window to roll over — resets in ${formatTimeUntilReset(msUntilReset)}.${paygHint}`,
+		message: `You've reached the daily pacing allowance on the ${tier} plan (daily usage cap: $${dailyLimit.toFixed(2)} per rolling 24 hours). This cap applies to all models, independently of your monthly and weekly premium allowances. Daily allowance resets at ${resetsAt.toISOString()} — resets in ${formatTimeUntilReset(msUntilReset)}.${upgradeHint}${paygHint}`,
 	});
 }
 
@@ -520,15 +546,15 @@ export function formatTimeUntilReset(ms: number): string {
 // switch to LLMGateway env-var tokens cannot be used to bill an organization
 // with non-positive credits. Free models (explicitly flagged in the catalog)
 // are exempt.
-function assertOrganizationHasCreditsForEnvFallback(
+async function assertOrganizationHasCreditsForEnvFallback(
 	organization: OrgInfo,
 	modelInfo: ModelDefinition,
 	sponsoredOnboarding = false,
-): void {
+): Promise<void> {
 	if (modelInfo.free) {
 		return;
 	}
-	assertDevPlanPremiumCapNotExceeded(organization, modelInfo);
+	await assertDevPlanPremiumCapNotExceeded(organization, modelInfo);
 	assertDevPlanDailyCapNotExceeded(organization);
 	const {
 		devPlanCreditsRemaining,
@@ -710,6 +736,7 @@ export async function resolveProviderContext(
 				options.excludedProviderKeyIds,
 				byokKeyFilter,
 				options.rateLimitExemption,
+				usedInternalModel,
 			);
 		}
 
@@ -722,6 +749,7 @@ export async function resolveProviderContext(
 					filter: byokKeyFilter,
 					excludedKeyIds: options.excludedProviderKeyIds,
 					rateLimitExemption: options.rateLimitExemption,
+					model: usedInternalModel,
 				},
 			);
 			throw new HTTPException(400, {
@@ -731,7 +759,7 @@ export async function resolveProviderContext(
 
 		usedToken = readProviderKey(providerKey);
 	} else if (project.mode === "credits") {
-		assertOrganizationHasCreditsForEnvFallback(
+		await assertOrganizationHasCreditsForEnvFallback(
 			organization,
 			modelInfo,
 			options.sponsoredOnboarding,
@@ -742,6 +770,7 @@ export async function resolveProviderContext(
 				selectionScope: usedInternalModel,
 				model: usedInternalModel,
 				variant: envVariant,
+				organizationId: project.organizationId,
 				region: providerMapping.region,
 				requiresServiceTier: serviceTierKeyFilter !== undefined,
 				excludedEnvIndices: options.excludedEnvKeyIndices,
@@ -770,6 +799,7 @@ export async function resolveProviderContext(
 				options.excludedProviderKeyIds,
 				byokKeyFilter,
 				options.rateLimitExemption,
+				usedInternalModel,
 			);
 		}
 
@@ -788,7 +818,7 @@ export async function resolveProviderContext(
 					},
 				);
 			}
-			assertOrganizationHasCreditsForEnvFallback(
+			await assertOrganizationHasCreditsForEnvFallback(
 				organization,
 				modelInfo,
 				options.sponsoredOnboarding,
@@ -799,6 +829,7 @@ export async function resolveProviderContext(
 					selectionScope: usedInternalModel,
 					model: usedInternalModel,
 					variant: envVariant,
+					organizationId: project.organizationId,
 					region: providerMapping.region,
 					requiresServiceTier: serviceTierKeyFilter !== undefined,
 					excludedEnvIndices: options.excludedEnvKeyIndices,
@@ -829,7 +860,10 @@ export async function resolveProviderContext(
 		usedProvider,
 		usedRegion,
 	);
-	const apiFormat = providerMappingForSelected?.apiFormat;
+	const apiFormat = getRequestApiFormat(
+		providerMappingForSelected,
+		!!options.webSearchTool,
+	);
 	const transportProvider = getProviderApiTransport(usedProvider, apiFormat);
 
 	// --- Region validation ---
@@ -928,6 +962,12 @@ export async function resolveProviderContext(
 			usedInternalModel,
 			usedExternalId,
 			usedRegion,
+			{
+				providerKeyOptions: credentialOptions,
+				skipEnvVars: usesDatabaseCredential,
+				configIndex,
+				variant: envVariant,
+			},
 		);
 
 	// --- URL resolution ---
@@ -956,7 +996,6 @@ export async function resolveProviderContext(
 			credentialBaseUrl ?? airsideCustomBaseUrl,
 			upstreamModelName,
 			usedProvider === "google-ai-studio" ||
-				usedProvider === "glacier" ||
 				usedProvider === "google-vertex" ||
 				usedProvider === "quartz" ||
 				usedProvider === "vertex-anthropic" ||
@@ -1051,7 +1090,7 @@ export async function resolveProviderContext(
 	temperature = clampTemperature(
 		temperature,
 		usedProvider,
-		providerMappingForSelected?.maxTemperature,
+		providerMappingForSelected,
 	);
 
 	// --- max_tokens validation ---
@@ -1135,7 +1174,9 @@ export async function resolveProviderContext(
 		options.prompt_cache_options,
 		options.session_id,
 		undefined,
-		options.safetyIdentifier,
+		providerKey
+			? undefined
+			: forwardedSafetyIdentifier(managedKey, options.safetyIdentifier),
 		providerMappingForSelected,
 		undefined,
 		options.providerCacheAutoTtl,
@@ -1163,23 +1204,11 @@ export async function resolveProviderContext(
 		}
 	}
 
-	// Vertex's OpenAI-compatible endpoint requires an OAuth2 access token
-	// derived from the configured service account JSON. The SA JSON is the
-	// long-lived credential (kept in usedApiKeyHash above for health tracking)
-	// while the short-lived access token is what travels in the Authorization
-	// header — so swap usedToken here so downstream header builders just work.
-	// Read the env var directly to bypass round-robin comma-splitting (an SA
-	// JSON value contains commas and would otherwise be truncated).
-	if (usedProvider === "vertex-openai") {
-		const fullSaJson = usesDatabaseCredential
-			? usedToken
-			: (process.env[
-					getVariantEnvVarNameFor(
-						"LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON",
-						envVariant,
-					) ?? "LLM_VERTEX_OPENAI_SERVICE_ACCOUNT_JSON"
-				] ?? "");
-		usedToken = await getGcpServiceAccountAccessToken(fullSaJson);
+	// The SA JSON stays the long-lived credential (usedApiKeyHash and the
+	// endpoint's project above); the access token minted from it is what
+	// travels in the Authorization header.
+	if (usesServiceAccountAccessToken(usedProvider)) {
+		usedToken = await getGcpServiceAccountAccessToken(usedToken);
 	}
 
 	// --- Headers ---
@@ -1229,6 +1258,7 @@ export async function resolveProviderContext(
 		supportsReasoning,
 		splitTaggedReasoning,
 		healStreamingJsonOutput,
+		reasoning_effort: options.reasoning_effort,
 		temperature,
 		max_tokens,
 		top_p,

@@ -1,6 +1,5 @@
 "use client";
 import { useQueryClient } from "@tanstack/react-query";
-import { usePostHog } from "posthog-js/react";
 import React, { useMemo, useState } from "react";
 
 import { Button } from "@/lib/components/button";
@@ -25,6 +24,7 @@ import {
 import { Switch } from "@/lib/components/switch";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
+import { usePostHog } from "@/lib/posthog";
 
 import {
 	providers,
@@ -34,6 +34,8 @@ import {
 	type ProviderDefinition,
 } from "@llmgateway/models";
 import {
+	CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+	CLOUDFLARE_ACCOUNT_ID_REGEX,
 	getProviderModelIds,
 	isProviderHostnameLabel,
 	PROVIDER_HOSTNAME_LABEL_MESSAGE,
@@ -73,10 +75,8 @@ export function CreateProviderKeyDialog({
 	>("ai-foundry");
 	const [azureValidationModel, setAzureValidationModel] =
 		useState("gpt-4o-mini");
-	const [azureAiFoundryResource, setAzureAiFoundryResource] = useState("");
 	const [azureAnthropicResource, setAzureAnthropicResource] = useState("");
-	const [azureAiFoundryApiVersion, setAzureAiFoundryApiVersion] =
-		useState("2024-05-01-preview");
+	const [cloudflareAccountId, setCloudflareAccountId] = useState("");
 	const [selectedRegion, setSelectedRegion] = useState("");
 	const [alibabaWorkspaceId, setAlibabaWorkspaceId] = useState("");
 	const [googleVertexProjectId, setGoogleVertexProjectId] = useState("");
@@ -131,7 +131,8 @@ export function CreateProviderKeyDialog({
 				: selectedProviderDef?.regionConfig?.defaultRegion)) ??
 		"";
 
-	// Regions with a workspace-dedicated host (Alibaba Frankfurt) offer the
+	// Regions with a workspace-dedicated host (Alibaba Frankfurt, Hong Kong,
+	// Tokyo) offer the
 	// field so a credential can use its own endpoint instead of the shared,
 	// trial-grade one. It is only mandatory where no shared host exists.
 	const workspaceIdRegion =
@@ -331,32 +332,6 @@ export function CreateProviderKeyDialog({
 			};
 		}
 
-		if (selectedProvider === "azure-ai-foundry") {
-			if (!azureAiFoundryResource) {
-				toast({
-					title: "Error",
-					description: "Azure AI Foundry resource name is required",
-					variant: "destructive",
-				});
-				return;
-			}
-			if (!isProviderHostnameLabel(azureAiFoundryResource)) {
-				toast({
-					title: "Error",
-					description: `Resource name: ${PROVIDER_HOSTNAME_LABEL_MESSAGE}`,
-					variant: "destructive",
-				});
-				return;
-			}
-			payload.options = {
-				...payload.options,
-				azure_ai_foundry_resource: azureAiFoundryResource,
-				...(azureAiFoundryApiVersion
-					? { azure_ai_foundry_api_version: azureAiFoundryApiVersion }
-					: {}),
-			};
-		}
-
 		if (selectedProvider === "azure-anthropic") {
 			if (!azureAnthropicResource) {
 				toast({
@@ -377,6 +352,22 @@ export function CreateProviderKeyDialog({
 			payload.options = {
 				...payload.options,
 				azure_anthropic_resource: azureAnthropicResource,
+			};
+		}
+
+		if (selectedProvider === "cloudflare") {
+			const accountId = cloudflareAccountId.trim().toLowerCase();
+			if (!CLOUDFLARE_ACCOUNT_ID_REGEX.test(accountId)) {
+				toast({
+					title: "Error",
+					description: CLOUDFLARE_ACCOUNT_ID_MESSAGE,
+					variant: "destructive",
+				});
+				return;
+			}
+			payload.options = {
+				...payload.options,
+				cloudflare_account_id: accountId,
 			};
 		}
 
@@ -456,8 +447,7 @@ export function CreateProviderKeyDialog({
 			setAzureApiVersion("2024-10-21");
 			setAzureDeploymentType("ai-foundry");
 			setAzureValidationModel("gpt-4o-mini");
-			setAzureAiFoundryResource("");
-			setAzureAiFoundryApiVersion("2024-05-01-preview");
+			setCloudflareAccountId("");
 			setSelectedRegion("");
 			setAlibabaWorkspaceId("");
 			setGoogleVertexProjectId("");
@@ -659,47 +649,6 @@ export function CreateProviderKeyDialog({
 								</>
 							)}
 
-							{selectedProvider === "azure-ai-foundry" && (
-								<>
-									<div className="space-y-2">
-										<Label htmlFor="azure-ai-foundry-resource">
-											Resource Name
-										</Label>
-										<Input
-											id="azure-ai-foundry-resource"
-											type="text"
-											placeholder="my-resource"
-											value={azureAiFoundryResource}
-											onChange={(e) =>
-												setAzureAiFoundryResource(e.target.value)
-											}
-											required
-										/>
-										<p className="text-sm text-muted-foreground">
-											Your Azure AI Foundry resource name from the base URL:
-											https://&lt;resource-name&gt;.services.ai.azure.com
-										</p>
-									</div>
-									<div className="space-y-2">
-										<Label htmlFor="azure-ai-foundry-api-version">
-											API Version
-										</Label>
-										<Input
-											id="azure-ai-foundry-api-version"
-											type="text"
-											placeholder="2024-05-01-preview"
-											value={azureAiFoundryApiVersion}
-											onChange={(e) =>
-												setAzureAiFoundryApiVersion(e.target.value)
-											}
-										/>
-										<p className="text-sm text-muted-foreground">
-											Azure AI Foundry API version (default: 2024-05-01-preview)
-										</p>
-									</div>
-								</>
-							)}
-
 							{selectedProvider === "azure-anthropic" && (
 								<div className="space-y-2">
 									<Label htmlFor="azure-anthropic-resource">
@@ -716,6 +665,23 @@ export function CreateProviderKeyDialog({
 									<p className="text-sm text-muted-foreground">
 										Your Microsoft Foundry resource name from the base URL:
 										https://&lt;resource-name&gt;.services.ai.azure.com
+									</p>
+								</div>
+							)}
+
+							{selectedProvider === "cloudflare" && (
+								<div className="space-y-2">
+									<Label htmlFor="cloudflare-account-id">Account ID</Label>
+									<Input
+										id="cloudflare-account-id"
+										type="text"
+										placeholder="0123456789abcdef0123456789abcdef"
+										value={cloudflareAccountId}
+										onChange={(e) => setCloudflareAccountId(e.target.value)}
+										required
+									/>
+									<p className="text-sm text-muted-foreground">
+										The 32-character account ID from your Cloudflare dashboard.
 									</p>
 								</div>
 							)}

@@ -106,17 +106,21 @@ function acquire(image: GalleryImage & { kind: "inline" }): PreviewEntry {
 			urls: [fullUrl],
 			disposed: false,
 		};
-		created.ready = buildPreview(blob, fullUrl, created)
-			.catch((error: unknown) => {
-				// A format the browser cannot decode still renders through <img>
-				// in some cases, so show the original rather than nothing.
-				console.warn("Image preview generation failed", error);
-				return { fullUrl, previewUrl: fullUrl, bytes: blob.size };
-			})
-			.then((resolved) => {
-				created.resolved = resolved;
-				return resolved;
-			});
+		// SVG stays vector: it renders crisply at any size, so it needs no
+		// rasterized preview.
+		const preview =
+			image.mediaType === "image/svg+xml"
+				? Promise.resolve({ fullUrl, previewUrl: fullUrl, bytes: blob.size })
+				: buildPreview(blob, fullUrl, created).catch((error: unknown) => {
+						// A format the browser cannot decode still renders through <img>
+						// in some cases, so show the original rather than nothing.
+						console.warn("Image preview generation failed", error);
+						return { fullUrl, previewUrl: fullUrl, bytes: blob.size };
+					});
+		created.ready = preview.then((resolved) => {
+			created.resolved = resolved;
+			return resolved;
+		});
 		entries.set(image, created);
 		entry = created;
 	}

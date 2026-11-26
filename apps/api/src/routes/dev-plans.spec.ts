@@ -1,3 +1,6 @@
+import { createHash, randomBytes } from "node:crypto";
+
+import Stripe from "stripe";
 import {
 	afterAll,
 	afterEach,
@@ -61,6 +64,7 @@ const stripeMock = vi.hoisted(() => ({
 	},
 	invoicePayments: { list: vi.fn() },
 	paymentIntents: { retrieve: vi.fn() },
+	checkout: { sessions: { retrieve: vi.fn() } },
 }));
 
 vi.mock("stripe", async (importOriginal) => {
@@ -123,6 +127,87 @@ function retrievedSubscription(
 		...overrides,
 	};
 }
+
+describe("dev plan finalize", () => {
+	let token: string;
+	const originalStripeSecretKey = process.env.STRIPE_SECRET_KEY;
+	beforeAll(() => {
+		process.env.STRIPE_SECRET_KEY ||= "sk_test_finalize";
+	});
+	afterAll(() => {
+		if (originalStripeSecretKey === undefined) {
+			delete process.env.STRIPE_SECRET_KEY;
+		} else {
+			process.env.STRIPE_SECRET_KEY = originalStripeSecretKey;
+		}
+	});
+
+	beforeEach(async () => {
+		vi.resetAllMocks();
+		token = await createTestUser();
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Personal Org",
+			billingEmail: "admin@example.com",
+			kind: "devpass",
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	function finalize(sessionId: string) {
+		return app.request("/dev-plans/finalize", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({ sessionId }),
+		});
+	}
+
+	it("rejects an unknown session with 400", async () => {
+		stripeMock.checkout.sessions.retrieve.mockRejectedValue(
+			new Stripe.errors.StripeInvalidRequestError({
+				type: "invalid_request_error",
+				code: "resource_missing",
+				message: "No such checkout.session: cs_test_missing",
+			}),
+		);
+
+		const response = await finalize("cs_test_missing");
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			message: "Invalid checkout session: not_found",
+		});
+	});
+
+	it("rejects a session that belongs to another org", async () => {
+		stripeMock.checkout.sessions.retrieve.mockResolvedValue({
+			id: "cs_test_other",
+			mode: "setup",
+			metadata: {
+				subscriptionType: "dev_plan",
+				organizationId: "another-org",
+				devPlan: "lite",
+				priceId: "price_lite",
+			},
+		});
+
+		const response = await finalize("cs_test_other");
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			message: "Invalid checkout session: org_mismatch",
+		});
+		expect(stripeMock.customers.update).not.toHaveBeenCalled();
+	});
+});
 
 describe("dev plan renewal recovery after a card update", () => {
 	let token: string;
@@ -594,6 +679,53 @@ describe("dev plan tier changes", () => {
 		expect(activeKeys).toHaveLength(1);
 		expect(activeKeys[0]?.id).toBe(body.apiKeyId);
 		expect(activeKeys[0]?.tokenHash).toBe(getApiKeyFingerprint(body.apiKey));
+	});
+
+	it("rolls the DevPass key for a CLI login and hands back a one-time code", async () => {
+		await db.insert(tables.project).values({
+			id: "test-dev-plan-project",
+			name: "Default Project",
+			organizationId: ORG_ID,
+		});
+		await db.insert(tables.apiKey).values({
+			id: "test-dev-plan-api-key",
+			...hashApiKeyForStorage("test-dev-plan-token"),
+			projectId: "test-dev-plan-project",
+			description: "Dev Plan API Key",
+			createdBy: "test-user-id",
+		});
+		const verifier = randomBytes(32).toString("base64url");
+
+		const response = await app.request("/dev-plans/rotate-api-key/cli-code", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({
+				apiKeyId: "test-dev-plan-api-key",
+				codeChallenge: createHash("sha256")
+					.update(verifier)
+					.digest("base64url"),
+			}),
+		});
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect("apiKey" in body).toBe(false);
+
+		const redeemed = await app.request("/public/cli-auth/token", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ code: body.code, code_verifier: verifier }),
+		});
+		expect(redeemed.status).toBe(200);
+		const { api_key, expires_at } = await redeemed.json();
+		expect(expires_at).toBeNull();
+		const activeKey = await db.query.apiKey.findFirst({
+			where: {
+				projectId: { eq: "test-dev-plan-project" },
+				status: { eq: "active" },
+			},
+		});
+		expect(activeKey?.id).toBe(body.apiKeyId);
+		expect(activeKey?.tokenHash === getApiKeyFingerprint(api_key)).toBe(true);
 	});
 
 	it("preserves playground sessions when rotating the DevPass key", async () => {

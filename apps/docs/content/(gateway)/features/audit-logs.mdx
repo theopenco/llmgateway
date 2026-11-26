@@ -43,14 +43,20 @@ The categories below are illustrative, not exhaustive — many more actions are 
 
 ### Team Management
 
-- `team_member.add` — New member invited
+- `team_member.invite` — New member invited
+- `team_member.invite_accept` — Invite accepted
+- `team_member.invite_revoke` — Invite revoked
+- `team_member.auto_join` — Member joined via SSO auto-join
 - `team_member.update` — Member role changed
+- `team_member.budget_update` — Member budget changed
 - `team_member.remove` — Member removed
 
 ### API Key Management
 
 - `api_key.create` — New API key created
+- `api_key.roll` — API key secret rolled
 - `api_key.update_status` — API key enabled/disabled
+- `api_key.update_description` — API key description changed
 - `api_key.update_limit` — Usage limit changed
 - `api_key.delete` — API key deleted
 - `api_key.iam_rule.create` — IAM rule added

@@ -2,6 +2,7 @@ import { ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 import { ContentFilterSettingsForm } from "@/components/content-filter-settings-form";
+import { InternalClassifierCheckExport } from "@/components/internal-classifier-check-export";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +25,7 @@ import {
 	getContentFilterViolations,
 } from "@/lib/admin-content-filter";
 import { getContentFilterSettings } from "@/lib/admin-settings";
+import { contentFilterModelLabel } from "@/lib/content-filter-model";
 import {
 	MIN_SAMPLED_FOR_RATE,
 	type ContentFilterViolationsGroupBy,
@@ -130,6 +132,9 @@ function isFocused(
 // usedModel is stored as "<provider>/<model>", and the provider already has its
 // own column here, so drop the redundant prefix to keep the row scannable.
 function shortModelName(usedModel: string, usedProvider: string): string {
+	if (!usedModel) {
+		return contentFilterModelLabel(usedModel);
+	}
 	const prefix = `${usedProvider}/`;
 	return usedModel.startsWith(prefix)
 		? usedModel.slice(prefix.length)
@@ -250,11 +255,18 @@ export default async function ContentFilterPage({
 						</p>
 					</div>
 				</div>
-				<Button asChild variant="outline" size="sm">
-					<Link href={`/content-filter/errors?window=${window}`}>
-						Moderation errors
-					</Link>
-				</Button>
+				<div className="flex flex-wrap items-center gap-2">
+					<Button asChild variant="outline" size="sm">
+						<Link href={`/content-filter/classifiers?window=${window}`}>
+							Classifier comparison
+						</Link>
+					</Button>
+					<Button asChild variant="outline" size="sm">
+						<Link href={`/content-filter/errors?window=${window}`}>
+							Moderation errors
+						</Link>
+					</Button>
+				</div>
 			</header>
 
 			<Card>
@@ -270,6 +282,20 @@ export default async function ContentFilterPage({
 				</CardHeader>
 				<CardContent>
 					<ContentFilterSettingsForm settings={settings} />
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Internal classifier checks</CardTitle>
+					<CardDescription>
+						Every internal classifier verdict, passes included, with the audit
+						CSV&apos;s columns and prompt fingerprints, read from request logs.
+						Up to 24 hours per export; logs keep them for 30 days.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<InternalClassifierCheckExport />
 				</CardContent>
 			</Card>
 
@@ -371,6 +397,7 @@ export default async function ContentFilterPage({
 										<TableHead className="text-right">Blocked</TableHead>
 										<TableHead>Top categories</TableHead>
 										<TableHead>Top providers</TableHead>
+										<TableHead>Top categories by provider</TableHead>
 										<TableHead>Top models</TableHead>
 										<TableHead>Top mappings</TableHead>
 										<TableHead>Top API keys</TableHead>
@@ -435,6 +462,35 @@ export default async function ContentFilterPage({
 												)}
 											</TableCell>
 											<TableCell className="text-xs text-muted-foreground">
+												{org.topProviders.every(
+													(p) => p.topCategories.length === 0,
+												) ? (
+													"—"
+												) : (
+													<div className="flex flex-col gap-0.5">
+														{org.topProviders
+															.filter((p) => p.topCategories.length > 0)
+															.map((p) => (
+																<span
+																	key={p.usedProvider}
+																	className="whitespace-nowrap"
+																>
+																	<span className="font-medium text-foreground">
+																		{p.usedProvider}
+																	</span>
+																	:{" "}
+																	{p.topCategories
+																		.map(
+																			(c) =>
+																				`${c.category} (${formatNumber(c.violationCount)})`,
+																		)
+																		.join(", ")}
+																</span>
+															))}
+													</div>
+												)}
+											</TableCell>
+											<TableCell className="text-xs text-muted-foreground">
 												{org.topModels.length === 0 ? (
 													"—"
 												) : (
@@ -461,7 +517,8 @@ export default async function ContentFilterPage({
 																key={`${m.usedProvider}/${m.usedModel}`}
 																className="whitespace-nowrap"
 															>
-																{m.usedModel} ({formatNumber(m.violationCount)})
+																{contentFilterModelLabel(m.usedModel)} (
+																{formatNumber(m.violationCount)})
 															</span>
 														))}
 													</div>

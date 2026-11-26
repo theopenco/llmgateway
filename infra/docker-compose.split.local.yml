@@ -97,6 +97,7 @@ services:
       - UI_URL=${UI_URL:-http://localhost:3002}
       - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
       - API_URL=${API_URL:-http://localhost:4002}
+      - AUTH_SECRET=${AUTH_SECRET:?set AUTH_SECRET to a random 32+ character secret}
       - ORIGIN_URLS=${ORIGIN_URLS:-http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:3006,http://localhost:3007,http://localhost:4002}
       - COOKIE_DOMAIN=${COOKIE_DOMAIN:-localhost}
       - PASSKEY_RP_ID=${PASSKEY_RP_ID:-localhost}
@@ -113,6 +114,11 @@ services:
       # Lounge OAuth connectors (optional)
       - LOUNGE_GOOGLE_CLIENT_ID=${LOUNGE_GOOGLE_CLIENT_ID:-}
       - LOUNGE_GOOGLE_CLIENT_SECRET=${LOUNGE_GOOGLE_CLIENT_SECRET:-}
+      # Admin CRM Gmail connection (optional; falls back to the Lounge Google client)
+      - CRM_GOOGLE_CLIENT_ID=${CRM_GOOGLE_CLIENT_ID:-}
+      - CRM_GOOGLE_CLIENT_SECRET=${CRM_GOOGLE_CLIENT_SECRET:-}
+      - CRM_RESEARCH_GATEWAY_API_KEY=${CRM_RESEARCH_GATEWAY_API_KEY:-}
+      - CRM_RESEARCH_MODEL=${CRM_RESEARCH_MODEL:-}
       - LOUNGE_SLACK_CLIENT_ID=${LOUNGE_SLACK_CLIENT_ID:-}
       - LOUNGE_SLACK_CLIENT_SECRET=${LOUNGE_SLACK_CLIENT_SECRET:-}
       - LOUNGE_GITHUB_CLIENT_ID=${LOUNGE_GITHUB_CLIENT_ID:-}
@@ -132,6 +138,8 @@ services:
       - LOUNGE_STRIPE_CLIENT_ID=${LOUNGE_STRIPE_CLIENT_ID:-}
       - LOUNGE_STRIPE_CLIENT_SECRET=${LOUNGE_STRIPE_CLIENT_SECRET:-}
       - GATEWAY_API_KEY_HASH_SECRET=${GATEWAY_API_KEY_HASH_SECRET}
+      - AIRSIDE_GATEWAY_API_KEY=${AIRSIDE_GATEWAY_API_KEY:-}
+      - GATEWAY_URL
       - LLMGATEWAY_ENTERPRISE_LICENSE=${LLMGATEWAY_ENTERPRISE_LICENSE:-}
       - ONBOARDING_SPONSOR_SECRET=${ONBOARDING_SPONSOR_SECRET:-}
       - CI=${CI}

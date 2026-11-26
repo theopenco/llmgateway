@@ -1,13 +1,17 @@
 import { getProviderDefinition } from "@llmgateway/models";
 
+import type { ProviderModelMapping } from "@llmgateway/models";
+
 // Claude Code's auto mode asks Anthropic to review risky tool calls server-side,
 // at no charge, by adding a `safeguards` body field and a paired beta header to
 // its normal Messages API requests; the verdicts come back as
 // `safeguard_results` (on the final `message_delta` when streaming). The
 // /v1/messages layer lowers requests to the chat completions shape, which has
 // nowhere to carry either half, so they ride on `anthropic_safeguards` and are
-// restored here for the Anthropic API only. Without them Claude Code falls back
-// to its own classifier requests, which bill as ordinary token usage.
+// restored here for providers that run the review: as-is on Messages API
+// transports, inside the model request fields on Bedrock Converse. Without them
+// Claude Code falls back to its own classifier requests, which bill as ordinary
+// token usage.
 // https://code.claude.com/docs/en/auto-mode-classifier-billing
 
 // Beta families that pair with the `safeguards` field, matched by family and
@@ -29,6 +33,28 @@ export function providerSupportsAnthropicSafeguards(
 	providerId: string,
 ): boolean {
 	return getProviderDefinition(providerId)?.anthropicSafeguards === true;
+}
+
+// Bedrock also serves non-Claude models; only its Claude mappings (`anthropic.`
+// model ids, on Converse or Bedrock's Messages endpoint) run the review.
+export function mappingSupportsAnthropicSafeguards(
+	mapping: Pick<
+		ProviderModelMapping,
+		"providerId" | "externalId" | "apiFormat"
+	>,
+): boolean {
+	if (!providerSupportsAnthropicSafeguards(mapping.providerId)) {
+		return false;
+	}
+	if (mapping.providerId !== "aws-bedrock") {
+		return true;
+	}
+	return (
+		mapping.externalId.startsWith("anthropic.") &&
+		(mapping.apiFormat === undefined ||
+			mapping.apiFormat === "provider-native" ||
+			mapping.apiFormat === "anthropic-messages")
+	);
 }
 
 export function parseBetaHeader(header: string | null | undefined): string[] {
@@ -61,9 +87,11 @@ export function extractAnthropicSafeguards(
 	};
 }
 
-// Restores the pair on an outgoing request. Only Anthropic's own API runs the
-// review. Routing excludes other providers when this pair is requested.
+// Restores the pair on an outgoing request to Anthropic or Claude on AWS
+// Bedrock (Messages API or Converse) and strips it everywhere else. Routing
+// excludes other providers when this pair is requested.
 export function applyAnthropicSafeguards(
+	usedProvider: string,
 	transportProvider: string,
 	requestBody: unknown,
 	headers: Record<string, string>,
@@ -78,22 +106,82 @@ export function applyAnthropicSafeguards(
 	}
 	const body = requestBody as Record<string, unknown>;
 	const betas = passthrough?.betas.filter(isSafeguardBeta) ?? [];
+	const safeguards =
+		passthrough && passthrough.safeguards.length > 0 && betas.length > 0
+			? passthrough.safeguards
+			: undefined;
+
+	// Anthropic, or Bedrock's Messages endpoint: same body field and header.
 	if (
-		transportProvider !== "anthropic" ||
-		!passthrough ||
-		passthrough.safeguards.length === 0 ||
-		betas.length === 0
+		safeguards &&
+		transportProvider === "anthropic" &&
+		(usedProvider === "anthropic" || usedProvider === "aws-bedrock")
 	) {
-		delete body.safeguards;
+		body.safeguards = safeguards;
+		headers["anthropic-beta"] = mergeValues(
+			parseBetaHeader(headers["anthropic-beta"]),
+			betas,
+		).join(",");
 		return;
 	}
 
-	body.safeguards = passthrough.safeguards;
-	const merged = parseBetaHeader(headers["anthropic-beta"]);
-	for (const beta of betas) {
-		if (!merged.includes(beta)) {
-			merged.push(beta);
+	delete body.safeguards;
+
+	// Bedrock Converse carries both halves in additionalModelRequestFields and
+	// returns the verdicts only when asked: at `/safeguard_results` on
+	// `converse`, and at `/delta/safeguard_results` on `converse-stream`'s
+	// messageStop event. Unmatched paths are ignored, so both are requested.
+	if (safeguards && transportProvider === "aws-bedrock") {
+		const fields = (body.additionalModelRequestFields ??= {}) as Record<
+			string,
+			unknown
+		>;
+		fields.safeguards = safeguards;
+		fields.anthropic_beta = mergeValues(
+			Array.isArray(fields.anthropic_beta) ? fields.anthropic_beta : [],
+			betas,
+		);
+		body.additionalModelResponseFieldPaths = mergeValues(
+			Array.isArray(body.additionalModelResponseFieldPaths)
+				? body.additionalModelResponseFieldPaths
+				: [],
+			BEDROCK_SAFEGUARD_RESULT_PATHS,
+		);
+	}
+}
+
+const BEDROCK_SAFEGUARD_RESULT_PATHS = [
+	"/safeguard_results",
+	"/delta/safeguard_results",
+];
+
+function mergeValues(existing: unknown[], additions: string[]): unknown[] {
+	const merged = [...existing];
+	for (const value of additions) {
+		if (!merged.includes(value)) {
+			merged.push(value);
 		}
 	}
-	headers["anthropic-beta"] = merged.join(",");
+	return merged;
+}
+
+/**
+ * Safeguard verdicts from a Bedrock Converse response or converse-stream
+ * messageStop event, or undefined when there are none.
+ */
+export function extractBedrockSafeguardResults(
+	additionalModelResponseFields: unknown,
+): unknown[] | undefined {
+	if (
+		additionalModelResponseFields === null ||
+		typeof additionalModelResponseFields !== "object"
+	) {
+		return undefined;
+	}
+	const fields = additionalModelResponseFields as {
+		safeguard_results?: unknown;
+		delta?: { safeguard_results?: unknown };
+	};
+	const results = fields.safeguard_results ?? fields.delta?.safeguard_results;
+	return Array.isArray(results) && results.length > 0 ? results : undefined;
 }

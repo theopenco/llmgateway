@@ -6,19 +6,24 @@ import { ProviderDetailClient } from "@/components/provider-detail-client";
 import { Button } from "@/components/ui/button";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
+import { CATALOG_USAGE_MODE_DEFAULT, parseUsageMode } from "@/lib/usage-mode";
 
 export default async function ProviderDetailPage({
 	params,
 	searchParams,
 }: {
 	params: Promise<{ providerId: string }>;
-	searchParams?: Promise<{ window?: string }>;
+	searchParams?: Promise<{ window?: string; mode?: string }>;
 }) {
 	await requireSession();
 
 	const { providerId } = await params;
 	const searchParamsData = await searchParams;
 	const window = searchParamsData?.window;
+	const mode = parseUsageMode(
+		searchParamsData?.mode,
+		CATALOG_USAGE_MODE_DEFAULT,
+	);
 
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/providers/{providerId}", {
@@ -26,6 +31,7 @@ export default async function ProviderDetailPage({
 			path: { providerId },
 			query: {
 				...(window ? { window } : {}),
+				mode,
 			} as any,
 		},
 	});

@@ -94,7 +94,19 @@ Data is retained for 30 days for all users, regardless of plan. After the retent
 	compaction state, bypasses the gateway response cache, strips provider
 	prompt-cache markers, and prevents payload retention or project response
 	caching from being enabled until ZDR is disabled. ZDR cannot be enabled until
-	both settings are off.
+	both settings are off. These configuration prerequisites apply to
+	organization-wide ZDR. A key-level ZDR policy instead forces metadata-only
+	logging and disables caching only for requests through that key, without
+	changing other keys or organization settings.
+</Callout>
+
+<Callout type="info">
+	[Batch API](/features/batch) input, output, and error files are kept for 30
+	days, or until you delete them, regardless of your organization's data
+	retention policy, and are not billed as data storage. The requests a batch
+	runs are logged under your retention level like any other request. While zero
+	data retention is active, the Batch API rejects uploads and new batches with
+	`zdr_storage_conflict`.
 </Callout>
 
 ## Accessing Stored Data

@@ -11,7 +11,7 @@ const schema = z.object({
 	messages: z.array(
 		z.object({
 			role: z.string(),
-			content: z.unknown(),
+			content: z.unknown().optional(),
 			tool_calls: z.unknown().optional(),
 		}),
 	),

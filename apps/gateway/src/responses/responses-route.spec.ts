@@ -134,6 +134,137 @@ describe("responses streaming lifecycle", () => {
 		expect(eventTypes).toEqual(["response.created", "response.failed"]);
 	});
 
+	describe("upstream errors in the chat stream", () => {
+		const sseResponse = (body: string) =>
+			new Response(
+				new ReadableStream({
+					start(controller) {
+						controller.enqueue(new TextEncoder().encode(body));
+						controller.close();
+					},
+				}),
+				{ status: 200, headers: { "content-type": "text/event-stream" } },
+			);
+		const chunk = (delta: Record<string, unknown>, finishReason?: string) =>
+			`data: ${JSON.stringify({
+				id: "chatcmpl_test",
+				object: "chat.completion.chunk",
+				created: 1,
+				model: "deepseek/deepseek-v4.1-flash",
+				choices: [{ index: 0, delta, finish_reason: finishReason ?? null }],
+			})}\n\n`;
+		const errorEvent = (error: Record<string, unknown>) =>
+			`event: error\ndata: ${JSON.stringify({ error })}\nid: 1\n\n`;
+		const done = "event: done\ndata: [DONE]\nid: 2\n\n";
+		const streamEvents = async (body: string) => {
+			mocks.appRequest.mockResolvedValue(sseResponse(body));
+			const response = await responses.request("/", {
+				method: "POST",
+				headers: {
+					authorization: "Bearer test-token",
+					"content-type": "application/json",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "deepseek/deepseek-v4.1-flash",
+					input: "hello",
+					stream: true,
+				}),
+			});
+			expect(response.status).toBe(200);
+			return (await response.text())
+				.split("\n")
+				.filter((line) => line.startsWith("data: "))
+				.map((line) => JSON.parse(line.slice(6)));
+		};
+
+		it("ends with response.failed when the upstream rejects the request", async () => {
+			const events = await streamEvents(
+				errorEvent({
+					message:
+						"The `content[].thinking` in the thinking mode must be passed back to the API.",
+					type: "client_error",
+					param: null,
+					code: "client_error",
+				}) + done,
+			);
+
+			expect(events.map((event) => event.type)).toEqual([
+				"response.created",
+				"response.failed",
+			]);
+			expect(events[1].response).toMatchObject({
+				status: "failed",
+				output: [],
+				error: {
+					code: "invalid_prompt",
+					message: expect.stringContaining("thinking mode"),
+				},
+			});
+			expect(mocks.storeResponse).not.toHaveBeenCalled();
+		});
+
+		it("ends with response.failed when the upstream fails mid-stream", async () => {
+			const events = await streamEvents(
+				chunk({ role: "assistant", content: "Hel" }) +
+					errorEvent({
+						message: "Upstream provider timeout",
+						type: "upstream_timeout",
+						param: null,
+						code: "timeout",
+					}) +
+					done,
+			);
+
+			const types = events.map((event) => event.type);
+			expect(types).toContain("response.output_text.delta");
+			expect(types).not.toContain("response.completed");
+			expect(types.at(-1)).toBe("response.failed");
+			expect(events.at(-1).response.error).toEqual({
+				code: "server_error",
+				message: "Upstream provider timeout",
+			});
+			expect(mocks.storeResponse).not.toHaveBeenCalled();
+		});
+
+		it("passes through rate limit codes", async () => {
+			const events = await streamEvents(
+				errorEvent({
+					message: "Rate limit exceeded",
+					type: "upstream_error",
+					code: "rate_limit_exceeded",
+				}) + done,
+			);
+
+			expect(events.at(-1).response.error.code).toBe("rate_limit_exceeded");
+		});
+
+		it("ends with response.failed when the stream ends without [DONE]", async () => {
+			const events = await streamEvents(
+				chunk({ role: "assistant", content: "Hel" }),
+			);
+
+			expect(events.at(-1)).toMatchObject({
+				type: "response.failed",
+				response: { status: "failed", error: { code: "server_error" } },
+			});
+		});
+
+		it("still completes a successful stream", async () => {
+			const events = await streamEvents(
+				chunk({ role: "assistant", content: "Hello" }) +
+					chunk({}, "stop") +
+					done,
+			);
+
+			expect(events.at(-1)).toMatchObject({
+				type: "response.completed",
+				response: { status: "completed", error: null },
+			});
+			expect(mocks.storeResponse).toHaveBeenCalledOnce();
+		});
+	});
+
 	it("rejects Responses API storage while ZDR is active", async () => {
 		mocks.findOrganizationById.mockResolvedValue({
 			id: "org_test",
@@ -264,3 +395,244 @@ describe("responses streaming lifecycle", () => {
 		expect(mocks.storeResponse).not.toHaveBeenCalled();
 	});
 });
+
+describe("responses header passthrough", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.findOrganizationById.mockResolvedValue({
+			id: "org_test",
+			plan: "enterprise",
+			status: "active",
+		});
+	});
+
+	it("forwards cache/session headers and copies x-llmgateway-cache back", async () => {
+		mocks.appRequest.mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					id: "chatcmpl_test",
+					object: "chat.completion",
+					created: 1,
+					model: "gpt-4o-mini",
+					choices: [
+						{
+							index: 0,
+							message: { role: "assistant", content: "hi" },
+							finish_reason: "stop",
+						},
+					],
+					usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+				}),
+				{
+					status: 200,
+					headers: {
+						"content-type": "application/json",
+						"x-llmgateway-cache": "HIT",
+					},
+				},
+			),
+		);
+
+		const response = await responses.request("/", {
+			method: "POST",
+			headers: {
+				authorization: "Bearer test-token",
+				"content-type": "application/json",
+				"x-no-cache": "true",
+				"x-no-fallback": "true",
+				"x-session-id": "session-abc",
+				"x-session-affinity": "session-abc",
+				session_id: "session-abc",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				input: "hello",
+				store: false,
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("x-llmgateway-cache")).toBe("HIT");
+
+		const [, init] = mocks.appRequest.mock.calls.at(-1) as [
+			string,
+			{ headers: Record<string, string> },
+		];
+		expect(init.headers["x-no-cache"]).toBe("true");
+		expect(init.headers["x-no-fallback"]).toBe("true");
+		expect(init.headers["x-session-id"]).toBe("session-abc");
+		expect(init.headers["x-session-affinity"]).toBe("session-abc");
+		expect(init.headers["session_id"]).toBe("session-abc");
+	});
+
+	it("copies x-llmgateway-cache back on the streaming lane", async () => {
+		mocks.appRequest.mockResolvedValue(
+			new Response(
+				new ReadableStream({
+					start(controller) {
+						controller.close();
+					},
+				}),
+				{
+					status: 200,
+					headers: {
+						"content-type": "text/event-stream",
+						"x-llmgateway-cache": "HIT",
+					},
+				},
+			),
+		);
+
+		const response = await responses.request("/", {
+			method: "POST",
+			headers: {
+				authorization: "Bearer test-token",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				input: "hello",
+				stream: true,
+				store: false,
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("x-llmgateway-cache")).toBe("HIT");
+		await response.text();
+	});
+
+	it("omits opt-out headers the caller did not send", async () => {
+		mocks.appRequest.mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					id: "chatcmpl_test",
+					object: "chat.completion",
+					created: 1,
+					model: "gpt-4o-mini",
+					choices: [
+						{
+							index: 0,
+							message: { role: "assistant", content: "hi" },
+							finish_reason: "stop",
+						},
+					],
+					usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+				}),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			),
+		);
+
+		const response = await responses.request("/", {
+			method: "POST",
+			headers: {
+				authorization: "Bearer test-token",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				input: "hello",
+				store: false,
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("x-llmgateway-cache")).toBeNull();
+
+		const [, init] = mocks.appRequest.mock.calls.at(-1) as [
+			string,
+			{ headers: Record<string, string> },
+		];
+		for (const header of [
+			"x-no-cache",
+			"x-no-fallback",
+			"x-session-id",
+			"x-session-affinity",
+			"session_id",
+			"session-id",
+		]) {
+			expect(header in init.headers).toBe(false);
+		}
+	});
+
+	it("forwards cache/session headers and copies x-llmgateway-cache back on /compact", async () => {
+		mocks.appRequest.mockResolvedValue(
+			Response.json(
+				{
+					id: "chatcmpl_test",
+					object: "chat.completion",
+					created: 1,
+					model: "gpt-4o-mini",
+					choices: [
+						{
+							index: 0,
+							message: { role: "assistant", content: "Summary" },
+							finish_reason: "stop",
+						},
+					],
+					usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+				},
+				{ headers: { "x-llmgateway-cache": "HIT" } },
+			),
+		);
+
+		const response = await responses.request("/compact", {
+			method: "POST",
+			headers: {
+				authorization: "Bearer test-token",
+				"content-type": "application/json",
+				"x-no-cache": "true",
+				"session-id": "session-abc",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				input: "Compact this conversation",
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("x-llmgateway-cache")).toBe("HIT");
+
+		const [, init] = mocks.appRequest.mock.calls.at(-1) as [
+			string,
+			{ headers: Record<string, string> },
+		];
+		expect(init.headers["x-no-cache"]).toBe("true");
+		expect(init.headers["session-id"]).toBe("session-abc");
+	});
+});
+
+it.each(["/", "/compact"])(
+	"preserves client safety metadata through %s",
+	async (path) => {
+		vi.clearAllMocks();
+		mocks.findOrganizationById.mockResolvedValue({
+			id: "org_test",
+			plan: "enterprise",
+			status: "active",
+		});
+		mocks.appRequest.mockResolvedValue(
+			Response.json(
+				{ error: { message: "Upstream unavailable" } },
+				{ status: 503 },
+			),
+		);
+		const response = await responses.request(path, {
+			method: "POST",
+			headers: {
+				authorization: "Bearer test-token",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				input: "hello",
+				store: false,
+				safety_identifier: "end-user",
+			}),
+		});
+		expect(response.status).toBe(503);
+		expect(
+			JSON.parse(mocks.appRequest.mock.calls[0]![1].body).safety_identifier,
+		).toBe("end-user");
+	},
+);

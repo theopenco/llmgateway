@@ -1,13 +1,14 @@
 "use client";
 
 import { keepPreviousData } from "@tanstack/react-query";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useCallback } from "react";
 
 import { CostByModelTimeseriesChart } from "@/components/cost-by-model-timeseries-chart";
 import { useUsageMode } from "@/components/usage-mode-selector";
 import { useApi } from "@/lib/fetch-client";
 import { useHistoryClient } from "@/lib/history-client";
+import { parseUsageBreakdown } from "@/lib/usage-breakdown";
 
 import {
 	OrganizationUsageTimeseries,
@@ -32,20 +33,6 @@ const windowDays: Record<TokenWindow, number> = {
 	"90d": 90,
 	"365d": 365,
 };
-
-const breakdownOptions: {
-	value: ProjectCostTimeseriesGroupBy;
-	label: string;
-}[] = [
-	{ value: "model", label: "Model" },
-	{ value: "api-key", label: "API Key" },
-	{ value: "user", label: "User" },
-	{ value: "source", label: "Source" },
-];
-
-const controlClass =
-	"rounded-md border border-input bg-background px-3 py-1.5 text-xs";
-
 const validWindows = new Set<TokenWindow>([
 	"1h",
 	"4h",
@@ -64,22 +51,12 @@ function parseWindow(value: string | null): TokenWindow {
 	return "1d";
 }
 
-function parseGroupBy(value: string | null): ProjectCostTimeseriesGroupBy {
-	return value === "source" || value === "api-key" || value === "user"
-		? value
-		: "model";
-}
-
-function parseModelView(value: string | null): ModelView {
-	return value === "canonical" ? "canonical" : "mapping";
-}
-
 interface ProjectTimeseriesProps {
 	orgId: string;
 	projectId: string;
 	window: TokenWindow;
 	groupBy: ProjectCostTimeseriesGroupBy;
-	onGroupByChange: (next: ProjectCostTimeseriesGroupBy) => void;
+	modelView: ModelView;
 }
 
 export function ProjectCostByModelTimeseries({
@@ -89,41 +66,14 @@ export function ProjectCostByModelTimeseries({
 	orgId: string;
 	projectId: string;
 }) {
-	const searchParams = useSearchParams();
-	const router = useRouter();
-	const pathname = usePathname();
-
-	const window = parseWindow(searchParams.get("window"));
-	const groupBy = parseGroupBy(searchParams.get("breakdown"));
-
-	const handleGroupByChange = useCallback(
-		(next: ProjectCostTimeseriesGroupBy) => {
-			const params = new URLSearchParams(searchParams.toString());
-			if (next === "model") {
-				params.delete("breakdown");
-			} else {
-				params.set("breakdown", next);
-			}
-			const query = params.toString();
-			router.push(query ? `${pathname}?${query}` : pathname);
-		},
-		[searchParams, router, pathname],
-	);
-
-	const props = {
-		orgId,
-		projectId,
-		window,
-		groupBy,
-		onGroupByChange: handleGroupByChange,
-	};
-
-	// Source rollups carry no model or API key dimension, so they keep the
-	// cost/requests/tokens chart instead of the filterable usage chart.
+	const params = useSearchParams();
+	const window = parseWindow(params.get("window"));
+	const { groupBy, modelView } = parseUsageBreakdown(params, "project");
+	const props = { orgId, projectId, window, groupBy, modelView };
 	return groupBy === "source" ? (
 		<ProjectSourceTimeseries {...props} />
 	) : (
-		<ProjectUsageTimeseries {...props} />
+		<ProjectUsageTimeseries key={modelView} {...props} />
 	);
 }
 
@@ -132,14 +82,10 @@ function ProjectUsageTimeseries({
 	projectId,
 	window,
 	groupBy,
-	onGroupByChange,
+	modelView,
 }: ProjectTimeseriesProps) {
-	const searchParams = useSearchParams();
-	const router = useRouter();
-	const pathname = usePathname();
-	const modelView = parseModelView(searchParams.get("modelView"));
 	const controls = useUsageTimeseriesControls(windowDays[window]);
-	const usageMode = useUsageMode();
+	const mode = useUsageMode();
 	const api = useApi();
 	const query = api.useQuery(
 		"get",
@@ -147,34 +93,20 @@ function ProjectUsageTimeseries({
 		{
 			params: {
 				path: { orgId, projectId },
-				query: {
-					window,
-					modelView,
-					groupBy,
-					...controls.query,
-					mode: usageMode,
-				},
+				query: { window, modelView, groupBy, ...controls.query, mode },
 			},
 		},
 		{ placeholderData: keepPreviousData },
 	);
-
-	const updateModelView = useCallback(
-		(next: ModelView) => {
-			const params = new URLSearchParams(searchParams.toString());
-			if (next === "mapping") {
-				params.delete("modelView");
-			} else {
-				params.set("modelView", next);
-			}
-			const query = params.toString();
-			router.push(query ? `${pathname}?${query}` : pathname);
-		},
-		[pathname, router, searchParams],
-	);
-
 	return (
 		<OrganizationUsageTimeseries
+			modelLabel={
+				modelView === "provider"
+					? "Provider"
+					: modelView === "family"
+						? "Family"
+						: "Model"
+			}
 			data={query.data?.timeseries}
 			loading={query.isFetching}
 			error={query.isError}
@@ -182,43 +114,9 @@ function ProjectUsageTimeseries({
 				void query.refetch();
 			}}
 			controls={controls}
-			mode={usageMode}
+			mode={mode}
 			groupBy={
 				groupBy === "api-key" ? "apiKey" : groupBy === "user" ? "user" : "model"
-			}
-			modelViewControl={
-				<>
-					<select
-						aria-label="Break down by"
-						className={controlClass}
-						value={groupBy}
-						onChange={(event) =>
-							onGroupByChange(
-								event.target.value as ProjectCostTimeseriesGroupBy,
-							)
-						}
-					>
-						{breakdownOptions.map((option) => (
-							<option key={option.value} value={option.value}>
-								{option.label}
-							</option>
-						))}
-					</select>
-					{groupBy === "model" && (
-						<select
-							aria-label="Model view"
-							className={controlClass}
-							value={modelView}
-							onChange={(event) => {
-								controls.setModel("");
-								updateModelView(event.target.value as ModelView);
-							}}
-						>
-							<option value="mapping">Mappings</option>
-							<option value="canonical">Canonical</option>
-						</select>
-					)}
-				</>
 			}
 		/>
 	);
@@ -229,7 +127,6 @@ function ProjectSourceTimeseries({
 	projectId,
 	window,
 	groupBy,
-	onGroupByChange,
 }: ProjectTimeseriesProps) {
 	const history = useHistoryClient();
 
@@ -259,10 +156,7 @@ function ProjectSourceTimeseries({
 			fetchData={fetchData}
 			externalWindow={window}
 			groupBy={groupBy}
-			onGroupByChange={(value) =>
-				onGroupByChange(value === "source" ? "source" : "model")
-			}
-			groupByOptions={["model", "source"]}
+			showUsageMode={false}
 		/>
 	);
 }

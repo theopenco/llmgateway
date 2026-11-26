@@ -3,9 +3,24 @@
 // receive `{ error: { message, type, param, code } }`; the Anthropic
 // `/v1/messages` endpoint receives `{ type: "error", error: { type, message } }`.
 
+import { HTTPException } from "hono/http-exception";
+
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+
+/** An HTTPException rendered with a specific OpenAI `error.code`. */
+export class CodedHTTPException extends HTTPException {
+	readonly code: string;
+
+	constructor(
+		status: ContentfulStatusCode,
+		options: { message: string; code: string },
+	) {
+		super(status, { message: options.message });
+		this.code = options.code;
+	}
+}
 
 export interface OpenAIErrorBody {
 	error: {
@@ -133,10 +148,11 @@ export function renderGatewayError(
 	c: Context<ServerTypes>,
 	status: number,
 	message: string,
+	code?: string,
 ) {
 	const jsonStatus = status as ContentfulStatusCode;
 	if (c.req.path.startsWith("/v1/messages")) {
 		return c.json(buildAnthropicErrorBody({ message, status }), jsonStatus);
 	}
-	return c.json(buildOpenAIErrorBody({ message, status }), jsonStatus);
+	return c.json(buildOpenAIErrorBody({ message, status, code }), jsonStatus);
 }

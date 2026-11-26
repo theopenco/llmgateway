@@ -66,16 +66,15 @@ To run through a proxy, export the provider's base-URL var (`LLM_OPENAI_BASE_URL
 …) with its `LLM_*_API_KEY`; `beforeAllHook` stamps it onto the seeded provider
 key. An `http://` base URL also needs `ALLOW_INSECURE_PROVIDER_URLS=true`.
 
-CI e2e (`.github/workflows/e2e.yml`) spends real money and runs on demand only:
-comment `/e2e` on a same-repo PR (maintainers) or use `workflow_dispatch`. Push
-first: `/e2e` refuses a head pushed after the comment. Use it
-for complex gateway or backend changes affecting routing, stability, uptime, or
-provider integration.
+e2e does not run in CI; run it locally with your own credentials.
 
 ## Writing tests
 
 - `createGatewayApiTestHarness()` (`apps/gateway/src/test-utils/gateway-api-test-harness.ts`) deletes and re-seeds all data before every test; the shared org is `retentionLevel: "retain"`, `plan: "pro"`, `credits: "100.00"`. Mutate shared state freely without restoring it, and set any value a test depends on explicitly or rely on those defaults.
 - Gateway unit tests load the root `.env`, which holds real provider keys. A test that needs a provider without credentials saves and deletes `LLM_<PROVIDER>_API_KEY` (and `_BASE_URL`), restoring them in `finally`.
+- API specs load it too (`apps/api/src/index.ts` imports `dotenv/config`), so code that calls a third party with env credentials reaches the real service unless the spec stubs it. `vitest/unit-worker-setup.ts` blanks the Resend variables for every unit test; a spec that exercises Resend sets its own with `vi.stubEnv` and stubs `fetch`.
 - Build credential-shaped fixtures at runtime (`["sk", "live", "..."].join("_")`) so push protection accepts the branch. Assert on booleans, never equality with a credential: CI test artifacts are public and unmasked.
 - Delete cascade-linked tables sequentially, children before parents. `deleteAll()` keeps the catalogue tables, so a spec that seeds `model`/`model_provider_mapping` rows removes them itself, with ids distinct from the real catalogue.
+- Source-loading Node subprocesses using `--import tsx` set `TSX_TSCONFIG_PATH` to the owning app's `tsconfig.json`; the root config does not resolve app `@/` aliases.
+- Fake Resend's contact lookup, create, update and delete, and a contact's topic and segment reads, in `apps/api` specs with `fakeResendContacts` (`apps/api/src/testing-resend.ts`) on `globalThis.fetch`. Topic and segment writes are faked in `public-newsletter.spec.ts` only.
 - Keep logs and scratch files under `.context/`; `/tmp` is shared with other agents.

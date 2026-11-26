@@ -14,7 +14,6 @@ import {
 	Stamp,
 	UserRound,
 } from "lucide-react";
-import { motion, useReducedMotion } from "motion/react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -63,6 +62,8 @@ const InactivePlanChooser = dynamic(
 const SurveyReminderDialog = dynamic(
 	() => import("@/app/dashboard/components/SurveyReminderDialog"),
 );
+
+const ActivationStamp = dynamic(() => import("./components/ActivationStamp"));
 
 const navItems: Array<{ label: string; href: Route; icon: typeof BarChart3 }> =
 	[
@@ -245,7 +246,6 @@ export default function DashboardShell({
 	);
 	const [setupActivationStatus, setSetupActivationStatus] =
 		useState<SetupActivationStatus | null>(null);
-	const reduceMotion = useReducedMotion();
 	const activeSetupSession = useRef<string | null>(null);
 	const finalizeDevPlanRef = useRef(finalizeMutation.mutateAsync);
 	const purchaseTrackedSession = useRef<string | null>(null);
@@ -596,30 +596,7 @@ export default function DashboardShell({
 				<main className="container mx-auto flex min-h-[calc(100vh-120px)] max-w-3xl items-center justify-center px-4 py-12">
 					<div className="w-full rounded-xl border bg-background p-8 text-center shadow-sm sm:p-12">
 						{activeSetupActivationStatus === "success" ? (
-							<motion.div
-								initial={
-									reduceMotion
-										? { opacity: 0 }
-										: { opacity: 0, scale: 2.4, rotate: -18 }
-								}
-								animate={
-									reduceMotion
-										? { opacity: 1 }
-										: { opacity: 1, scale: 1, rotate: -8 }
-								}
-								transition={{ type: "spring", duration: 0.4 }}
-								className="mx-auto mb-6 flex justify-center"
-							>
-								<div className="rounded-md border-4 border-double border-emerald-700/80 px-6 py-3 text-center font-mono uppercase text-emerald-800 mix-blend-multiply dark:border-emerald-400/80 dark:text-emerald-300 dark:mix-blend-screen">
-									<div className="flex items-center justify-center gap-2 text-base font-bold tracking-[0.3em]">
-										<Stamp className="h-4 w-4" />
-										DevPass activated
-									</div>
-									<div className="mt-0.5 text-[9px] tracking-[0.2em]">
-										Visa granted · welcome aboard
-									</div>
-								</div>
-							</motion.div>
+							<ActivationStamp />
 						) : (
 							<div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-muted">
 								<Loader2

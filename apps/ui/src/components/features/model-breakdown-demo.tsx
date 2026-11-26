@@ -1,5 +1,3 @@
-"use client";
-
 import { Package, DollarSign, Activity, Clock } from "lucide-react";
 
 import { Badge } from "@/lib/components/badge";

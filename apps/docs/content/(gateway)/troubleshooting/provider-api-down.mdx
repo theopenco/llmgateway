@@ -1,0 +1,54 @@
+---
+title: What to Do When an LLM Provider API Is Down
+description: How to confirm an OpenAI, Anthropic, or Google outage, which errors signal one, and how to keep requests working with automatic failover.
+icon: LifeBuoy
+---
+
+When a provider's API is down, requests fail with `5xx` errors, timeouts, or a sudden wave of `429` responses on an account that is inside its limits. Confirm the outage first, then route around it.
+
+## Confirm the outage
+
+Check the provider's status page. Each page below shows the provider's official incidents next to the uptime LLM Gateway measures on real traffic, so you can see a degradation before it is announced.
+
+Find the provider on the [status hub](https://llmgateway.io/status), which has a page for every provider LLM Gateway routes to.
+
+## Errors that signal a provider outage
+
+| Error                              | Meaning                                         | Guide                                                                               |
+| ---------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `500`, `502`, `503`                | The provider failed to process the request      | Retry with backoff or fail over                                                     |
+| Anthropic `529` `overloaded_error` | Anthropic's API is overloaded for all customers | [Fix the Anthropic 529 error](/troubleshooting/anthropic-529-overloaded)            |
+| Gemini `503` `UNAVAILABLE`         | The model is overloaded on Google's side        | [Fix the Gemini 429 and 503 errors](/troubleshooting/gemini-429-resource-exhausted) |
+| OpenAI `429` inside your limits    | Often capacity trouble, not your usage          | [Fix the OpenAI 429 error](/troubleshooting/openai-429-rate-limit)                  |
+| Timeouts and connection resets     | The provider is not answering in time           | See [Timeouts](/features/timeouts)                                                  |
+
+## Let the gateway fail over for you
+
+Send the request with a model ID and no provider prefix. When the upstream provider returns a `429`, a `5xx`, or times out, LLM Gateway retries the same request on another provider that serves the model, inside the same API call. Your application receives the successful response.
+
+```bash
+curl https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{ "role": "user", "content": "Hello" }]
+  }'
+```
+
+Retry on another provider after a failure does not run when you pin a provider with a prefix (`openai/gpt-4o`), when you send `X-No-Fallback: true`, or when no other provider serves the model. A pinned request can still be rerouted before it is sent when that provider's recent uptime is degraded and another provider serves the model; `X-No-Fallback: true` blocks that as well. A streaming response that has already sent output is not retried either: a later failure ends the stream, so your client must handle partial output. See [Automatic Retry & Fallback](/features/routing#automatic-retry--fallback) for the full rules.
+
+If every provider fails, the gateway returns an error in the OpenAI format with `type` `upstream_error` or `gateway_error`, or HTTP `504` with `type` `upstream_timeout` when the upstream timed out. On a stream that has already started, the status is already `200` and the failure arrives as an `error` event in the stream. The upstream status code is recorded in the request log, not passed through. See [LLM Gateway API Errors](/resources/error-handling#upstream-provider-errors).
+
+## Keep a single outage from reaching your users
+
+- **Request models by ID, not by provider.** A pinned provider is a single point of failure.
+- **Pick models that more than one provider serves** for critical paths. The [models directory](https://llmgateway.io/models) lists the providers for each model.
+- **Keep client-side retries with backoff** for the case where every provider is failing.
+- **Read the request log after an incident.** Retried attempts are recorded, so you can see which provider failed and which one answered.
+
+## Related
+
+- [Routing](/features/routing)
+- [LLM Gateway API Errors](/resources/error-handling)
+- [Rate Limits](/resources/rate-limits)

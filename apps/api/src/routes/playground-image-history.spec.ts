@@ -72,7 +72,13 @@ describe("playground image history binary routes", () => {
 		expect(json.items[0]).toMatchObject({
 			id: itemId,
 			inputImageCount: 1,
-			models: [{ modelId: "gemini-3-pro-image", imageCount: 1 }],
+			models: [
+				{
+					modelId: "gemini-3-pro-image",
+					imageCount: 1,
+					mediaTypes: ["image/png"],
+				},
+			],
 		});
 		expect(JSON.stringify(json)).not.toContain(
 			original.toString("base64").slice(0, 64),
@@ -94,7 +100,7 @@ describe("playground image history binary routes", () => {
 	test("revalidates cached copies through the ownership check", async () => {
 		const first = await get("/images/0/0?variant=preview");
 		const etag = first.headers.get("etag");
-		expect(etag).toBeTruthy();
+		expect(etag).toMatch(/^"v2:/);
 		expect(first.headers.get("cache-control")).toBe("private, no-cache");
 
 		const revalidated = await app.request(
@@ -130,6 +136,53 @@ describe("playground image history binary routes", () => {
 		expect((await get("/images/x/0")).status).toBe(400);
 		expect((await get("/images/0/0?variant=huge")).status).toBe(400);
 		expect((await get("/input-images/1")).status).toBe(404);
+	});
+
+	test("serves stored SVG output as an inert document", async () => {
+		const svg =
+			'<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="#3366ff"/></svg>';
+		const saved = await app.request("/playground/image-history", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: authCookie },
+			body: JSON.stringify({
+				prompt: "A blue rectangle as SVG",
+				models: [
+					{
+						modelId: "openai/gpt-image-2.6-flare",
+						modelName: "GPT Image 2.6 Flare",
+						images: [
+							{
+								base64: Buffer.from(svg).toString("base64"),
+								mediaType: "image/svg+xml",
+							},
+						],
+					},
+				],
+			}),
+		});
+		expect(saved.status).toBe(201);
+		const savedItem = (await saved.json()).item;
+		expect(savedItem.models[0].mediaTypes).toEqual(["image/svg+xml"]);
+		const svgItemId = savedItem.id;
+		const getSvg = (path: string) =>
+			app.request(`/playground/image-history/${svgItemId}${path}`, {
+				headers: { Cookie: authCookie },
+			});
+
+		const full = await getSvg("/images/0/0");
+		expect(full.status).toBe(200);
+		expect(full.headers.get("content-type")).toBe("image/svg+xml");
+		expect(full.headers.get("x-content-type-options")).toBe("nosniff");
+		expect(full.headers.get("content-security-policy")).toContain("sandbox");
+		expect(full.headers.get("content-security-policy")).toContain(
+			"default-src 'none'",
+		);
+		expect(await full.text()).toBe(svg);
+
+		const preview = await getSvg("/images/0/0?variant=preview");
+		expect(preview.status).toBe(200);
+		expect(preview.headers.get("content-type")).toBe("image/webp");
+		expect(await dimensionsOf(preview)).toEqual({ width: 40, height: 20 });
 	});
 
 	test("requires authentication", async () => {

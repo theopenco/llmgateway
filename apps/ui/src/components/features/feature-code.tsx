@@ -1,8 +1,7 @@
 "use client";
 
-import { usePostHog } from "posthog-js/react";
-
 import { CodePanel } from "@/components/home/code-panel";
+import { usePostHog } from "@/lib/posthog";
 
 import type { BundledLanguage } from "shiki";
 

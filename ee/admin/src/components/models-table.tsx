@@ -18,6 +18,11 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { useHistoryClient } from "@/lib/history-client";
+import {
+	CATALOG_USAGE_MODE_DEFAULT,
+	catalogModeParam,
+	type UsageMode,
+} from "@/lib/usage-mode";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
@@ -25,7 +30,6 @@ import { formatNumber } from "@llmgateway/shared/number-format";
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
 import type { ModelStats } from "@/lib/types";
-import type { UsageMode } from "@/lib/usage-mode";
 
 function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 	const map: Record<PageWindow, HistoryWindow> = {
@@ -90,7 +94,7 @@ function SortableHeader({
 
 	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
-	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
+	const modeParam = catalogModeParam(usageMode, "&");
 	const href = `/models?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${windowParam}${modeParam}${filterQuery}`;
 
 	return (
@@ -147,7 +151,7 @@ function ModelRow({
 			>
 				<TableCell>
 					<Link
-						href={`/models/${encodeURIComponent(model.id)}`}
+						href={`/models/${encodeURIComponent(model.id)}${catalogModeParam(usageMode, "?")}`}
 						className="hover:underline"
 						onClick={(e) => e.stopPropagation()}
 					>
@@ -231,7 +235,7 @@ function ModelRow({
 							asChild
 						>
 							<Link
-								href={`/models/${encodeURIComponent(model.id)}`}
+								href={`/models/${encodeURIComponent(model.id)}${catalogModeParam(usageMode, "?")}`}
 								onClick={(e) => e.stopPropagation()}
 							>
 								Details
@@ -262,7 +266,7 @@ export function ModelsTable({
 	sortOrder = "desc",
 	search = "",
 	pageWindow,
-	usageMode = "total",
+	usageMode = CATALOG_USAGE_MODE_DEFAULT,
 	filterQuery = "",
 }: {
 	models: ModelStats[];

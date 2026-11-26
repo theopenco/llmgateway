@@ -4,7 +4,9 @@ import { atlascloudModels } from "./models/atlascloud.js";
 import { atriaModels } from "./models/atria.js";
 import { baaiModels } from "./models/baai.js";
 import { baiduModels } from "./models/baidu.js";
+import { blackForestLabsModels } from "./models/black-forest-labs.js";
 import { bytedanceModels } from "./models/bytedance.js";
+import { canopylabsModels } from "./models/canopylabs.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
 import { googleModels } from "./models/google.js";
@@ -22,7 +24,8 @@ import { nvidiaModels } from "./models/nvidia.js";
 import { openaiModels } from "./models/openai.js";
 import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
-import { reveModels } from "./models/reve.js";
+import { recraftModels } from "./models/recraft.js";
+import { reflectionModels } from "./models/reflection.js";
 import { sakanaModels } from "./models/sakana.js";
 import { stepfunModels } from "./models/stepfun.js";
 import { tencentModels } from "./models/tencent.js";
@@ -32,7 +35,7 @@ import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
 
-import type { providers } from "./providers.js";
+import type { MappingDataPolicy, providers } from "./providers.js";
 
 export type Provider = (typeof providers)[number]["id"];
 
@@ -79,6 +82,17 @@ export const PROVIDER_API_FORMATS = [
 ] as const;
 
 export type ProviderApiFormat = (typeof PROVIDER_API_FORMATS)[number];
+
+/**
+ * API surfaces a single request can be sent on: the Airside-selectable
+ * formats plus `anthropic-messages` (Claude on AWS Bedrock, and DeepSeek's
+ * `webSearchApiFormat`).
+ */
+export const REQUEST_API_FORMATS = [
+	...PROVIDER_API_FORMATS,
+	"anthropic-messages",
+] as const;
+export type RequestApiFormat = (typeof REQUEST_API_FORMATS)[number];
 
 /**
  * Pricing tier for models with context-length based pricing
@@ -269,6 +283,11 @@ export interface ProviderRegion {
 	 */
 	streaming?: boolean | "only";
 	/**
+	 * Web search support override for this region.
+	 * When absent, falls back to the mapping-level webSearch.
+	 */
+	webSearch?: boolean;
+	/**
 	 * Test skip/only for this specific region.
 	 * When absent, falls back to the mapping-level test.
 	 */
@@ -309,6 +328,11 @@ export interface ProviderModelMapping {
 	 * human-readable display name.
 	 */
 	externalId: string;
+	/**
+	 * Overrides the provider's data policy for this mapping, when the upstream
+	 * model's retention terms differ from the provider default.
+	 */
+	dataPolicy?: MappingDataPolicy;
 	/**
 	 * Price per input token in USD
 	 */
@@ -432,6 +456,15 @@ export interface ProviderModelMapping {
 	 */
 	perSecondPrice?: Record<string, Price>;
 	/**
+	 * Per-token price in USD for generated video tokens, for video models the
+	 * provider bills by output tokens (e.g. Gemini Omni). When the upstream
+	 * usage reports video output tokens, finalization bills them at this rate
+	 * instead of `perSecondPrice`, which still drives estimates and routing.
+	 * Records select `<resolution>_with_video` / `_without_video` or
+	 * `<resolution>_audio` / `_video`, with `default_` fallbacks.
+	 */
+	videoOutputPrice?: Price | Record<string, Price>;
+	/**
 	 * Price per generated output image in USD, keyed by resolution tier
 	 * (e.g. "1K", "2K") with a "default" fallback. For image models whose
 	 * provider bills a flat per-image rate that varies with the served
@@ -440,6 +473,17 @@ export interface ProviderModelMapping {
 	 * per output image, unlike `requestPrice` which is flat per request.
 	 */
 	perImagePrice?: Record<string, Price>;
+	/**
+	 * Price per input (reference) image in USD, for image models whose
+	 * provider bills each reference image at a flat rate (e.g. ByteDance
+	 * Seedream 5.5). Billed per input image on top of the output price.
+	 */
+	perInputImagePrice?: Price;
+	/**
+	 * Per-image prices by output pixel area, ascending, for providers that bill
+	 * by area band. Used when a `WIDTHxHEIGHT` size has no `perImagePrice` key.
+	 */
+	perImagePriceByPixels?: Array<{ upToPixels: number; price: Price }>;
 	/**
 	 * Pricing tiers for models with context-length based pricing.
 	 * When set, inputPrice and outputPrice represent the base tier.
@@ -559,8 +603,17 @@ export interface ProviderModelMapping {
 	/**
 	 * Provider-specific request/endpoint format when a provider has multiple API
 	 * surfaces for different models. Defaults to the provider's native format.
+	 * `anthropic-messages` sends Anthropic's Messages API body (Claude on AWS
+	 * Bedrock).
 	 */
-	apiFormat?: ProviderApiFormat;
+	apiFormat?: RequestApiFormat;
+	/**
+	 * API surface for requests carrying a `web_search` tool, when the
+	 * provider serves hosted search on a different surface than `apiFormat`
+	 * (e.g. DeepSeek: Responses API on V4 Pro, Anthropic Messages API on
+	 * Flash). Other requests keep `apiFormat`.
+	 */
+	webSearchApiFormat?: RequestApiFormat;
 	/**
 	 * AWS Bedrock OpenAI-format mappings only: the cross-region regions
 	 * (`global`, `us`, …) are real inference profiles, served by
@@ -621,6 +674,8 @@ export interface ProviderModelMapping {
 	 *   simpler prompts)
 	 */
 	reasoningOutput?: "omit";
+	/** Overrides the provider default for credential-bound reasoning payloads. */
+	encryptedReasoning?: boolean;
 	/** Responses API reasoning summary mode. Defaults to detailed. */
 	reasoningSummary?: "auto" | "detailed";
 	/**
@@ -641,8 +696,8 @@ export interface ProviderModelMapping {
 	 * (e.g. GPT-5 accepts `minimal`..`high`, GPT-5.6 accepts `none`..`max`,
 	 * Anthropic thinking models accept `low`..`max`), so each mapping declares
 	 * its own list. The gateway forwards effort values to the provider as-is
-	 * (unsupported values fail upstream); this metadata is exposed via the
-	 * models APIs so clients can present valid options. When unset, the
+	 * and excludes mappings that declare an incompatible effort during automatic
+	 * provider selection. The models APIs expose the list for clients. When unset, the
 	 * supported values are not (yet) declared for this mapping.
 	 */
 	reasoningEfforts?: ReasoningEffort[];
@@ -688,7 +743,8 @@ export interface ProviderModelMapping {
 	 */
 	jsonOutputSchema?: boolean;
 	/**
-	 * Whether this model supports web search/grounding capabilities
+	 * Whether the upstream runs web search natively. Chat mappings without it
+	 * get gateway-run search instead (`usesGatewayWebSearch`).
 	 */
 	webSearch?: boolean;
 	/**
@@ -798,6 +854,12 @@ export interface ProviderModelMapping {
 	 */
 	imageGenerations?: boolean;
 	/**
+	 * Whether the image generation endpoint accepts `output_format: "svg"` and
+	 * returns a base64-encoded SVG document. Requests for SVG output are
+	 * rejected up front for mappings without this flag.
+	 */
+	svgOutput?: boolean;
+	/**
 	 * Whether this model uses a dedicated embeddings API.
 	 * When true, requests are routed to a provider-specific /v1/embeddings endpoint
 	 * and pricing is computed against input tokens only (no completion tokens).
@@ -809,6 +871,12 @@ export interface ProviderModelMapping {
 	 * which returns binary audio rather than a chat completion.
 	 */
 	speechGenerations?: boolean;
+	/**
+	 * Whether this speech mapping is a prompt-to-music model (e.g. Lyria). The
+	 * /v1/audio/speech `input` is the music prompt, `voice` is ignored, and the
+	 * flat `requestPrice` bills each generated track.
+	 */
+	musicGenerations?: boolean;
 	/**
 	 * Whether this model uses the dedicated realtime WebSocket API.
 	 * When true, sessions are served by the gateway's /v1/realtime endpoint
@@ -867,6 +935,12 @@ export interface ProviderModelMapping {
 	 */
 	decisions?: boolean;
 	/**
+	 * Whether this decision model answers `box` questions: where a target is in
+	 * an image input, as a bounding box. Requests with a box question are
+	 * rejected on mappings without it.
+	 */
+	decisionBoxQuestions?: boolean;
+	/**
 	 * Whether this model uses a dedicated web search API that returns ranked
 	 * results instead of generated text. When true, requests are routed to the
 	 * gateway's /v1/search endpoint and billed per request via requestPrice.
@@ -877,6 +951,11 @@ export interface ProviderModelMapping {
 	 * used as the default when the caller does not specify a `voice`.
 	 */
 	supportedVoices?: string[];
+	/**
+	 * Gemini TTS models that read `text` verbatim: speech `instructions` are sent
+	 * as `speechMetadata.style` instead of being prefixed to the input.
+	 */
+	speechStyleMetadata?: boolean;
 	/**
 	 * Geographic region for this provider mapping.
 	 * Set automatically when a mapping with `regions` is expanded into flat entries.
@@ -924,6 +1003,11 @@ export interface ProviderModelMapping {
 	 * Whether this provider mapping supports generating video without audio.
 	 */
 	supportsVideoWithoutAudio?: boolean;
+	/**
+	 * The output is as long as the input audio rather than the requested
+	 * `seconds`, so per-second billing uses the measured output duration.
+	 */
+	videoDurationFollowsAudio?: boolean;
 }
 
 export type StabilityLevel = "stable" | "beta" | "unstable" | "experimental";
@@ -956,6 +1040,11 @@ export interface ModelDefinition {
 	 * Whether this model is free to use
 	 */
 	free?: boolean;
+	/**
+	 * Only organizations with enterprise access (KYC'd) may request this
+	 * model; everyone else gets a 403 and auto routing never selects it.
+	 */
+	enterpriseOnly?: boolean;
 	/**
 	 * Rate limit tier for free models (defaults to 'low' if not specified)
 	 * - low: Standard rate limits for free models
@@ -1006,6 +1095,8 @@ export interface ModelDefinition {
 	 * Date when the model was released by the provider
 	 */
 	releasedAt?: Date;
+	/** Aliases whose served model version may change. */
+	aliasesAreVirtual?: boolean;
 }
 
 export const models = [
@@ -1028,9 +1119,10 @@ export const models = [
 	...atriaModels,
 	...baaiModels,
 	...baiduModels,
+	...blackForestLabsModels,
 	...bytedanceModels,
 	...nousresearchModels,
-	...reveModels,
+	...recraftModels,
 	...sakanaModels,
 	...kinfraModels,
 	...tencentModels,
@@ -1038,8 +1130,10 @@ export const models = [
 	...openbmbModels,
 	...zaiModels,
 	...elevenlabsModels,
+	...canopylabsModels,
 	...typesafeModels,
 	...thinkingmachinesModels,
 	...stepfunModels,
 	...ibmModels,
+	...reflectionModels,
 ] as const satisfies ModelDefinition[];

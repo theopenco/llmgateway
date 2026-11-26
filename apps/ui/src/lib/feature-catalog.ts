@@ -10,10 +10,13 @@ import {
 	DatabaseZap,
 	Eye,
 	FileScan,
+	FileStack,
 	FileText,
 	Fingerprint,
 	Gauge,
 	Globe,
+	HeartPulse,
+	Hourglass,
 	ImageIcon,
 	KeyRound,
 	Layers,
@@ -23,6 +26,7 @@ import {
 	Mic,
 	Network,
 	NotebookPen,
+	PlaneTakeoff,
 	Puzzle,
 	Radio,
 	Receipt,
@@ -122,7 +126,7 @@ claude`,
 		description:
 			"Route each request to the best available provider by price, uptime and latency, with automatic retry and fallback when one fails.",
 		longDescription:
-			"Name a model and LLM Gateway picks the provider. If that provider errors or times out, the request is retried on the next best one automatically, so your users never see the outage.",
+			"Name a model and LLM Gateway picks the provider, scoring price, uptime, throughput and latency on recent traffic. If that provider errors, times out or hits a rate limit, the request is retried on the next best one automatically, so your users never see the outage.",
 		icon: Route,
 		category: "routing",
 		docsPath: "/features/routing",
@@ -140,7 +144,7 @@ claude`,
 		benefits: [
 			{
 				title: "Auto routing",
-				description: "Price, uptime and latency weighed per request.",
+				description: "Price, uptime, throughput and latency per request.",
 			},
 			{
 				title: "Retry & fallback",
@@ -354,6 +358,64 @@ claude`,
 		},
 	},
 	{
+		id: "batch",
+		slug: "batch",
+		title: "Batch API",
+		subtitle: "Thousands of requests, one upload",
+		description:
+			"Upload a JSONL file of up to 50,000 requests and download the results when the batch finishes, through the OpenAI-compatible /v1/batches API.",
+		longDescription:
+			"The gateway queues every line, paces it against your rate limits and retries what is safe to retry. Each line runs as a regular request, so routing, fallback, caching and guardrails apply, at the same price as a live call.",
+		icon: FileStack,
+		category: "routing",
+		docsPath: "/features/batch",
+		visual: {
+			kind: "feed",
+			title: "batch_abc123 · completed",
+			items: [
+				{
+					title: "requests.jsonl uploaded",
+					meta: "50,000 lines",
+					tone: "info",
+				},
+				{ title: "Rate limited, waited", meta: "429", tone: "warn" },
+				{ title: "Provider outage, retried", meta: "attempt 2", tone: "error" },
+				{ title: "Output file ready", meta: "49,987 done", tone: "ok" },
+			],
+		},
+		benefits: [
+			{
+				title: "OpenAI format",
+				description: "client.batches works unchanged.",
+			},
+			{
+				title: "No queue to build",
+				description: "Concurrency, pacing and retries handled.",
+			},
+			{
+				title: "Never billed twice",
+				description: "Only unbilled errors are retried.",
+			},
+			{
+				title: "A model per line",
+				description: "Chat, responses and embeddings.",
+			},
+		],
+		useCases: [
+			{ title: "Evals", description: "Score a test set overnight" },
+			{ title: "Enrichment", description: "Classify or summarize a table" },
+			{ title: "Backfills", description: "Embed an archive in one job" },
+		],
+		codeExample: {
+			title: "Create a batch",
+			language: "bash",
+			code: curl(
+				"/v1/batches",
+				'{"input_file_id": "file-abc123", "endpoint": "/v1/chat/completions", "completion_window": "24h"}',
+			),
+		},
+	},
+	{
 		id: "caching",
 		slug: "caching",
 		title: "Caching",
@@ -361,7 +423,7 @@ claude`,
 		description:
 			"Serve identical requests from the gateway at $0, and use provider prompt caching to discount long, reused prompts.",
 		longDescription:
-			"Gateway caching answers repeated identical requests without calling the provider. Provider cache control discounts the shared prefix of long prompts like system prompts, tools and history.",
+			"Gateway caching answers repeated identical requests without calling the provider. Provider prompt caching discounts the shared prefix of long prompts like system prompts, tools and history, and the gateway adds cache markers for Claude models automatically.",
 		icon: DatabaseZap,
 		category: "routing",
 		docsPath: "/features/caching",
@@ -390,8 +452,8 @@ claude`,
 				description: "Discounted reuse of long prefixes.",
 			},
 			{
-				title: "Configurable TTL",
-				description: "Choose how long responses live.",
+				title: "Cache modes",
+				description: "Automatic, client-managed or off, 5m or 1h TTL.",
 			},
 			{
 				title: "Visible savings",
@@ -429,6 +491,62 @@ claude`,
 	]
 }`,
 		},
+	},
+	{
+		id: "rate-limits",
+		slug: "rate-limits",
+		title: "Rate Limits",
+		subtitle: "Stay inside every upstream quota",
+		description:
+			"Cap requests and tokens per minute or day on providers, models and individual provider keys, and let routing steer around them.",
+		longDescription:
+			"Upstream accounts are quota'd per key and in tokens. Set RPM, RPD, TPM and TPD caps on any provider key: a key at its cap drops out of rotation, routing moves to the next healthy one, and you only see a 429 with Retry-After when nothing else can serve the request.",
+		icon: Hourglass,
+		category: "routing",
+		docsPath: "/resources/rate-limits",
+		visual: {
+			kind: "flow",
+			source: "Your app",
+			hub: "LLM Gateway",
+			targets: [
+				{ label: "openai · key 1", status: "blocked", note: "TPM cap hit" },
+				{ label: "openai · key 2", status: "active", note: "62% of TPM" },
+				{ label: "azure · key 1", status: "idle", note: "standby" },
+			],
+			caption: "Capped keys leave rotation until the window slides",
+		},
+		benefits: [
+			{
+				title: "Requests & tokens",
+				description: "RPM, RPD, TPM and TPD windows.",
+			},
+			{
+				title: "Per provider key",
+				description: "Match each upstream account's quota.",
+			},
+			{
+				title: "Strict, soft or lax",
+				description: "Keep session pins past a cap if you choose.",
+			},
+			{
+				title: "Retry-After",
+				description: "Accurate reset hints on every 429.",
+			},
+		],
+		useCases: [
+			{
+				title: "Shared BYOK keys",
+				description: "Spread traffic across several upstream keys",
+			},
+			{
+				title: "Tier-limited accounts",
+				description: "Strict caps keep traffic inside token quotas",
+			},
+			{
+				title: "Long sessions",
+				description: "Soft caps keep reasoning on the same key",
+			},
+		],
 	},
 	{
 		id: "timeouts",
@@ -511,8 +629,8 @@ claude`,
 				description: "Define your own models in the directory.",
 			},
 			{
-				title: "Same tooling",
-				description: "Keys, logs and analytics included.",
+				title: "Prompt caching",
+				description: "Cache markers forwarded to your endpoint.",
 			},
 			{
 				title: "Compliance aware",
@@ -545,9 +663,9 @@ claude`,
 		title: "Image Generation",
 		subtitle: "Every image model, one endpoint",
 		description:
-			"Generate and edit images through the OpenAI-compatible images API or conversationally through chat completions.",
+			"Generate and edit images through the OpenAI-compatible images API or in chat, with SVG and animated GIF output on models that support them.",
 		longDescription:
-			"Call /v1/images/generations and /v1/images/edits with any supported image model, or generate images inside a chat. Same key, same billing, same logs.",
+			"Call /v1/images/generations and /v1/images/edits with any supported image model, or generate images inside a chat. Supported models return editable SVG or an animated GIF, and take a markup image to guide an edit. Same key, same billing, same logs.",
 		icon: ImageIcon,
 		category: "models",
 		docsPath: "/features/image-generation",
@@ -565,16 +683,22 @@ claude`,
 		},
 		benefits: [
 			{ title: "OpenAI format", description: "Use the images API you know." },
-			{ title: "Edits", description: "Change existing images with a prompt." },
+			{
+				title: "Edits",
+				description: "Change images with a prompt, guided by a markup.",
+			},
 			{ title: "In chat", description: "Generate images mid-conversation." },
 			{
-				title: "Many models",
-				description: "Swap image models with one string.",
+				title: "SVG and GIF",
+				description: "Vector and animated output where supported.",
 			},
 		],
 		useCases: [
 			{ title: "Marketing assets", description: "Heroes, thumbnails and ads" },
-			{ title: "Product mockups", description: "Iterate on visuals fast" },
+			{
+				title: "Icons and stickers",
+				description: "Editable SVG, animated GIF",
+			},
 			{ title: "In-app creation", description: "Let users generate images" },
 		],
 		codeExample: {
@@ -638,9 +762,9 @@ claude`,
 		title: "Speech Generation",
 		subtitle: "Text to natural speech",
 		description:
-			"Generate speech with ElevenLabs, Gemini, OpenAI and Qwen voices through the OpenAI-compatible audio API.",
+			"Turn text into speech with voices from several providers through the OpenAI-compatible audio API.",
 		longDescription:
-			"Send text to /v1/audio/speech, pick a model and voice, and get audio back, streamed or as a file, from several providers behind one API.",
+			"Send text to /v1/audio/speech, pick a model and voice, and get audio back, streamed or as a file. Ask for an SSE stream and the final event carries the usage and cost of the request.",
 		icon: AudioLines,
 		category: "models",
 		docsPath: "/features/speech-generation",
@@ -661,12 +785,15 @@ claude`,
 		},
 		benefits: [
 			{
-				title: "Four providers",
-				description: "ElevenLabs, Gemini, OpenAI, Qwen.",
+				title: "Many providers",
+				description: "One request shape for all of them.",
 			},
 			{ title: "Many voices", description: "Pick the voice per request." },
 			{ title: "Streaming", description: "Start playback before it finishes." },
-			{ title: "OpenAI format", description: "Works with the OpenAI SDK." },
+			{
+				title: "Cost in the stream",
+				description: "Usage on the last SSE event.",
+			},
 		],
 		useCases: [
 			{ title: "Voice apps", description: "Read answers out loud" },
@@ -742,9 +869,9 @@ claude`,
 		title: "Realtime API",
 		subtitle: "Speech-to-speech over WebSockets",
 		description:
-			"Low-latency voice conversations over the OpenAI-compatible /v1/realtime WebSocket endpoint.",
+			"Low-latency voice conversations over the OpenAI-compatible /v1/realtime WebSocket endpoint, with image input and MCP tools on models that support them.",
 		longDescription:
-			"Stream audio in and out with server-side voice activity detection, input transcription and function calling, using the same event protocol as the OpenAI Realtime API.",
+			"Stream audio in and out with server-side voice activity detection, input transcription and function calling, using the same event protocol as the OpenAI Realtime API. Models with vision take image input, and compatible providers take native MCP tools.",
 		icon: Mic,
 		category: "models",
 		docsPath: "/features/realtime",
@@ -761,12 +888,15 @@ claude`,
 		benefits: [
 			{ title: "Low latency", description: "Audio streams both ways." },
 			{ title: "Voice detection", description: "Server-side turn taking." },
-			{ title: "Function calling", description: "Act mid-conversation." },
+			{
+				title: "Tools and MCP",
+				description: "Functions, and MCP where supported.",
+			},
 			{ title: "Browser safe", description: "Short-lived client secrets." },
 		],
 		useCases: [
 			{ title: "Voice agents", description: "Support and booking lines" },
-			{ title: "Live tutoring", description: "Natural back-and-forth" },
+			{ title: "Visual support", description: "Talk through a screenshot" },
 			{ title: "Hands-free apps", description: "Talk instead of type" },
 		],
 		codeExample: {
@@ -1055,7 +1185,7 @@ ws.on("message", (message) => console.log(JSON.parse(message.toString())));`,
 		description:
 			"Get ranked web results with extracted page content from the /v1/search endpoint.",
 		longDescription:
-			"Send a query, get back ranked results with the page content already extracted, filtered by recency if you want. Ideal grounding for agents.",
+			"Send a query, get back ranked results with the page content already extracted, filtered by recency if you want. Set the model to auto and the gateway picks the cheapest active search model. Ideal grounding for agents.",
 		icon: Search,
 		category: "models",
 		docsPath: "/features/search",
@@ -1216,7 +1346,7 @@ ws.on("message", (message) => console.log(JSON.parse(message.toString())));`,
 		description:
 			"Get typed, probabilistic decisions instead of generated text with the OpenAI-compatible /v1/decisions endpoint.",
 		longDescription:
-			"Define choice, yes/no and score questions. Decision models answer each with a typed value and a calibrated probability your code can branch on directly.",
+			"Define choice, yes/no and score questions. Decision models answer each with a typed value and a calibrated probability your code can branch on directly. Build questions and compare models in Lounge's Decision Studio before you write code.",
 		icon: Signpost,
 		category: "models",
 		docsPath: "/features/decisions",
@@ -1345,9 +1475,9 @@ ws.on("message", (message) => console.log(JSON.parse(message.toString())));`,
 		title: "Cost Breakdown",
 		subtitle: "The price of every request, in the response",
 		description:
-			"Get real-time cost information for each request directly in the response's usage object.",
+			"Billed replies report their cost in the usage object, well beyond chat: embeddings, images, audio, search and video.",
 		longDescription:
-			"Every response carries input, output and total cost, streaming included. Track spend per user or feature in code without querying the dashboard.",
+			"Chat, messages, responses, embeddings, images, transcription, speech (as an SSE stream), rerank, OCR, search and video jobs all return usage.cost with an itemized breakdown, streaming included. Track spend per user or feature in code without querying the dashboard.",
 		icon: Receipt,
 		category: "observability",
 		docsPath: "/features/cost-breakdown",
@@ -1369,7 +1499,10 @@ ws.on("message", (message) => console.log(JSON.parse(message.toString())));`,
 			footer: "Real cost, per request",
 		},
 		benefits: [
-			{ title: "In every response", description: "No extra API call." },
+			{
+				title: "Beyond chat",
+				description: "Chat, images, audio, search and more.",
+			},
 			{ title: "Itemized", description: "Input, output and cache costs." },
 			{
 				title: "Streaming too",
@@ -1566,9 +1699,9 @@ console.log(completion.usage?.cost);`,
 		title: "Notifications",
 		subtitle: "Know before it breaks",
 		description:
-			"Get in-app and email alerts for budgets, model retirements, provider issues, compliance changes and organization limits.",
+			"Get in-app and email alerts for budgets, model retirements, price changes, provider issues, compliance changes and organization limits.",
 		longDescription:
-			"Choose in-app, email or both for each alert type. Hear about budget thresholds, retiring models and provider errors before your users do.",
+			"Choose in-app, email or both for each alert type. Hear about budget thresholds, retiring models, price changes and provider errors before your users or your bill do.",
 		icon: Bell,
 		category: "observability",
 		docsPath: "/features/notifications",
@@ -1578,8 +1711,8 @@ console.log(completion.usage?.cost);`,
 			items: [
 				{ title: "API key reached 80% of budget", meta: "now", tone: "warn" },
 				{ title: "A model you use retires soon", meta: "2m", tone: "info" },
+				{ title: "A model you use changed price", meta: "5m", tone: "info" },
 				{ title: "Elevated errors on a provider", meta: "8m", tone: "error" },
-				{ title: "New model allowed by policy", meta: "1h", tone: "ok" },
 			],
 		},
 		benefits: [
@@ -1592,12 +1725,64 @@ console.log(completion.usage?.cost);`,
 				description: "Up to 30 days before a model goes.",
 			},
 			{ title: "Provider health", description: "Errors on providers you use." },
-			{ title: "Your channels", description: "In-app, email or both." },
+			{
+				title: "Price changes",
+				description: "Old and new price, per provider.",
+			},
 		],
 		useCases: [
 			{ title: "Cost control", description: "Catch overspend early" },
 			{ title: "Migrations", description: "Move off retiring models in time" },
 			{ title: "Compliance", description: "Hear about policy changes" },
+		],
+	},
+	{
+		id: "provider-status",
+		slug: "provider-status",
+		title: "Provider Status Pages",
+		subtitle: "Is it them, or is it you?",
+		description:
+			"See the uptime LLM Gateway measures for each provider on real traffic, next to the provider's own status feed where it publishes one.",
+		longDescription:
+			"Every provider has a public status page: a 90-day daily uptime bar measured on gateway traffic and the models that can fail over to another provider, plus official status, components and incidents from the last 90 days where the provider publishes a feed.",
+		icon: HeartPulse,
+		category: "observability",
+		cta: { label: "See live status", href: "/status" },
+		visual: {
+			kind: "feed",
+			title: "Provider status · last 24h",
+			items: [
+				{ title: "Provider A", meta: "99.98% uptime", tone: "ok" },
+				{ title: "Provider B", meta: "99.91% uptime", tone: "ok" },
+				{ title: "Provider C", meta: "degraded", tone: "warn" },
+				{ title: "Provider D", meta: "incident", tone: "error" },
+			],
+		},
+		benefits: [
+			{
+				title: "Official status",
+				description: "From the provider's own feed, where published.",
+			},
+			{
+				title: "Measured uptime",
+				description: "From real gateway traffic, not pings.",
+			},
+			{
+				title: "90-day history",
+				description: "Daily uptime with incidents marked.",
+			},
+			{
+				title: "Failover map",
+				description: "Models another provider can serve.",
+			},
+		],
+		useCases: [
+			{ title: "Incident triage", description: "Check the provider first" },
+			{
+				title: "Vendor reviews",
+				description: "Compare uptime before you commit",
+			},
+			{ title: "Status sharing", description: "Send your team a public link" },
 		],
 	},
 	{
@@ -1969,5 +2154,60 @@ npm install @llmgateway/server
 npm install @llmgateway/elements   # React drop-in components
 npm install @llmgateway/client     # headless / non-React`,
 		},
+	},
+	{
+		id: "airside",
+		slug: "airside",
+		title: "Airside for Providers",
+		subtitle: "List your models on LLM Gateway",
+		description:
+			"The self-serve console where inference providers claim their catalogue entry, file prices, pass preflight checks and get routed traffic.",
+		longDescription:
+			"Airside lets a provider list its fleet, file reviewed prices, set traffic discounts and billing mode, and watch its traffic and incidents. Every listing passes automated preflight checks for usage, streaming and reasoning, and carriers can earn an Airworthy AW-1 certificate that verifies their data handling, jurisdiction and audit claims.",
+		icon: PlaneTakeoff,
+		category: "build",
+		docsPath: "/features/airside",
+		visual: {
+			kind: "feed",
+			title: "Airside · carrier console",
+			items: [
+				{ title: "Preflight: usage & streaming", meta: "passed", tone: "ok" },
+				{ title: "Price filing · 3 models", meta: "in review", tone: "info" },
+				{ title: "Airworthy AW-1", meta: "certified", tone: "ok" },
+				{ title: "Upstream timeouts", meta: "2 incidents", tone: "warn" },
+			],
+		},
+		benefits: [
+			{
+				title: "Self-serve listing",
+				description: "Claim your entry and list your fleet.",
+			},
+			{
+				title: "Preflight checks",
+				description: "Usage, streaming and reasoning verified.",
+			},
+			{
+				title: "Airworthy certificate",
+				description: "Verified data and compliance claims.",
+			},
+			{
+				title: "Flexible billing",
+				description: "Pay-as-you-go, post-billing or payout.",
+			},
+		],
+		useCases: [
+			{
+				title: "New providers",
+				description: "Reach developers without a sales cycle",
+			},
+			{
+				title: "Price changes",
+				description: "File and review new fares in one place",
+			},
+			{
+				title: "Trust signals",
+				description: "Show verified retention and audits",
+			},
+		],
 	},
 ];

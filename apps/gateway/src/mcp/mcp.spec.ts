@@ -42,7 +42,19 @@ describe("MCP endpoint", () => {
 			await client.connect(transport);
 			expect(client.getServerVersion()?.name).toBe("llmgateway");
 			const tools = await client.listTools();
-			expect(tools.tools.map((tool) => tool.name)).toContain("list-models");
+			// New RPC tools need an explicit generation, catalogue or private-read review.
+			expect(tools.tools.map((tool) => tool.name).sort()).toEqual(
+				[
+					"chat",
+					"generate-image",
+					"generate-nano-banana",
+					"get-account",
+					"get-usage",
+					"get-usage-breakdown",
+					"list-image-models",
+					"list-models",
+				].sort(),
+			);
 			const result = await client.callTool({
 				name: "list-models",
 				arguments: { limit: 1 },

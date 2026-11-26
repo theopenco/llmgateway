@@ -4,7 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Wordmark } from "@/components/ui/wordmark";
 
 export type SeoVariant =
-	"chat" | "image" | "video" | "audio" | "group" | "canvas" | "realtime";
+	| "chat"
+	| "image"
+	| "video"
+	| "audio"
+	| "decisions"
+	| "group"
+	| "canvas"
+	| "realtime";
 
 interface VariantContent {
 	h1: string;
@@ -27,6 +34,7 @@ const variants: Record<SeoVariant, VariantContent> = {
 			{ href: "/image", label: "AI image generation" },
 			{ href: "/video", label: "AI video generation" },
 			{ href: "/audio", label: "AI audio generation" },
+			{ href: "/decisions", label: "Decision Studio — typed answers" },
 			{ href: "/group", label: "Bring a topic to the AI council" },
 			{ href: "/canvas", label: "Canvas — UI from JSON" },
 			{ href: "/compare", label: "Lounge vs ChatGPT, Claude & more" },
@@ -79,6 +87,22 @@ const variants: Record<SeoVariant, VariantContent> = {
 			{ href: "/", label: "Lounge AI chat" },
 			{ href: "/image", label: "AI image generation" },
 			{ href: "/video", label: "AI video generation" },
+			{ href: "/group", label: "Bring a topic to the AI council" },
+		],
+	},
+	decisions: {
+		h1: "Decision Studio — typed answers with probabilities",
+		intro:
+			"Run decision models on your own text or images. Ask yes/no, pick-one, and rating questions, and get back probabilities you can threshold on instead of prose you have to parse.",
+		bullets: [
+			"Build predicate, choice, and score questions in the browser and run them on gpt-6-luna-decisions, Microsoft-Decision-1, and more.",
+			"Compare up to three decision models on the same input and see how their probabilities differ.",
+			"Copy any text run as a /v1/decisions request and reproduce it with the LLM Gateway API; image runs get placeholders for the attached images.",
+		],
+		related: [
+			{ href: "/", label: "Lounge AI chat" },
+			{ href: "/image", label: "AI image generation" },
+			{ href: "/audio", label: "AI audio generation" },
 			{ href: "/group", label: "Bring a topic to the AI council" },
 		],
 	},

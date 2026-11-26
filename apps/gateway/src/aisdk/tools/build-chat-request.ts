@@ -2,6 +2,7 @@ import {
 	unsupportedSettingWarning,
 	unsupportedToolWarning,
 } from "@/aisdk/spec.js";
+import { getClientSafetyIdentifierParams } from "@/lib/safety-identifier.js";
 
 import { convertPromptToMessages } from "./convert-prompt-to-chat.js";
 import { convertToolsToChat } from "./convert-tools-to-chat.js";
@@ -120,6 +121,17 @@ export function buildChatRequest({
 				continue;
 			}
 			body[key] = value;
+		}
+	}
+
+	// Vercel AI Gateway's end-user field, unless an explicit llmgateway
+	// safety_identifier is set. The chat handler only logs it.
+	if (body.safety_identifier === undefined || body.safety_identifier === null) {
+		const { safety_identifier } = getClientSafetyIdentifierParams({
+			user: options.providerOptions?.gateway?.user,
+		});
+		if (safety_identifier !== undefined) {
+			body.safety_identifier = safety_identifier;
 		}
 	}
 

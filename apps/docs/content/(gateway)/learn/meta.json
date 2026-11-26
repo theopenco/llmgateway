@@ -4,6 +4,7 @@
 	"icon": "BookOpen",
 	"pages": [
 		"index",
+		"autopilot",
 		"---AI Gateway---",
 		"api-keys",
 		"provider-keys",
@@ -17,6 +18,7 @@
 		"dynamic-routes",
 		"master-keys",
 		"---Observability---",
+		"projects",
 		"dashboard",
 		"activity",
 		"agents",
@@ -33,6 +35,7 @@
 		"invoices",
 		"refunds",
 		"referrals",
+		"wrapped",
 		"policies",
 		"org-preferences",
 		"team"

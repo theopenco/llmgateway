@@ -6,19 +6,24 @@ import { ModelDetailClient } from "@/components/model-detail-client";
 import { Button } from "@/components/ui/button";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
+import { CATALOG_USAGE_MODE_DEFAULT, parseUsageMode } from "@/lib/usage-mode";
 
 export default async function ModelDetailPage({
 	params,
 	searchParams,
 }: {
 	params: Promise<{ modelId: string }>;
-	searchParams?: Promise<{ window?: string }>;
+	searchParams?: Promise<{ window?: string; mode?: string }>;
 }) {
 	await requireSession();
 
 	const { modelId } = await params;
 	const searchParamsData = await searchParams;
 	const window = searchParamsData?.window;
+	const mode = parseUsageMode(
+		searchParamsData?.mode,
+		CATALOG_USAGE_MODE_DEFAULT,
+	);
 	const decodedModelId = decodeURIComponent(modelId);
 
 	const $api = await createServerApiClient();
@@ -27,6 +32,7 @@ export default async function ModelDetailPage({
 			path: { modelId: encodeURIComponent(decodedModelId) },
 			query: {
 				...(window ? { window } : {}),
+				mode,
 			} as any,
 		},
 	});

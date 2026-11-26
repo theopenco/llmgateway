@@ -23,6 +23,7 @@ export interface RealtimeTurnDenial {
 	requestedModel: string;
 	source: string | null;
 	userAgent: string | undefined;
+	clientSafetyIdentifier?: string;
 	code: string;
 	message: string;
 }
@@ -45,6 +46,7 @@ export async function logRealtimeTurnDenial(
 		requestedModel: denial.requestedModel,
 		source: denial.source,
 		userAgent: denial.userAgent,
+		clientSafetyIdentifier: denial.clientSafetyIdentifier,
 		customHeaders: {},
 		message: denial.message,
 		cause: denial.code,

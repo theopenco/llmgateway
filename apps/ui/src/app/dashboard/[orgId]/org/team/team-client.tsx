@@ -6,6 +6,9 @@ import {
 	KeyRound,
 	MoreHorizontal,
 	TrendingUp,
+	ArrowDown,
+	ArrowUp,
+	ArrowUpDown,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -90,6 +93,7 @@ import {
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode } from "@/lib/usage-mode";
+import { cn } from "@/lib/utils";
 
 import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET, Time } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
@@ -98,10 +102,67 @@ import {
 	isProjectScopedRole,
 } from "@llmgateway/shared/organization-roles";
 
+import { nextMemberSort, sortMembers, isUsageColumn } from "./member-sort";
 import { OrganizationTeamsClient } from "./organization-teams-client";
 import { TeamTabs } from "./team-tabs";
 
+import type { MemberSort, MemberSortColumn } from "./member-sort";
 import type { Route } from "next";
+import type { ReactNode } from "react";
+
+function SortableTableHead({
+	column,
+	sort,
+	onSort,
+	align = "left",
+	extra,
+	children,
+}: {
+	column: MemberSortColumn;
+	sort: MemberSort | null;
+	onSort: (column: MemberSortColumn) => void;
+	align?: "left" | "right";
+	extra?: ReactNode;
+	children: ReactNode;
+}) {
+	const direction = sort?.column === column ? sort.direction : null;
+	const Icon =
+		direction === "asc"
+			? ArrowUp
+			: direction === "desc"
+				? ArrowDown
+				: ArrowUpDown;
+	return (
+		<TableHead
+			className={cn(align === "right" && "text-right")}
+			aria-sort={
+				direction === "asc"
+					? "ascending"
+					: direction === "desc"
+						? "descending"
+						: "none"
+			}
+		>
+			<span className="inline-flex items-center gap-1.5">
+				<button
+					type="button"
+					onClick={() => onSort(column)}
+					className="hover:text-foreground focus-visible:ring-ring -mx-1 inline-flex items-center gap-1 rounded px-1 font-medium focus-visible:outline-none focus-visible:ring-2"
+				>
+					{children}
+					<Icon
+						className={cn(
+							"h-3.5 w-3.5",
+							!direction && "text-muted-foreground/60",
+						)}
+						aria-hidden
+					/>
+				</button>
+				{extra}
+			</span>
+		</TableHead>
+	);
+}
 
 function ApiKeyAnalyticsCallout({ href }: { href: Route }) {
 	return (
@@ -755,6 +816,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const [budgetMember, setBudgetMember] = useState<TeamMember | null>(null);
 	const [accessMember, setAccessMember] = useState<TeamMember | null>(null);
 	const [defaultLimitsOpen, setDefaultLimitsOpen] = useState(false);
+	const [selectedSort, setSelectedSort] = useState<MemberSort | null>(null);
 	const defaultDeveloperBudget = data?.defaultDeveloperBudget ?? null;
 	const pendingInvites = data?.invites ?? [];
 	const seatLimit = data?.seatLimit ?? 5;
@@ -829,6 +891,22 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 			member.userId,
 			applyUsageMode(member, usageMode),
 		]),
+	);
+
+	// Heaviest spenders first until the admin picks a column. A usage sort is
+	// dropped when usage columns are hidden.
+	const memberSort: MemberSort | null =
+		selectedSort && (showUsage || !isUsageColumn(selectedSort.column))
+			? selectedSort
+			: showUsage
+				? { column: "cost", direction: "desc" }
+				: null;
+	const handleSort = (column: MemberSortColumn) =>
+		setSelectedSort(nextMemberSort(memberSort, column));
+	const sortedMembers = sortMembers(
+		data?.members ?? [],
+		memberSort,
+		usageByUserId,
 	);
 
 	const usageColumnCount = 4;
@@ -1156,23 +1234,71 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 								<Table>
 									<TableHeader>
 										<TableRow>
-											<TableHead>Name</TableHead>
-											<TableHead>Email</TableHead>
-											<TableHead>
-												<span className="inline-flex items-center gap-1.5">
-													Role
-													<RolePermissionsHoverCard />
-												</span>
-											</TableHead>
-											<TableHead>Team</TableHead>
+											<SortableTableHead
+												column="name"
+												sort={memberSort}
+												onSort={handleSort}
+											>
+												Name
+											</SortableTableHead>
+											<SortableTableHead
+												column="email"
+												sort={memberSort}
+												onSort={handleSort}
+											>
+												Email
+											</SortableTableHead>
+											<SortableTableHead
+												column="role"
+												sort={memberSort}
+												onSort={handleSort}
+												extra={<RolePermissionsHoverCard />}
+											>
+												Role
+											</SortableTableHead>
+											<SortableTableHead
+												column="team"
+												sort={memberSort}
+												onSort={handleSort}
+											>
+												Team
+											</SortableTableHead>
 											<TableHead>Projects</TableHead>
 											<TableHead>Limits</TableHead>
 											{showUsage && (
 												<>
-													<TableHead className="text-right">Cost</TableHead>
-													<TableHead className="text-right">Tokens</TableHead>
-													<TableHead className="text-right">Requests</TableHead>
-													<TableHead className="text-right">API keys</TableHead>
+													<SortableTableHead
+														column="cost"
+														sort={memberSort}
+														onSort={handleSort}
+														align="right"
+													>
+														Cost
+													</SortableTableHead>
+													<SortableTableHead
+														column="totalTokens"
+														sort={memberSort}
+														onSort={handleSort}
+														align="right"
+													>
+														Tokens
+													</SortableTableHead>
+													<SortableTableHead
+														column="requestCount"
+														sort={memberSort}
+														onSort={handleSort}
+														align="right"
+													>
+														Requests
+													</SortableTableHead>
+													<SortableTableHead
+														column="apiKeyCount"
+														sort={memberSort}
+														onSort={handleSort}
+														align="right"
+													>
+														API keys
+													</SortableTableHead>
 												</>
 											)}
 											<TableHead className="text-right">Actions</TableHead>
@@ -1189,7 +1315,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 												</TableCell>
 											</TableRow>
 										) : (
-											data?.members.map((member) => {
+											sortedMembers.map((member) => {
 												const usage = usageByUserId.get(member.userId);
 												const displayName = member.user.name ?? "—";
 												return (

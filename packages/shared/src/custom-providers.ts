@@ -74,3 +74,9 @@ export const PROVIDER_HOSTNAME_LABEL_MESSAGE =
 export function isProviderHostnameLabel(value: string): boolean {
 	return PROVIDER_HOSTNAME_LABEL_REGEX.test(value);
 }
+
+// A Cloudflare account id is a URL path segment of the Workers AI endpoint.
+export const CLOUDFLARE_ACCOUNT_ID_REGEX = /^[0-9a-f]{32}$/;
+
+export const CLOUDFLARE_ACCOUNT_ID_MESSAGE =
+	"Cloudflare account ID must be 32 lowercase hex characters";

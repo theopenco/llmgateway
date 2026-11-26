@@ -41,6 +41,7 @@ import {
 	tables,
 } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
+import { deferDownloadsToGateway } from "@llmgateway/shared/ai-sdk-download";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 import { replyToEmail } from "@llmgateway/shared/email";
@@ -472,7 +473,7 @@ async function persistMessage(
 const chatSupportMessageSchema = z.object({
 	id: z.string().optional(),
 	role: z.enum(["system", "developer", "user", "assistant"], {
-		errorMap: () => ({ message: "Invalid message role" }),
+		error: "Invalid message role",
 	}),
 	parts: z.array(z.object({ type: z.string() }).passthrough()),
 	metadata: z.unknown().optional(),
@@ -771,6 +772,7 @@ publicChatSupport.post("/", async (c) => {
 	let generationOutcome: "completed" | "empty" = "empty";
 	let completionDetails: Record<string, unknown> = {};
 	const result = streamText({
+		experimental_download: deferDownloadsToGateway,
 		model: llmgateway.chat("smart"),
 		instructions: system,
 		messages: modelMessages,

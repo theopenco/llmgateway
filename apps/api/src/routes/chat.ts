@@ -21,11 +21,13 @@ import type { ServerTypes } from "@/vars.js";
 
 const chat = new OpenAPIHono<ServerTypes>();
 
-// Onboarding is meant to be tried a couple of times, not looped: an account that
-// never clicks "Go to Dashboard" would otherwise keep making calls we don't
-// charge for.
+// Onboarding is meant to be tried a couple of times, not looped. Only accounts
+// younger than the window are sponsored, and the counter outlives that age, so
+// an account that never finishes onboarding gets SPONSORED_CALL_LIMIT calls in
+// its lifetime instead of a fresh allowance every day.
 const SPONSORED_CALL_LIMIT = 5;
-const SPONSORED_CALL_WINDOW_SECONDS = 24 * 60 * 60;
+const SPONSORED_CALL_WINDOW_SECONDS = 7 * 24 * 60 * 60;
+const SPONSORED_ACCOUNT_MAX_AGE_MS = SPONSORED_CALL_WINDOW_SECONDS * 1000;
 
 function sponsoredCallKey(userId: string) {
 	return `onboarding_sponsored_calls:${userId}`;
@@ -37,13 +39,17 @@ function sponsoredCallKey(userId: string) {
 // against an inflated count and hand back nothing, and the key's lifetime would
 // drift away from the window it is meant to measure. Setting the expiry in the
 // same script also closes the gap where a crash between INCR and EXPIRE would
-// leave a counter that never resets.
+// leave a counter that never resets. Every attempt pushes the expiry a full
+// window out, so a counter cannot lapse while its account is still eligible,
+// including counters created with a shorter TTL.
 const RESERVE_SPONSORED_CALL = `
 local used = tonumber(redis.call('get', KEYS[1]) or '0')
-if used >= tonumber(ARGV[1]) then return 0 end
-if redis.call('incr', KEYS[1]) == 1 then
+if used >= tonumber(ARGV[1]) then
 	redis.call('expire', KEYS[1], ARGV[2])
+	return 0
 end
+redis.call('incr', KEYS[1])
+redis.call('expire', KEYS[1], ARGV[2])
 return 1
 `;
 
@@ -157,17 +163,21 @@ chat.openapi(completionRoute, async (c) => {
 			(total, message) => total + message.content.length,
 			0,
 		);
-		const sponsorable = Boolean(
+		const sponsorUser =
 			onboarding &&
 			sponsorSecret &&
 			sessionUser &&
-			promptChars <= ONBOARDING_MAX_PROMPT_CHARS &&
-			!(
-				await db.query.user.findFirst({
-					where: { id: { eq: sessionUser.id } },
-					columns: { onboardingCompleted: true },
-				})
-			)?.onboardingCompleted,
+			promptChars <= ONBOARDING_MAX_PROMPT_CHARS
+				? await db.query.user.findFirst({
+						where: { id: { eq: sessionUser.id } },
+						columns: { onboardingCompleted: true, createdAt: true },
+					})
+				: undefined;
+		const sponsorable = Boolean(
+			sponsorUser &&
+			!sponsorUser.onboardingCompleted &&
+			Date.now() - sponsorUser.createdAt.getTime() <
+				SPONSORED_ACCOUNT_MAX_AGE_MS,
 		);
 		// Only consumed once we know the request would actually be sponsored, so an
 		// ordinary call never burns the allowance.

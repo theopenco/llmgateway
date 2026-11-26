@@ -1,4 +1,12 @@
-import { isPremiumModel } from "@/model-categories.js";
+import { getChatPlanMinimumTier } from "@/chat-plans.js";
+import {
+	isPremiumModel,
+	discountLookupFromMappings,
+} from "@/model-categories.js";
+
+import { expandVirtualModels } from "@llmgateway/models";
+
+import type { BatchEndpoint } from "@llmgateway/models";
 
 export interface TimeBasedTokenPrices {
 	inputPrice: string;
@@ -121,6 +129,7 @@ export interface ApiModelProviderMapping {
 	realtimeTranscription?: boolean | null;
 	realtimeTranscriptionTurnDetection?: boolean | null;
 	supportedVoices?: string[] | null;
+	batchEndpoints?: BatchEndpoint[] | null;
 	supportedVideoSizes: string[] | null;
 	supportedVideoDurationsSeconds: number[] | null;
 	supportedVideoDurationsSecondsImageToVideo?: number[] | null;
@@ -150,6 +159,8 @@ export interface ApiModelProviderMapping {
 	} | null;
 	serviceTiers?: string[] | null;
 	discount: string | null;
+	/** Cost types the discount leaves at full price, e.g. "web_search". */
+	discountExcludedCostTypes?: string[];
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	supportedParameters: string[] | null;
 	deprecatedAt: string | null;
@@ -189,11 +200,19 @@ export interface ApiModel {
 	 */
 	premium: boolean;
 	/**
+	 * Cheapest Lounge membership that includes the model, computed with the
+	 * same function the gateway uses to gate the Starter tier. Set by
+	 * fetchModelsFromApi; absent on surfaces that build models locally.
+	 */
+	loungePlan?: "starter" | "plus";
+	/**
 	 * Org directory only: distinguishes catalogue models from models defined in
 	 * the organization's own custom-model catalog. Absent on public surfaces
 	 * (treated as "catalog").
 	 */
 	source?: "catalog" | "custom";
+	/** Current canonical cut of a moving alias. */
+	virtualModelTarget?: string;
 }
 
 type NextFetchInit = RequestInit & { next?: { revalidate?: number } };
@@ -226,11 +245,18 @@ export async function fetchModelsFromApi(
 			return memo?.data ?? [];
 		}
 		const data = await response.json();
-		const models: Omit<ApiModel, "premium">[] = data.models ?? [];
-		const withPremium = models.map((model) => ({
-			...model,
-			premium: isPremiumModel(model.id),
-		}));
+		const models: Omit<ApiModel, "premium" | "loungePlan">[] =
+			data.models ?? [];
+		const withPremium = expandVirtualModels(
+			models.map((model) => ({
+				...model,
+				premium: isPremiumModel(
+					model.id,
+					discountLookupFromMappings(model.mappings),
+				),
+				loungePlan: getChatPlanMinimumTier(model.id),
+			})),
+		);
 		modelsMemo.set(apiBackendUrl, {
 			data: withPremium,
 			fetchedAt: Date.now(),

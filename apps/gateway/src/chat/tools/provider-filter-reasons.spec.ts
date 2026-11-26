@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { REASONING_EFFORTS } from "@llmgateway/models";
 import {
 	ROUTING_EXCLUSION_REASONS,
 	routingExclusionReasonMessage,
@@ -9,6 +10,7 @@ import {
 	exclusionReason,
 	getProviderFilterReasons,
 	mergeFilteredProvider,
+	preferDeclaredReasoningEffortProviders,
 	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 	type FilteredProvider,
@@ -104,9 +106,15 @@ describe("getProviderFilterReasons", () => {
 		expect(getProviderFilterReasons(mapping(), { hasTools: true })).toEqual([
 			exclusionReason("tools"),
 		]);
+		// Chat mappings without native search get gateway-run search.
 		expect(
 			getProviderFilterReasons(mapping({ tools: true }), {
 				hasTools: true,
+				webSearchTool: true,
+			}),
+		).toEqual([]);
+		expect(
+			getProviderFilterReasons(mapping({ imageGenerations: true }), {
 				webSearchTool: true,
 			}),
 		).toEqual([exclusionReason("web_search")]);
@@ -573,5 +581,178 @@ describe("preferToolChoiceCapableProviders", () => {
 				reasoningEffort: "none",
 			}),
 		).toEqual([canopywaveLike, capable]);
+	});
+});
+
+describe("declared reasoning efforts", () => {
+	const restricted = mapping({
+		reasoning: true,
+		reasoningEfforts: ["none", "low", "high", "xhigh", "max"],
+	});
+
+	it.each(REASONING_EFFORTS)(
+		"checks the exact requested effort %s",
+		(reasoningEffort) => {
+			expect(getProviderFilterReasons(restricted, { reasoningEffort })).toEqual(
+				restricted.reasoningEfforts?.includes(reasoningEffort)
+					? []
+					: [exclusionReason("reasoning_effort")],
+			);
+		},
+	);
+
+	it("does not substitute another effort when none of the mappings accepts it", () => {
+		const candidates = [
+			restricted,
+			mapping({ reasoning: true, reasoningEfforts: ["high"] }),
+		];
+		expect(
+			candidates.filter(
+				(provider) =>
+					getProviderFilterReasons(provider, { reasoningEffort: "medium" })
+						.length === 0,
+			),
+		).toEqual([]);
+	});
+
+	it("excludes an always-thinking mapping when none is requested", () => {
+		expect(
+			getProviderFilterReasons(
+				mapping({ reasoning: true, reasoningEfforts: ["high", "max"] }),
+				{ reasoningEffort: "none" },
+			),
+		).toEqual([exclusionReason("reasoning_effort")]);
+	});
+
+	it("keeps non-reasoning mappings eligible for none", () => {
+		expect(
+			getProviderFilterReasons(mapping({ reasoning: false }), {
+				reasoningEffort: "none",
+			}),
+		).toEqual([]);
+	});
+
+	it("preserves legacy mappings with undeclared efforts", () => {
+		expect(
+			getProviderFilterReasons(mapping({ reasoning: true }), {
+				reasoningEffort: "medium",
+			}),
+		).toEqual([]);
+	});
+
+	it("rejects explicit efforts when the declared list is empty", () => {
+		expect(
+			getProviderFilterReasons(
+				mapping({ reasoning: true, reasoningEfforts: [] }),
+				{ reasoningEffort: "medium" },
+			),
+		).toEqual([exclusionReason("reasoning_effort")]);
+	});
+
+	it("does not constrain a request without an effort", () => {
+		expect(getProviderFilterReasons(restricted, {})).toEqual([]);
+	});
+
+	it("evaluates regional mappings independently", () => {
+		const candidates = [
+			mapping({ ...restricted, region: "us-east-1" }),
+			mapping({
+				...restricted,
+				region: "eu-west-1",
+				reasoningEfforts: ["medium", "high"],
+			}),
+		];
+		expect(
+			candidates
+				.filter(
+					(provider) =>
+						getProviderFilterReasons(provider, { reasoningEffort: "medium" })
+							.length === 0,
+				)
+				.map((provider) => provider.region),
+		).toEqual(["eu-west-1"]);
+	});
+});
+
+describe("preferDeclaredReasoningEffortProviders", () => {
+	const undeclared = mapping({ providerId: "undeclared", reasoning: true });
+	const declared = mapping({
+		providerId: "declared",
+		reasoning: true,
+		reasoningEfforts: ["none", "medium"],
+	});
+
+	it("prefers a mapping that declares the requested effort", () => {
+		const filteredOut: FilteredProvider[] = [];
+		expect(
+			preferDeclaredReasoningEffortProviders(
+				[undeclared, declared],
+				{ reasoningEffort: "medium" },
+				filteredOut,
+			),
+		).toEqual([declared]);
+		expect(filteredOut).toEqual([
+			{
+				providerId: "undeclared",
+				reasons: [
+					"Does not declare support for the requested reasoning effort",
+				],
+				codes: ["reasoning_effort"],
+			},
+		]);
+	});
+
+	it("counts a non-reasoning mapping as declaring none", () => {
+		const plain = mapping({ providerId: "plain", reasoning: false });
+		expect(
+			preferDeclaredReasoningEffortProviders([undeclared, plain], {
+				reasoningEffort: "none",
+			}),
+		).toEqual([plain]);
+	});
+
+	it("keeps undeclared mappings when no mapping declares the effort", () => {
+		const filteredOut: FilteredProvider[] = [];
+		expect(
+			preferDeclaredReasoningEffortProviders(
+				[undeclared],
+				{ reasoningEffort: "max" },
+				filteredOut,
+			),
+		).toEqual([undeclared]);
+		expect(filteredOut).toEqual([]);
+	});
+
+	it("does not record a provider that still serves through another region", () => {
+		const undeclaredRegion = mapping({
+			...undeclared,
+			providerId: "declared",
+			region: "us",
+		});
+		const declaredRegion = mapping({ ...declared, region: "eu" });
+		const filteredOut: FilteredProvider[] = [];
+		expect(
+			preferDeclaredReasoningEffortProviders(
+				[undeclaredRegion, declaredRegion],
+				{ reasoningEffort: "medium" },
+				filteredOut,
+			),
+		).toEqual([declaredRegion]);
+		expect(filteredOut).toEqual([]);
+	});
+
+	it("passes the list through without an effort", () => {
+		expect(
+			preferDeclaredReasoningEffortProviders([undeclared, declared], {}),
+		).toEqual([undeclared, declared]);
+	});
+
+	it("keeps the provider a replay's reasoning is pinned to", () => {
+		expect(
+			preferDeclaredReasoningEffortProviders([undeclared, declared], {
+				reasoningEffort: "medium",
+				reasoningPinnedProvider: "undeclared",
+			}),
+		).toEqual([undeclared, declared]);
 	});
 });

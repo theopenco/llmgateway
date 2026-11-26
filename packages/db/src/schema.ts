@@ -27,12 +27,19 @@ import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type {
 	Quantization,
 	ProviderApiFormat,
+	RequestApiFormat,
 	ToolChoiceMode,
 	WebSearchFormat,
 	ProviderAccessRestriction,
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
+import type {
+	DecisionAnswer,
+	DecisionInputImage,
+	DecisionQuestion,
+	DecisionUsage,
+} from "@llmgateway/shared/decision-studio";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 import type {
 	EmailCategory,
@@ -270,10 +277,11 @@ export const organization = snakeCase.table(
 		// small base64 data URL (raster image only, resized client-side) so no
 		// object storage is needed. Null = no logo, UI falls back to initials.
 		logo: text(),
-		// Opaque, random per-organization identifier that was forwarded to
-		// providers as the abuse-attribution identifier before the per-key
-		// `api_key.safety_identifier` replaced it. Kept, unique, so abuse reports
-		// quoting an older value still map back to exactly one organization.
+		// Opaque, random per-organization identifier forwarded to providers as the
+		// abuse-attribution identifier (OpenAI `safety_identifier`, Anthropic
+		// `metadata.user_id`), stable across API keys and key rotation. Unique, so
+		// a provider abuse report maps back to exactly one organization. Not the
+		// org id, which appears in dashboard URLs and API responses.
 		safetyIdentifier: text()
 			.notNull()
 			.default(sql`'org_' || replace(gen_random_uuid()::text, '-', '')`),
@@ -343,6 +351,9 @@ export const organization = snakeCase.table(
 		// "developer". Stored lowercase, no leading "@". Unique so a domain can
 		// only be claimed by one organization.
 		ssoAutoJoinDomain: text(),
+		// Engine the gateway searches with for providers without native web
+		// search (GATEWAY_WEB_SEARCH_ENGINES). Null = the default engine.
+		webSearchEngine: text(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
@@ -733,6 +744,14 @@ export const transaction = snakeCase.table(
 		uniqueIndex("transaction_stripe_invoice_id_unique")
 			.on(table.stripeInvoiceId)
 			.where(sql`${table.stripeInvoiceId} IS NOT NULL`),
+		// Backstop for top-up idempotency: at most one completed credit_topup
+		// row per PaymentIntent, even if app-level locking is bypassed. Failed
+		// attempts don't count, so a payment can fail and later succeed.
+		uniqueIndex("transaction_credit_topup_payment_intent_unique")
+			.on(table.stripePaymentIntentId)
+			.where(
+				sql`${table.type} = 'credit_topup' AND ${table.status} = 'completed'`,
+			),
 	],
 );
 
@@ -973,6 +992,7 @@ export const notificationTypes = [
 	"compliance_downgrade",
 	"org_limit",
 	"data_stream",
+	"model_price_change",
 ] as const;
 
 const emailCategories = [
@@ -1092,8 +1112,16 @@ export const enterpriseContactSubmission = snakeCase.table(
 		clientTimestampMs: text(),
 		ipAddress: text(),
 		userAgent: text(),
+		// "unconfirmed": passed spam checks, waiting for the submitter to confirm
+		// their email before it reaches sales.
 		spamFilterStatus: text({
-			enum: ["pending", "rejected", "delivered", "delivery_failed"],
+			enum: [
+				"pending",
+				"rejected",
+				"unconfirmed",
+				"delivered",
+				"delivery_failed",
+			],
 		})
 			.notNull()
 			.default("pending"),
@@ -1231,12 +1259,54 @@ export const crmActivity = snakeCase.table(
 		// Tasks only: when it is due and when it was ticked off.
 		dueAt: timestamp(),
 		completedAt: timestamp(),
+		// Idempotency key for activities created from another record:
+		// `gmail:<messageId>` for mail sent from the CRM, `gcal:<uid>` for
+		// held meetings, `lead:<submissionId>` for an inquiry's follow-up, so
+		// repeated syncs never duplicate.
+		externalRef: text(),
 	},
 	(table) => [
 		index("crm_activity_account_id_idx").on(table.accountId, table.createdAt),
 		index("crm_activity_due_at_idx")
 			.on(table.dueAt)
 			.where(sql`completed_at IS NULL`),
+		uniqueIndex("crm_activity_external_ref_idx")
+			.on(table.externalRef)
+			.where(sql`external_ref IS NOT NULL`),
+	],
+);
+
+export const CRM_INTEGRATION_PROVIDERS = ["gmail"] as const;
+export type CrmIntegrationProvider = (typeof CRM_INTEGRATION_PROVIDERS)[number];
+
+// A mailbox connected to the CRM by an admin. Credentials are sealed with the
+// connector cipher; `shared` lets other admins send mail from it (contact@ is
+// shared, personal inboxes are not). Threads and meetings with CRM contacts
+// are readable from every connection.
+export const crmIntegration = snakeCase.table(
+	"crm_integration",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		provider: text({ enum: CRM_INTEGRATION_PROVIDERS }).notNull(),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Mailbox address.
+		accountEmail: text().notNull(),
+		displayName: text(),
+		credentials: text().notNull(),
+		shared: boolean().notNull().default(false),
+	},
+	(table) => [
+		uniqueIndex("crm_integration_provider_email_idx").on(
+			table.provider,
+			table.accountEmail,
+		),
 	],
 );
 
@@ -1868,6 +1938,7 @@ export const apiKey = snakeCase.table(
 		// Platform keys may be long-lived; browser-session expiry now lives on
 		// end_user_session.expires_at.
 		expiresAt: timestamp(),
+		providerCompliancePolicy: json().$type<ProviderCompliancePolicy>(),
 		usageLimit: decimal(),
 		usage: decimal().notNull().default("0"),
 		periodUsageLimit: decimal(),
@@ -1883,21 +1954,11 @@ export const apiKey = snakeCase.table(
 		createdBy: text()
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
-		// Opaque, random per-key identifier forwarded to providers as the
-		// abuse-attribution identifier (OpenAI `safety_identifier`, Anthropic
-		// `metadata.user_id`), so a provider abuse report maps back to exactly one
-		// API key. Not the key id, which appears in dashboard URLs and API
-		// responses. Database-generated so every insert path gets one.
-		safetyIdentifier: text()
-			.notNull()
-			.default(sql`'key_' || replace(gen_random_uuid()::text, '-', '')`),
 	},
 	(table) => [
 		index("api_key_project_id_idx").on(table.projectId),
 		index("api_key_created_by_idx").on(table.createdBy),
 		index("api_key_key_type_expires_at_idx").on(table.keyType, table.expiresAt),
-		// Reverse lookup for provider abuse reports, which quote the identifier.
-		uniqueIndex("api_key_safety_identifier_uidx").on(table.safetyIdentifier),
 		uniqueIndex("api_key_end_user_customer_wallet_unique")
 			.on(table.endCustomerWalletId)
 			.where(
@@ -2090,6 +2151,20 @@ export const masterKey = snakeCase.table(
 	],
 );
 
+/** One model's caps on a provider key; a NULL or missing window is uncapped. */
+export interface ProviderKeyModelRateLimit {
+	maxRpm?: number | null;
+	maxRpd?: number | null;
+	maxTpm?: number | null;
+	maxTpd?: number | null;
+}
+
+/** Per-model provider key caps, keyed by canonical model id. */
+export type ProviderKeyModelRateLimits = Record<
+	string,
+	ProviderKeyModelRateLimit
+>;
+
 export interface ProviderKeyOptions {
 	aws_bedrock_region_prefix?: "us." | "global." | "eu." | "apac.";
 	aws_bedrock_region?:
@@ -2110,14 +2185,19 @@ export interface ProviderKeyOptions {
 	azure_deployment_type?: "openai" | "ai-foundry";
 	azure_validation_model?: string;
 	azure_deployment_name?: string;
-	azure_ai_foundry_resource?: string;
-	azure_ai_foundry_api_version?: string;
 	azure_anthropic_resource?: string;
-	alibaba_region?: "singapore" | "eu-frankfurt" | "us-virginia" | "cn-beijing";
+	alibaba_region?:
+		| "singapore"
+		| "eu-frankfurt"
+		| "us-virginia"
+		| "cn-beijing"
+		| "cn-hongkong"
+		| "ap-tokyo";
 	/**
 	 * Model Studio workspace id, required for regions served only by the
 	 * workspace-dedicated `{WorkspaceId}.<region>.maas.aliyuncs.com` host
-	 * (Frankfurt). Ignored by regions that have a shared DashScope domain.
+	 * (Frankfurt, Hong Kong, Tokyo). Ignored by regions that have a shared
+	 * DashScope domain.
 	 */
 	alibaba_workspace_id?: string;
 	aws_mantle_region?: "us-east-1" | "us-east-2" | "us-west-2";
@@ -2126,6 +2206,7 @@ export interface ProviderKeyOptions {
 	vertex_openai_project_id?: string;
 	vertex_openai_region?: "global";
 	vertex_anthropic_region?: string;
+	cloudflare_account_id?: string;
 	/**
 	 * Managed (platform-owned) credential settings, keyed by the logical env
 	 * keys a provider declares in its catalogue `env` block (`baseUrl`,
@@ -2191,6 +2272,9 @@ export const providerKey = snakeCase.table(
 		// When true (custom providers only), caller-supplied Anthropic-style
 		// `cache_control` markers are forwarded upstream instead of stripped.
 		forwardCacheControl: boolean().notNull().default(false),
+		// Managed only: when false, the API key's safety identifier is not sent
+		// upstream on requests this credential serves. Ignored for BYOK keys.
+		forwardSafetyIdentifier: boolean().notNull().default(true),
 		// Custom providers only. See ProviderKeyComplianceAttestation.
 		complianceAttestation: jsonb().$type<ProviderKeyComplianceAttestation>(),
 		// "pending_deletion" is a deleted key inside its teardown grace period:
@@ -2225,6 +2309,11 @@ export const providerKey = snakeCase.table(
 		variant: text({ enum: ["default", "enterprise", "plans"] })
 			.notNull()
 			.default("default"),
+		// Managed only: organizations this credential is dedicated to. An
+		// organization with an active dedicated credential for the provider uses
+		// only those for its credits-mode traffic, and a dedicated credential
+		// never serves any other organization. NULL = shared fleet.
+		dedicatedOrganizationIds: text().array(),
 		// Region a managed credential is scoped to, mirroring the
 		// `{ENV_VAR}__{REGION}` overrides. NULL means it serves every region the
 		// provider's credential covers.
@@ -2263,6 +2352,11 @@ export const providerKey = snakeCase.table(
 		rateLimitMode: text({ enum: ["strict", "soft", "lax"] })
 			.notNull()
 			.default("strict"),
+		// Per-model caps on top of the key-wide ones above, keyed by canonical
+		// model id (as in `allowedModels`), for accounts whose upstream quota is
+		// per deployment or model. The key drops out of rotation for that model
+		// only. Same `rateLimitMode`. NULL = none.
+		modelRateLimits: jsonb().$type<ProviderKeyModelRateLimits>(),
 		// Explicit position among a provider's keys, lowest first. The gateway
 		// treats the first key as primary and only falls back when one is
 		// unhealthy, so this is how an operator promotes a key.
@@ -2274,6 +2368,9 @@ export const providerKey = snakeCase.table(
 		// default: `default(0)` would tie a new key with position 0 and slot it
 		// second.
 		sortOrder: integer(),
+		selectionStrategy: text({ enum: ["ordered", "round_robin"] })
+			.notNull()
+			.default("ordered"),
 		organizationId: text().references(() => organization.id, {
 			onDelete: "cascade",
 		}),
@@ -2487,6 +2584,14 @@ export const log = snakeCase.table(
 		cacheWriteInputCost: real(),
 		requestCost: real(),
 		webSearchCost: real(),
+		// Who ran the request's web search: a gateway engine
+		// (GATEWAY_WEB_SEARCH_ENGINES) for an upstream without native search, or
+		// the provider that ran it natively. Null when no search was billed.
+		webSearchEngine: text(),
+		// Whether the gateway or the upstream ran the search. Null when no
+		// search was billed, and on rows from before gateway-run search (native).
+		webSearchType: text({ enum: ["native", "gateway"] }),
+		webSearchCount: integer(),
 		contentFilterCost: real(),
 		imageInputTokens: decimal(),
 		imageOutputTokens: decimal(),
@@ -2667,7 +2772,8 @@ export const log = snakeCase.table(
 				classifierCost?: number;
 				classifierFailed: boolean;
 				// Why a configured classifier was not consulted at all.
-				classifierSkipped?: "single-candidate" | "compliance" | "no-credential";
+				classifierSkipped?:
+					"single-candidate" | "compliance" | "no-credential" | "no-credits";
 				// True when the configured fallback model served a verdict-less request.
 				usedFallback?: boolean;
 				// True when the verdict served came from another turn of the same
@@ -2700,6 +2806,7 @@ export const log = snakeCase.table(
 		dataRetentionCleanedUp: boolean().default(false),
 		dataStorageCost: decimal().notNull().default("0"),
 		params: json().$type<{
+			safety_identifier?: string;
 			image_config?: {
 				aspect_ratio?: string;
 				image_size?: string;
@@ -2798,6 +2905,12 @@ export const log = snakeCase.table(
 		index("log_end_user_session_id_created_at_idx")
 			.on(table.endUserSessionId, table.createdAt)
 			.where(sql`end_user_session_id IS NOT NULL`),
+		// Content-filtered requests by time, for the admin classifier export.
+		// Retention nulls the response after 30 days, which bounds the index.
+		// Build CONCURRENTLY out of band in prod before deploying.
+		index("log_content_filter_created_at_idx")
+			.on(table.createdAt)
+			.where(sql`gateway_content_filter_response IS NOT NULL`),
 		// Partial index for batch credit processing: only indexes unprocessed logs
 		index("log_processed_at_null_idx")
 			.on(table.createdAt)
@@ -2934,16 +3047,13 @@ export const videoJob = snakeCase.table(
 		// later — often from the worker — and some providers scope job
 		// visibility to the creating credential, so the exact row is pinned here
 		// rather than re-selected. NULL means the job was created from an
-		// organization's BYOK key or from the provider's LLM_* env vars, both of
-		// which are re-resolved the way they always were.
+		// organization's BYOK key or from the provider's LLM_* env vars.
 		managedProviderKeyId: text().references(() => providerKey.id, {
 			onDelete: "set null",
 		}),
-		// BYOK provider key that created the job, for spend attribution on the
-		// final log row. Unlike managedProviderKeyId this does not pin polling:
-		// BYOK polls re-resolve the org's active key as they always did, so a
-		// job's spend may attribute to the creating key even if the org rotated
-		// keys mid-job — acceptable for the approximate spend-limit feature.
+		// BYOK credential used at submission, for spend attribution. Account-scoped
+		// queues (fal) also pin polling to this key; other providers re-resolve
+		// an active organization key.
 		providerKeyId: text().references(() => providerKey.id, {
 			onDelete: "set null",
 		}),
@@ -3819,9 +3929,13 @@ export const modelProviderMapping = snakeCase.table(
 				"openai-chat-completions",
 				"openai-responses",
 				"google-vertex",
+				"anthropic-messages",
 			],
-		}).$type<ProviderApiFormat>(),
+		}).$type<RequestApiFormat>(),
 		region: text(),
+		// Airside decision listings, served on `/v1/decisions`. Static rows
+		// keep their catalogue definition.
+		decisions: boolean().notNull().default(false),
 		source: text({ enum: ["catalogue", "airside"] })
 			.notNull()
 			.default("catalogue"),
@@ -3989,6 +4103,30 @@ export const modelProviderMappingHistory = snakeCase.table(
 		serviceTierImplicitCount: integer().notNull().default(0),
 		serviceTierServedCount: integer().notNull().default(0),
 		serviceTierUnconfirmedCount: integer().notNull().default(0),
+		// Routing metrics for requests sent at the flex and priority service
+		// tiers (by requestedServiceTier); the standard tier is the remainder.
+		// Routing scores each tier on its own traffic, so flex load-shedding
+		// does not count against a provider's uptime for standard requests.
+		flexLogsCount: integer().notNull().default(0),
+		flexClientErrorsCount: integer().notNull().default(0),
+		flexGatewayErrorsCount: integer().notNull().default(0),
+		flexUpstreamErrorsCount: integer().notNull().default(0),
+		flexTotalOutputTokens: integer().notNull().default(0),
+		flexTotalDuration: integer().notNull().default(0),
+		flexTotalTimeToFirstToken: integer().notNull().default(0),
+		flexTotalTimeToFirstReasoningToken: integer().notNull().default(0),
+		flexTimeToFirstTokenCount: integer().notNull().default(0),
+		flexTimeToFirstReasoningTokenCount: integer().notNull().default(0),
+		priorityLogsCount: integer().notNull().default(0),
+		priorityClientErrorsCount: integer().notNull().default(0),
+		priorityGatewayErrorsCount: integer().notNull().default(0),
+		priorityUpstreamErrorsCount: integer().notNull().default(0),
+		priorityTotalOutputTokens: integer().notNull().default(0),
+		priorityTotalDuration: integer().notNull().default(0),
+		priorityTotalTimeToFirstToken: integer().notNull().default(0),
+		priorityTotalTimeToFirstReasoningToken: integer().notNull().default(0),
+		priorityTimeToFirstTokenCount: integer().notNull().default(0),
+		priorityTimeToFirstReasoningTokenCount: integer().notNull().default(0),
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-minute combination
@@ -4450,8 +4588,9 @@ export const routingExclusionHourly = snakeCase.table(
 // Sentinel category for the per-(org, project, hour) totals row.
 export const CONTENT_FILTER_STATS_ALL_CATEGORY = "all";
 
-// Whose verdict a content filter stats row counts. Only "deciding" is written;
-// "shadow" rows come from the removed shadow classifier and never blocked.
+// Whose verdict a content filter stats row counts: the classifier that decided
+// the request, or a shadow classifier that scored it in the background and
+// never blocked. Compare classifiers by grouping on classifier, not role.
 export const contentFilterStatsRoles = ["deciding", "shadow"] as const;
 
 // Hourly rollup of log.gatewayContentFilterEvaluation, so abuse rates can be
@@ -4666,7 +4805,7 @@ export const contentFilterHourlyErrorStats = snakeCase.table(
 		hourTimestamp: timestamp().notNull(),
 		organizationId: text().notNull(),
 		projectId: text().notNull(),
-		// The deciding classifier of the evaluation.
+		// The classifier that ran: the deciding one, or a shadow.
 		classifier: text().notNull(),
 		// The classifier whose call failed; differs from `classifier` when a
 		// text-only classifier delegated an image to OpenAI.
@@ -4806,6 +4945,7 @@ export const auditLogActions = [
 	"referral_bonus.update",
 	// Organization-scoped pricing and limits set by an administrator.
 	"discount.create",
+	"discount.update",
 	"discount.delete",
 	"rate_limit.create",
 	"rate_limit.update",
@@ -5049,9 +5189,36 @@ export const platformAuditLog = snakeCase.table(
 
 export type GuardrailAction = "block" | "redact" | "warn" | "allow";
 
+/** Entities the deterministic sensitive-data detectors recognise. */
+export const piiEntities = [
+	"email",
+	"phone",
+	"credit_card",
+	"iban",
+	"ssn",
+	"ip_address",
+	"passport",
+	"drivers_license",
+] as const;
+
+export type PiiEntity = (typeof piiEntities)[number];
+
+/** Score above which a classifier answer counts as a match. */
+export const defaultGuardrailClassifierThreshold = 0.8;
+
 export interface SystemRuleConfig {
 	enabled: boolean;
 	action: GuardrailAction;
+	/**
+	 * Also score the request with the ML classifier (Jev). Billed to the
+	 * organization as a separate decision request. Used by the injection and
+	 * jailbreak rules; harmful content always uses the classifier.
+	 */
+	classifier?: boolean;
+	/** Classifier score threshold, 0–1. */
+	threshold?: number;
+	/** PII rule only: entities to detect. Unset means all. */
+	entities?: PiiEntity[];
 }
 
 export interface SystemRulesConfig {
@@ -5061,16 +5228,43 @@ export interface SystemRulesConfig {
 	secrets: SystemRuleConfig;
 	file_types: SystemRuleConfig;
 	document_leakage: SystemRuleConfig;
+	harmful_content: SystemRuleConfig;
 }
 
 export const defaultSystemRulesConfig: SystemRulesConfig = {
-	prompt_injection: { enabled: true, action: "block" },
-	jailbreak: { enabled: true, action: "block" },
+	prompt_injection: { enabled: true, action: "block", classifier: false },
+	jailbreak: { enabled: true, action: "block", classifier: false },
 	pii_detection: { enabled: true, action: "redact" },
 	secrets: { enabled: true, action: "block" },
 	file_types: { enabled: true, action: "block" },
 	document_leakage: { enabled: false, action: "warn" },
+	harmful_content: { enabled: false, action: "block", classifier: true },
 };
+
+/**
+ * Stored configs predate later rules, so missing rules take their defaults.
+ */
+export function withDefaultSystemRules(
+	systemRules: Partial<SystemRulesConfig> | null | undefined,
+): SystemRulesConfig {
+	const merged = { ...defaultSystemRulesConfig };
+	for (const key of Object.keys(merged) as (keyof SystemRulesConfig)[]) {
+		const stored = systemRules?.[key];
+		if (stored) {
+			merged[key] = { ...defaultSystemRulesConfig[key], ...stored };
+		}
+	}
+	return merged;
+}
+
+/**
+ * MIME types (`image/png`, `image/*`) or file extensions (`pdf`).
+ */
+/**
+ * Decision model guardrail classifier rules run on. Stored per config so a
+ * new default never shifts thresholds tuned against an older model.
+ */
+export const defaultGuardrailClassifierModel = "jev-1.14.0";
 
 export const defaultAllowedFileTypes = [
 	"image/jpeg",
@@ -5087,6 +5281,8 @@ export const customRuleTypes = [
 	"blocked_terms",
 	"custom_regex",
 	"topic_restriction",
+	"sensitive_data",
+	"classifier",
 ] as const;
 
 export type CustomRuleType = (typeof customRuleTypes)[number];
@@ -5106,11 +5302,33 @@ export interface CustomRegexRuleConfig {
 export interface TopicRestrictionRuleConfig {
 	type: "topic_restriction";
 	blockedTopics: string[];
+	/** Classifier only: anything outside these topics is a violation. */
 	allowedTopics?: string[];
+	/** Judge topics with the ML classifier instead of keyword lists. */
+	classifier?: boolean;
+	threshold?: number;
+}
+
+/** Deterministic detection of selected entities, e.g. email addresses. */
+export interface SensitiveDataRuleConfig {
+	type: "sensitive_data";
+	entities: PiiEntity[];
+}
+
+/** A yes/no question answered by the ML classifier (Jev). */
+export interface ClassifierRuleConfig {
+	type: "classifier";
+	/** What to detect, e.g. "The text asks for legal advice." */
+	instructions: string;
+	threshold?: number;
 }
 
 export type CustomRuleConfig =
-	BlockedTermsRuleConfig | CustomRegexRuleConfig | TopicRestrictionRuleConfig;
+	| BlockedTermsRuleConfig
+	| CustomRegexRuleConfig
+	| TopicRestrictionRuleConfig
+	| SensitiveDataRuleConfig
+	| ClassifierRuleConfig;
 
 // Guardrails are configured per organization (`project_id IS NULL`) and,
 // optionally, per project. A project row with `inherit_organization: false`
@@ -5138,6 +5356,9 @@ export const guardrailConfig = snakeCase.table(
 			.default(defaultAllowedFileTypes)
 			.notNull(),
 		piiAction: text("pii_action").$type<GuardrailAction>().default("redact"),
+		classifierModel: text("classifier_model")
+			.default(defaultGuardrailClassifierModel)
+			.notNull(),
 		createdAt: timestamp("created_at").notNull().defaultNow(),
 		updatedAt: timestamp("updated_at")
 			.notNull()
@@ -5352,6 +5573,11 @@ export const dynamicRouteVersion = snakeCase.table(
 	],
 );
 
+/** Flat fees a discount can be told to leave at full price; tokens are always discounted. */
+export const DISCOUNT_EXCLUDABLE_COST_TYPES = ["web_search"] as const;
+export type DiscountExcludableCostType =
+	(typeof DISCOUNT_EXCLUDABLE_COST_TYPES)[number];
+
 // Discount - Admin-configurable discounts for providers/models
 // Can be global (organizationId = null) or org-specific
 export const discount = snakeCase.table(
@@ -5374,6 +5600,12 @@ export const discount = snakeCase.table(
 		model: text(),
 		// Discount value (0-1, where 0.3 = 30% off, user pays 70%)
 		discountPercent: decimal().notNull(),
+		// Cost types billed at full price; empty = discount applies to everything
+		excludedCostTypes: text()
+			.$type<DiscountExcludableCostType>()
+			.array()
+			.notNull()
+			.default([]),
 		// Optional metadata
 		reason: text(),
 		expiresAt: timestamp(),
@@ -5758,6 +5990,10 @@ export const providerClaim = snakeCase.table(
 		billingMode: text({ enum: ["payg", "postpaid", "payout"] })
 			.notNull()
 			.default("payg"),
+		// Admin-only trust flag. Price updates and fare changes the carrier
+		// files are approved on arrival, and the worker applies the prices the
+		// carrier publishes on its /v1/models the same way.
+		autoApproveFares: boolean().notNull().default(false),
 		// Self-declared public profile shown on the provider page. Display only:
 		// it never feeds compliance routing, which reads the static catalogue.
 		website: text(),
@@ -5916,6 +6152,9 @@ export const providerDraftModel = snakeCase.table(
 			.$type<ProviderApiFormat>()
 			.notNull()
 			.default("provider-native"),
+		// Serves typed decisions on the carrier's OpenAI-compatible
+		// `/v1/decisions` instead of chat; set once at registration.
+		decisions: boolean().notNull().default(false),
 		displayName: text(),
 		description: text(),
 		family: text(),
@@ -5990,6 +6229,12 @@ export const providerDraftModel = snakeCase.table(
 			.where(sql`status <> 'delisted'`),
 		index("provider_draft_model_company_idx").on(table.providerCompanyId),
 		index("provider_draft_model_status_idx").on(table.status),
+		// The listing's model name becomes a public model id: keep it in sync
+		// with MODEL_ID_PATTERN in packages/models/src/model-id.ts.
+		check(
+			"provider_draft_model_model_name_check",
+			sql`${table.modelName} ~ '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$'`,
+		),
 	],
 );
 
@@ -6027,9 +6272,16 @@ export interface ProviderModelVerificationCheck {
 
 export interface ProviderModelVerificationTarget {
 	providerId: string;
+	/** Carrier credential used to prove this snapshot; absent on legacy runs. */
+	providerKeyId?: string;
+	credentialFingerprint?: string;
+	/** Set only by the worker after gateway-accounted execution. */
+	gatewayExecutionVersion?: 1;
 	modelName: string;
 	externalId: string;
-	apiFormat?: ProviderApiFormat;
+	apiFormat?: RequestApiFormat;
+	/** A decision listing, probed on `/v1/decisions` instead of chat. */
+	decisions?: boolean;
 	/** Regional deployment of the mapping; undefined targets the default region. */
 	region?: string | null;
 	streaming: boolean;
@@ -6051,6 +6303,13 @@ export interface ProviderModelVerificationTarget {
 	maxOutput?: number | null;
 	/** The listing declares a cached input price, so repeats must report cache hits. */
 	promptCaching?: boolean;
+	/** Proposed prices before a new listing has a filing. */
+	pricing?: {
+		inputPrice: string;
+		outputPrice: string;
+		cachedInputPrice?: string | null;
+		requestPrice?: string | null;
+	};
 }
 
 // One queued verification of an Airside mapping or a catalogue mapping. The
@@ -6201,6 +6460,8 @@ export const providerPriceFiling = snakeCase.table(
 			.default("pending"),
 		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
 		note: text(),
+		// Approved without review under the claim's `autoApproveFares`.
+		autoApproved: boolean().notNull().default(false),
 		reviewedBy: text(),
 		reviewNote: text(),
 		reviewedAt: timestamp(),
@@ -6278,6 +6539,8 @@ export const providerRoutingFiling = snakeCase.table(
 		// Admin-only: the model override was removed and the model falls back to
 		// the default fare (recorded in the discount/margin columns).
 		clearsOverride: boolean().notNull().default(false),
+		// Approved without review under the claim's `autoApproveFares`.
+		autoApproved: boolean().notNull().default(false),
 		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
 		reviewedBy: text(),
 		reviewNote: text(),
@@ -6295,7 +6558,79 @@ export const providerRoutingFiling = snakeCase.table(
 	],
 );
 
+// Monthly settlement of a payout-mode Airside carrier. The worker refreshes
+// `draft` rows from global_model_stats until an admin approves them; the wire
+// is sent manually and then marked paid. See AIRSIDE_PAYOUT_STATUSES.
+export const airsidePayoutStatement = snakeCase.table(
+	"airside_payout_statement",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		providerId: text().notNull(),
+		// UTC calendar month, [periodStart, periodEnd).
+		periodStart: timestamp().notNull(),
+		periodEnd: timestamp().notNull(),
+		requestCount: integer().notNull().default(0),
+		// Platform-paid (credits-mode) traffic billed at the carrier's prices.
+		grossAmount: decimal().notNull().default("0"),
+		// Gateway margin on that traffic (provider_margin_amount).
+		gatewayFeeAmount: decimal().notNull().default("0"),
+		// Signed admin correction: payout = gross - fee + adjustment.
+		adjustmentAmount: decimal().notNull().default("0"),
+		adjustmentNote: text(),
+		status: text({ enum: ["draft", "approved", "paid"] })
+			.notNull()
+			.default("draft"),
+		computedAt: timestamp().notNull().defaultNow(),
+		approvedAt: timestamp(),
+		approvedBy: text().references(() => user.id, { onDelete: "set null" }),
+		paidAt: timestamp(),
+		paidBy: text().references(() => user.id, { onDelete: "set null" }),
+		// Wire or transfer reference, for reconciliation.
+		paymentReference: text(),
+	},
+	(table) => [
+		// One statement per carrier and month, whichever company holds it.
+		uniqueIndex("airside_payout_statement_provider_period_uidx").on(
+			table.providerId,
+			table.periodStart,
+		),
+		index("airside_payout_statement_company_idx").on(table.providerCompanyId),
+		index("airside_payout_statement_status_idx").on(table.status),
+	],
+);
+
 // Project hourly statistics aggregation - used for fast dashboard queries
+/**
+ * BYOK (`used_mode = 'api-keys'`) subset of the error and latency columns on
+ * the tenant hourly rollups. `log.used_mode` is only ever credits or api-keys,
+ * so the credits figure is the total minus this subset.
+ */
+function apiKeysModeColumns() {
+	return {
+		apiKeysClientErrorCount: integer().notNull().default(0),
+		apiKeysGatewayErrorCount: integer().notNull().default(0),
+		apiKeysUpstreamErrorCount: integer().notNull().default(0),
+		apiKeysTotalDuration: bigint({ mode: "number" }).notNull().default(0),
+		apiKeysDurationCount: integer().notNull().default(0),
+		apiKeysTotalTimeToFirstToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		apiKeysTimeToFirstTokenCount: integer().notNull().default(0),
+		apiKeysTotalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		apiKeysTimeToFirstReasoningTokenCount: integer().notNull().default(0),
+	};
+}
+
 export const projectHourlyStats = snakeCase.table(
 	"project_hourly_stats",
 	{
@@ -6356,6 +6691,7 @@ export const projectHourlyStats = snakeCase.table(
 		inputCost: real().notNull().default(0),
 		outputCost: real().notNull().default(0),
 		requestCost: real().notNull().default(0),
+		webSearchCost: real().notNull().default(0),
 		dataStorageCost: real().notNull().default(0),
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
@@ -6372,6 +6708,7 @@ export const projectHourlyStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour (also creates implicit index)
@@ -6442,6 +6779,7 @@ export const projectHourlyModelStats = snakeCase.table(
 		inputCost: real().notNull().default(0),
 		outputCost: real().notNull().default(0),
 		requestCost: real().notNull().default(0),
+		webSearchCost: real().notNull().default(0),
 		dataStorageCost: real().notNull().default(0),
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
@@ -6462,10 +6800,7 @@ export const projectHourlyModelStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
-		// BYOK subset of the gateway/upstream error counts, so incident views can
-		// show platform-only error rates.
-		apiKeysGatewayErrorCount: integer().notNull().default(0),
-		apiKeysUpstreamErrorCount: integer().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per project-hour-model-provider
@@ -6552,6 +6887,7 @@ export const projectHourlySourceStats = snakeCase.table(
 		inputCost: real().notNull().default(0),
 		outputCost: real().notNull().default(0),
 		requestCost: real().notNull().default(0),
+		webSearchCost: real().notNull().default(0),
 		dataStorageCost: real().notNull().default(0),
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
@@ -6664,6 +7000,51 @@ export const projectHourlyRoutingStats = snakeCase.table(
 	],
 );
 
+// Web search usage per project, hour, type and engine. `webSearchType` splits
+// gateway-run from native search; `webSearchEngine` is the gateway engine, or
+// for native search the provider that ran it.
+export const projectHourlyWebSearchStats = snakeCase.table(
+	"project_hourly_web_search_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		projectId: text().notNull(),
+		hourTimestamp: timestamp().notNull(),
+		webSearchType: text({ enum: ["native", "gateway"] }).notNull(),
+		webSearchEngine: text().notNull(),
+		usedProvider: text().notNull(),
+		usedMode: text({ enum: ["api-keys", "credits"] }).notNull(),
+		requestCount: integer().notNull().default(0),
+		searchCount: integer().notNull().default(0),
+		webSearchCost: real().notNull().default(0),
+		// Total cost of those requests, web search included.
+		cost: real().notNull().default(0),
+	},
+	(table) => [
+		unique("project_hourly_web_search_stats_unique").on(
+			table.projectId,
+			table.hourTimestamp,
+			table.webSearchType,
+			table.webSearchEngine,
+			table.usedProvider,
+			table.usedMode,
+		),
+		index("project_hourly_web_search_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		index("project_hourly_web_search_stats_hour_timestamp_engine_idx").on(
+			table.hourTimestamp,
+			table.webSearchType,
+			table.webSearchEngine,
+		),
+	],
+);
+
 // API key hourly statistics aggregation - for per-key breakdown queries
 export const apiKeyHourlyStats = snakeCase.table(
 	"api_key_hourly_stats",
@@ -6715,6 +7096,7 @@ export const apiKeyHourlyStats = snakeCase.table(
 		inputCost: real().notNull().default(0),
 		outputCost: real().notNull().default(0),
 		requestCost: real().notNull().default(0),
+		webSearchCost: real().notNull().default(0),
 		dataStorageCost: real().notNull().default(0),
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
@@ -6731,6 +7113,7 @@ export const apiKeyHourlyStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per api-key-hour
@@ -6876,6 +7259,7 @@ export const apiKeyHourlyModelStats = snakeCase.table(
 		inputCost: real().notNull().default(0),
 		outputCost: real().notNull().default(0),
 		requestCost: real().notNull().default(0),
+		webSearchCost: real().notNull().default(0),
 		dataStorageCost: real().notNull().default(0),
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
@@ -6892,6 +7276,7 @@ export const apiKeyHourlyModelStats = snakeCase.table(
 		apiKeysCost: real().notNull().default(0),
 		creditsDataStorageCost: real().notNull().default(0),
 		apiKeysDataStorageCost: real().notNull().default(0),
+		...apiKeysModeColumns(),
 	},
 	(table) => [
 		// Unique constraint for one record per api-key-hour-model-provider
@@ -6970,6 +7355,7 @@ export const apiKeyHourlySourceStats = snakeCase.table(
 		inputCost: real().notNull().default(0),
 		outputCost: real().notNull().default(0),
 		requestCost: real().notNull().default(0),
+		webSearchCost: real().notNull().default(0),
 		dataStorageCost: real().notNull().default(0),
 		discountSavings: real().notNull().default(0),
 		imageInputCost: real().notNull().default(0),
@@ -7076,6 +7462,7 @@ const globalModelStatsColumns = () => ({
 	inputCost: real().notNull().default(0),
 	outputCost: real().notNull().default(0),
 	requestCost: real().notNull().default(0),
+	webSearchCost: real().notNull().default(0),
 	dataStorageCost: real().notNull().default(0),
 	discountSavings: real().notNull().default(0),
 	imageInputCost: real().notNull().default(0),
@@ -7171,6 +7558,7 @@ const globalSourceStatsColumns = () => ({
 	inputCost: real().notNull().default(0),
 	outputCost: real().notNull().default(0),
 	requestCost: real().notNull().default(0),
+	webSearchCost: real().notNull().default(0),
 	dataStorageCost: real().notNull().default(0),
 	discountSavings: real().notNull().default(0),
 	imageInputCost: real().notNull().default(0),
@@ -7252,6 +7640,7 @@ const globalProviderKeyModelStatsColumns = () => ({
 	inputCost: real().notNull().default(0),
 	outputCost: real().notNull().default(0),
 	requestCost: real().notNull().default(0),
+	webSearchCost: real().notNull().default(0),
 	dataStorageCost: real().notNull().default(0),
 	discountSavings: real().notNull().default(0),
 	imageInputCost: real().notNull().default(0),
@@ -7468,6 +7857,43 @@ export const playgroundAudioHistory = snakeCase.table(
 	(table) => [index("playground_audio_history_user_id_idx").on(table.userId)],
 );
 
+export const playgroundDecisionHistory = snakeCase.table(
+	"playground_decision_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Organization context the run was created under. Null means the
+		// default "Chat plan" context. Used to separate history per organization.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "set null",
+		}),
+		// The evaluated text. Renames change `title`, never the input.
+		prompt: text().notNull(),
+		title: text(),
+		inputImages: jsonb().$type<DecisionInputImage[]>(),
+		questions: jsonb().notNull().$type<DecisionQuestion[]>(),
+		models: jsonb().notNull().$type<
+			{
+				modelId: string;
+				modelName: string;
+				answers: DecisionAnswer[] | null;
+				usage?: DecisionUsage | null;
+				error?: string;
+			}[]
+		>(),
+	},
+	(table) => [
+		index("playground_decision_history_user_id_idx").on(table.userId),
+	],
+);
+
 export const playgroundVideoHistory = snakeCase.table(
 	"playground_video_history",
 	{
@@ -7527,6 +7953,7 @@ export const loungePointEvent = snakeCase.table(
 				| "image_generation"
 				| "video_generation"
 				| "audio_generation"
+				| "decision_run"
 				| "sandbox_escape"
 			>(),
 		points: integer().notNull(),
@@ -7647,6 +8074,9 @@ export interface ComplianceAlertSettings {
 	recipientAudience: AlertAudience;
 }
 
+export const notificationModelScopes = ["all", "selected", "used"] as const;
+export type NotificationModelScope = (typeof notificationModelScopes)[number];
+
 export const notificationPreference = snakeCase.table(
 	"notification_preference",
 	{
@@ -7658,6 +8088,16 @@ export const notificationPreference = snakeCase.table(
 		inApp: boolean().notNull().default(false),
 		email: boolean().notNull().default(false),
 		budgetThreshold: integer().notNull().default(80),
+		// Which models `model_price_change` alerts cover; unused by other types.
+		modelScope: text({ enum: notificationModelScopes })
+			.notNull()
+			.default("used"),
+		modelIds: json().$type<string[]>().notNull().default([]),
+		// `provider_issue` only: error-rate window, threshold, and how recently
+		// the mapping must have been used to be covered.
+		issueWindowMinutes: integer().notNull().default(15),
+		issueErrorRatePercent: integer().notNull().default(30),
+		issueUsageHours: integer().notNull().default(4),
 	},
 	(table) => [unique().on(table.userId, table.type)],
 );
@@ -7796,6 +8236,27 @@ export const complianceProviderState = snakeCase.table(
 	},
 	(table) => [unique().on(table.organizationId, table.providerId)],
 );
+
+// Last prices seen per mapping, so the worker can detect price changes.
+export const modelPriceState = snakeCase.table("model_price_state", {
+	mappingId: text()
+		.primaryKey()
+		.references(() => modelProviderMapping.id, { onDelete: "cascade" }),
+	prices: json().$type<Record<string, string | null>>().notNull(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+});
+
+// One row per newsletter issue the worker handled, so each is drafted once.
+export const newsletterIssue = snakeCase.table("newsletter_issue", {
+	// The issue kind and the first day it does not cover: new-models:2026-11-16.
+	id: text().primaryKey(),
+	createdAt: timestamp().notNull().defaultNow(),
+	// The Resend broadcast draft; null when the period had nothing to announce.
+	broadcastId: text(),
+});
 
 export const loungeConnection = snakeCase.table(
 	"lounge_connection",
@@ -8020,5 +8481,187 @@ export const globalHourlyProviderKeyModelStats = snakeCase.table(
 		index("global_hourly_provider_key_model_stats_hour_idx").on(
 			table.hourTimestamp,
 		),
+	],
+);
+
+// Mirrors BATCH_ENDPOINTS in @llmgateway/models; schema.ts only takes types
+// from the catalogue.
+const BATCH_ENDPOINTS = [
+	"/v1/chat/completions",
+	"/v1/responses",
+	"/v1/embeddings",
+] as const;
+
+export const BATCH_STATUSES = [
+	"validating",
+	"failed",
+	"in_progress",
+	"finalizing",
+	"completed",
+	"expired",
+	"cancelling",
+	"cancelled",
+] as const;
+
+export type BatchStatus = (typeof BATCH_STATUSES)[number];
+
+export interface BatchError {
+	code: string;
+	message: string;
+	param?: string | null;
+	line?: number | null;
+}
+
+// Files uploaded for, or produced by, the OpenAI-compatible Batch API.
+// Uploaded files hold their JSONL in `content`; output and error files are
+// rendered from batch_request rows of `batchId`.
+export const batchFile = snakeCase.table(
+	"batch_file",
+	{
+		id: text().primaryKey().notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		apiKeyId: text().references(() => apiKey.id, { onDelete: "set null" }),
+		purpose: text({ enum: ["batch", "batch_output", "batch_error"] }).notNull(),
+		filename: text().notNull(),
+		bytes: integer().notNull(),
+		content: text(),
+		batchId: text(),
+		expiresAt: timestamp().notNull(),
+	},
+	(table) => [
+		index("batch_file_project_id_created_at_idx").on(
+			table.projectId,
+			table.createdAt,
+		),
+		index("batch_file_expires_at_idx").on(table.expiresAt),
+	],
+);
+
+export const batch = snakeCase.table(
+	"batch",
+	{
+		id: text().primaryKey().notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		apiKeyId: text().references(() => apiKey.id, { onDelete: "set null" }),
+		endpoint: text({ enum: BATCH_ENDPOINTS }).notNull(),
+		inputFileId: text().notNull(),
+		completionWindow: text().notNull().default("24h"),
+		status: text({ enum: BATCH_STATUSES }).notNull().default("validating"),
+		metadata: jsonb().$type<Record<string, string>>(),
+		errors: jsonb().$type<BatchError[]>(),
+		outputFileId: text(),
+		errorFileId: text(),
+		requestTotal: integer().notNull().default(0),
+		requestCompleted: integer().notNull().default(0),
+		requestFailed: integer().notNull().default(0),
+		// Trusted client IP of the creating request, replayed on each upstream
+		// call so API key IP rules apply to batch traffic.
+		clientIp: text(),
+		claimedUntil: timestamp(),
+		inProgressAt: timestamp(),
+		finalizingAt: timestamp(),
+		completedAt: timestamp(),
+		failedAt: timestamp(),
+		expiredAt: timestamp(),
+		cancellingAt: timestamp(),
+		cancelledAt: timestamp(),
+		expiresAt: timestamp().notNull(),
+	},
+	(table) => [
+		index("batch_project_id_created_at_idx").on(
+			table.projectId,
+			table.createdAt,
+		),
+		index("batch_active_status_idx")
+			.on(table.status)
+			.where(
+				sql`${table.status} in ('validating', 'in_progress', 'finalizing', 'cancelling')`,
+			),
+		// Retention cleanup of finished batches.
+		index("batch_finished_updated_at_idx")
+			.on(table.updatedAt)
+			.where(
+				sql`${table.status} in ('completed', 'failed', 'expired', 'cancelled')`,
+			),
+	],
+);
+
+// The bearer token that created a batch, encrypted with the provider-key
+// keyring. The gateway stores only token hashes, so the worker needs it to call
+// the gateway as the key. Deleted when the batch reaches a terminal state or
+// its key is disabled, deleted or rolled.
+export const batchCredential = snakeCase.table("batch_credential", {
+	batchId: text()
+		.primaryKey()
+		.notNull()
+		.references(() => batch.id, { onDelete: "cascade" }),
+	createdAt: timestamp().notNull().defaultNow(),
+	apiKeyId: text()
+		.notNull()
+		.references(() => apiKey.id, { onDelete: "cascade" }),
+	encryptedToken: text().notNull(),
+});
+
+export const batchRequest = snakeCase.table(
+	"batch_request",
+	{
+		id: text().primaryKey().notNull(),
+		batchId: text()
+			.notNull()
+			.references(() => batch.id, { onDelete: "cascade" }),
+		lineNumber: integer().notNull(),
+		customId: text().notNull(),
+		body: text().notNull(),
+		status: text({
+			enum: [
+				"pending",
+				"in_progress",
+				"completed",
+				"failed",
+				"cancelled",
+				"expired",
+			],
+		})
+			.notNull()
+			.default("pending"),
+		attempts: integer().notNull().default(0),
+		nextAttemptAt: timestamp().notNull().defaultNow(),
+		claimedUntil: timestamp(),
+		responseStatus: integer(),
+		// Raw upstream response body, kept verbatim for the output file.
+		responseBody: text(),
+		requestId: text(),
+		error: jsonb().$type<BatchError>(),
+		completedAt: timestamp(),
+	},
+	(table) => [
+		unique().on(table.batchId, table.customId),
+		index("batch_request_batch_id_line_number_idx").on(
+			table.batchId,
+			table.lineNumber,
+		),
+		index("batch_request_batch_id_status_idx").on(table.batchId, table.status),
+		index("batch_request_pending_idx")
+			.on(table.batchId, table.nextAttemptAt)
+			.where(sql`${table.status} = 'pending'`),
+		index("batch_request_in_progress_idx")
+			.on(table.claimedUntil)
+			.where(sql`${table.status} = 'in_progress'`),
 	],
 );

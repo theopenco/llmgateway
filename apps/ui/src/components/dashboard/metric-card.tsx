@@ -19,7 +19,13 @@ const accentColors: Record<"green" | "blue" | "purple", string> = {
 	purple: "#8b5cf6",
 };
 
-function Sparkline({ trend, color }: { trend: number[]; color: string }) {
+export function Sparkline({
+	trend,
+	color,
+}: {
+	trend: number[];
+	color: string;
+}) {
 	const gradientId = useId();
 	const chartData = trend.map((value, index) => ({ index, value }));
 

@@ -25,27 +25,29 @@ describe("admin panel staff roles", () => {
 		});
 	}
 
-	it("gives viewers read-only access without platform financials", async () => {
+	it("gives viewers read-only access including platform financials", async () => {
 		vi.stubEnv("ADMIN_VIEWER_EMAILS", "admin@example.com");
-
 		const me = await request("/user/me");
-		const meJson = await me.json();
-		expect(meJson.user).toMatchObject({ isAdmin: false, adminRole: "viewer" });
-
+		expect((await me.json()).user).toMatchObject({
+			isAdmin: false,
+			adminRole: "viewer",
+		});
 		const orgs = await request("/admin/organizations");
 		expect(orgs.status).toBe(200);
 		expect(await orgs.json()).toHaveProperty("organizations");
-
-		// Redaction must keep the handler's status.
 		expect((await request("/admin/organizations/missing-org")).status).toBe(
 			404,
 		);
-		expect((await request("/admin/metrics")).status).toBe(403);
-		expect((await request("/admin/global-stats")).status).toBe(403);
-
+		expect((await request("/admin/metrics")).status).toBe(200);
+		const stats = await request("/admin/global-stats?range=all");
+		expect(stats.status).toBe(200);
+		expect(await stats.json()).toHaveProperty("totals.cost");
+		const keys = await request("/admin/global-stats/provider-keys?range=all");
+		expect(keys.status).toBe(200);
+		expect(await keys.json()).toHaveProperty("providerKeys");
 		const chatPlans = await request("/admin/chat-plans");
 		expect(chatPlans.status).toBe(200);
-		expect(await chatPlans.json()).not.toHaveProperty("kpis");
+		expect(await chatPlans.json()).toHaveProperty("kpis");
 		expect((await request("/admin/chat-plans?sortBy=margin")).status).toBe(200);
 		expect((await request("/admin/devpass?marginNegative=true")).status).toBe(
 			200,
@@ -67,10 +69,8 @@ describe("admin panel staff roles", () => {
 		).toBe(403);
 	});
 
-	it("lets support issue refunds but nothing else", async () => {
+	it("lets support issue refunds but keeps platform financials hidden", async () => {
 		vi.stubEnv("ADMIN_SUPPORT_EMAILS", "admin@example.com");
-
-		// Past the role gate, the handler rejects the unknown subscriber.
 		expect(
 			(
 				await request("/admin/devpass/missing-org/refund", "POST", {
@@ -83,13 +83,18 @@ describe("admin panel staff roles", () => {
 				await request(
 					"/admin/devpass/missing-org/cancel-subscription",
 					"POST",
-					{
-						immediate: false,
-					},
+					{ immediate: false },
 				)
 			).status,
 		).toBe(403);
 		expect((await request("/admin/metrics")).status).toBe(403);
+		expect((await request("/admin/global-stats?range=all")).status).toBe(403);
+		expect(
+			(await request("/admin/global-stats/provider-keys?range=all")).status,
+		).toBe(403);
+		const chatPlans = await request("/admin/chat-plans");
+		expect(chatPlans.status).toBe(200);
+		expect(await chatPlans.json()).not.toHaveProperty("kpis");
 	});
 
 	it("keeps full access for admins", async () => {

@@ -366,7 +366,7 @@ describe("airside-listed models", () => {
 
 	test("resolves an Airside listing registered under a static alias", async () => {
 		await materializeTestMapping({
-			providerId: "glacier",
+			providerId: "quartz",
 			modelId: "nano banana pro",
 			externalId: "gemini-3-pro-image-carrier",
 			inputPrice: "2e-6",
@@ -382,9 +382,57 @@ describe("airside-listed models", () => {
 		});
 		expect(resolution?.pricingMappings).toHaveLength(1);
 		expect(resolution?.pricingMappings[0]).toMatchObject({
-			providerId: "glacier",
+			providerId: "quartz",
 			externalId: "gemini-3-pro-image-carrier",
 		});
+	});
+
+	test("rejects a pin to a deactivated listing instead of rerouting", async () => {
+		await materializeTestMapping({
+			providerId: "quartz",
+			modelId: "nano banana pro",
+			externalId: "gemini-3-pro-image-carrier",
+			inputPrice: "2e-6",
+			outputPrice: "12e-6",
+		});
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ deactivatedAt: new Date(Date.now() - 60_000) })
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, "nano banana pro"),
+					eq(tables.modelProviderMapping.providerId, "quartz"),
+				),
+			);
+		await clearCache();
+
+		await expect(resolveAirsideModel("quartz/nano banana pro")).rejects.toThrow(
+			"Provider quartz no longer serves model",
+		);
+	});
+
+	test("omits the unpinned-retry hint when no listing is active", async () => {
+		await materializeTestMapping({
+			providerId: "quartz",
+			modelId: "solo-carrier-model",
+			modelName: "Solo Carrier Model",
+			inputPrice: "1e-6",
+			outputPrice: "2e-6",
+		});
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ deactivatedAt: new Date(Date.now() - 60_000) })
+			.where(eq(tables.modelProviderMapping.modelId, "solo-carrier-model"));
+		await clearCache();
+
+		const error: unknown = await resolveAirsideModel(
+			"quartz/solo-carrier-model",
+		).catch((caught: unknown) => caught);
+		expect(error).toBeInstanceOf(Error);
+		expect((error as Error).message).toContain(
+			"the mapping has been deactivated.",
+		);
+		expect((error as Error).message).not.toContain("without a provider prefix");
 	});
 
 	async function setup(

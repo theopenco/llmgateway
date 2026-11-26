@@ -4,20 +4,27 @@ import {
 	rateLimitHeaders,
 	standardErrorResponses,
 } from "@/lib/error-schemas.js";
+import { usageCostSchema } from "@/lib/usage-cost.js";
 
 import { getDecisionsUpstreamPath } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 
 import { handleDecisionRequest } from "./handle-decision-request.js";
+import { loadDecisionImage } from "./load-decision-image.js";
 import {
+	decisionInputHasImages,
 	fromTypeSafeResponse,
+	loadTypeSafeAssets,
+	planTypeSafeImages,
 	toTypeSafeRequest,
-	type DecisionInput,
-	type DecisionRequestBody,
+	typeSafeRequestHeaders,
 } from "./typesafe-translation.js";
 
+import type {
+	DecisionInput,
+	DecisionRequestBody,
+} from "./typesafe-translation.js";
 import type { ServerTypes } from "@/vars.js";
-import type { ProviderId } from "@llmgateway/models";
 
 const inputTextSchema = z.object({
 	type: z.literal("input_text"),
@@ -96,7 +103,7 @@ const questionSchema = z
 const decisionRequestSchema = z.object({
 	model: z.string().openapi({
 		description:
-			"ID of the decision model to use, optionally prefixed with a provider (`openai/gpt-6-luna-decisions`, `azure/microsoft-decision-1`, `typesafe/jev-1.13.0`).",
+			"ID of the decision model to use, optionally prefixed with a provider (`openai/gpt-6-luna-decisions`, `azure/microsoft-decision-1`, `typesafe/jev-1.14.0`).",
 		example: "gpt-6-luna-decisions",
 	}),
 	input: z.union([z.string(), z.array(inputMessageSchema)]).openapi({
@@ -110,7 +117,7 @@ const decisionRequestSchema = z.object({
 	}),
 	safety_identifier: z.string().max(128).nullable().optional().openapi({
 		description:
-			"Accepted for OpenAI compatibility. Upstream abuse attribution always uses LLM Gateway's opaque per-API-key identifier.",
+			"Opaque end-user identifier stored in log params.safety_identifier. Credits requests use LLM Gateway's fixed per-organization identifier upstream; BYOK requests omit it.",
 	}),
 });
 
@@ -151,6 +158,7 @@ const decisionResponseSchema = z
 				input_tokens: z.number().int(),
 				output_tokens: z.number().int(),
 				total_tokens: z.number().int(),
+				...usageCostSchema,
 			})
 			.passthrough()
 			.optional(),
@@ -179,25 +187,28 @@ function summarizeInput(input: DecisionInput): string {
 	return text.length > 4000 ? `${text.slice(0, 4000)}…` : text;
 }
 
+/** A billable token count: a non-negative safe integer, else unknown. */
+function tokenCount(value: unknown): number | null {
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+		? value
+		: null;
+}
+
 function readUsage(upstream: Record<string, unknown>) {
 	const usage =
 		upstream.usage && typeof upstream.usage === "object"
 			? (upstream.usage as Record<string, unknown>)
 			: {};
+	const details =
+		usage.input_tokens_details && typeof usage.input_tokens_details === "object"
+			? (usage.input_tokens_details as Record<string, unknown>)
+			: {};
 	return {
-		inputTokens:
-			typeof usage.input_tokens === "number" ? usage.input_tokens : null,
-		outputTokens:
-			typeof usage.output_tokens === "number" ? usage.output_tokens : null,
+		inputTokens: tokenCount(usage.input_tokens),
+		outputTokens: tokenCount(usage.output_tokens),
+		cachedTokens: tokenCount(details.cached_tokens),
+		cacheWriteTokens: tokenCount(details.cache_write_tokens),
 	};
-}
-
-/**
- * OpenAI serves its own Decisions API. TypeSafe and Azure (Microsoft-Decision-1)
- * speak TypeSafe's System One format, so their requests are translated.
- */
-function speaksOpenAIDecisions(providerId: string): boolean {
-	return providerId === "openai";
 }
 
 // Schema failures use the OpenAI error envelope, like every other error on
@@ -303,28 +314,67 @@ decisions.openapi(createDecision, async (c): Promise<any> => {
 		requestId,
 		rawBody,
 		requestedModel: request.model,
+		hasImageInput: decisionInputHasImages(request.input),
 		logSummary: `input: ${summarizeInput(request.input)}\nquestions: ${request.questions
 			.map(
 				(question, index) =>
 					`${question.name ?? `#${index + 1}`} (${question.type})`,
 			)
 			.join(", ")}`,
-		buildUpstreamRequest: (providerId, upstreamModel, safetyIdentifier) => ({
-			path: getDecisionsUpstreamPath(providerId as ProviderId),
-			body: speaksOpenAIDecisions(providerId)
-				? {
+		// System One providers get a translated request; OpenAI and Airside
+		// carriers take the OpenAI-compatible body as-is.
+		buildUpstreamRequest: (
+			providerId,
+			upstreamModel,
+			safetyIdentifier,
+			wireFormat,
+		) => {
+			if (wireFormat === "openai") {
+				return {
+					path: getDecisionsUpstreamPath(providerId, wireFormat),
+					body: {
 						model: upstreamModel,
 						input: request.input,
 						questions: request.questions,
-						// The client's value is replaced so abuse reports map to a key.
-						safety_identifier: safetyIdentifier,
-					}
-				: toTypeSafeRequest(upstreamModel, request),
-		}),
-		normalizeResponse: (providerId, upstream, responseModel) => {
-			const body = speaksOpenAIDecisions(providerId)
-				? { ...upstream, model: responseModel }
-				: fromTypeSafeResponse(upstream, request, responseModel);
+						// OpenAI attributes abuse to it, so the client's value is
+						// replaced by the API key's; Azure and Airside carriers get none.
+						...(providerId === "openai"
+							? { safety_identifier: safetyIdentifier }
+							: {}),
+					},
+				};
+			}
+			const images = planTypeSafeImages(request.input);
+			const body = toTypeSafeRequest(upstreamModel, request, images.refs);
+			return {
+				path: getDecisionsUpstreamPath(providerId, wireFormat),
+				body,
+				// Azure's System One route takes neither images nor TypeSafe's
+				// opt-ins.
+				headers:
+					providerId === "typesafe"
+						? typeSafeRequestHeaders(body, {
+								images: images.urls.length > 0,
+							})
+						: undefined,
+				...(images.urls.length > 0
+					? {
+							// System One takes images as inline base64 assets, so
+							// remote URLs are downloaded.
+							loadBody: async (signal) => ({
+								assets: await loadTypeSafeAssets(images, (url, maxSizeMB) =>
+									loadDecisionImage(url, maxSizeMB, signal),
+								),
+							}),
+						}
+					: {}),
+			};
+		},
+		normalizeResponse: (_providerId, upstream, responseModel, wireFormat) => {
+			const body =
+				wireFormat === "openai"
+					? { ...upstream, model: responseModel }
+					: fromTypeSafeResponse(upstream, request, responseModel);
 			return {
 				body,
 				...readUsage(upstream),

@@ -24,6 +24,21 @@ describe("getManagedCredentialConfigKeys", () => {
 		});
 	});
 
+	it("offers an optional baseUrl for every provider", () => {
+		expect(getManagedCredentialConfigKeys("meta")).toContainEqual({
+			key: "baseUrl",
+			envVar: "",
+			required: false,
+		});
+		expect(
+			getManagedCredentialConfigKeys("anthropic").filter(
+				(entry) => entry.key === "baseUrl",
+			),
+		).toEqual([
+			{ key: "baseUrl", envVar: "LLM_ANTHROPIC_BASE_URL", required: false },
+		]);
+	});
+
 	it("returns nothing for an unknown provider", () => {
 		expect(getManagedCredentialConfigKeys("not-a-provider")).toEqual([]);
 	});
@@ -34,8 +49,10 @@ describe("getMissingManagedCredentialKeys", () => {
 		expect(getMissingManagedCredentialKeys("google-vertex", {})).toEqual([]);
 	});
 
-	it("requires the base URL for providers whose endpoint comes from env", () => {
-		expect(getMissingManagedCredentialKeys("glacier", {})).toEqual(["baseUrl"]);
+	it("requires the settings a provider's endpoint cannot default", () => {
+		expect(getMissingManagedCredentialKeys("vertex-openai", {})).toEqual([
+			"project",
+		]);
 	});
 
 	it("requires nothing for providers with a static endpoint", () => {

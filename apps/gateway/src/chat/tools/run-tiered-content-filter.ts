@@ -2,7 +2,12 @@ import { trackPendingWork } from "@/lib/pending-work.js";
 
 import { logger, toError } from "@llmgateway/logger";
 
-import { evaluateContentFilterWithClassifiers } from "./content-filter-classifier.js";
+import {
+	evaluateContentFilterWithClassifiers,
+	isDecidingClassifierAvailable,
+	runShadowContentFilters,
+	withShadowVerdicts,
+} from "./content-filter-classifier.js";
 
 import type { GatewayContentFilterResponse } from "@llmgateway/db";
 
@@ -11,9 +16,13 @@ export type TieredContentFilterOutcome = Awaited<
 >;
 
 export interface StartedTieredContentFilter {
-	/** Settled outcome; only set when the plan enforces (awaited inline). */
+	/** Deciding verdict; only set when the plan enforces (awaited inline). */
 	outcome: TieredContentFilterOutcome;
-	/** Background evaluation of a log-only plan, tracked for graceful shutdown. */
+	/**
+	 * Full outcome, shadow verdicts included, when anything still runs in the
+	 * background: a log-only plan, or shadows behind an enforcing one. Tracked
+	 * for graceful shutdown; log it instead of `outcome` when set.
+	 */
 	pending: Promise<TieredContentFilterOutcome> | null;
 }
 
@@ -48,22 +57,56 @@ export async function startTieredContentFilter(
 		}
 		return outcome;
 	};
-
-	if (plan.enforce) {
-		return { outcome: await run(options.signal), pending: null };
-	}
-	return {
-		outcome: null,
-		pending: trackPendingWork(
-			run(undefined).catch((error: unknown) => {
+	// Shadows start alongside the deciding classifier but are never awaited
+	// before the provider call; the log row waits for them instead. They are
+	// skipped when the deciding classifier cannot run: there would be no
+	// evaluation to record them on.
+	const shadows =
+		plan.shadowClassifiers.length > 0
+			? trackPendingWork(
+					isDecidingClassifierAvailable(options)
+						.then(async (available) =>
+							available ? await runShadowContentFilters(options) : [],
+						)
+						.catch((error: unknown) => {
+							logger.warn("Shadow content filters failed", {
+								requestId: context.requestId,
+								error: toError(error),
+							});
+							return [];
+						}),
+				)
+			: null;
+	const attachShadows = async (
+		outcome: TieredContentFilterOutcome,
+	): Promise<TieredContentFilterOutcome> =>
+		outcome && shadows
+			? withShadowVerdicts(plan, outcome, await shadows)
+			: outcome;
+	// A failure falls back to the deciding verdict when there is one.
+	const track = (
+		outcome: Promise<TieredContentFilterOutcome>,
+		fallback: TieredContentFilterOutcome = null,
+	) =>
+		trackPendingWork(
+			outcome.then(attachShadows).catch((error: unknown) => {
 				logger.warn("Background gateway content filter failed", {
 					requestId: context.requestId,
 					error: toError(error),
 				});
-				return null;
+				return fallback;
 			}),
-		),
-	};
+		);
+
+	if (plan.enforce) {
+		const outcome = await run(options.signal);
+		return {
+			outcome,
+			pending:
+				outcome && shadows ? track(Promise.resolve(outcome), outcome) : null,
+		};
+	}
+	return { outcome: null, pending: track(run(undefined)) };
 }
 
 /** Raw moderation responses to store on the log, or null when there are none. */

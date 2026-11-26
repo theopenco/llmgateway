@@ -1,8 +1,9 @@
 "use client";
 
 import { Check, Copy } from "lucide-react";
-import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
+
+import { usePostHog } from "@/lib/posthog";
 
 interface PageViewTrackerProps {
 	event: "page_viewed_si_gateway" | "page_viewed_super_intelligence";

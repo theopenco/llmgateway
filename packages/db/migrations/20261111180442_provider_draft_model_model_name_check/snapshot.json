@@ -1,0 +1,42 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "4e008f74-5fdf-432d-bf45-e6237b86d030",
+  "prevIds": [
+    "cca7ec86-2a1d-43eb-a71b-3016ab0365bb"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_check",
+      "statementTarget": [
+        "table",
+        "public",
+        "provider_draft_model"
+      ],
+      "writes": [
+        "s|ck|public.provider_draft_model.provider_draft_model_model_name_check",
+        "n|ck|public.provider_draft_model.provider_draft_model_model_name_check",
+        "e|ck|public.provider_draft_model.provider_draft_model_model_name_check",
+        "n|con|public.provider_draft_model.provider_draft_model_model_name_check"
+      ],
+      "reads": [
+        "n|tbl|public.provider_draft_model",
+        "n|sch|public",
+        "n|col|public.provider_draft_model.model_name"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_draft_model",
+        "name": "provider_draft_model_model_name_check",
+        "value": "\"model_name\" ~ '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$'",
+        "entityType": "checks"
+      }
+    }
+  ]
+}

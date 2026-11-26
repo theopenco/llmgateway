@@ -140,14 +140,22 @@ function DiscountCells({
 }: {
 	discount: Parameters<typeof AdjustmentCells>[0]["entry"] & {
 		discountPercent: string;
+		excludedCostTypes: string[];
 	};
 }) {
 	return (
 		<AdjustmentCells
 			entry={discount}
 			value={
-				<span className="font-medium text-green-600">
-					{formatDiscount(discount.discountPercent)} off
+				<span className="flex flex-wrap items-center gap-2">
+					<span className="font-medium text-green-600">
+						{formatDiscount(discount.discountPercent)} off
+					</span>
+					{discount.excludedCostTypes.includes("web_search") && (
+						<Badge variant="outline" className="text-muted-foreground">
+							excl. web search
+						</Badge>
+					)}
 				</span>
 			}
 		/>
@@ -155,7 +163,10 @@ function DiscountCells({
 }
 
 async function OrganizationDiscountsView() {
-	const discountsData = await getAllOrganizationDiscounts();
+	const [discountsData, options] = await Promise.all([
+		getAllOrganizationDiscounts(),
+		getDiscountOptions(),
+	]);
 
 	if (discountsData === null) {
 		return <SignInPrompt />;
@@ -195,13 +206,14 @@ async function OrganizationDiscountsView() {
 							<TableHead>Reason</TableHead>
 							<TableHead>Expires</TableHead>
 							<TableHead>Created</TableHead>
+							<TableHead className="w-[50px]" />
 						</TableRow>
 					</TableHeader>
 					<TableBody>
 						{discounts.length === 0 ? (
 							<TableRow>
 								<TableCell
-									colSpan={7}
+									colSpan={8}
 									className="h-24 text-center text-muted-foreground"
 								>
 									<div className="flex flex-col items-center gap-2">
@@ -229,6 +241,18 @@ async function OrganizationDiscountsView() {
 										)}
 									</TableCell>
 									<DiscountCells discount={discount} />
+									<TableCell>
+										{options && discount.organizationId && (
+											<AdminOnly>
+												<DiscountForm
+													orgId={discount.organizationId}
+													discount={discount}
+													providers={options.providers}
+													mappings={options.mappings}
+												/>
+											</AdminOnly>
+										)}
+									</TableCell>
 								</TableRow>
 							))
 						)}
@@ -318,7 +342,7 @@ export default async function DiscountsPage({
 							<TableHead>Reason</TableHead>
 							<TableHead>Expires</TableHead>
 							<TableHead>Created</TableHead>
-							<TableHead className="w-[50px]" />
+							<TableHead className="w-[90px]" />
 						</TableRow>
 					</TableHeader>
 					<TableBody>
@@ -343,7 +367,16 @@ export default async function DiscountsPage({
 									<DiscountCells discount={discount} />
 									<TableCell>
 										<AdminOnly>
-											<DeleteDiscountButton discountId={discount.id} />
+											<div className="flex items-center justify-end gap-1">
+												{options && (
+													<DiscountForm
+														discount={discount}
+														providers={options.providers}
+														mappings={options.mappings}
+													/>
+												)}
+												<DeleteDiscountButton discountId={discount.id} />
+											</div>
 										</AdminOnly>
 									</TableCell>
 								</TableRow>
@@ -386,7 +419,7 @@ export default async function DiscountsPage({
 								<TableHead>Reason</TableHead>
 								<TableHead>Expires</TableHead>
 								<TableHead>Created</TableHead>
-								<TableHead className="w-[50px]" />
+								<TableHead className="w-[90px]" />
 							</TableRow>
 						</TableHeader>
 						<TableBody>
@@ -428,9 +461,18 @@ export default async function DiscountsPage({
 											/>
 											<TableCell>
 												<AdminOnly>
-													<DeleteRoutingScoreMultiplierButton
-														multiplierId={multiplier.id}
-													/>
+													<div className="flex items-center justify-end gap-1">
+														{options && (
+															<RoutingScoreMultiplierForm
+																multiplier={multiplier}
+																providers={options.providers}
+																mappings={options.mappings}
+															/>
+														)}
+														<DeleteRoutingScoreMultiplierButton
+															multiplierId={multiplier.id}
+														/>
+													</div>
 												</AdminOnly>
 											</TableCell>
 										</TableRow>
@@ -456,6 +498,10 @@ export default async function DiscountsPage({
 					</li>
 					<li>
 						A 30% discount means all customers pay 70% of the original price
+					</li>
+					<li>
+						Discounts apply to every price; turn off &quot;Apply to web
+						search&quot; to bill per-search fees at full price
 					</li>
 				</ul>
 			</div>

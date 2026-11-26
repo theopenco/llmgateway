@@ -530,6 +530,44 @@ describe("keys route", () => {
 		expect(apiKey?.usageLimit).toBe("100");
 	});
 
+	test.each([
+		["disabled", "PATCH", "", JSON.stringify({ status: "inactive" })],
+		["rolled", "POST", "/roll", undefined],
+		["deleted", "DELETE", "", undefined],
+	] as const)(
+		"drops stored Batch API credentials when the key is %s",
+		async (_action, method, suffix, body) => {
+			await db.insert(tables.batch).values({
+				id: "batch_keys_test",
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				endpoint: "/v1/chat/completions",
+				inputFileId: "file-keys-test",
+				status: "in_progress",
+				expiresAt: new Date(Date.now() + ONE_HOUR_MS),
+			});
+			await db.insert(tables.batchCredential).values({
+				batchId: "batch_keys_test",
+				apiKeyId: "test-api-key-id",
+				encryptedToken: "sealed",
+			});
+
+			const res = await app.request(`/keys/api/test-api-key-id${suffix}`, {
+				method,
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body,
+			});
+			expect(res.status).toBe(200);
+
+			const credentials = await db
+				.select()
+				.from(tables.batchCredential)
+				.where(eq(tables.batchCredential.batchId, "batch_keys_test"));
+			expect(credentials).toEqual([]);
+		},
+	);
+
 	test("POST /keys/api/{id}/roll returns 404 for unknown key", async () => {
 		const res = await app.request("/keys/api/does-not-exist/roll", {
 			method: "POST",
@@ -1686,6 +1724,64 @@ describe("keys route", () => {
 			expect(key.lastUsedAt).toBeNull();
 			expect(key.periodUsage).toBe("0");
 			expect(key.periodRequestCount).toBe(0);
+		});
+
+		test("GET /keys/api sums usage over a custom day range", async () => {
+			await db.insert(tables.apiKeyHourlyStats).values([
+				{
+					apiKeyId: "test-api-key-id",
+					projectId: "test-project-id",
+					hourTimestamp: new Date("2026-01-10T12:00:00Z"),
+					requestCount: 2,
+					cost: 1,
+				},
+				{
+					apiKeyId: "test-api-key-id",
+					projectId: "test-project-id",
+					hourTimestamp: new Date("2026-01-20T03:00:00Z"),
+					requestCount: 4,
+					cost: 2,
+				},
+				{
+					apiKeyId: "test-api-key-id",
+					projectId: "test-project-id",
+					hourTimestamp: new Date("2026-01-21T02:00:00Z"),
+					requestCount: 8,
+					cost: 4,
+				},
+			]);
+
+			const utc = await app.request(
+				"/keys/api?projectId=test-project-id&from=2026-01-10&to=2026-01-20",
+				{ headers: { Cookie: token } },
+			);
+			expect(utc.status).toBe(200);
+			const utcJson = await utc.json();
+			expect(utcJson.period).toBe("custom");
+			expect(Number(utcJson.apiKeys[0].periodUsage)).toBeCloseTo(3);
+			expect(utcJson.apiKeys[0].periodRequestCount).toBe(6);
+
+			// New York days end five hours after UTC ones.
+			const zoned = await app.request(
+				"/keys/api?projectId=test-project-id&from=2026-01-10&to=2026-01-20&timezone=America/New_York",
+				{ headers: { Cookie: token } },
+			);
+			const zonedKey = (await zoned.json()).apiKeys[0];
+			expect(zonedKey.periodRequestCount).toBe(14);
+		});
+
+		test("GET /keys/api rejects an incomplete or inverted custom range", async () => {
+			const missingTo = await app.request(
+				"/keys/api?projectId=test-project-id&from=2026-01-10",
+				{ headers: { Cookie: token } },
+			);
+			expect(missingTo.status).toBe(400);
+
+			const inverted = await app.request(
+				"/keys/api?projectId=test-project-id&from=2026-01-20&to=2026-01-10",
+				{ headers: { Cookie: token } },
+			);
+			expect(inverted.status).toBe(400);
 		});
 
 		test("GET /keys/api?organizationId lists keys across the org's projects", async () => {

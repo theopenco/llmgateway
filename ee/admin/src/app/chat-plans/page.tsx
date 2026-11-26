@@ -36,7 +36,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { canWrite } from "@/lib/admin-role";
+import { canReadFinancials } from "@/lib/admin-role";
 import { resolveDateRange } from "@/lib/date-range";
 import { getSessionAdminRole } from "@/lib/get-admin-role";
 import { formatSubscriberStatus } from "@/lib/renewal-state";
@@ -329,7 +329,7 @@ export default async function ChatPlansPage({
 	}>;
 }) {
 	await requireSession();
-	const isAdmin = canWrite(await getSessionAdminRole());
+	const showFinancials = canReadFinancials(await getSessionAdminRole());
 
 	const params = await searchParams;
 	const range = typeof params?.range === "string" ? params?.range : undefined;
@@ -424,9 +424,9 @@ export default async function ChatPlansPage({
 	});
 	searchFormParams.push({ name: "page", value: "1" });
 
-	// The API strips the plan-wide KPIs for non-admin roles.
+	// The API strips the plan-wide KPIs for support.
 	const kpis = data.kpis;
-	const grossMrrAfterRefunds = isAdmin
+	const grossMrrAfterRefunds = showFinancials
 		? kpis.grossMrr - kpis.refundedAmountThisMonth
 		: 0;
 
@@ -442,14 +442,14 @@ export default async function ChatPlansPage({
 						utilization, real provider cost, and margin.
 					</p>
 				</div>
-				{isAdmin && (
+				{showFinancials && (
 					<Suspense>
 						<DateRangePicker />
 					</Suspense>
 				)}
 			</header>
 
-			{isAdmin && (
+			{showFinancials && (
 				<section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
 					<div className="rounded-lg border border-border/60 bg-card p-4">
 						<div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
@@ -617,7 +617,7 @@ export default async function ChatPlansPage({
 				</section>
 			)}
 
-			{isAdmin && (
+			{showFinancials && (
 				<>
 					<ChatPlansTimeseriesChart from={from} to={to} />
 

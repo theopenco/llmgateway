@@ -62,6 +62,8 @@ export interface RealtimeClientSecretRecord {
 	 * Validated x-source header captured at mint time for billing attribution.
 	 */
 	source: string | null;
+	/** The caller's end-user identifier, logged on the session's rows. */
+	safetyIdentifier: string | null;
 	createdAt: number;
 	expiresAt: number;
 }
@@ -105,6 +107,7 @@ export interface CreateClientSecretInput {
 	instructions: string | null;
 	voice: string | null;
 	source: string | null;
+	safetyIdentifier: string | null;
 	ttlSeconds: number;
 }
 
@@ -129,6 +132,7 @@ export async function createClientSecret(
 		instructions: input.instructions,
 		voice: input.voice,
 		source: input.source,
+		safetyIdentifier: input.safetyIdentifier,
 		createdAt: Math.floor(now / 1000),
 		expiresAt,
 	};
@@ -225,6 +229,14 @@ export function parseClientSecretRecord(
 	if (record.source !== null && typeof record.source !== "string") {
 		return null;
 	}
+	// Absent on secrets minted before the field existed.
+	if (
+		record.safetyIdentifier !== undefined &&
+		record.safetyIdentifier !== null &&
+		typeof record.safetyIdentifier !== "string"
+	) {
+		return null;
+	}
 	if (
 		typeof record.createdAt !== "number" ||
 		typeof record.expiresAt !== "number"
@@ -240,6 +252,7 @@ export function parseClientSecretRecord(
 		instructions: record.instructions ?? null,
 		voice: record.voice ?? null,
 		source: record.source,
+		safetyIdentifier: record.safetyIdentifier ?? null,
 		createdAt: record.createdAt,
 		expiresAt: record.expiresAt,
 	};

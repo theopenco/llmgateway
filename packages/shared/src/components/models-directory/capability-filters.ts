@@ -1,16 +1,22 @@
 import { discountFraction } from "@/lib/discount";
 
+import { hasBatchSupport } from "./mapping-capabilities";
+
 import type { ApiModelProviderMapping } from "./api-types";
 
 export type CapabilityFilter =
 	| "streaming"
 	| "vision"
+	| "audioInput"
+	| "document"
+	| "realtime"
 	| "tools"
 	| "reasoning"
 	| "reasoningMaxTokens"
 	| "jsonOutput"
 	| "jsonOutputSchema"
 	| "webSearch"
+	| "batch"
 	| "discounted";
 
 export const OUTPUT_KIND_BY_CAPABILITY_FILTER = {
@@ -20,6 +26,7 @@ export const OUTPUT_KIND_BY_CAPABILITY_FILTER = {
 	transcription: "transcription",
 	embedding: "embedding",
 	rerank: "rerank",
+	ocr: "ocr",
 	decisions: "decision",
 	searchApi: "search",
 } as const;
@@ -48,6 +55,14 @@ export function matchesCapability(
 			return provider.streaming === true;
 		case "vision":
 			return provider.vision === true;
+		case "audioInput":
+			return provider.audio === true;
+		case "document":
+			return provider.document === true;
+		case "realtime":
+			return (
+				provider.realtime === true || provider.realtimeTranscription === true
+			);
 		case "tools":
 			return provider.tools === true;
 		case "reasoning":
@@ -60,6 +75,8 @@ export function matchesCapability(
 			return provider.jsonOutputSchema === true;
 		case "webSearch":
 			return provider.webSearch === true;
+		case "batch":
+			return hasBatchSupport(provider);
 		case "discounted":
 			return discountFraction(provider.discount) > 0;
 	}

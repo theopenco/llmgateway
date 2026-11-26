@@ -1,8 +1,10 @@
+import { CompareAnswer } from "@/components/compare/compare-answer";
 import { CompareFaq } from "@/components/compare/compare-faq";
 import { ComparisonSources } from "@/components/compare/comparison-sources";
 import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonPortkey } from "@/components/landing/comparison-portkey";
 import Footer from "@/components/landing/footer";
+import { pageTitle } from "@/lib/page-title";
 
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
@@ -67,6 +69,32 @@ export default function ComparePortkeyPage() {
 						},
 					}}
 				/>
+				<CompareAnswer
+					competitor="Portkey"
+					verdict="Portkey and LLM Gateway are both AI gateways with fallback and routing, and both can be self-hosted. Portkey prices its hosted platform by recorded request volume. LLM Gateway charges a 5% fee on credit purchases and no platform fee on your own provider keys."
+					rows={[
+						{
+							label: "Pricing",
+							llmGateway:
+								"5% fee on credit purchases; no platform fee on your own provider keys",
+							competitor:
+								"Free tier with 10,000 recorded logs per month; Production is $49 per month with 100,000 logs",
+						},
+						{
+							label: "Open-source license",
+							llmGateway:
+								"AGPLv3 core, with enterprise features under a commercial license",
+							competitor:
+								"MIT-licensed gateway, with enterprise private-cloud deployments",
+						},
+						{
+							label: "Beyond routing",
+							llmGateway: "Usage analytics, cost tracking and caching",
+							competitor:
+								"Prompt versioning, semantic caching, guardrail integrations and an MCP gateway",
+						},
+					]}
+				/>
 				<ComparisonPortkey />
 				<ComparisonSources slug="portkey" />
 				<CompareFaq
@@ -82,7 +110,7 @@ export default function ComparePortkeyPage() {
 
 export async function generateMetadata() {
 	return {
-		title: "LLM Gateway vs Portkey — The Open Portkey Alternative",
+		title: pageTitle("LLM Gateway vs Portkey — The Open Portkey Alternative"),
 		description:
 			"Compare open-source routing, image and video generation, and transparent pricing vs Portkey, now part of Palo Alto Networks.",
 		alternates: { canonical: "/compare/portkey" },

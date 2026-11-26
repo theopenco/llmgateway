@@ -1,7 +1,9 @@
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { CommittedUse } from "@/components/pricing/committed-use";
 import { PricingFaq } from "@/components/pricing/pricing-faq";
 import { PricingHero } from "@/components/pricing/pricing-hero";
+import { PricingSummary } from "@/components/pricing/pricing-summary";
 import { PricingTable } from "@/components/pricing/pricing-table";
 import { JsonLd } from "@/components/seo/json-ld";
 
@@ -38,6 +40,7 @@ const pricingSchema = {
 		name: "LLM Gateway",
 	},
 	url: "https://llmgateway.io/pricing",
+	image: "https://llmgateway.io/pricing/opengraph-image",
 	offers: {
 		"@type": "AggregateOffer",
 		priceCurrency: "USD",
@@ -92,6 +95,8 @@ export default function PricingPage() {
 			<main>
 				<PricingHero />
 				<PricingTable />
+				<CommittedUse location="pricing_committed_use" />
+				<PricingSummary />
 				<PricingFaq />
 			</main>
 			<Footer />

@@ -1,0 +1,11 @@
+-- "log" is the largest table in the database. Build this out of band BEFORE
+-- deploying, with psql in autocommit (CONCURRENTLY cannot run in a
+-- transaction):
+--
+--   CREATE INDEX CONCURRENTLY IF NOT EXISTS "log_content_filter_created_at_idx"
+--     ON "log" ("created_at") WHERE gateway_content_filter_response IS NOT NULL;
+--
+-- then confirm pg_index.indisvalid; drop a failed build with DROP INDEX
+-- CONCURRENTLY before retrying. IF NOT EXISTS makes this a no-op there, while
+-- dev, CI and fresh installs build it inline.
+CREATE INDEX IF NOT EXISTS "log_content_filter_created_at_idx" ON "log" ("created_at") WHERE gateway_content_filter_response IS NOT NULL;

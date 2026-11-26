@@ -5,6 +5,11 @@ date: 2025-05-01
 title: How to Self-Host LLM Gateway
 summary: Run LLM Gateway on your own infrastructure in under 5 minutes. Full control, zero platform fees.
 categories: ["Guides"]
+faqs:
+  - question: "How do I self-host LLM Gateway?"
+    answer: "Run the unified Docker image for a single-command setup, or use Docker Compose to run the services separately when you want to scale or debug them individually. Pin a specific release tag in production to avoid unexpected updates."
+  - question: "Why self-host LLM Gateway?"
+    answer: "Self-hosting means no platform fees on your API spend, the gateway and its logs run on your own infrastructure, and you can modify the code to fit your needs. Requests are still sent to the model providers you call."
 image:
   src: "/blog/how-to-self-host-llm-gateway.png"
   alt: "LLM Gateway"

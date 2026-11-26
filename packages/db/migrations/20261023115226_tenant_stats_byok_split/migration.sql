@@ -1,0 +1,35 @@
+-- migrate:reviewed ADD COLUMN with a constant default is metadata-only (no rewrite or scan), so the four locks are held only for the milliseconds the migration takes.
+ALTER TABLE "api_key_hourly_model_stats" ADD COLUMN "api_keys_client_error_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_model_stats" ADD COLUMN "api_keys_gateway_error_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_model_stats" ADD COLUMN "api_keys_upstream_error_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_model_stats" ADD COLUMN "api_keys_total_duration" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_model_stats" ADD COLUMN "api_keys_duration_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_model_stats" ADD COLUMN "api_keys_total_time_to_first_token" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_model_stats" ADD COLUMN "api_keys_time_to_first_token_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_model_stats" ADD COLUMN "api_keys_total_time_to_first_reasoning_token" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_model_stats" ADD COLUMN "api_keys_time_to_first_reasoning_token_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_stats" ADD COLUMN "api_keys_client_error_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_stats" ADD COLUMN "api_keys_gateway_error_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_stats" ADD COLUMN "api_keys_upstream_error_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_stats" ADD COLUMN "api_keys_total_duration" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_stats" ADD COLUMN "api_keys_duration_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_stats" ADD COLUMN "api_keys_total_time_to_first_token" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_stats" ADD COLUMN "api_keys_time_to_first_token_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_stats" ADD COLUMN "api_keys_total_time_to_first_reasoning_token" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "api_key_hourly_stats" ADD COLUMN "api_keys_time_to_first_reasoning_token_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_model_stats" ADD COLUMN "api_keys_client_error_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_model_stats" ADD COLUMN "api_keys_total_duration" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_model_stats" ADD COLUMN "api_keys_duration_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_model_stats" ADD COLUMN "api_keys_total_time_to_first_token" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_model_stats" ADD COLUMN "api_keys_time_to_first_token_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_model_stats" ADD COLUMN "api_keys_total_time_to_first_reasoning_token" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_model_stats" ADD COLUMN "api_keys_time_to_first_reasoning_token_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_stats" ADD COLUMN "api_keys_client_error_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_stats" ADD COLUMN "api_keys_gateway_error_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_stats" ADD COLUMN "api_keys_upstream_error_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_stats" ADD COLUMN "api_keys_total_duration" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_stats" ADD COLUMN "api_keys_duration_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_stats" ADD COLUMN "api_keys_total_time_to_first_token" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_stats" ADD COLUMN "api_keys_time_to_first_token_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_stats" ADD COLUMN "api_keys_total_time_to_first_reasoning_token" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "project_hourly_stats" ADD COLUMN "api_keys_time_to_first_reasoning_token_count" integer DEFAULT 0 NOT NULL;

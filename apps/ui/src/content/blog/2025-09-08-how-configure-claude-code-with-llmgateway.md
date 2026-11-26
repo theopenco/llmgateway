@@ -5,6 +5,11 @@ date: 2025-09-08
 title: How to Configure Claude Code to Use Any Model via LLM Gateway
 summary: Use GPT-5, Gemini, or any model with Claude Code. Three environment variables, zero code changes.
 categories: ["Guides"]
+faqs:
+  - question: "Can Claude Code use models other than Claude?"
+    answer: "Yes. Point Claude Code at LLM Gateway with three environment variables and it can use any model in the catalogue that supports tool calling. No code changes are needed."
+  - question: "Why route Claude Code through LLM Gateway?"
+    answer: "You can use a cheaper model for routine tasks and a stronger one for complex reasoning, switch models by changing an environment variable, and see what each coding session costs."
 image:
   src: "/blog/how-to-configure-claude-code-with-llmgateway.png"
   alt: "Configure Claude Code with LLM Gateway"

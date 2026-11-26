@@ -22,6 +22,9 @@ import {
 	expandAllProviderRegions,
 } from "@llmgateway/models";
 
+/** Held while the startup sync writes catalogue prices; see model-price-alerts. */
+export const MODEL_SYNC_LOCK_KEY = "model_sync";
+
 export async function syncProvidersAndModels() {
 	logger.info("Starting providers and models sync...");
 

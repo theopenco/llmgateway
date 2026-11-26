@@ -171,7 +171,9 @@ export function OrgModelsClient({
 			if (!activePolicy) {
 				return { ...model, source: "catalog" as const };
 			}
-			const modelReasons = modelListReasons([model.id]);
+			const modelReasons = modelListReasons([
+				model.virtualModelTarget ?? model.id,
+			]);
 			return {
 				...model,
 				source: "catalog" as const,

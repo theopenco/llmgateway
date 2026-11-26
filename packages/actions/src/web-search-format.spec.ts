@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
 	applyWebSearchFormat,
+	billedServerToolUseCount,
 	promptTokensShowSearchContext,
 	reportedWebSearchCount,
 } from "./web-search-format.js";
@@ -113,6 +114,40 @@ describe("reportedWebSearchCount", () => {
 				usage: { prompt_tokens: 559 },
 			}),
 		).toBe(0);
+	});
+});
+
+describe("billedServerToolUseCount", () => {
+	test("sums successful searches and page fetches", () => {
+		expect(
+			billedServerToolUseCount({
+				input_tokens: 72239,
+				server_tool_use: { tool_search: 4, tool_fetch: 4 },
+			}),
+		).toBe(8);
+		// DeepSeek's Anthropic API also reports attempted searches; only
+		// `tool_search` is billed.
+		expect(
+			billedServerToolUseCount({
+				server_tool_use: { web_search_requests: 4, tool_search: 3 },
+			}),
+		).toBe(3);
+	});
+
+	test("undefined without DeepSeek's counters", () => {
+		expect(billedServerToolUseCount({ input_tokens: 22 })).toBeUndefined();
+		expect(billedServerToolUseCount(null)).toBeUndefined();
+		// Anthropic's own usage is left to the caller's block count.
+		expect(
+			billedServerToolUseCount({
+				server_tool_use: { web_search_requests: 2 },
+			}),
+		).toBeUndefined();
+	});
+
+	test("zero without the counters when the upstream always reports them", () => {
+		expect(billedServerToolUseCount({ input_tokens: 22 }, true)).toBe(0);
+		expect(billedServerToolUseCount(undefined, true)).toBeUndefined();
 	});
 });
 

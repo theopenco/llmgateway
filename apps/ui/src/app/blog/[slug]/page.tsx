@@ -4,17 +4,21 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { ContentMentions } from "@/components/blog/content-mentions";
 import { ContentConversionRail } from "@/components/content-conversion-rail";
+import { ContentNextStep } from "@/components/content-next-step";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { blogAuthorSlug } from "@/lib/blog-authors";
 import { serializeJsonLd } from "@/lib/json-ld";
+import { pageTitle } from "@/lib/page-title";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 import { plainTextFromMarkdown } from "@/lib/utils/plain-text";
 
 import { CopyMarkdownButton } from "./copy-markdown-button";
 
 import type { Blog } from "content-collections";
-import type { Metadata } from "next";
+import type { Metadata, Route } from "next";
 
 /**
  * The rendered page appends the `faqs` frontmatter as its own section, so the
@@ -57,7 +61,12 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 		datePublished: entry.date,
 		dateModified: entry.updatedAt ?? entry.date,
 		author: entry.author
-			? { "@type": "Person", ...entry.author }
+			? {
+					"@type": "Person",
+					name: entry.author.name,
+					url: `https://llmgateway.io/blog/author/${blogAuthorSlug(entry.author.name)}`,
+					...(entry.author.url ? { sameAs: [entry.author.url] } : {}),
+				}
 			: {
 					"@type": "Organization",
 					name: "LLM Gateway",
@@ -128,6 +137,12 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 		],
 	};
 
+	// Follow whichever offer the post's inline cards already make, so the
+	// closing card and the rail reinforce them instead of competing.
+	const offer = entry.content.includes('variant="devpass"')
+		? "devpass"
+		: "gateway";
+
 	return (
 		<>
 			<script
@@ -177,12 +192,17 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 									)}
 									<p className="text-sm">
 										By{" "}
-										{entry.author?.url ? (
-											<a href={entry.author.url} rel="author">
+										{entry.author ? (
+											<Link
+												href={
+													`/blog/author/${blogAuthorSlug(entry.author.name)}` as Route
+												}
+												rel="author"
+											>
 												{entry.author.name}
-											</a>
+											</Link>
 										) : (
-											(entry.author?.name ?? "LLM Gateway")
+											"LLM Gateway"
 										)}
 									</p>
 									<time dateTime={entry.date} className="text-sm italic">
@@ -254,6 +274,14 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 									</dl>
 								</section>
 							) : null}
+
+							<ContentMentions content={entry.content} />
+
+							<ContentNextStep
+								surface="blog"
+								variant={offer}
+								showOffer={!entry.content.includes("<BlogCta")}
+							/>
 						</article>
 					</div>
 				</main>
@@ -263,9 +291,7 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 				surface="blog"
 				// Follow whichever offer the post's inline cards already make, so the
 				// rail reinforces them instead of competing.
-				variant={
-					entry.content.includes('variant="devpass"') ? "devpass" : "gateway"
-				}
+				variant={offer}
 				model={entry.model}
 			/>
 		</>
@@ -299,15 +325,20 @@ export async function generateMetadata({
 	}
 
 	return {
-		title: entry.title,
+		title: pageTitle(entry.title),
 		authors: entry.author
 			? [entry.author]
 			: [{ name: "LLM Gateway", url: "https://llmgateway.io" }],
 		description: entry.summary ?? "LLM Gateway blog post",
+		alternates: { canonical: `/blog/${entry.slug}` },
 		openGraph: {
 			title: entry.title,
 			description: entry.summary ?? "LLM Gateway blog post",
 			type: "article",
+			url: `https://llmgateway.io/blog/${entry.slug}`,
+			publishedTime: entry.date,
+			modifiedTime: entry.updatedAt ?? entry.date,
+			authors: entry.author?.url ? [entry.author.url] : undefined,
 			images: entry.image
 				? [
 						{

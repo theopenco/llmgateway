@@ -178,6 +178,37 @@ describe("extractFileText", () => {
 		).rejects.toThrow(/too large/);
 	});
 
+	it("extracts a malformed PDF without logging pdf.js warnings", async () => {
+		// A bad startxref offset and an undeclared font: pdf.js recovers from both but
+		// warns "Indexing all PDF objects" and 'Font "F1" is not available'.
+		const stream = "BT /F1 12 Tf 72 712 Td (Hello PDF) Tj ET";
+		const pdf = Buffer.from(
+			[
+				"%PDF-1.4",
+				"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
+				"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj",
+				"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> /Contents 4 0 R >> endobj",
+				`4 0 obj << /Length ${stream.length} >> stream`,
+				stream,
+				"endstream endobj",
+				"trailer << /Root 1 0 R >>",
+				"startxref",
+				"99999",
+				"%%EOF",
+			].join("\n"),
+		);
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			const text = await extractFileText("broken.pdf", "application/pdf", pdf);
+			expect(text).toContain("Hello PDF");
+			expect([...log.mock.calls, ...warn.mock.calls]).toEqual([]);
+		} finally {
+			log.mockRestore();
+			warn.mockRestore();
+		}
+	});
+
 	it("rejects invalid PDF data", async () => {
 		await expect(
 			extractFileText(

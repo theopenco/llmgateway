@@ -12,6 +12,7 @@ import {
 	processStreamChunk,
 	createCompletionEvents,
 	createFailedEvent,
+	getChatStreamError,
 	buildFinalOutputItems,
 } from "./tools/convert-streaming-to-responses.js";
 import { resolveItemReferences } from "./tools/response-state.js";
@@ -2536,6 +2537,54 @@ describe("streaming conversion", () => {
 		expect(data.type).toBe("response.failed");
 		expect(data.response.status).toBe("failed");
 		expect(data.response.id).toBe(state.responseId);
+	});
+});
+
+describe("getChatStreamError", () => {
+	it("ignores regular chat chunks", () => {
+		expect(
+			getChatStreamError({ id: "chatcmpl_1", choices: [{ delta: {} }] }, null),
+		).toBeNull();
+	});
+
+	it.each([
+		[{ type: "client_error", code: "client_error" }, "invalid_prompt"],
+		[{ type: "invalid_request_error", code: "bad_param" }, "invalid_prompt"],
+		[{ type: "content_filter" }, "invalid_prompt"],
+		[{ type: "rate_limit_error" }, "rate_limit_exceeded"],
+		[
+			{ type: "upstream_error", code: "rate_limit_exceeded" },
+			"rate_limit_exceeded",
+		],
+		[
+			{ type: "upstream_error", code: "context_length_exceeded" },
+			"context_length_exceeded",
+		],
+		[{ type: "upstream_timeout", code: "timeout" }, "server_error"],
+		[{ type: "gateway_error", code: "buffer_overflow" }, "server_error"],
+	])("maps %o to %s", (error, code) => {
+		expect(
+			getChatStreamError({ error: { message: "boom", ...error } }, "error"),
+		).toEqual({ code, message: "boom" });
+	});
+
+	it("treats an error event without an error object as a server error", () => {
+		expect(getChatStreamError({}, "error")).toEqual({
+			code: "server_error",
+			message: "Upstream request failed",
+		});
+	});
+});
+
+describe("createFailedEvent", () => {
+	it("always sets response.error", () => {
+		const state = createStreamingState("test-model");
+		const event = JSON.parse(createFailedEvent(state).data);
+		expect(event.response.status).toBe("failed");
+		expect(event.response.error).toEqual({
+			code: "server_error",
+			message: expect.any(String),
+		});
 	});
 });
 

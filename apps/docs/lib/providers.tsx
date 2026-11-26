@@ -23,6 +23,9 @@ export function PostHogProvider({ children }: { children: ReactNode }) {
 				defaults: "2025-05-24",
 				capture_pageview: "history_change",
 				autocapture: true,
+				// The project runs no surveys, but posthog-js still downloads
+				// surveys.js unless they are disabled here.
+				disable_surveys: true,
 				loaded: (ph) => {
 					ph.register({
 						app_section: "docs",

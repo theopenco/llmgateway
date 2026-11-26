@@ -13,16 +13,6 @@ afterEach(() => {
 });
 
 describe("getProviderHeaders", () => {
-	it("disables response compression for RanoAI", () => {
-		expect(
-			getProviderHeaders("ranoai", "token", { requestId: "request-id" }),
-		).toEqual({
-			"x-request-id": "request-id",
-			Authorization: "Bearer token",
-			"Accept-Encoding": "identity",
-		});
-	});
-
 	it("leaves Accept-Encoding to fetch for Runware", () => {
 		expect(
 			getProviderHeaders("runware", "token", { requestId: "request-id" }),
@@ -197,13 +187,6 @@ describe("getProviderHeaders - Google Vertex service tiers", () => {
 			expect(headers["anthropic-version"]).toBe("2023-06-01");
 			expect(headers["api-key"]).toBeUndefined();
 			expect(headers.Authorization).toBeUndefined();
-		});
-
-		it("keeps using Azure's api-key header for azure-ai-foundry", () => {
-			const headers = getProviderHeaders("azure-ai-foundry", "foundry-key");
-
-			expect(headers["api-key"]).toBe("foundry-key");
-			expect(headers["x-api-key"]).toBeUndefined();
 		});
 	});
 

@@ -1,7 +1,7 @@
 import { createServerApiClient } from "./server-api";
 
 import type { paths } from "./api/v1";
-import type { ErrorWindow } from "./provider-key-error-window";
+import type { UsageWindow } from "./provider-key-usage-window";
 
 export type ProviderCredential =
 	paths["/admin/provider-credentials"]["get"]["responses"]["200"]["content"]["application/json"]["credentials"][number];
@@ -30,14 +30,14 @@ export interface CredentialTestInput {
 
 export async function getProviderCredentials(
 	includeDeleted = false,
-	errorWindow?: ErrorWindow,
+	usageWindow?: UsageWindow,
 ) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/provider-credentials", {
 		params: {
 			query: {
 				...(includeDeleted ? { includeDeleted: "true" as const } : {}),
-				...(errorWindow ? { errorWindow } : {}),
+				...(usageWindow ? { errorWindow: usageWindow, usageWindow } : {}),
 			},
 		},
 	});

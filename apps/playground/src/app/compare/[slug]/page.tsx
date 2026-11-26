@@ -4,13 +4,16 @@ import { notFound } from "next/navigation";
 
 import { ComparisonTable } from "@/components/compare/comparison-table";
 import { FaceOff, ThemTile, UsTile } from "@/components/compare/logo-faceoff";
+import { ModelPricingTable } from "@/components/compare/model-pricing-table";
 import { Button } from "@/components/ui/button";
 import {
 	comparisons,
 	getComparison,
 	getComparisonSlugs,
+	studioOf,
 	US,
 } from "@/lib/comparisons";
+import { pageTitle } from "@/lib/page-title";
 
 import type { Metadata } from "next";
 
@@ -32,7 +35,7 @@ export async function generateMetadata({
 	}
 	const canonical = `/compare/${comparison.slug}`;
 	return {
-		title: comparison.metaTitle,
+		title: pageTitle(comparison.metaTitle),
 		description: comparison.metaDescription,
 		alternates: { canonical },
 		openGraph: {
@@ -56,7 +59,13 @@ export default async function ComparePage({ params }: PageProps) {
 		notFound();
 	}
 
-	const others = comparisons.filter((c) => c.slug !== comparison.slug);
+	const studio = studioOf(comparison);
+	const title = `${studio.product} vs ${comparison.competitor}`;
+	const others = comparisons
+		.filter((c) => c.slug !== comparison.slug)
+		.toSorted(
+			(a, b) => Number(studioOf(b) === studio) - Number(studioOf(a) === studio),
+		);
 
 	const faqSchema = {
 		"@context": "https://schema.org",
@@ -81,7 +90,7 @@ export default async function ComparePage({ params }: PageProps) {
 			{
 				"@type": "ListItem",
 				position: 2,
-				name: `Lounge vs ${comparison.competitor}`,
+				name: title,
 				item: `https://lounge.llmgateway.io/compare/${comparison.slug}`,
 			},
 		],
@@ -131,7 +140,7 @@ export default async function ComparePage({ params }: PageProps) {
 					/>
 				</div>
 				<h1 className="text-3xl font-bold tracking-tight text-balance sm:text-5xl">
-					Lounge vs {comparison.competitor}
+					{title}
 				</h1>
 				<p className="mt-3 text-base font-medium text-muted-foreground">
 					{comparison.competitorTagline}
@@ -160,14 +169,16 @@ export default async function ComparePage({ params }: PageProps) {
 					</div>
 					<div className="flex gap-3">
 						<Button asChild>
-							<Link href="/">
-								Start chatting free
+							<Link href={studio.href}>
+								{studio.cta}
 								<ArrowRight className="ml-1.5 h-4 w-4" />
 							</Link>
 						</Button>
-						<Button asChild variant="outline">
-							<Link href="/pricing">See plans</Link>
-						</Button>
+						{studio.membership ? (
+							<Button asChild variant="outline">
+								<Link href="/pricing">See plans</Link>
+							</Button>
+						) : null}
 					</div>
 				</div>
 			</header>
@@ -175,7 +186,7 @@ export default async function ComparePage({ params }: PageProps) {
 			{/* At a glance */}
 			<section className="mt-16">
 				<h2 className="mb-5 text-xl font-semibold tracking-tight">
-					Lounge vs {comparison.competitor} at a glance
+					{title} at a glance
 				</h2>
 				<ComparisonTable
 					competitor={comparison.competitor}
@@ -183,6 +194,22 @@ export default async function ComparePage({ params }: PageProps) {
 					rows={comparison.table}
 				/>
 			</section>
+
+			{comparison.modelPricing ? (
+				<section className="mt-16">
+					<h2 className="mb-2 text-xl font-semibold tracking-tight">
+						{comparison.modelPricing.heading}
+					</h2>
+					<ModelPricingTable
+						competitor={comparison.competitor}
+						slug={comparison.slug}
+						pricing={comparison.modelPricing}
+						plusMultiplier={
+							studio.membership ? US.plans.plus.multiplier : undefined
+						}
+					/>
+				</section>
+			) : null}
 
 			{/* Deep sections */}
 			<section className="mt-16 space-y-10">
@@ -289,65 +316,82 @@ export default async function ComparePage({ params }: PageProps) {
 			</section>
 
 			{/* Pricing recap */}
-			<section className="mt-16">
-				<h2 className="mb-5 text-xl font-semibold tracking-tight">
-					One subscription, up to 3× the credits
-				</h2>
-				<div className="grid gap-4 sm:grid-cols-3">
-					{(
-						[
-							{ name: "Starter", ...US.plans.starter, note: "Most models" },
-							{
-								name: "Plus",
-								...US.plans.plus,
-								note: "Every frontier model",
-								popular: true,
-							},
-							{ name: "Pro", ...US.plans.pro, note: "Best value at volume" },
-						] as const
-					).map((plan) => (
-						<div
-							key={plan.name}
-							className={`rounded-2xl border bg-card p-5 ${
-								"popular" in plan && plan.popular
-									? "border-foreground/30 ring-1 ring-foreground/10"
-									: ""
-							}`}
-						>
-							<div className="flex items-baseline justify-between">
-								<span className="text-sm font-semibold">{plan.name}</span>
-								<span className="rounded-full bg-foreground/90 px-2 py-0.5 text-[10px] font-bold tabular-nums text-background">
-									{plan.multiplier}× value
-								</span>
+			{studio.membership ? (
+				<section className="mt-16">
+					<h2 className="mb-5 text-xl font-semibold tracking-tight">
+						One subscription, up to 3× the credits
+					</h2>
+					<div className="grid gap-4 sm:grid-cols-3">
+						{(
+							[
+								{ name: "Starter", ...US.plans.starter, note: "Most models" },
+								{
+									name: "Plus",
+									...US.plans.plus,
+									note: "Every frontier model",
+									popular: true,
+								},
+								{ name: "Pro", ...US.plans.pro, note: "Best value at volume" },
+							] as const
+						).map((plan) => (
+							<div
+								key={plan.name}
+								className={`rounded-2xl border bg-card p-5 ${
+									"popular" in plan && plan.popular
+										? "border-foreground/30 ring-1 ring-foreground/10"
+										: ""
+								}`}
+							>
+								<div className="flex items-baseline justify-between">
+									<span className="text-sm font-semibold">{plan.name}</span>
+									<span className="rounded-full bg-foreground/90 px-2 py-0.5 text-[10px] font-bold tabular-nums text-background">
+										{plan.multiplier}× value
+									</span>
+								</div>
+								<div className="mt-2 flex items-baseline gap-1">
+									<span className="text-3xl font-bold tabular-nums">
+										${plan.price}
+									</span>
+									<span className="text-sm text-muted-foreground">/mo</span>
+								</div>
+								<p className="mt-1 text-xs text-muted-foreground tabular-nums">
+									$
+									{Number.isInteger(plan.value)
+										? plan.value
+										: plan.value.toFixed(2)}{" "}
+									in credits at provider rates
+								</p>
+								<p className="mt-3 text-xs text-muted-foreground">
+									{plan.note}
+								</p>
 							</div>
-							<div className="mt-2 flex items-baseline gap-1">
-								<span className="text-3xl font-bold tabular-nums">
-									${plan.price}
-								</span>
-								<span className="text-sm text-muted-foreground">/mo</span>
-							</div>
-							<p className="mt-1 text-xs text-muted-foreground tabular-nums">
-								$
-								{Number.isInteger(plan.value)
-									? plan.value
-									: plan.value.toFixed(2)}{" "}
-								in credits at provider rates
-							</p>
-							<p className="mt-3 text-xs text-muted-foreground">{plan.note}</p>
-						</div>
-					))}
-				</div>
-				<p className="mt-4 text-xs text-muted-foreground">
-					Credits reset each cycle. Pay-as-you-go top-ups never expire and act
-					as a fallback. Starter excludes frontier models (Opus, GPT-5, Gemini
-					2.5 Pro, Grok 4); Plus and Pro include everything.
-				</p>
-			</section>
+						))}
+					</div>
+					<p className="mt-4 text-xs text-muted-foreground">
+						Credits reset each cycle. Pay-as-you-go top-ups never expire and act
+						as a fallback.{" "}
+						{comparison.studio === "video" ||
+						comparison.studio === "image" ||
+						comparison.studio === "audio"
+							? "Every plan, Starter included, covers every image, video and audio model."
+							: "Starter excludes frontier models (Opus, GPT-5, Gemini 2.5 Pro, Grok 4); Plus and Pro include everything."}
+					</p>
+				</section>
+			) : (
+				<section className="mt-16 rounded-2xl border bg-muted/30 p-6">
+					<h2 className="text-xl font-semibold tracking-tight">
+						How {studio.label} is billed
+					</h2>
+					<p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+						{studio.billingNote}
+					</p>
+				</section>
+			)}
 
 			{/* FAQ */}
 			<section className="mt-16">
 				<h2 className="mb-5 text-xl font-semibold tracking-tight">
-					Lounge vs {comparison.competitor} FAQ
+					{title} FAQ
 				</h2>
 				<div className="divide-y rounded-2xl border bg-card">
 					{comparison.faq.map((item) => (
@@ -367,21 +411,22 @@ export default async function ComparePage({ params }: PageProps) {
 			{/* Final CTA */}
 			<section className="mt-16 rounded-2xl border border-foreground/15 bg-card p-8 text-center shadow-sm">
 				<h2 className="text-2xl font-bold tracking-tight">
-					Every model. One subscription.
+					{studio.finalHeading}
 				</h2>
 				<p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-					Chat with {US.modelCount} models — GPT, Claude, Gemini, Grok and more
-					— from a single credit balance. Switch models mid-conversation.
+					{studio.finalBody}
 				</p>
 				<div className="mt-6 flex justify-center gap-3">
 					<Button asChild size="lg">
-						<Link href="/">
-							Start chatting free
+						<Link href={studio.href}>
+							{studio.cta}
 							<ArrowRight className="ml-1.5 h-4 w-4" />
 						</Link>
 					</Button>
 					<Button asChild size="lg" variant="outline">
-						<Link href="/pricing">Compare plans</Link>
+						<Link href={studio.membership ? "/pricing" : "/"}>
+							{studio.membership ? "Compare plans" : "Back to Lounge"}
+						</Link>
 					</Button>
 				</div>
 			</section>
@@ -396,7 +441,7 @@ export default async function ComparePage({ params }: PageProps) {
 						<Link
 							key={other.slug}
 							href={`/compare/${other.slug}`}
-							className="group flex items-center gap-3 rounded-xl border bg-card p-4 transition-colors hover:border-foreground/30"
+							className="group flex min-w-0 items-center gap-3 rounded-xl border bg-card p-4 transition-colors hover:border-foreground/30"
 						>
 							<ThemTile
 								slug={other.slug}
@@ -405,7 +450,9 @@ export default async function ComparePage({ params }: PageProps) {
 								radius={9}
 							/>
 							<div className="min-w-0 flex-1">
-								<div className="text-sm font-medium">vs {other.competitor}</div>
+								<div className="text-sm font-medium">
+									{studioOf(other).product} vs {other.competitor}
+								</div>
 								<div className="truncate text-xs text-muted-foreground">
 									{other.competitorTagline}
 								</div>

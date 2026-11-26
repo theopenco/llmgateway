@@ -10,7 +10,12 @@ import { logger } from "@llmgateway/logger";
 
 import { startWorker, stopWorker } from "./worker.js";
 
-export { processLogQueue } from "./worker.js";
+export { batchProcessLogs, processLogQueue } from "./worker.js";
+export {
+	createBatchLoopState,
+	runBatchHousekeeping,
+	startBatchRequests,
+} from "./services/batches.js";
 export {
 	processPendingVideoJobs,
 	processPendingWebhookDeliveries,
@@ -70,7 +75,7 @@ if (isDirectExecution()) {
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
 	setQueryTags({ application: "worker" });
 
-	// DB pool occupancy for Prometheus, served only when METRICS_PORT is set.
+	// DB pool and log persist lag for Prometheus, served only when METRICS_PORT is set.
 	setMetricsServiceName("llmgateway-worker");
 	registerDbPoolMetrics(getPoolStats);
 	if (process.env.METRICS_PORT) {

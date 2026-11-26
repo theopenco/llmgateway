@@ -5,6 +5,11 @@ date: 2026-05-17
 title: "ByteDance Seedance Lands on LLM Gateway: Three Video Models, One API"
 summary: "All three ByteDance Seedance video generation models — 2.0, 2.0 Fast, and 1.5 Pro with native audio — are now live on LLM Gateway. Same API key. Same billing. Same dashboard."
 categories: ["Product"]
+faqs:
+  - question: "Which Seedance capabilities are available through LLM Gateway?"
+    answer: "Each Seedance model supports text-to-video, image-to-video using a first frame, and reference-image conditioning."
+  - question: "How do I generate a Seedance video through the API?"
+    answer: "Submit a job to the video endpoint, poll for its status, and get the result from the returned URL."
 image:
   src: "/blog/seedance-video-models.png"
   alt: "ByteDance Seedance video models now live on LLM Gateway"

@@ -10,6 +10,7 @@ import {
 	projectHourlySourceStats,
 	projectHourlySourceModelStats,
 	projectHourlyRoutingStats,
+	projectHourlyWebSearchStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
 	apiKeyHourlySourceStats,
@@ -20,9 +21,13 @@ import {
 	isNull,
 	isNotNull,
 	eq,
+	gt,
 	inArray,
+	or,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+
+import { excludeGatewayContentFilterBlocks } from "./log-filters.js";
 
 // Configuration for project stats refresh interval (defaults to 60 seconds)
 export const PROJECT_STATS_REFRESH_INTERVAL_SECONDS =
@@ -179,7 +184,10 @@ export function getBaseAggregationFields() {
 		inputCost: sumLogMoney(log.inputCost, "inputCost"),
 		outputCost: sumLogMoney(log.outputCost, "outputCost"),
 		requestCost: sumLogMoney(log.requestCost, "requestCost"),
+		webSearchCost: sumLogMoney(log.webSearchCost, "webSearchCost"),
 		dataStorageCost: sumLogMoney(log.dataStorageCost, "dataStorageCost"),
+		// Slightly overstated when a discount excludes web search: the
+		// full-price search fee in `cost` is grossed up too.
 		discountSavings: sql<number>`coalesce(
 			sum(
 				case
@@ -216,13 +224,19 @@ export function getCommonAggregationFields() {
 		// is no float drift to guard against; the result is cast to bigint rather
 		// than int because `::int` raises "integer out of range" once a busy
 		// project-hour passes 2.1e9 ms instead of saturating.
-		totalDuration: sql<number>`coalesce(sum(${log.duration}), 0)::bigint`.as(
-			"totalDuration",
-		),
-		// `log.duration` is NOT NULL, so this equals requestCount for every row
-		// written from here on. It exists so buckets aggregated before these
-		// columns can be told apart from buckets that genuinely averaged 0 ms.
-		durationCount: sql<number>`count(${log.duration})::int`.as("durationCount"),
+		// Gateway content filter blocks never reach the provider, so their 0 ms
+		// would drag the average down; they still count as requests.
+		totalDuration:
+			sql<number>`coalesce(sum(${log.duration}) filter (where ${excludeGatewayContentFilterBlocks()}), 0)::bigint`.as(
+				"totalDuration",
+			),
+		// `log.duration` is NOT NULL, so this counts every request but those
+		// blocks. It exists so buckets aggregated before these columns can be told
+		// apart from buckets that genuinely averaged 0 ms.
+		durationCount:
+			sql<number>`(count(${log.duration}) filter (where ${excludeGatewayContentFilterBlocks()}))::int`.as(
+				"durationCount",
+			),
 		// `count` skips nulls, and only streamed, non-cached, successful requests
 		// record a first-token time, so each TTFT average divides by its own
 		// samples. The reasoning pair is carried too so `avgEffectiveTtft` can
@@ -271,20 +285,61 @@ export function getCommonAggregationFields() {
 }
 
 /**
- * BYOK subset of the gateway/upstream error counts. Only
- * project_hourly_model_stats carries these, for platform-only incident views.
+ * BYOK subset of the error and latency fields, carried by the project and
+ * API key hourly (model) stats so every metric can be split by billing mode.
  */
-function apiKeysErrorFields() {
+export function getApiKeysModeFields() {
+	const byok = sql`${log.usedMode} = 'api-keys'`;
+	const errors = (reason: string, alias: string) =>
+		sql<number>`sum(case when ${byok} and ${log.unifiedFinishReason} = ${reason} then 1 else 0 end)::int`.as(
+			alias,
+		);
+	const total = (column: AnyColumn, alias: string) =>
+		sql<number>`coalesce(sum(${column}) filter (where ${byok}), 0)::bigint`.as(
+			alias,
+		);
+	const samples = (column: AnyColumn, alias: string) =>
+		sql<number>`(count(${column}) filter (where ${byok}))::int`.as(alias);
 	return {
-		apiKeysGatewayErrorCount:
-			sql<number>`sum(case when ${log.usedMode} = 'api-keys' and ${log.unifiedFinishReason} = 'gateway_error' then 1 else 0 end)::int`.as(
-				"apiKeysGatewayErrorCount",
+		apiKeysClientErrorCount: errors("client_error", "apiKeysClientErrorCount"),
+		apiKeysGatewayErrorCount: errors(
+			"gateway_error",
+			"apiKeysGatewayErrorCount",
+		),
+		apiKeysUpstreamErrorCount: errors(
+			"upstream_error",
+			"apiKeysUpstreamErrorCount",
+		),
+		apiKeysTotalDuration:
+			sql<number>`coalesce(sum(${log.duration}) filter (where ${byok} and ${excludeGatewayContentFilterBlocks()}), 0)::bigint`.as(
+				"apiKeysTotalDuration",
 			),
-		apiKeysUpstreamErrorCount:
-			sql<number>`sum(case when ${log.usedMode} = 'api-keys' and ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
-				"apiKeysUpstreamErrorCount",
+		apiKeysDurationCount:
+			sql<number>`(count(${log.duration}) filter (where ${byok} and ${excludeGatewayContentFilterBlocks()}))::int`.as(
+				"apiKeysDurationCount",
 			),
+		apiKeysTotalTimeToFirstToken: total(
+			log.timeToFirstToken,
+			"apiKeysTotalTimeToFirstToken",
+		),
+		apiKeysTimeToFirstTokenCount: samples(
+			log.timeToFirstToken,
+			"apiKeysTimeToFirstTokenCount",
+		),
+		apiKeysTotalTimeToFirstReasoningToken: total(
+			log.timeToFirstReasoningToken,
+			"apiKeysTotalTimeToFirstReasoningToken",
+		),
+		apiKeysTimeToFirstReasoningTokenCount: samples(
+			log.timeToFirstReasoningToken,
+			"apiKeysTimeToFirstReasoningTokenCount",
+		),
 	};
+}
+
+/** Aggregation fields of the four tenant tables the BYOK split lives on. */
+function getTenantAggregationFields() {
+	return { ...getCommonAggregationFields(), ...getApiKeysModeFields() };
 }
 
 // Bound aggregation working sets and keep wide INSERTs below the parameter limit.
@@ -351,7 +406,7 @@ async function recalculateProjectHourlyStats(
 	const database = db;
 
 	const rows = await database
-		.select({ projectId: log.projectId, ...getCommonAggregationFields() })
+		.select({ projectId: log.projectId, ...getTenantAggregationFields() })
 		.from(log)
 		.where(
 			and(
@@ -378,7 +433,7 @@ async function recalculateProjectHourlyStats(
 				// The parent timestamp is the stale-bucket watermark, even when totals match.
 				...statsUpdate(
 					getTableColumns(projectHourlyStats),
-					getCommonAggregationFields(),
+					getTenantAggregationFields(),
 					false,
 					window.accumulate,
 				),
@@ -401,8 +456,7 @@ export async function recalculateProjectHourlyModelStats(
 			projectId: log.projectId,
 			usedModel: log.usedModel,
 			usedProvider: log.usedProvider,
-			...getCommonAggregationFields(),
-			...apiKeysErrorFields(),
+			...getTenantAggregationFields(),
 			providerMarginAmount: providerMarginAmountField(),
 		})
 		.from(log)
@@ -433,8 +487,7 @@ export async function recalculateProjectHourlyModelStats(
 				...statsUpdate(
 					getTableColumns(projectHourlyModelStats),
 					{
-						...getCommonAggregationFields(),
-						...apiKeysErrorFields(),
+						...getTenantAggregationFields(),
 						providerMarginAmount: providerMarginAmountField(),
 					},
 					true,
@@ -644,6 +697,87 @@ export async function recalculateProjectHourlyRoutingStats(
 	}
 }
 
+// Rows before `log.webSearchEngine` existed only searched natively, so the
+// provider that served them is the engine.
+const webSearchEngineExpr = sql<string>`coalesce(${log.webSearchEngine}, ${log.usedProvider})`;
+const webSearchTypeExpr = sql<
+	"native" | "gateway"
+>`coalesce(${log.webSearchType}, 'native')`;
+
+function getWebSearchAggregationFields() {
+	return {
+		requestCount: sql<number>`count(*)::int`.as("requestCount"),
+		searchCount: sql<number>`coalesce(sum(${log.webSearchCount}), 0)::int`.as(
+			"searchCount",
+		),
+		webSearchCost: sumLogMoney(log.webSearchCost, "webSearchCost"),
+		cost: sumLogMoney(log.cost, "cost"),
+	};
+}
+
+/**
+ * Calculate hourly web search usage for a batch of projects, per type (gateway
+ * or native), engine (a gateway engine, or the provider for native search),
+ * provider and mode.
+ */
+export async function recalculateProjectHourlyWebSearchStats(
+	projectIds: string[],
+	hourTimestamp: string,
+	window: LogWindow = {},
+) {
+	const rows = await db
+		.select({
+			projectId: log.projectId,
+			webSearchType: webSearchTypeExpr.as("webSearchType"),
+			webSearchEngine: webSearchEngineExpr.as("webSearchEngine"),
+			usedProvider: log.usedProvider,
+			usedMode: log.usedMode,
+			...getWebSearchAggregationFields(),
+		})
+		.from(log)
+		.where(
+			and(
+				inArray(log.projectId, projectIds),
+				hourLogWindow(hourTimestamp, window),
+				or(isNotNull(log.webSearchEngine), gt(log.webSearchCost, 0)),
+			),
+		)
+		.groupBy(
+			log.projectId,
+			webSearchTypeExpr,
+			webSearchEngineExpr,
+			log.usedProvider,
+			log.usedMode,
+		);
+
+	for (let offset = 0; offset < rows.length; offset += STATS_WRITE_BATCH_SIZE) {
+		await db
+			.insert(projectHourlyWebSearchStats)
+			.values(
+				rows.slice(offset, offset + STATS_WRITE_BATCH_SIZE).map((stat) => ({
+					...stat,
+					hourTimestamp: sql`${hourTimestamp}::timestamp`,
+				})),
+			)
+			.onConflictDoUpdate({
+				target: [
+					projectHourlyWebSearchStats.projectId,
+					projectHourlyWebSearchStats.hourTimestamp,
+					projectHourlyWebSearchStats.webSearchType,
+					projectHourlyWebSearchStats.webSearchEngine,
+					projectHourlyWebSearchStats.usedProvider,
+					projectHourlyWebSearchStats.usedMode,
+				],
+				...statsUpdate(
+					getTableColumns(projectHourlyWebSearchStats),
+					getWebSearchAggregationFields(),
+					true,
+					window.accumulate,
+				),
+			});
+	}
+}
+
 /**
  * Calculate hourly API key statistics for a batch of projects.
  */
@@ -658,7 +792,7 @@ async function recalculateApiKeyHourlyStats(
 		.select({
 			projectId: log.projectId,
 			apiKeyId: log.apiKeyId,
-			...getCommonAggregationFields(),
+			...getTenantAggregationFields(),
 		})
 		.from(log)
 		.innerJoin(apiKey, eq(apiKey.id, log.apiKeyId))
@@ -684,7 +818,7 @@ async function recalculateApiKeyHourlyStats(
 				target: [apiKeyHourlyStats.apiKeyId, apiKeyHourlyStats.hourTimestamp],
 				...statsUpdate(
 					getTableColumns(apiKeyHourlyStats),
-					getCommonAggregationFields(),
+					getTenantAggregationFields(),
 					true,
 					window.accumulate,
 				),
@@ -708,7 +842,7 @@ async function recalculateApiKeyHourlyModelStats(
 			apiKeyId: log.apiKeyId,
 			usedModel: log.usedModel,
 			usedProvider: log.usedProvider,
-			...getCommonAggregationFields(),
+			...getTenantAggregationFields(),
 		})
 		.from(log)
 		.innerJoin(apiKey, eq(apiKey.id, log.apiKeyId))
@@ -739,7 +873,7 @@ async function recalculateApiKeyHourlyModelStats(
 				],
 				...statsUpdate(
 					getTableColumns(apiKeyHourlyModelStats),
-					getCommonAggregationFields(),
+					getTenantAggregationFields(),
 					true,
 					window.accumulate,
 				),
@@ -920,7 +1054,7 @@ async function recalculateProviderKeyHourlyStats(
  * backfill) go through this so a newly added stats table cannot be wired into
  * one path and silently forgotten in the others.
  */
-async function recalculateBucket(
+export async function recalculateBucket(
 	projectIds: string[],
 	hourTimestamp: string,
 	window: LogWindow = {},
@@ -934,6 +1068,11 @@ async function recalculateBucket(
 		window,
 	);
 	await recalculateProjectHourlyRoutingStats(projectIds, hourTimestamp, window);
+	await recalculateProjectHourlyWebSearchStats(
+		projectIds,
+		hourTimestamp,
+		window,
+	);
 	await recalculateApiKeyHourlyStats(projectIds, hourTimestamp, window);
 	await recalculateApiKeyHourlyModelStats(projectIds, hourTimestamp, window);
 	await recalculateApiKeyHourlySourceStatsForProjects(

@@ -123,8 +123,6 @@ describe("stealth provider error redaction (routes)", () => {
 			"LLM_QUARTZ_API_KEY",
 			"LLM_QUARTZ_BASE_URL",
 			"LLM_QUARTZ_PROJECT",
-			"LLM_GLACIER_API_KEY",
-			"LLM_GLACIER_BASE_URL",
 			"LLM_OPENAI_API_KEY",
 			"LLM_OPENAI_BASE_URL",
 		]) {
@@ -133,8 +131,6 @@ describe("stealth provider error redaction (routes)", () => {
 		process.env.LLM_QUARTZ_API_KEY = "quartz-env-key";
 		process.env.LLM_QUARTZ_BASE_URL = leakyServerUrl;
 		process.env.LLM_QUARTZ_PROJECT = "test-project";
-		process.env.LLM_GLACIER_API_KEY = "glacier-env-key";
-		process.env.LLM_GLACIER_BASE_URL = leakyServerUrl;
 		// openai is the non-stealth control: same leaky mock, no redaction.
 		process.env.LLM_OPENAI_API_KEY = "openai-env-key";
 		process.env.LLM_OPENAI_BASE_URL = leakyServerUrl;
@@ -440,7 +436,7 @@ describe("stealth provider error redaction (routes)", () => {
 				"x-no-fallback": "true",
 			},
 			body: JSON.stringify({
-				model: "glacier/gemini-2.5-flash-image",
+				model: "quartz/gemini-3-pro-image",
 				prompt: "images leak check",
 			}),
 		});

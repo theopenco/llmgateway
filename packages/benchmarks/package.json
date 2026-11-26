@@ -25,7 +25,7 @@
 		"dist/"
 	],
 	"scripts": {
-		"benchmark": "tsx --env-file=../../.env src/cli.ts",
+		"benchmark": "tsx --env-file-if-exists=../../.env src/cli.ts",
 		"build": "tsc && resolve-tspaths",
 		"dev": "tsc-watch --onSuccess 'resolve-tspaths'",
 		"format": "eslint --fix . && prettier --write .",

@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -29,6 +31,8 @@ interface ContentFilterProvider {
 	name: string;
 	color: string | null;
 	enabled: boolean;
+	enforced: boolean;
+	devPassEnforced: boolean;
 }
 
 type Classifier = ContentFilterSettingsInput["classifier"];
@@ -39,9 +43,19 @@ const CLASSIFIER_LABELS: Record<Classifier, string> = {
 	internal: "Internal classifier",
 };
 
-type InternalScope = ContentFilterSettingsInput["internalScope"];
+type BlockGroup = NonNullable<
+	ContentFilterSettingsInput["blockGroups"]
+>[number];
 
-const INTERNAL_SCOPE_LABELS: Record<InternalScope, string> = {
+const BLOCK_GROUP_LABELS: Record<BlockGroup, string> = {
+	csam: "Child safety (CSAM)",
+	sexual: "Sexual content",
+	cyber: "Cyber abuse",
+};
+
+type Scope = ContentFilterSettingsInput["internalScope"];
+
+const SCOPE_LABELS: Record<Scope, string> = {
 	full: "Whole conversation",
 	latest_turn: "Latest turn only",
 };
@@ -51,10 +65,16 @@ interface ContentFilterSettingsFormProps {
 		enabled: boolean;
 		sampleRatePercent: number;
 		enforce: boolean;
+		enforceSampleRatePercent: number;
 		enforceEnterprise: boolean;
 		classifier: Classifier;
-		internalScope: InternalScope;
+		shadowClassifiers: Classifier[];
+		internalScope: Scope;
+		openaiScope: Scope;
 		moderateImages: boolean;
+		moderateEmbeddings: boolean;
+		blockGroups: BlockGroup[] | null;
+		csamScoreThreshold: number;
 		providers: ContentFilterProvider[];
 	};
 }
@@ -74,13 +94,50 @@ export function ContentFilterSettingsForm({
 		settings.enforceEnterprise,
 	);
 	const [classifier, setClassifier] = useState<Classifier>(settings.classifier);
-	const [internalScope, setInternalScope] = useState<InternalScope>(
+	const [shadowClassifiers, setShadowClassifiers] = useState<Classifier[]>(
+		settings.shadowClassifiers,
+	);
+	// The deciding classifier never shadows itself.
+	const activeShadows = shadowClassifiers.filter(
+		(option) => option !== classifier,
+	);
+	const runsInternal =
+		classifier === "internal" || activeShadows.includes("internal");
+	const runsOpenAI =
+		classifier === "openai" || activeShadows.includes("openai");
+	const runsTextOnly =
+		classifier !== "openai" || activeShadows.some((c) => c !== "openai");
+	const [internalScope, setInternalScope] = useState<Scope>(
 		settings.internalScope,
 	);
+	const [openaiScope, setOpenaiScope] = useState<Scope>(settings.openaiScope);
 	const [moderateImages, setModerateImages] = useState(settings.moderateImages);
+	const [moderateEmbeddings, setModerateEmbeddings] = useState(
+		settings.moderateEmbeddings,
+	);
+	const [limitGroups, setLimitGroups] = useState(settings.blockGroups !== null);
+	const [blockGroups, setBlockGroups] = useState<BlockGroup[]>(
+		settings.blockGroups ?? [],
+	);
+	const [csamThreshold, setCsamThreshold] = useState(
+		String(settings.csamScoreThreshold),
+	);
 	const [providerIds, setProviderIds] = useState<string[]>(() =>
 		settings.providers.filter((p) => p.enabled).map((p) => p.id),
 	);
+	const [enforceProviderIds, setEnforceProviderIds] = useState<string[]>(() =>
+		settings.providers.filter((p) => p.enforced).map((p) => p.id),
+	);
+	const [enforceSampleRate, setEnforceSampleRate] = useState(
+		String(settings.enforceSampleRatePercent),
+	);
+	const [devPassEnforceProviderIds, setDevPassEnforceProviderIds] = useState<
+		string[]
+	>(() => settings.providers.filter((p) => p.devPassEnforced).map((p) => p.id));
+	const anyEnforced =
+		enforce ||
+		enforceProviderIds.length > 0 ||
+		devPassEnforceProviderIds.length > 0;
 	const allSelected =
 		settings.providers.length > 0 &&
 		providerIds.length >= settings.providers.length;
@@ -110,17 +167,55 @@ export function ContentFilterSettingsForm({
 			setValidationError("Sample rate must be between 0 and 100.");
 			return;
 		}
-		const savedEnforceEnterprise = enforce && enforceEnterprise;
+		const editedEnforceRate = Number(enforceSampleRate);
+		const enforceRateValid =
+			enforceSampleRate.trim() !== "" &&
+			Number.isFinite(editedEnforceRate) &&
+			editedEnforceRate >= 0 &&
+			editedEnforceRate <= 100;
+		// The field is disabled while global blocking is on, so an invalid edit
+		// keeps the stored value instead of failing validation.
+		if (!enforceRateValid && !enforce) {
+			mutation.reset();
+			setValidationError("Blocking sample rate must be between 0 and 100.");
+			return;
+		}
+		const enforceRate = enforceRateValid
+			? editedEnforceRate
+			: settings.enforceSampleRatePercent;
+		if (!enforceRateValid) {
+			setEnforceSampleRate(String(enforceRate));
+		}
+		const csamScoreThreshold = Number(csamThreshold);
+		if (
+			csamThreshold.trim() === "" ||
+			!Number.isFinite(csamScoreThreshold) ||
+			csamScoreThreshold < 0 ||
+			csamScoreThreshold > 1
+		) {
+			mutation.reset();
+			setValidationError("CSAM score threshold must be between 0 and 1.");
+			return;
+		}
+		const savedEnforceEnterprise = anyEnforced && enforceEnterprise;
 		mutation.mutate(
 			{
 				body: {
 					enabled,
 					sampleRatePercent: rate,
 					enforce,
+					enforceProviderIds,
+					devPassEnforceProviderIds,
+					enforceSampleRatePercent: enforceRate,
 					enforceEnterprise: savedEnforceEnterprise,
 					classifier,
+					shadowClassifiers: activeShadows,
 					internalScope,
+					openaiScope,
 					moderateImages,
+					moderateEmbeddings,
+					blockGroups: limitGroups ? blockGroups : null,
+					csamScoreThreshold,
 					providerIds,
 				},
 			},
@@ -175,7 +270,9 @@ export function ContentFilterSettingsForm({
 				/>
 				<p className="text-xs text-muted-foreground">
 					Share of eligible requests sent to the moderation API. 100 moderates
-					every request on an enabled provider; 0 disables moderation.
+					every request on an enabled provider; 0 disables moderation, except
+					the blocking share of blocking providers while blocking is off for
+					everyone.
 				</p>
 			</div>
 
@@ -206,8 +303,8 @@ export function ContentFilterSettingsForm({
 			<div className="flex items-center gap-3">
 				<Switch
 					id="content-filter-enforce-enterprise"
-					checked={enforce && enforceEnterprise}
-					disabled={pending || readOnly || !enforce}
+					checked={anyEnforced && enforceEnterprise}
+					disabled={pending || readOnly || !anyEnforced}
 					onCheckedChange={(checked) => {
 						setSaved(false);
 						setEnforceEnterprise(checked);
@@ -222,6 +319,73 @@ export function ContentFilterSettingsForm({
 						unless this is on as well.
 					</p>
 				</div>
+			</div>
+
+			<div className="space-y-3">
+				<div className="flex items-center gap-3">
+					<Switch
+						id="content-filter-limit-groups"
+						checked={limitGroups}
+						disabled={pending || readOnly}
+						onCheckedChange={(checked) => {
+							setSaved(false);
+							setLimitGroups(checked);
+						}}
+					/>
+					<div className="space-y-0.5">
+						<Label htmlFor="content-filter-limit-groups">
+							Block only selected groups
+						</Label>
+						<p className="text-xs text-muted-foreground">
+							Off blocks every violation. On blocks only violations in the
+							groups below and logs the rest. Groups cover both OpenAI
+							categories and the internal classifier&apos;s rules.
+						</p>
+					</div>
+				</div>
+				{limitGroups ? (
+					<div className="flex flex-wrap gap-4 pl-12">
+						{(Object.keys(BLOCK_GROUP_LABELS) as BlockGroup[]).map((group) => (
+							<label key={group} className="flex items-center gap-2 text-sm">
+								<Checkbox
+									checked={blockGroups.includes(group)}
+									disabled={pending || readOnly}
+									onCheckedChange={(checked) => {
+										setSaved(false);
+										setBlockGroups((current) =>
+											checked === true
+												? [...current.filter((g) => g !== group), group]
+												: current.filter((g) => g !== group),
+										);
+									}}
+								/>
+								{BLOCK_GROUP_LABELS[group]}
+							</label>
+						))}
+					</div>
+				) : null}
+			</div>
+
+			<div className="space-y-2">
+				<Label htmlFor="content-filter-csam-threshold">
+					CSAM score threshold
+				</Label>
+				<Input
+					id="content-filter-csam-threshold"
+					className="w-32"
+					inputMode="decimal"
+					value={csamThreshold}
+					disabled={pending || readOnly}
+					onChange={(event) => {
+						setSaved(false);
+						setCsamThreshold(event.target.value);
+					}}
+				/>
+				<p className="text-xs text-muted-foreground">
+					OpenAI &quot;sexual/minors&quot; score above which a request is a
+					child-safety violation at every tier, independent of the tier
+					thresholds.
+				</p>
 			</div>
 
 			<div className="space-y-2">
@@ -254,7 +418,46 @@ export function ContentFilterSettingsForm({
 				</p>
 			</div>
 
-			{classifier === "internal" && (
+			<div className="space-y-2">
+				<p className="text-sm font-medium">Shadow classifiers</p>
+				<div className="flex flex-wrap gap-4">
+					{(Object.keys(CLASSIFIER_LABELS) as Classifier[])
+						.filter((option) => option !== classifier)
+						.map((option) => (
+							<div key={option} className="flex items-center gap-2">
+								<Checkbox
+									id={`content-filter-shadow-${option}`}
+									checked={activeShadows.includes(option)}
+									disabled={pending || readOnly}
+									onCheckedChange={(checked) => {
+										setSaved(false);
+										setShadowClassifiers((current) =>
+											checked === true
+												? [...current.filter((c) => c !== option), option]
+												: current.filter((c) => c !== option),
+										);
+									}}
+								/>
+								<Label htmlFor={`content-filter-shadow-${option}`}>
+									{CLASSIFIER_LABELS[option]}
+								</Label>
+							</div>
+						))}
+				</div>
+				<p className="text-xs text-muted-foreground">
+					Also score every sampled request with these classifiers, in the
+					background and in parallel with the deciding one. Their verdicts are
+					recorded and never block or delay a request. Each runs with the same
+					tier, input scope and image setting it would use if it decided, so its
+					flag rate compares with any other run of it on the{" "}
+					<Link href="/content-filter/classifiers" className="underline">
+						classifier comparison
+					</Link>
+					.
+				</p>
+			</div>
+
+			{runsInternal && (
 				<div className="space-y-2">
 					<Label htmlFor="content-filter-internal-scope">
 						Internal classifier input
@@ -264,20 +467,18 @@ export function ContentFilterSettingsForm({
 						disabled={pending || readOnly}
 						onValueChange={(value) => {
 							setSaved(false);
-							setInternalScope(value as InternalScope);
+							setInternalScope(value as Scope);
 						}}
 					>
 						<SelectTrigger id="content-filter-internal-scope" className="w-64">
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
-							{(Object.keys(INTERNAL_SCOPE_LABELS) as InternalScope[]).map(
-								(option) => (
-									<SelectItem key={option} value={option}>
-										{INTERNAL_SCOPE_LABELS[option]}
-									</SelectItem>
-								),
-							)}
+							{(Object.keys(SCOPE_LABELS) as Scope[]).map((option) => (
+								<SelectItem key={option} value={option}>
+									{SCOPE_LABELS[option]}
+								</SelectItem>
+							))}
 						</SelectContent>
 					</Select>
 					<p className="text-xs text-muted-foreground">
@@ -290,7 +491,39 @@ export function ContentFilterSettingsForm({
 				</div>
 			)}
 
-			{classifier !== "openai" && (
+			{runsOpenAI && (
+				<div className="space-y-2">
+					<Label htmlFor="content-filter-openai-scope">OpenAI text input</Label>
+					<Select
+						value={openaiScope}
+						disabled={pending || readOnly}
+						onValueChange={(value) => {
+							setSaved(false);
+							setOpenaiScope(value as Scope);
+						}}
+					>
+						<SelectTrigger id="content-filter-openai-scope" className="w-64">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{(Object.keys(SCOPE_LABELS) as Scope[]).map((option) => (
+								<SelectItem key={option} value={option}>
+									{SCOPE_LABELS[option]}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					<p className="text-xs text-muted-foreground">
+						OpenAI scores text past about 4,000 tokens as clean, so the text is
+						sent in 4 KiB chunks in one call. Latest turn only sends the system
+						prompt plus the messages after the last assistant reply (up to 64
+						KiB). Whole conversation sends the newest 256 KiB and takes longer
+						on long agent histories. Images are always checked.
+					</p>
+				</div>
+			)}
+
+			{runsTextOnly && (
 				<div className="flex items-center gap-3">
 					<Switch
 						id="content-filter-moderate-images"
@@ -306,13 +539,36 @@ export function ContentFilterSettingsForm({
 							Moderate images with OpenAI
 						</Label>
 						<p className="text-xs text-muted-foreground">
-							{CLASSIFIER_LABELS[classifier]} is text-only. On sends image parts
-							to OpenAI moderation and merges the verdicts; off moderates text
-							only and leaves images unchecked.
+							Jev and the internal classifier are text-only. On sends image
+							parts to OpenAI moderation and merges the verdicts, for the
+							deciding and shadow classifiers alike; off moderates text only and
+							leaves images unchecked.
 						</p>
 					</div>
 				</div>
 			)}
+
+			<div className="flex items-center gap-3">
+				<Switch
+					id="content-filter-moderate-embeddings"
+					checked={moderateEmbeddings}
+					disabled={pending || readOnly}
+					onCheckedChange={(checked) => {
+						setSaved(false);
+						setModerateEmbeddings(checked);
+					}}
+				/>
+				<div className="space-y-0.5">
+					<Label htmlFor="content-filter-moderate-embeddings">
+						Moderate embeddings
+					</Label>
+					<p className="text-xs text-muted-foreground">
+						On screens /v1/embeddings text inputs with the same providers,
+						sampling and blocking as chat. Token-ID inputs are never checked.
+						Off leaves embeddings unmoderated.
+					</p>
+				</div>
+			</div>
 
 			<div className="space-y-2">
 				<div className="flex items-center justify-between gap-3">
@@ -359,6 +615,92 @@ export function ContentFilterSettingsForm({
 						placeholder="Search and select providers..."
 					/>
 				)}
+			</div>
+
+			<div className="space-y-2">
+				<p className="text-sm font-medium">Blocking providers</p>
+				<p className="text-xs text-muted-foreground">
+					A share of requests routed to these providers, set by the blocking
+					sample rate, is checked before the provider call and blocked on a
+					violation, even while blocking is off for everyone else. The rest are
+					monitored log-only at the sample rate above. These providers do not
+					need to be in the provider list. The enterprise and log-only
+					organization exemptions still apply.
+				</p>
+				{readOnly ? (
+					<div className="flex flex-wrap gap-2">
+						{settings.providers
+							.filter((p) => p.enforced)
+							.map((p) => (
+								<Badge key={p.id} variant="secondary">
+									{p.name}
+								</Badge>
+							))}
+					</div>
+				) : (
+					<MultiProviderSelector
+						providers={settings.providers}
+						selectedProviders={enforceProviderIds}
+						onProvidersChange={(next) => {
+							setSaved(false);
+							setEnforceProviderIds(next);
+						}}
+						placeholder="Search and select blocking providers..."
+					/>
+				)}
+			</div>
+
+			<div className="space-y-2">
+				<p className="text-sm font-medium">DevPass blocking providers</p>
+				<p className="text-xs text-muted-foreground">
+					Extra blocking providers for DevPass organizations only. They behave
+					like the blocking providers above, at the same blocking sample rate.
+				</p>
+				{readOnly ? (
+					<div className="flex flex-wrap gap-2">
+						{settings.providers
+							.filter((p) => p.devPassEnforced)
+							.map((p) => (
+								<Badge key={p.id} variant="secondary">
+									{p.name}
+								</Badge>
+							))}
+					</div>
+				) : (
+					<MultiProviderSelector
+						providers={settings.providers}
+						selectedProviders={devPassEnforceProviderIds}
+						onProvidersChange={(next) => {
+							setSaved(false);
+							setDevPassEnforceProviderIds(next);
+						}}
+						placeholder="Search and select DevPass blocking providers..."
+					/>
+				)}
+			</div>
+
+			<div className="space-y-2">
+				<Label htmlFor="content-filter-enforce-sample-rate">
+					Blocking sample rate (%)
+				</Label>
+				<Input
+					id="content-filter-enforce-sample-rate"
+					type="number"
+					min={0}
+					max={100}
+					step="any"
+					className="w-32"
+					value={enforceSampleRate}
+					disabled={pending || readOnly || enforce}
+					onChange={(event) => {
+						setSaved(false);
+						setEnforceSampleRate(event.target.value);
+					}}
+				/>
+				<p className="text-xs text-muted-foreground">
+					Share of a blocking provider&apos;s requests checked in blocking mode.
+					Ignored while blocking is on for everyone.
+				</p>
 			</div>
 
 			<div className="flex items-center gap-3">

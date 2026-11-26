@@ -515,8 +515,9 @@ export default function FleetPage() {
 						<span className="font-mono">
 							{uncredentialedCarriers.map((c) => c.providerId).join(", ")}
 						</span>{" "}
-						yet, so approved listings will not receive traffic. Send us one from
-						the crew channel and we will install it.
+						yet, so approved listings will not receive traffic. New carriers
+						file their provider key with their first model; for an existing
+						carrier, contact the crew to configure its provider key.
 					</p>
 				</div>
 			) : null}
@@ -728,13 +729,15 @@ export default function FleetPage() {
 												</span>
 											) : null}
 											<span className="font-mono">
-												{model.apiFormat === "openai-chat-completions"
-													? "Chat Completions"
-													: model.apiFormat === "openai-responses"
-														? "Responses API"
-														: model.apiFormat === "google-vertex"
-															? "Vertex API"
-															: "Carrier default"}
+												{model.decisions
+													? "Decisions API"
+													: model.apiFormat === "openai-chat-completions"
+														? "Chat Completions"
+														: model.apiFormat === "openai-responses"
+															? "Responses API"
+															: model.apiFormat === "google-vertex"
+																? "Vertex API"
+																: "Carrier default"}
 											</span>
 											{model.quantization ? (
 												<span className="font-mono">

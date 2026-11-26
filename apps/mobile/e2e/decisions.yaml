@@ -1,0 +1,60 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Decision Studio"
+- tapOn: "Decision model 1: Choose"
+- tapOn:
+    id: "field-search-models"
+- inputText: "luna"
+- tapOn: "Done typing"
+- tapOn: "Providers for .*"
+- tapOn: "Use OpenAI"
+- scrollUntilVisible:
+    element: "Triage a support ticket"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Triage a support ticket"
+- scrollUntilVisible:
+    element: "Run decision"
+    direction: DOWN
+- tapOn: "Run decision"
+- scrollUntilVisible:
+    element: "Yes: .*"
+    direction: DOWN
+    centerElement: true
+    timeout: 20000
+- assertVisible: "Yes: .*"
+- scrollUntilVisible:
+    element: "Copy cURL for .*"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Copy cURL for .*"
+- assertVisible: "cURL copied"
+- tapOn: "Show JSON"
+- assertVisible: "Hide JSON"
+- launchApp
+- runFlow: helpers/organization.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Decision Studio"
+- scrollUntilVisible:
+    element: "View decision: .*"
+    direction: DOWN
+    centerElement: true
+    timeout: 20000
+- tapOn:
+    text: "View decision: .*"
+    index: 0
+- scrollUntilVisible:
+    element: "Run decision"
+    direction: UP
+- scrollUntilVisible:
+    element: "Yes: .*"
+    direction: DOWN
+    timeout: 20000
+- assertVisible: "Yes: .*"

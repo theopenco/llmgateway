@@ -1,9 +1,8 @@
-"use client";
-
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 
 import { EnterpriseDemoVideo } from "@/components/enterprise/demo-video";
+import { TrackedLink } from "@/components/home/tracked-link";
 import { Button } from "@/lib/components/button";
 import { NumberTicker } from "@/lib/components/number-ticker";
 
@@ -75,7 +74,7 @@ export function HeroEnterprise({
 						</span>
 					</Link>
 					<h1 className="mb-6 text-4xl font-bold tracking-tight text-balance sm:text-6xl lg:text-7xl">
-						Enterprise LLM Gateway for mission-critical applications
+						The enterprise LLM gateway that passes security review
 					</h1>
 					<p className="mb-10 text-lg text-muted-foreground text-balance sm:text-xl max-w-3xl mx-auto leading-relaxed">
 						Deploy a fully-managed or self-hosted LLM gateway with enterprise
@@ -84,10 +83,14 @@ export function HeroEnterprise({
 					</p>
 					<div className="flex flex-col sm:flex-row items-center justify-center gap-4">
 						<Button size="lg" className="w-full sm:w-auto" asChild>
-							<Link href="/enterprise#contact">
-								Contact Us
+							<TrackedLink
+								href="/enterprise#contact"
+								location="enterprise_hero"
+								cta="book_a_call"
+							>
+								Book a call
 								<ArrowRight className="ml-2 h-4 w-4" />
-							</Link>
+							</TrackedLink>
 						</Button>
 						<Button
 							size="lg"
@@ -95,7 +98,13 @@ export function HeroEnterprise({
 							className="w-full sm:w-auto bg-transparent"
 							asChild
 						>
-							<Link href="/signup">Explore The Product</Link>
+							<TrackedLink
+								href="/enterprise#pricing"
+								location="enterprise_hero"
+								cta="see_pilot_plan"
+							>
+								See the pilot plan
+							</TrackedLink>
 						</Button>
 					</div>
 					<p className="mt-5 text-sm text-muted-foreground">

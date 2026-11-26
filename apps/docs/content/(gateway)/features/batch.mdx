@@ -1,0 +1,151 @@
+---
+title: Batch API
+description: Run large volumes of requests asynchronously with the OpenAI-compatible Batch API.
+icon: Layers
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+The Batch API runs thousands of requests in the background without managing concurrency, retries, or rate limits yourself. Upload a JSONL file, create a batch, and download the results when it finishes. It follows the OpenAI Batch API, so the OpenAI SDKs work unchanged.
+
+<Callout type="warn" title="Same price as live requests, no batch discount">
+	Each batch request is billed at the same per-token price as the same request
+	sent live, priced when that request runs. There is no batch discount and no
+	fee for storing batch files. Discounts that providers offer on their own batch
+	APIs (often around half price) are not passed through: the gateway runs each
+	line as a regular request. The Batch API saves you the work of managing
+	concurrency, retries, and rate limits, not money.
+</Callout>
+
+Each request goes through the normal gateway path: routing, fallback, caching, IAM rules, guardrails, logging, and usage limits all apply. Requests show up in your logs with the source `llmgateway-batch`.
+
+## Supported endpoints and models
+
+- `/v1/chat/completions`
+- `/v1/responses`
+- `/v1/embeddings`
+
+Each line's `body` is the same JSON you would send to that endpoint directly. Any model that endpoint accepts works in a batch: chat models on `/v1/chat/completions` and `/v1/responses`, embedding models on `/v1/embeddings`. Realtime, image-generation, and video models, and custom models that only stream, are not supported. The [models page](https://llmgateway.io/models?batch=true) marks every model and provider that supports the Batch API.
+
+The model in each line is checked when that line runs, not when the batch is validated. A line with an unknown or unsupported model fails with the same error the endpoint returns and lands in the error file.
+
+## 1. Prepare the input file
+
+Each line is one request. `custom_id` must be unique within the file, `method` is `POST`, and `url` must match the endpoint of the batch. Streaming (`"stream": true`) is not supported.
+
+```jsonl
+{"custom_id": "review-1", "method": "POST", "url": "/v1/chat/completions", "body": {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Summarize: ..."}]}}
+{"custom_id": "review-2", "method": "POST", "url": "/v1/chat/completions", "body": {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Summarize: ..."}]}}
+```
+
+## 2. Upload the file
+
+```bash
+curl https://api.llmgateway.io/v1/files \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -F purpose=batch \
+  -F file=@requests.jsonl
+```
+
+## 3. Create the batch
+
+```bash
+curl https://api.llmgateway.io/v1/batches \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input_file_id": "file-abc123",
+    "endpoint": "/v1/chat/completions",
+    "completion_window": "24h",
+    "metadata": {"job": "nightly-reviews"}
+  }'
+```
+
+The batch starts as `validating`. If any line is invalid, the batch moves to `failed` and `errors` lists each problem with its line number. Otherwise it moves to `in_progress`.
+
+Creating a batch, or uploading a file, needs credits when the project pays with credits; otherwise it returns `402`.
+
+## 4. Check status and download results
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="https://api.llmgateway.io/v1", api_key=LLM_GATEWAY_API_KEY)
+
+batch = client.batches.retrieve("batch_abc123")
+print(batch.status, batch.request_counts)  # updates while the batch runs
+
+if batch.status == "completed":
+    output = client.files.content(batch.output_file_id).text
+    if batch.error_file_id:
+        errors = client.files.content(batch.error_file_id).text
+```
+
+| Status        | Meaning                                                         |
+| ------------- | --------------------------------------------------------------- |
+| `validating`  | The input file is being checked                                 |
+| `failed`      | The batch could not start; see `errors`                         |
+| `in_progress` | Requests are running                                            |
+| `finalizing`  | All requests finished; output files are being prepared          |
+| `completed`   | Results are ready                                               |
+| `expired`     | The 24-hour window ended; unfinished requests are in the errors |
+| `cancelling`  | Cancellation requested; running requests are finishing          |
+| `cancelled`   | Cancelled; requests that did not run are in the error file      |
+
+The output file holds requests that returned a 2xx response. The error file holds the rest: non-2xx responses, cancelled requests, and requests that did not finish within the window. Lines are in input order and keep your `custom_id`:
+
+```jsonl
+{"id":"batch_req_123","custom_id":"review-1","response":{"status_code":200,"request_id":"batch_req_123","body":{"id":"chatcmpl-...","choices":[...]}},"error":null}
+{"id":"batch_req_456","custom_id":"review-2","response":null,"error":{"code":"batch_expired","message":"This request did not run within the completion window."}}
+```
+
+`response.request_id` matches the request in your [logs](/learn/activity). `request_counts.failed` counts requests that returned an error; cancelled and expired requests appear only in the error file.
+
+## Retries and limits
+
+- Rate limits (429), an overloaded gateway (529), and insufficient credits (402) do not fail a request. It waits and retries until the window ends, so a batch resumes after you top up.
+- When the API key reaches its usage limit, or the key's creator reaches their team spend budget, requests wait and retry until the window ends.
+- Provider outages the gateway could not route around (`500` with code `upstream_error`), `502`, `503`, `504`, and connections that never reached the gateway are attempted up to three times in total. These errors are not billed, so a retry never charges twice. Other errors are not retried.
+- A request is never sent twice once it may have reached the gateway. If the connection drops mid-request, the request times out, or the worker restarts while it runs, it fails with `request_failed` or `request_interrupted` instead of being retried. Such a request may still have been billed, but its result is lost.
+- If the API key is deleted, disabled, rolled, or expires, or the gateway rejects it with any other `401`, the stored key is discarded and the remaining requests fail with `authentication_failed`.
+- A response larger than 10 MB is not stored; its line fails with `response_too_large`.
+- IP restrictions on the API key apply to the client IP that created the batch.
+- `/v1/files` and `/v1/batches` have their own per-minute [rate limits](/resources/rate-limits), tighter for uploads and batch creation than for reads.
+- Batch requests run as regular requests, so they count toward your organization's per-minute and concurrent request limits alongside live traffic. Up to 16 requests per organization run at once.
+
+| Limit                                        | Value     |
+| -------------------------------------------- | --------- |
+| Input file size                              | 50 MB     |
+| Requests per batch                           | 50,000    |
+| Completion window                            | 24h       |
+| File and batch result lifetime               | 30 days   |
+| Batch file storage per project (all files)   | 10 GB     |
+| Batches in progress per organization         | 100       |
+| Requests in running batches per organization | 1,000,000 |
+| Stored response size per request             | 10 MB     |
+
+A batch that would push the organization past the running-request limit fails with `request_limit_exceeded` before any request runs. A batch that cannot be validated within its window ends as `expired`.
+
+## Managing files and batches
+
+| Request                              | Description                        |
+| ------------------------------------ | ---------------------------------- |
+| `GET /v1/files`                      | List files (filter with `purpose`) |
+| `GET /v1/files/{file_id}`            | Retrieve a file                    |
+| `GET /v1/files/{file_id}/content`    | Download a file's JSONL content    |
+| `DELETE /v1/files/{file_id}`         | Delete a file                      |
+| `GET /v1/batches`                    | List batches (`limit`, `after`)    |
+| `GET /v1/batches/{batch_id}`         | Retrieve a batch                   |
+| `POST /v1/batches/{batch_id}/cancel` | Cancel a batch                     |
+
+Files and batches belong to the API key's project: any key in the same project can read and cancel them.
+
+<Callout type="warning">
+	Batch input and output files hold your prompts and completions. They are kept
+	for 30 days, or until you delete them, regardless of your organization's [data
+	retention](/features/data-retention) setting. The key used to create a batch
+	is stored encrypted until the batch finishes, or until the key is disabled,
+	deleted, or rolled, so the gateway can run its requests. While [zero data
+	retention](/features/compliance) is active, uploading files and creating
+	batches return `400` with code `zdr_storage_conflict`.
+</Callout>

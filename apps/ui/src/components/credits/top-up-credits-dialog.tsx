@@ -17,7 +17,6 @@ import {
 	Plus,
 } from "lucide-react";
 import Link from "next/link";
-import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/lib/components/button";
@@ -36,6 +35,7 @@ import { useToast } from "@/lib/components/use-toast";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 import Spinner from "@/lib/icons/Spinner";
+import { usePostHog } from "@/lib/posthog";
 import { useStripe } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
 
@@ -50,6 +50,8 @@ import { formatNumber } from "@llmgateway/shared/number-format";
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type React from "react";
+
+const COMMITTED_USE_HINT_MIN_AMOUNT = CREDIT_TOP_UP_MAX_AMOUNT / 2;
 
 export function TopUpCreditsButton() {
 	return (
@@ -449,16 +451,37 @@ function AmountStep({
 									</Link>
 								) : null}
 							</p>
-							<p>
-								Need to top up more? Email{" "}
-								<a
-									href="mailto:contact@llmgateway.io"
-									className="font-medium text-foreground underline underline-offset-2"
-								>
-									contact@llmgateway.io
-								</a>{" "}
-								and we can unlock a higher tier.
-							</p>
+							{amount >= COMMITTED_USE_HINT_MIN_AMOUNT &&
+							selectedOrganization?.plan !== "enterprise" ? (
+								<p>
+									Topping up this much every month? Enterprise adds volume
+									discounts, invoicing and an SLA.{" "}
+									<Link
+										href="/enterprise#committed-use"
+										target="_blank"
+										className="whitespace-nowrap font-medium text-foreground underline underline-offset-2"
+										onClick={() =>
+											posthog.capture("cta_clicked", {
+												location: "topup_dialog_committed_use",
+												cta: "committed_use",
+											})
+										}
+									>
+										See committed use
+									</Link>
+								</p>
+							) : (
+								<p>
+									Need to top up more? Email{" "}
+									<a
+										href="mailto:contact@llmgateway.io"
+										className="font-medium text-foreground underline underline-offset-2"
+									>
+										contact@llmgateway.io
+									</a>{" "}
+									and we can unlock a higher tier.
+								</p>
+							)}
 						</div>
 					) : null}
 				</div>

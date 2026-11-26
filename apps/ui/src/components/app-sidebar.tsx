@@ -2,7 +2,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronUp, Settings, User2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { usePostHog } from "posthog-js/react";
 import { toast } from "sonner";
 
 import { useUser } from "@/hooks/useUser";
@@ -26,6 +25,7 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@/lib/components/sidebar";
+import { usePostHog } from "@/lib/posthog";
 
 // Menu items.
 const items = [

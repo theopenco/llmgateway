@@ -424,4 +424,89 @@ describe("IAM rule evaluation per endpoint", () => {
 
 		expect(res.status).toBe(403);
 	});
+
+	describe("virtual model aliases", () => {
+		const VIRTUAL = "deepseek-v4.1-flash-latest";
+		const CUT = "deepseek-v4.1-flash-1017";
+
+		async function chat(token: string, model: string) {
+			return await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					model,
+					messages: [{ role: "user", content: "Hello!" }],
+				}),
+			});
+		}
+
+		async function seedKeyRule(
+			token: string,
+			ruleType: "allow_models" | "deny_models",
+			models: string[],
+		) {
+			await seedApiKey(token);
+			await db.insert(tables.apiKeyIamRule).values({
+				id: `rule-${token}`,
+				apiKeyId: `key-${token}`,
+				ruleType,
+				ruleValue: { models },
+				status: "active",
+			});
+		}
+
+		test.each([VIRTUAL, `tencent/${VIRTUAL}`, CUT, `tencent/${CUT}`])(
+			"a team deny naming the alias blocks %s",
+			async (model) => {
+				const token = `iam-virtual-team-${model.replace("/", "-")}`;
+				await seedApiKey(token);
+				await seedTeamRule(`rule-${token}`, "deny_models", {
+					models: [VIRTUAL],
+				});
+				await expectTeamDenial(await chat(token, model));
+			},
+		);
+
+		test("a key deny naming the cut blocks the alias", async () => {
+			await seedKeyRule("iam-virtual-deny-cut", "deny_models", [CUT]);
+			const res = await chat("iam-virtual-deny-cut", VIRTUAL);
+			expect(res.status).toBe(403);
+			expect(JSON.stringify(await res.json())).toContain("denied models list");
+		});
+
+		test("a key allow naming only the alias admits the alias, not the pinned cut", async () => {
+			await seedKeyRule("iam-virtual-allow-alias", "allow_models", [VIRTUAL]);
+			const pinned = await chat("iam-virtual-allow-alias", CUT);
+			expect(pinned.status).toBe(403);
+			expect(JSON.stringify(await pinned.json())).toContain(
+				"not in the allowed models list",
+			);
+			await seedProviderKeys(["tencent"]);
+			const viaAlias = await chat("iam-virtual-allow-alias", VIRTUAL);
+			expect(viaAlias.status).toBe(200);
+			const { metadata } = await viaAlias.json();
+			expect(metadata).toMatchObject({
+				requested_model: VIRTUAL,
+				used_model: CUT,
+				used_provider: "tencent",
+			});
+		});
+
+		test("an org compliance block on the cut applies to the alias", async () => {
+			await seedApiKey("iam-virtual-compliance");
+			await db
+				.update(tables.organization)
+				.set({
+					plan: "enterprise",
+					providerCompliancePolicy: { enabled: true, blockedModels: [CUT] },
+				})
+				.where(eq(tables.organization.id, "org-id"));
+			const res = await chat("iam-virtual-compliance", VIRTUAL);
+			expect(res.status).toBe(403);
+			expect(JSON.stringify(await res.json())).toContain("compliance policy");
+		});
+	});
 });

@@ -17,6 +17,7 @@ import {
 import { app } from "./index.js";
 
 import type { OpenAPIHono } from "@hono/zod-openapi";
+import type { AnyColumn } from "@llmgateway/db";
 
 const credentials = {
 	email: "admin@example.com",
@@ -46,6 +47,7 @@ export async function deleteAll() {
 			await db.delete(tables.crmActivity);
 			await db.delete(tables.crmContact);
 			await db.delete(tables.crmAccount);
+			await db.delete(tables.crmIntegration);
 			await db.delete(tables.enterpriseContactSubmission);
 			await db.delete(tables.auditLog);
 			await db.delete(tables.platformAuditLog);
@@ -58,6 +60,7 @@ export async function deleteAll() {
 			await db.delete(projectHourlySourceStats);
 			await db.delete(tables.projectHourlySourceModelStats);
 			await db.delete(tables.projectHourlyRoutingStats);
+			await db.delete(tables.projectHourlyWebSearchStats);
 			await db.delete(apiKeyHourlyStats);
 			await db.delete(apiKeyHourlyModelStats);
 			await db.delete(apiKeyHourlySourceStats);
@@ -73,6 +76,7 @@ export async function deleteAll() {
 			await db.delete(tables.providerListingPayment);
 			await db.delete(tables.providerCompany);
 			await db.delete(tables.routingScoreMultiplier);
+			await db.delete(tables.discount);
 			await db.delete(tables.organizationInvite);
 			await db.delete(tables.userOrganization);
 			await db.delete(tables.project);
@@ -213,6 +217,10 @@ function getCommonAggregationFields() {
 			sql<number>`coalesce(sum(cast(${tables.log.requestCost} as double precision)), 0)`.as(
 				"requestCost",
 			),
+		webSearchCost:
+			sql<number>`coalesce(sum(cast(${tables.log.webSearchCost} as double precision)), 0)`.as(
+				"webSearchCost",
+			),
 		dataStorageCost:
 			sql<number>`coalesce(sum(cast(${tables.log.dataStorageCost} as double precision)), 0)`.as(
 				"dataStorageCost",
@@ -284,6 +292,53 @@ function getCommonAggregationFields() {
 }
 
 /**
+ * BYOK subset of the error and latency fields on the project and API key
+ * hourly (model) stats, mirroring the worker's `getApiKeysModeFields`.
+ */
+function getApiKeysModeFields() {
+	const byok = sql`${tables.log.usedMode} = 'api-keys'`;
+	const errors = (reason: string, alias: string) =>
+		sql<number>`sum(case when ${byok} and ${tables.log.unifiedFinishReason} = ${reason} then 1 else 0 end)::int`.as(
+			alias,
+		);
+	const total = (column: AnyColumn, alias: string) =>
+		sql<number>`coalesce(sum(${column}) filter (where ${byok}), 0)::bigint`.as(
+			alias,
+		);
+	const samples = (column: AnyColumn, alias: string) =>
+		sql<number>`(count(${column}) filter (where ${byok}))::int`.as(alias);
+	return {
+		apiKeysClientErrorCount: errors("client_error", "apiKeysClientErrorCount"),
+		apiKeysGatewayErrorCount: errors(
+			"gateway_error",
+			"apiKeysGatewayErrorCount",
+		),
+		apiKeysUpstreamErrorCount: errors(
+			"upstream_error",
+			"apiKeysUpstreamErrorCount",
+		),
+		apiKeysTotalDuration: total(tables.log.duration, "apiKeysTotalDuration"),
+		apiKeysDurationCount: samples(tables.log.duration, "apiKeysDurationCount"),
+		apiKeysTotalTimeToFirstToken: total(
+			tables.log.timeToFirstToken,
+			"apiKeysTotalTimeToFirstToken",
+		),
+		apiKeysTimeToFirstTokenCount: samples(
+			tables.log.timeToFirstToken,
+			"apiKeysTimeToFirstTokenCount",
+		),
+		apiKeysTotalTimeToFirstReasoningToken: total(
+			tables.log.timeToFirstReasoningToken,
+			"apiKeysTotalTimeToFirstReasoningToken",
+		),
+		apiKeysTimeToFirstReasoningTokenCount: samples(
+			tables.log.timeToFirstReasoningToken,
+			"apiKeysTimeToFirstReasoningTokenCount",
+		),
+	};
+}
+
+/**
  * Aggregates logs into the hourly stats tables for testing purposes.
  * This mimics what the worker does in production.
  *
@@ -313,6 +368,7 @@ export async function aggregateLogsForTesting() {
 					"hourTimestamp",
 				),
 			...getCommonAggregationFields(),
+			...getApiKeysModeFields(),
 		})
 		.from(tables.log)
 		.groupBy(tables.log.projectId, hourTrunc);
@@ -351,14 +407,7 @@ export async function aggregateLogsForTesting() {
 			usedModel: tables.log.usedModel,
 			usedProvider: tables.log.usedProvider,
 			...getCommonAggregationFields(),
-			apiKeysGatewayErrorCount:
-				sql<number>`sum(case when ${tables.log.usedMode} = 'api-keys' and ${tables.log.unifiedFinishReason} = 'gateway_error' then 1 else 0 end)::int`.as(
-					"apiKeysGatewayErrorCount",
-				),
-			apiKeysUpstreamErrorCount:
-				sql<number>`sum(case when ${tables.log.usedMode} = 'api-keys' and ${tables.log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
-					"apiKeysUpstreamErrorCount",
-				),
+			...getApiKeysModeFields(),
 		})
 		.from(tables.log)
 		.groupBy(
@@ -404,6 +453,7 @@ export async function aggregateLogsForTesting() {
 					"hourTimestamp",
 				),
 			...getCommonAggregationFields(),
+			...getApiKeysModeFields(),
 		})
 		.from(tables.log)
 		.innerJoin(tables.apiKey, eq(tables.apiKey.id, tables.log.apiKeyId))
@@ -441,6 +491,7 @@ export async function aggregateLogsForTesting() {
 			usedModel: tables.log.usedModel,
 			usedProvider: tables.log.usedProvider,
 			...getCommonAggregationFields(),
+			...getApiKeysModeFields(),
 		})
 		.from(tables.log)
 		.innerJoin(tables.apiKey, eq(tables.apiKey.id, tables.log.apiKeyId))

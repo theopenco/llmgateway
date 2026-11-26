@@ -7,6 +7,8 @@ import {
 	reasoningPinBindsModel,
 	rememberReasoningCredential,
 	stripAccountBoundReasoning,
+	rememberDroppedReasoning,
+	stripForeignReasoning,
 } from "@/chat/tools/reasoning-credential-pin.js";
 import { setPreferredProvider } from "@/lib/preferred-provider.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
@@ -392,6 +394,61 @@ describe("reasoning credential pinning", () => {
 
 		expect((await turn("enc-from-env-b")).status).toBe(200);
 		expect(authorizations).toEqual(["Bearer sk-env-b"]);
+	});
+
+	test("discarded optional reasoning no longer pins or replays, within its organization", async () => {
+		const messages = [
+			{
+				role: "assistant",
+				content: "Earlier",
+				reasoning_details: [
+					{
+						type: "reasoning.encrypted",
+						format: "openai-responses-v1",
+						data: "discarded-reasoning",
+					},
+				],
+			},
+		];
+		const credential = {
+			provider: "azure",
+			source: "managed" as const,
+			providerKeyId: "managed-old",
+			apiKeyHash: getApiKeyFingerprint("test-origin"),
+		};
+		await rememberReasoningCredential("org-id", messages[0], credential);
+		await rememberReasoningCredential("other-org", messages[0], credential);
+		await rememberDroppedReasoning("org-id", messages);
+		expect(await lookupReasoningPin("org-id", messages)).toBeUndefined();
+		expect(await lookupReasoningPin("other-org", messages)).toEqual(credential);
+		const replay = await stripForeignReasoning("org-id", messages, credential);
+		expect(replay.stripped).toBe(true);
+		expect(replay.messages[0]).not.toHaveProperty("reasoning_details");
+	});
+
+	test("discarding optional reasoning preserves Gemini signature pins", async () => {
+		const messages = [
+			{
+				role: "assistant",
+				content: "Earlier",
+				reasoning_details: [
+					{
+						type: "reasoning.text",
+						format: "google-gemini-v1",
+						signature: "signed-reasoning",
+					},
+				],
+			},
+		];
+		const credential = {
+			provider: "google-ai-studio",
+			source: "byok" as const,
+			providerKeyId: "google-key",
+			apiKeyHash: getApiKeyFingerprint("test-origin"),
+		};
+		await rememberReasoningCredential("org-id", messages[0], credential);
+		await rememberDroppedReasoning("org-id", messages);
+		expect(await lookupReasoningPin("org-id", messages)).toEqual(credential);
 	});
 
 	test("pins Gemini tool-call signatures restored from the cache", async () => {

@@ -11,7 +11,7 @@ export function base64ToBlob(base64: string, mediaType: string): Blob {
 
 export function imageFileExtension(mediaType: string): string {
 	const subtype = mediaType.split("/")[1]?.split(";")[0] ?? "png";
-	return subtype === "jpeg" ? "jpg" : subtype;
+	return subtype === "jpeg" ? "jpg" : subtype.replace(/\+xml$/, "");
 }
 
 // Resolves the original bytes of a gallery image: inline images decode

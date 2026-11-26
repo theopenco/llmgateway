@@ -9,7 +9,10 @@ permissions:
 jobs:
   shard:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -40,16 +43,46 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      # The runner image already ships Chromium's runtime libraries; apt only adds
+      # fonts, and no test compares screenshots. Retry apt, then continue without
+      # it so an Ubuntu mirror outage does not fail every shard.
       - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          pnpm exec playwright install chromium
+          for attempt in 1 2; do
+            # Run as root so timeout's process-group kill also stops apt-get.
+            if sudo env "PATH=$PATH" timeout -k 10 240 \
+              pnpm exec playwright install-deps chromium; then
+              exit 0
+            fi
+            echo "playwright install-deps failed (attempt $attempt)"
+            sudo pkill -x apt-get || true
+            sleep $((attempt * 20))
+          done
+          echo "::warning::Ubuntu apt mirrors unreachable; using the runner image's preinstalled libraries."
+
+      - name: Set up Turborepo Remote Cache
+        # Fork PRs get no OIDC token; they fall back to building cold.
+        if: vars.TURBO_TEAM != ''
+        continue-on-error: true
+        uses: vercel/setup-turborepo-remote-cache-action@v1.1.0
+        with:
+          team: ${{ vars.TURBO_TEAM }}
+
+      # Next.js rewrites embed the URLs above at build time, and loose env mode
+      # keeps them out of Turbo's hashes. CACHE_PLATFORM is a global hash input,
+      # so keying it on this file keeps these artifacts apart from builds made
+      # with the production URL defaults and from older values of this env.
+      - name: Scope the build cache to this environment
+        run: echo "CACHE_PLATFORM=playwright-$(sha256sum .github/workflows/test-playwright.yml | cut -c1-16)" >> "$GITHUB_ENV"
 
       - name: Build apps for the local stack
-        # Next.js rewrites embed these URLs at build time. Do not restore
-        # remote build artifacts made with the production URL defaults.
-        run: pnpm build --env-mode=loose --cache=local:rw
+        run: pnpm build --env-mode=loose
 
+      # Not `pnpm run setup`: its strict-mode build:core misses the cache the
+      # loose build above filled and rebuilds every package.
       - name: Seed the database
-        run: pnpm run setup
+        run: pnpm setup:db
 
       - name: Run browser test shard ${{ matrix.shard }}
         run: |
@@ -72,6 +105,7 @@ jobs:
   # Named `run` so the aggregated check stays `playwright / run`.
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: shard
     if: ${{ !cancelled() }}
     steps:

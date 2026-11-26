@@ -78,6 +78,7 @@ describe("parseClientSecretRecord", () => {
 		instructions: "You are a support agent.",
 		voice: "marin",
 		source: "lounge.llmgateway.io",
+		safetyIdentifier: "app-user-42",
 		createdAt: 1_784_800_000,
 		expiresAt: 1_784_800_060,
 	};
@@ -94,15 +95,18 @@ describe("parseClientSecretRecord", () => {
 	it("reads a record minted before instructions existed as unpinned", () => {
 		// Secrets minted by an older build stay valid for their remaining TTL
 		// across a deploy, so absent keys must not invalidate the record.
-		const { instructions, voice, sessionType, ...legacy } = valid;
+		const { instructions, voice, sessionType, safetyIdentifier, ...legacy } =
+			valid;
 		expect(instructions).toBeDefined();
 		expect(voice).toBeDefined();
+		expect(safetyIdentifier).toBeDefined();
 		expect(sessionType).toBe("realtime");
 		expect(parseClientSecretRecord(JSON.stringify(legacy))).toEqual({
 			...legacy,
 			sessionType: "realtime",
 			instructions: null,
 			voice: null,
+			safetyIdentifier: null,
 		});
 	});
 

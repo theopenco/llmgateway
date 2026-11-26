@@ -156,6 +156,7 @@ describe("logs route", () => {
 				temperature: 0.7,
 				maxTokens: 100,
 				messages: JSON.stringify([{ role: "user", content: "Hello" }]),
+				internalContentFilter: true,
 				gatewayContentFilterResponse: [
 					{
 						id: "modr-test-log-id-1",
@@ -207,9 +208,57 @@ describe("logs route", () => {
 		expect(res.status).toBe(401);
 	});
 
+	test("detail answers a foreign log exactly like a missing one", async () => {
+		await db.insert(tables.organization).values({
+			id: "foreign-org-id",
+			name: "Foreign Organization",
+			billingEmail: "foreign@example.com",
+		});
+		await db.insert(tables.project).values({
+			id: "foreign-project-id",
+			name: "Foreign Project",
+			organizationId: "foreign-org-id",
+		});
+		await db.insert(tables.apiKey).values({
+			id: "foreign-api-key-id",
+			...hashApiKeyForStorage("foreign-token"),
+			projectId: "foreign-project-id",
+			description: "Foreign Key",
+			createdBy: "test-user-id",
+		});
+		await db.insert(tables.log).values({
+			id: "foreign-log-id",
+			requestId: "foreign-request-id",
+			organizationId: "foreign-org-id",
+			projectId: "foreign-project-id",
+			apiKeyId: "foreign-api-key-id",
+			duration: 100,
+			requestedModel: "gpt-4",
+			requestedProvider: "openai",
+			usedModel: "gpt-4",
+			usedProvider: "openai",
+			responseSize: 10,
+			content: "foreign response",
+			mode: "api-keys",
+			usedMode: "api-keys",
+		});
+
+		const read = async (id: string) => {
+			const res = await app.request(`/logs/${id}`, {
+				headers: { Cookie: token },
+			});
+			return { status: res.status, body: await res.text() };
+		};
+		const missing = await read("unknown-log-id");
+		expect(missing.status).toBe(404);
+		expect(await read("foreign-log-id")).toEqual(missing);
+		expect(await read("foreign-request-id")).toEqual(missing);
+		expect((await read("test-log-id-1")).status).toBe(200);
+	});
+
 	// Tests for the filter functionality
 	describe("filter functionality", () => {
-		test("should expose gateway content filter responses in list results", async () => {
+		test("should not expose gateway content filter data in list results", async () => {
 			const params = new URLSearchParams({ projectId: "test-project-id" });
 			const res = await app.request("/logs?" + params, {
 				method: "GET",
@@ -223,26 +272,11 @@ describe("logs route", () => {
 			expect(json.logs[0].organizationName).toBe("Test Organization");
 			expect(json.logs[0].projectName).toBe("Test Project");
 			expect(json.logs[0].apiKeyName).toBe("Test API Key");
-			expect(json.logs[0].gatewayContentFilterResponse).toEqual([
-				{
-					id: "modr-test-log-id-1",
-					model: "omni-moderation-latest",
-					results: [
-						{
-							flagged: true,
-							categories: {
-								violence: true,
-							},
-							category_scores: {
-								violence: 0.95,
-							},
-						},
-					],
-				},
-			]);
+			expect(json.logs[0]).not.toHaveProperty("gatewayContentFilterResponse");
+			expect(json.logs[0]).not.toHaveProperty("internalContentFilter");
 		});
 
-		test("should expose gateway content filter responses by id", async () => {
+		test("should not expose gateway content filter data by id", async () => {
 			const res = await app.request("/logs/test-log-id-1", {
 				method: "GET",
 				headers: {
@@ -255,23 +289,8 @@ describe("logs route", () => {
 			expect(json.log.organizationName).toBe("Test Organization");
 			expect(json.log.projectName).toBe("Test Project");
 			expect(json.log.apiKeyName).toBe("Test API Key");
-			expect(json.log.gatewayContentFilterResponse).toEqual([
-				{
-					id: "modr-test-log-id-1",
-					model: "omni-moderation-latest",
-					results: [
-						{
-							flagged: true,
-							categories: {
-								violence: true,
-							},
-							category_scores: {
-								violence: 0.95,
-							},
-						},
-					],
-				},
-			]);
+			expect(json.log).not.toHaveProperty("gatewayContentFilterResponse");
+			expect(json.log).not.toHaveProperty("internalContentFilter");
 		});
 
 		test("should filter logs by projectId", async () => {
@@ -1228,7 +1247,7 @@ describe("logs route", () => {
 			const res = await app.request("/logs/teammate-log-id", {
 				headers: { Cookie: token },
 			});
-			expect(res.status).toBe(403);
+			expect(res.status).toBe(404);
 			expect(await res.text()).not.toContain(SECRET_PROMPT);
 		});
 

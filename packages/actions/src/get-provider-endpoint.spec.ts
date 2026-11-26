@@ -1,19 +1,17 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+	getDecisionsUpstreamPath,
 	getProviderDefaultBaseUrl,
 	getProviderEndpoint,
+	resolveAzureBaseUrl,
 } from "./get-provider-endpoint.js";
 
 const originalAiStudioBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
-const originalGlacierBaseUrl = process.env.LLM_GLACIER_BASE_URL;
 const originalVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
 const originalVertexProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 const originalVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
 const originalVertexTokenType = process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE;
-const originalAzureFoundryResource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
-const originalAzureFoundryApiVersion =
-	process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
 const originalXiaomiBaseUrl = process.env.LLM_XIAOMI_BASE_URL;
 const originalRunpodBaseUrl = process.env.LLM_RUNPOD_BASE_URL;
 const originalOpenaiBaseUrl = process.env.LLM_OPENAI_BASE_URL;
@@ -29,12 +27,6 @@ afterEach(() => {
 		delete process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
 	} else {
 		process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL = originalAiStudioBaseUrl;
-	}
-
-	if (originalGlacierBaseUrl === undefined) {
-		delete process.env.LLM_GLACIER_BASE_URL;
-	} else {
-		process.env.LLM_GLACIER_BASE_URL = originalGlacierBaseUrl;
 	}
 
 	if (originalVertexBaseUrl === undefined) {
@@ -59,19 +51,6 @@ afterEach(() => {
 		delete process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE;
 	} else {
 		process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE = originalVertexTokenType;
-	}
-
-	if (originalAzureFoundryResource === undefined) {
-		delete process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
-	} else {
-		process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE = originalAzureFoundryResource;
-	}
-
-	if (originalAzureFoundryApiVersion === undefined) {
-		delete process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
-	} else {
-		process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION =
-			originalAzureFoundryApiVersion;
 	}
 
 	if (originalXiaomiBaseUrl === undefined) {
@@ -160,6 +139,29 @@ describe("getProviderEndpoint", () => {
 		expect(endpoint(false, "hy3")).toBe(`${base}/v1/chat/completions`);
 	});
 
+	it("routes MiniMax image generation to the images endpoint", () => {
+		const endpoint = (imageGenerations: boolean, model: string) =>
+			getProviderEndpoint(
+				"minimax",
+				undefined,
+				model,
+				undefined,
+				false,
+				false,
+				false,
+				undefined,
+				undefined,
+				imageGenerations,
+			);
+
+		expect(endpoint(true, "MiniMax-H3-Image")).toBe(
+			"https://api.minimax.io/v1/images/generations",
+		);
+		expect(endpoint(false, "MiniMax-M3")).toBe(
+			"https://api.minimax.io/v1/chat/completions",
+		);
+	});
+
 	it("rejects unsupported Runpod models", () => {
 		expect(() =>
 			getProviderEndpoint("runpod", undefined, "unregistered-model"),
@@ -225,30 +227,6 @@ describe("getProviderEndpoint", () => {
 			}),
 		).toBe(
 			"https://carrier.example/api/v1/publishers/google/models/gpt-5.6-luna:streamGenerateContent?key=provider-key&alt=sse",
-		);
-	});
-
-	it("builds Glacier endpoints from env base URL", () => {
-		process.env.LLM_GLACIER_BASE_URL = "https://glacier.example.com";
-
-		const endpoint = getProviderEndpoint(
-			"glacier",
-			undefined,
-			"gemini-2.5-pro",
-			"glacier-key",
-			true,
-		);
-
-		expect(endpoint).toBe(
-			"https://glacier.example.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?key=glacier-key&alt=sse",
-		);
-	});
-
-	it("requires Glacier base URL when no override is provided", () => {
-		delete process.env.LLM_GLACIER_BASE_URL;
-
-		expect(() => getProviderEndpoint("glacier")).toThrow(
-			"Glacier provider requires LLM_GLACIER_BASE_URL environment variable",
 		);
 	});
 
@@ -543,6 +521,50 @@ describe("getProviderEndpoint", () => {
 			expect(endpoint).toContain("https://my-resource.openai.azure.com/");
 		});
 
+		it("prefers a credential's base URL over its resource and trims trailing slashes", () => {
+			expect(
+				resolveAzureBaseUrl({
+					providerKeyOptions: {
+						azure_resource: "byok-resource",
+						env_config: {
+							baseUrl: "https://proxy.example.com/azure/",
+							resource: "managed-resource",
+						},
+					},
+					skipEnvVars: true,
+				}),
+			).toBe("https://proxy.example.com/azure");
+		});
+
+		it("prefers LLM_AZURE_BASE_URL over LLM_AZURE_RESOURCE on the env path", () => {
+			vi.stubEnv("LLM_AZURE_BASE_URL", "https://proxy.example.com");
+			vi.stubEnv("LLM_AZURE_RESOURCE", "env-resource");
+			try {
+				expect(resolveAzureBaseUrl({})).toBe("https://proxy.example.com");
+				expect(resolveAzureBaseUrl({ skipEnvVars: true })).toBeUndefined();
+			} finally {
+				vi.unstubAllEnvs();
+			}
+		});
+
+		it("builds the chat URL on a configured base URL", () => {
+			const chat = getProviderEndpoint(
+				"azure",
+				undefined,
+				"gpt-4o-mini",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ env_config: { baseUrl: "https://proxy.example.com/" } },
+				undefined,
+				undefined,
+				undefined,
+				true,
+			);
+			expect(chat.startsWith("https://proxy.example.com/openai/")).toBe(true);
+		});
+
 		it.each([
 			"evil.com/path",
 			"resource.evil.com",
@@ -571,80 +593,66 @@ describe("getProviderEndpoint", () => {
 		});
 	});
 
-	describe("azure-ai-foundry", () => {
-		it("builds the Azure AI Foundry endpoint from the resource env var", () => {
-			process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE = "gkapitech";
-
-			const endpoint = getProviderEndpoint(
-				"azure-ai-foundry",
+	describe("cloudflare", () => {
+		const accountId = "0123456789abcdef0123456789abcdef";
+		const endpointFor = (cloudflare_account_id?: string) =>
+			getProviderEndpoint(
+				"cloudflare",
 				undefined,
-				"grok-4-1-fast-non-reasoning",
-			);
-
-			expect(endpoint).toBe(
-				"https://gkapitech.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview",
-			);
-		});
-
-		it("respects an api version override", () => {
-			process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE = "gkapitech";
-			process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION = "2025-01-01-preview";
-
-			const endpoint = getProviderEndpoint(
-				"azure-ai-foundry",
+				"glm-5.3-flash",
 				undefined,
-				"grok-4-1-fast-reasoning",
-			);
-
-			expect(endpoint).toBe(
-				"https://gkapitech.services.ai.azure.com/models/chat/completions?api-version=2025-01-01-preview",
-			);
-		});
-
-		it("routes Grok 4.3 through the Azure AI Foundry endpoint", () => {
-			process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE = "gkapitech";
-
-			const endpoint = getProviderEndpoint(
-				"azure-ai-foundry",
+				false,
+				true,
+				false,
+				cloudflare_account_id ? { cloudflare_account_id } : undefined,
 				undefined,
-				"grok-4-3",
+				false,
+				undefined,
+				true,
 			);
 
-			expect(endpoint).toBe(
-				"https://gkapitech.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview",
+		it("builds the account-scoped Workers AI endpoint from key options", () => {
+			expect(endpointFor(accountId)).toBe(
+				`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
 			);
 		});
 
-		it("throws when no resource is configured", () => {
-			delete process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
-
-			expect(() =>
-				getProviderEndpoint(
-					"azure-ai-foundry",
-					undefined,
-					"grok-4-1-fast-non-reasoning",
-				),
-			).toThrow(/Azure AI Foundry resource is required/);
+		it("throws when no account id is configured", () => {
+			expect(() => endpointFor()).toThrow(/Cloudflare requires an account ID/);
 		});
 
-		it.each([
-			"evil.com/path",
-			"resource.evil.com",
-			"resource:8080",
-			"https://evil.com",
-			"a/b",
-			"a b",
-			"",
-		])("rejects an invalid resource name (%s)", (resource) => {
-			process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE = resource;
+		it.each(["../evil", "0123456789ABCDEF0123456789ABCDEF", "abc", "a/b"])(
+			"rejects an invalid account id (%s)",
+			(id) => {
+				expect(() => endpointFor(id)).toThrow(
+					/Cloudflare account ID is invalid/,
+				);
+			},
+		);
+	});
 
-			expect(() =>
-				getProviderEndpoint(
-					"azure-ai-foundry",
-					undefined,
-					"grok-4-1-fast-non-reasoning",
-				),
-			).toThrow(/Azure AI Foundry resource (is invalid|is required)/);
+	describe("anthropic-messages api format", () => {
+		it("targets DeepSeek's Anthropic-compatible API", () => {
+			const endpoint = getProviderEndpoint(
+				"deepseek",
+				undefined,
+				"deepseek-flash",
+				undefined,
+				false,
+				false,
+				false,
+				undefined,
+				undefined,
+				false,
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				"anthropic-messages",
+			);
+
+			expect(endpoint).toBe("https://api.deepseek.com/anthropic/v1/messages");
 		});
 	});
 
@@ -1008,6 +1016,25 @@ describe("getProviderEndpoint", () => {
 			expect(endpoint).toBe("https://anthropic.example/v1/messages");
 		});
 
+		it("honors a credential base URL for a provider without a base URL env var", () => {
+			const endpoint = getProviderEndpoint(
+				"meta",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ env_config: { baseUrl: "https://meta-proxy.example/" } },
+				undefined,
+				undefined,
+				undefined,
+				true, // skipEnvVars
+			);
+
+			expect(endpoint).toBe("https://meta-proxy.example/v1/chat/completions");
+		});
+
 		it("falls back to the anthropic default when no base URL is configured", () => {
 			const endpoint = getProviderEndpoint(
 				"anthropic",
@@ -1274,6 +1301,34 @@ describe("getProviderEndpoint", () => {
 			);
 		});
 
+		it.each([undefined, "anthropic-messages" as const])(
+			"sends a Claude Messages API mapping to the regional /anthropic route (apiFormat %s)",
+			(apiFormat) => {
+				const endpoint = getProviderEndpoint(
+					"aws-bedrock",
+					undefined,
+					"claude-opus-5-5",
+					undefined,
+					true,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					"eu",
+					true,
+					"claude-opus-5-5",
+					undefined,
+					undefined,
+					apiFormat,
+				);
+
+				expect(endpoint).toBe(
+					"https://bedrock-runtime.eu-central-1.amazonaws.com/anthropic/v1/messages",
+				);
+			},
+		);
+
 		it.each([
 			{
 				region: undefined,
@@ -1441,19 +1496,33 @@ describe("getProviderEndpoint", () => {
 			);
 		});
 
-		it("builds the workspace-dedicated host for eu-frankfurt", () => {
-			expect(
-				callAlibaba("eu-frankfurt", { alibaba_workspace_id: "llm-abc123" }),
-			).toBe(
-				"https://llm-abc123.eu-central-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
-			);
-		});
+		it.each([
+			{ region: "eu-frankfurt", zone: "eu-central-1" },
+			{ region: "cn-hongkong", zone: "cn-hongkong" },
+			{ region: "ap-tokyo", zone: "ap-northeast-1" },
+		])(
+			"builds the workspace-dedicated host for $region",
+			({ region, zone }) => {
+				expect(
+					callAlibaba(region, { alibaba_workspace_id: "llm-abc123" }),
+				).toBe(
+					`https://llm-abc123.${zone}.maas.aliyuncs.com/compatible-mode/v1/chat/completions`,
+				);
+			},
+		);
 
-		it("falls back to the shared entry point without a workspace id", () => {
-			expect(callAlibaba("eu-frankfurt")).toBe(
-				"https://trial.eu-central-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
-			);
-		});
+		it.each([
+			{ region: "eu-frankfurt", zone: "eu-central-1" },
+			{ region: "cn-hongkong", zone: "cn-hongkong" },
+			{ region: "ap-tokyo", zone: "ap-northeast-1" },
+		])(
+			"falls back to the shared entry point for $region without a workspace id",
+			({ region, zone }) => {
+				expect(callAlibaba(region)).toBe(
+					`https://trial.${zone}.maas.aliyuncs.com/compatible-mode/v1/chat/completions`,
+				);
+			},
+		);
 
 		it("rejects a workspace id that is not a bare hostname label", () => {
 			expect(() =>
@@ -1706,4 +1775,56 @@ it("routes GPT-6 Astra chat requests through Responses for tool support", () => 
 	expect(
 		getProviderEndpoint("openai", "https://example.com", "gpt-6-astra"),
 	).toBe("https://example.com/v1/responses");
+});
+
+it.each([
+	["kimi-k3.1-pro", "moonshot-kimi"],
+	["kimi-k3.1-pro-highspeed", "moonshot-kimi"],
+	["glm-5.3", "b1dd8hy2hqo1nb"],
+])("routes Runpod %s to its public endpoint", (model, endpoint) => {
+	delete process.env.LLM_RUNPOD_BASE_URL;
+	expect(getProviderEndpoint("runpod", undefined, model)).toBe(
+		`https://api.runpod.ai/v2/${endpoint}/openai/v1/chat/completions`,
+	);
+	process.env.LLM_RUNPOD_BASE_URL = "https://runpod-override.example";
+	expect(getProviderEndpoint("runpod", undefined, model)).toBe(
+		`https://runpod-override.example/v2/${endpoint}/openai/v1/chat/completions`,
+	);
+	expect(
+		getProviderEndpoint("runpod", "https://proxy.example.com/runpod/", model),
+	).toBe(
+		`https://proxy.example.com/runpod/v2/${endpoint}/openai/v1/chat/completions`,
+	);
+});
+function azureSlashRuns() {
+	const path = "https://proxy.example.com/" + "/".repeat(20_000) + "path";
+	for (const baseUrl of [path, path + "/".repeat(20_000)]) {
+		expect(
+			resolveAzureBaseUrl({
+				providerKeyOptions: { env_config: { baseUrl } },
+				skipEnvVars: true,
+			}),
+		).toBe(path);
+	}
+}
+
+it(
+	"preserves embedded slash runs while trimming only the Azure URL suffix",
+	azureSlashRuns,
+);
+
+describe("getDecisionsUpstreamPath", () => {
+	it("routes each decision wire format to its provider path", () => {
+		expect(getDecisionsUpstreamPath("openai")).toBe("/v1/decisions");
+		expect(getDecisionsUpstreamPath("azure", "openai")).toBe(
+			"/openai/v1/decisions",
+		);
+		expect(getDecisionsUpstreamPath("azure")).toBe(
+			"/providers/microsoft/v1/systemone",
+		);
+		expect(getDecisionsUpstreamPath("typesafe")).toBe("/v1/systemone");
+		expect(getDecisionsUpstreamPath("custom-carrier", "openai")).toBe(
+			"/v1/decisions",
+		);
+	});
 });

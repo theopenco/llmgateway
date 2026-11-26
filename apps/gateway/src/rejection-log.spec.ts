@@ -17,6 +17,7 @@ const headers = {
 const body = {
 	model: "gpt-4o-mini",
 	messages: [{ role: "user", content: "Hello" }],
+	safety_identifier: "client-user",
 };
 
 async function readLog() {
@@ -50,11 +51,19 @@ describe("gateway rejection logs", () => {
 
 	test.each([
 		["/v1/chat/completions", body, "chat-completions"],
-		["/v1/messages", { ...body, max_tokens: 10 }, "messages"],
-		["/v1/responses", { model: body.model, input: "Hello" }, "responses"],
+		[
+			"/v1/messages",
+			{ ...body, max_tokens: 10, metadata: { user_id: "native-user" } },
+			"messages",
+		],
+		[
+			"/v1/responses",
+			{ model: body.model, input: "Hello", safety_identifier: "client-user" },
+			"responses",
+		],
 		[
 			"/v1/embeddings",
-			{ model: "text-embedding-3-small", input: "Hello" },
+			{ model: "text-embedding-3-small", input: "Hello", user: "client-user" },
 			"embeddings",
 		],
 	] as const)(
@@ -76,6 +85,11 @@ describe("gateway rejection logs", () => {
 				errorCategory: "account_review",
 				apiOrigin,
 				requestedModel: requestBody.model,
+				params: {
+					safety_identifier:
+						apiOrigin === "messages" ? "native-user" : "client-user",
+				},
+				rawRequest: null,
 				errorDetails: { statusCode: 403 },
 			});
 			expect(response.headers.get("x-request-id")).toBe(log.requestId);
@@ -101,6 +115,8 @@ describe("gateway rejection logs", () => {
 		expect(log).toMatchObject({
 			errorCategory: "account_disabled",
 			messages: null,
+			params: { safety_identifier: "client-user" },
+			rawRequest: null,
 			errorDetails: { statusCode: 410 },
 		});
 	});

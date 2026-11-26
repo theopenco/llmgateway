@@ -1,0 +1,62 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "c453ec95-ff0a-454a-8679-48d601ab58d9",
+  "prevIds": [
+    "9d65e332-bcfe-4820-bd4a-72a69117f4af"
+  ],
+  "footprints": [
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "api_key",
+        "api_key_safety_identifier_uidx"
+      ],
+      "writes": [
+        "s|idx|public.api_key_safety_identifier_uidx",
+        "n|idx|public.api_key_safety_identifier_uidx",
+        "e|idx|public.api_key_safety_identifier_uidx",
+        "n|rel|public.api_key_safety_identifier_uidx"
+      ],
+      "reads": [
+        "n|tbl|public.api_key",
+        "n|sch|public",
+        "e|col|public.api_key.safety_identifier"
+      ],
+      "sharedWrites": [
+        "e|uniqueness|public.api_key.safety_identifier"
+      ]
+    },
+    {
+      "statementType": "drop_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "api_key",
+        "safety_identifier"
+      ],
+      "writes": [
+        "s|col|public.api_key.safety_identifier",
+        "n|col|public.api_key.safety_identifier",
+        "e|col|public.api_key.safety_identifier"
+      ],
+      "reads": [
+        "n|tbl|public.api_key",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"api_key\",\"safety_identifier\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"api_key_safety_identifier_uidx\"]"
+    }
+  ]
+}

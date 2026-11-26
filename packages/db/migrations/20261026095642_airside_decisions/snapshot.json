@@ -1,0 +1,81 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "52a2101a-95b6-4e3e-a002-804b27a3c9f6",
+  "prevIds": [
+    "be93bcab-7f08-4798-b28a-f1b5abe287cc"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping",
+        "decisions"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping.decisions",
+        "n|col|public.model_provider_mapping.decisions",
+        "e|col|public.model_provider_mapping.decisions"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "provider_draft_model",
+        "decisions"
+      ],
+      "writes": [
+        "s|col|public.provider_draft_model.decisions",
+        "n|col|public.provider_draft_model.decisions",
+        "e|col|public.provider_draft_model.decisions"
+      ],
+      "reads": [
+        "n|tbl|public.provider_draft_model",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping",
+        "name": "decisions",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "false",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "provider_draft_model",
+        "name": "decisions",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "false",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

@@ -19,12 +19,14 @@ import {
 } from "@/lib/api-key-usage-limits.js";
 import {
 	hasInternalClientCacheMarkers,
+	isInternalApiOrigin,
 	resolveChatApiOrigin,
 } from "@/lib/api-origin.js";
 import {
 	findApiKeyByToken,
 	findManagedProviderAvailability,
 	findRateLimitedManagedKeyIds,
+	withModelRateLimitedManagedKeyIds,
 	findProjectById,
 	findOrganizationById,
 	findCustomProviderKey,
@@ -56,6 +58,7 @@ import {
 	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
+	isWebSearchEngineCompliant,
 	isZeroDataRetentionEnabled,
 	logComplianceBlock,
 	type ComplianceCheckContext,
@@ -71,6 +74,8 @@ import {
 	withWalletCredits,
 } from "@/lib/end-user-session.js";
 import {
+	canUseModel,
+	enterpriseOnlyModelMessage,
 	getLicensedOrganizationEnvVariant,
 	getLicensedOrganizationPlan,
 	hasOrganizationEnterpriseAccess,
@@ -80,8 +85,8 @@ import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { fetchProvider } from "@/lib/fetch-provider.js";
 import {
-	getGcpAccessToken,
 	getVertexAnthropicProjectId,
+	usesServiceAccountAccessToken,
 } from "@/lib/gcp-token.js";
 import {
 	evaluateProviderAccessRestriction,
@@ -112,6 +117,7 @@ import {
 import {
 	excludeRateLimitedProviderKeys,
 	getRateLimitedProviderKeyIds,
+	withModelRateLimitedProviderKeyIds,
 	type ProviderKeyRateLimitExemption,
 } from "@/lib/provider-key-rate-limit.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
@@ -128,7 +134,15 @@ import {
 import { providerRateLimitWindows } from "@/lib/rate-limit-windows.js";
 import { getResponsesContext } from "@/lib/responses-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
-import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
+import {
+	directProviderRoutingMetadata,
+	getNoFallbackRoutingMetadata,
+	withRoutingAttempts,
+} from "@/lib/routing-metadata.js";
+import {
+	forwardedSafetyIdentifier,
+	getClientSafetyIdentifierParams,
+} from "@/lib/safety-identifier.js";
 import {
 	createSmartRoutingSessionStore,
 	type SmartRoutingSessionStore,
@@ -165,10 +179,12 @@ import {
 	getDiscountedProviderSelectionPrice,
 	getGcpServiceAccountAccessToken,
 	getProviderApiTransport,
+	getRequestApiFormat,
 	getUpstreamModelId,
 	getProviderEndpoint,
 	getProviderHeaders,
 	routeProjectlessVertexEndpoint,
+	usesAwsBedrockConverse as isAwsBedrockConverse,
 	isPremiumServiceTier,
 	resolveServedServiceTier,
 	googleProviderSupportsAudioFormat,
@@ -190,6 +206,8 @@ import {
 	preserveGoogleResponseText,
 	promptTokensShowSearchContext,
 	reportedWebSearchCount,
+	billedServerToolUseCount,
+	mappingSupportsToolChoice,
 } from "@llmgateway/actions";
 import {
 	generateCacheKey,
@@ -215,6 +233,7 @@ import {
 	applyRedactions,
 	checkGuardrails,
 	logViolation,
+	type RuleViolation,
 } from "@llmgateway/guardrails";
 import { logger, toError } from "@llmgateway/logger";
 import {
@@ -242,6 +261,12 @@ import {
 	getProviderDefinition,
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
+	getRequestedModelAlias,
+	isProviderMappingAllowedByRestriction,
+	GATEWAY_WEB_SEARCH_ENGINES,
+	resolveGatewayWebSearchEngine,
+	supportsWebSearch,
+	usesGatewayWebSearch,
 	usesEncryptedReasoning,
 } from "@llmgateway/models";
 import {
@@ -276,6 +301,7 @@ import {
 import { completionsRequestSchema } from "./schemas/completions.js";
 import {
 	anthropicRequestNeedsEffortBeta,
+	anthropicThinkingBetas,
 	anthropicToolBetas,
 	appendAnthropicBeta,
 } from "./tools/anthropic-effort-beta.js";
@@ -283,7 +309,7 @@ import {
 	applyAnthropicSafeguards,
 	extractAnthropicSafeguards,
 	isSafeguardBeta,
-	providerSupportsAnthropicSafeguards,
+	mappingSupportsAnthropicSafeguards,
 } from "./tools/anthropic-safeguards.js";
 import { buildRoutingAttempt } from "./tools/build-routing-attempt.js";
 import {
@@ -317,11 +343,13 @@ import {
 import { extractContent } from "./tools/extract-content.js";
 import { extractCustomHeaders } from "./tools/extract-custom-headers.js";
 import { extractErrorCause } from "./tools/extract-error-cause.js";
+import { isGoogleOutputImagePart } from "./tools/extract-images.js";
 import { extractReasoning } from "./tools/extract-reasoning.js";
 import { extractTokenUsage } from "./tools/extract-token-usage.js";
 import { extractToolCalls } from "./tools/extract-tool-calls.js";
 import { getFinishReasonFromError } from "./tools/get-finish-reason-from-error.js";
 import { getEnvKeyCount } from "./tools/get-provider-env.js";
+import { createGuardrailClassifier } from "./tools/guardrail-classifier.js";
 import { hasMeaningfulAssistantOutput } from "./tools/has-meaningful-assistant-output.js";
 import { healJsonResponse } from "./tools/heal-json-response.js";
 import {
@@ -331,6 +359,16 @@ import {
 	platformCredentialCoversRegion,
 	preferProvidersWithKeys,
 } from "./tools/hybrid-provider-routing.js";
+import {
+	addInternalWebSearchCost,
+	buildWebSearchQuery,
+	injectWebSearchResults,
+	type InternalWebSearch,
+	internalWebSearchSkipReason,
+	runInternalWebSearch,
+	webSearchAnnotations,
+	webSearchLogFields,
+} from "./tools/internal-web-search.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
 import { mapFinishReasonToOpenai } from "./tools/map-finish-reason-to-openai.js";
 import {
@@ -350,11 +388,16 @@ import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import { parseTrailingUpstreamError } from "./tools/parse-trailing-upstream-error.js";
-import { pickAutoReasoningEffort } from "./tools/pick-auto-reasoning-effort.js";
+import {
+	type AutoReasoningEffortPick,
+	pickAutoReasoningEffort,
+	pickFallbackReasoningEffort,
+} from "./tools/pick-auto-reasoning-effort.js";
 import {
 	exclusionReason,
 	getProviderFilterReasons,
 	mergeFilteredProvider,
+	preferDeclaredReasoningEffortProviders,
 	preferToolChoiceCapableProviders,
 	recordFilteredProvider,
 } from "./tools/provider-filter-reasons.js";
@@ -362,6 +405,7 @@ import { assertProviderKeysNotRateLimited } from "./tools/provider-key-rate-limi
 import { readTencentImageBody } from "./tools/read-tencent-image-body.js";
 import {
 	isInvalidEncryptedContentError,
+	isInvalidThinkingSignatureError,
 	lookupReasoningPin,
 	reasoningPinBindsModel,
 	rememberRejectedReasoning,
@@ -369,7 +413,11 @@ import {
 	rememberReasoningCredential,
 	resolveReasoningCredentialPin,
 	stripAccountBoundReasoning,
+	stripAnthropicThinking,
 	stripForeignReasoning,
+	stripRejectedAnthropicThinking,
+	rememberRejectedAnthropicThinking,
+	rememberDroppedReasoning,
 } from "./tools/reasoning-credential-pin.js";
 import {
 	flushTaggedStreamingRemainder,
@@ -392,6 +440,7 @@ import {
 import {
 	assertDevPlanDailyCapNotExceeded,
 	assertDevPlanPremiumCapNotExceeded,
+	buildByokKeyFilter,
 	buildDevPlanCreditLimitError,
 	formatUsedModelForDisplay,
 	getAvailableCredits,
@@ -447,6 +496,17 @@ import {
 } from "./tools/transform-streaming-to-openai.js";
 import { validateFreeModelUsage } from "./tools/validate-free-model-usage.js";
 import { validateModelCapabilities } from "./tools/validate-model-capabilities.js";
+import {
+	gatewayRoundDispatcher,
+	runWebSearchLoop,
+	takeWebSearchLoopRound,
+	WEB_SEARCH_FUNCTION_NAME,
+	WEB_SEARCH_LOOP_HEADER,
+} from "./tools/web-search-loop.js";
+import {
+	planWebSearch,
+	WEB_SEARCH_PLANNER_PROVIDER,
+} from "./tools/web-search-planner.js";
 
 import type {
 	FilteredProvider,
@@ -488,6 +548,13 @@ function injectImageStreamParams(
 		stream: true,
 		partial_images: 1,
 	} as unknown as ProviderRequestBody;
+}
+
+// OpenAI does not stream SVG output, so those requests run synchronously.
+function supportsImageStreamUpstream(
+	outputFormat: string | undefined,
+): boolean {
+	return outputFormat !== "svg" && outputFormat !== "gif";
 }
 
 function toDataStorageCostNumber(
@@ -848,12 +915,15 @@ function filterEligibleModelProviders(
 		toolChoice?: ToolChoiceType;
 		maxTokens?: number;
 		reasoningEffort?: string;
+		reasoningPinnedProvider?: string;
 		n?: number;
 		stream?: boolean;
 		/** Unpinned routing only: smallest context window still eligible. */
 		contextTierMinSize?: number;
 	},
 	filteredOut?: FilteredProvider[],
+	/** Collects mappings the reasoning-effort ranking demoted (retry targets). */
+	effortDemoted?: ProviderModelMapping[],
 ): ProviderModelMapping[] {
 	const eligible = availableModelProviders.filter((provider) => {
 		if (
@@ -939,7 +1009,18 @@ function filterEligibleModelProviders(
 	// candidates when another mapping of the same model can honour it — dropping
 	// the last candidate would fail a request that works today (downgraded to
 	// "auto" by prepareRequestBody).
-	return preferToolChoiceCapableProviders(eligible, options, filteredOut);
+	const effortRanked = preferDeclaredReasoningEffortProviders(
+		eligible,
+		options,
+		filteredOut,
+	);
+	effortDemoted?.push(
+		...eligible.filter(
+			(provider) =>
+				provider.providerId !== "custom" && !effortRanked.includes(provider),
+		),
+	);
+	return preferToolChoiceCapableProviders(effortRanked, options, filteredOut);
 }
 
 interface ContentFilterRoutingDecision {
@@ -1070,7 +1151,6 @@ function withUsedCredential(
 function usesGoogleQueryToken(provider: string): boolean {
 	return (
 		provider === "google-ai-studio" ||
-		provider === "glacier" ||
 		provider === "google-vertex" ||
 		provider === "quartz"
 	);
@@ -1079,7 +1159,6 @@ function usesGoogleQueryToken(provider: string): boolean {
 function isGoogleCompatibleProvider(provider: string): boolean {
 	return (
 		provider === "google-ai-studio" ||
-		provider === "glacier" ||
 		provider === "google-vertex" ||
 		provider === "quartz"
 	);
@@ -1205,6 +1284,7 @@ async function findServiceTierEligibleProviderIds(
 	orgKeys: InferSelectModel<typeof tables.providerKey>[],
 	mode: string,
 	envVariant: EnvVarVariant | undefined,
+	organizationId: string,
 ): Promise<Set<string>> {
 	const eligible = new Set<string>();
 	for (const providerId of new Set(providerIds)) {
@@ -1218,6 +1298,7 @@ async function findServiceTierEligibleProviderIds(
 				(await hasServiceTierEligiblePlatformCredential(
 					providerId as Provider,
 					envVariant,
+					organizationId,
 				)))
 		) {
 			eligible.add(providerId);
@@ -1827,6 +1908,32 @@ chat.openapi(completions, async (c) => {
 	// scope for both the credit gate below and every cost calculation.
 	const sponsoredOnboarding = isSponsoredOnboardingRequest(c);
 
+	// Set once the gateway ran a web search itself for an upstream without
+	// native search (`usesGatewayWebSearch`). Billed by the calculateCosts wrapper
+	// and recorded on the log by insertLogEntry.
+	let internalWebSearch:
+		{ search: InternalWebSearch; price: string; count?: number } | undefined;
+	// A round of gateway-run search (`runWebSearchLoop`) bills the searches
+	// that ran since the previous round.
+	const webSearchLoopRound = isInternalApiOrigin(c)
+		? takeWebSearchLoopRound(c.req.header(WEB_SEARCH_LOOP_HEADER))
+		: undefined;
+	const webSearchLoopBilling = webSearchLoopRound?.billing;
+	if (webSearchLoopBilling) {
+		internalWebSearch = {
+			search: {
+				engine: webSearchLoopBilling.engine,
+				queries: webSearchLoopBilling.queries,
+				results: [],
+				engineCostUsd: null,
+			},
+			price: webSearchLoopBilling.price,
+			count: webSearchLoopBilling.count,
+		};
+	}
+	// Native searches the latest cost calculation billed, for the log row.
+	let nativeWebSearchCount = 0;
+
 	// Wraps the imported calculateCosts so a sponsored call is zeroed once, here,
 	// instead of at each of the ~11 places costs are computed (streaming,
 	// non-streaming, cached, cancelled, error paths). Mirrors the insertLog
@@ -1834,6 +1941,14 @@ chat.openapi(completions, async (c) => {
 	// first thing they ever did.
 	const calculateCosts: typeof _calculateCosts = async (...args) => {
 		const costs = await _calculateCosts(...args);
+		nativeWebSearchCount = costs.webSearchCount;
+		if (internalWebSearch) {
+			addInternalWebSearchCost(
+				costs,
+				internalWebSearch.price,
+				internalWebSearch.count,
+			);
+		}
 		if (sponsoredOnboarding) {
 			zeroInferenceCosts(costs);
 		}
@@ -1917,7 +2032,6 @@ chat.openapi(completions, async (c) => {
 		prompt_cache_key,
 		prompt_cache_retention,
 		prompt_cache_options,
-		tool_choice,
 		routing,
 		free_models_only,
 		no_reasoning,
@@ -2030,6 +2144,9 @@ chat.openapi(completions, async (c) => {
 		frequency_penalty,
 		presence_penalty,
 		tools,
+		// Mutable: a gateway-run web search drops a `"required"` choice once no
+		// tool is left to call.
+		tool_choice,
 	} = validationResult.data;
 
 	// Debug: Log tools received from the AI SDK (development only)
@@ -2173,6 +2290,11 @@ chat.openapi(completions, async (c) => {
 	// Extract web_search tool from tools array if present
 	// The web_search tool is a special tool that enables native web search for providers that support it
 	let webSearchTool: WebSearchTool | undefined;
+	// A cache-only search (`external_web_access: false`, Codex's default) is
+	// kept apart from `webSearchTool`, so it never drives validation, routing,
+	// or billing. Request shaping forwards it to upstreams with a cache-only
+	// mode (OpenAI's Responses API) and drops it everywhere else.
+	let cachedOnlyWebSearchTool: WebSearchTool | undefined;
 	if (tools && Array.isArray(tools)) {
 		// allowed_domains and blocked_domains are mutually exclusive; providers
 		// accept only one, and silently preferring one would drop the caller's
@@ -2205,7 +2327,7 @@ chat.openapi(completions, async (c) => {
 		if (webSearchToolIndex !== -1) {
 			// Cast to any to access properties since the schema allows both function and web_search tools
 			const foundTool = tools[webSearchToolIndex] as any;
-			webSearchTool = {
+			const extracted: WebSearchTool = {
 				type: "web_search",
 				user_location: foundTool.user_location,
 				search_context_size: foundTool.search_context_size,
@@ -2222,6 +2344,15 @@ chat.openapi(completions, async (c) => {
 			};
 			// Remove the web_search tool from the tools array so it's not sent as a regular tool
 			tools.splice(webSearchToolIndex, 1);
+			if (foundTool.external_web_access === false) {
+				cachedOnlyWebSearchTool = { ...extracted, external_web_access: false };
+				// Nothing else was offered: validate as a tool-free request.
+				if (tools.length === 0) {
+					tools = undefined;
+				}
+			} else {
+				webSearchTool = extracted;
+			}
 		}
 	}
 
@@ -2319,6 +2450,8 @@ chat.openapi(completions, async (c) => {
 	// Extract custom X-LLMGateway-* headers
 	const customHeaders = extractCustomHeaders(c);
 
+	const clientSafetyParams = getClientSafetyIdentifierParams(rawBody);
+
 	// Read Responses API context from in-memory Map (set by /v1/responses proxy).
 	// Uses a lookup key passed via header; actual data is never in headers.
 	// External callers cannot exploit this: the key is a resp_ + shortid(24) that
@@ -2408,8 +2541,17 @@ chat.openapi(completions, async (c) => {
 			// records them. Explicit values in logData still win.
 			requestedServiceTier,
 			usedServiceTier: servedServiceTier,
+			...webSearchLogFields(
+				logData,
+				internalWebSearch?.search.engine,
+				nativeWebSearchCount,
+				internalWebSearch?.count,
+			),
 			...(await getRoutingBaselineFields(logData)),
 			...logData,
+			...(clientSafetyParams.safety_identifier !== undefined && {
+				params: { ...logData.params, ...clientSafetyParams },
+			}),
 			...(logIdOverride && !logData.retried ? { id: logIdOverride } : {}),
 		});
 	};
@@ -2484,15 +2626,31 @@ chat.openapi(completions, async (c) => {
 	let requestedRegion = parseResult.requestedRegion;
 
 	// Count input images from messages for cost calculation
-	const inputImageCount =
+	const countsAllInputImages =
 		requestedModel === "gemini-3-pro-image" ||
 		requestedModel === "gemini-3-pro-image-preview" ||
 		requestedModel === "gemini-3.1-flash-image" ||
 		requestedModel === "gemini-3.1-flash-image-preview" ||
 		requestedModel === "gemini-3.1-flash-lite-image" ||
-		requestedModel === "gemini-nano-banana-2.1"
+		requestedModel === "gemini-nano-banana-2.1";
+	// Models priced per reference image (Seedream 5.5) are matched on the routed
+	// model, so auto routing bills them too. They only forward the last user
+	// message's images upstream.
+	const inputImageCountFor = (billedModel: string): number =>
+		countsAllInputImages
 			? countInputImages(messages)
-			: 0;
+			: models.some(
+						(m) =>
+							m.id === billedModel &&
+							m.providers.some((p) => "perInputImagePrice" in p),
+				  )
+				? countInputImages(
+						[...messages]
+							.reverse()
+							.filter((m) => m.role === "user")
+							.slice(0, 1),
+					)
+				: 0;
 
 	// Resolve model info and filter deactivated providers
 	const modelInfoResult =
@@ -2519,7 +2677,11 @@ chat.openapi(completions, async (c) => {
 		? expandedAllModelProviders
 		: modelInfoResult.allModelProviders;
 	let requestedProvider = modelInfoResult.requestedProvider;
-	const explicitRateLimitProvider = modelInfoResult.requestedProvider;
+	// A gateway-run search round is pinned by the gateway, not the caller, so it
+	// gets no pinned-provider rate limit exemption.
+	const explicitRateLimitProvider = webSearchLoopRound
+		? undefined
+		: modelInfoResult.requestedProvider;
 	const explicitRateLimitModel = modelInfoResult.modelInfo.id;
 
 	// If a specific region was requested (e.g. "alibaba/qwen-plus:cn-beijing"),
@@ -2547,7 +2709,7 @@ chat.openapi(completions, async (c) => {
 	// /v1/embeddings). validateModelCapabilities() rejects them later, but only
 	// after the dev/chat-plan restriction checks below, which would surface a
 	// misleading "not available for coding plans" error first. Reject them here
-	// with the correct endpoint pointer. Image-only models (e.g. reve,
+	// with the correct endpoint pointer. Image-only models (e.g.
 	// grok-image) are intentionally allowed — they are served by the
 	// chat-completions image flow.
 	validateModelOutput(modelInfo, requestedModel, ["text", "image"]);
@@ -2633,14 +2795,15 @@ chat.openapi(completions, async (c) => {
 	const providerRoutingScoreMultiplierResolver =
 		createProviderRoutingScoreMultiplierResolver();
 
-	// Candidates demoted by hybrid keyed-provider preference stay in the scores
-	// as last-resort retry targets: their worst-rank score keeps them behind
-	// every keyed candidate, but the retry loop can still escape to them when a
-	// BYOK key fails and the provider has no env credential to fall back to.
-	const appendHybridDemotedProviderScores = async (
+	// Candidates demoted by hybrid keyed-provider preference or the
+	// reasoning-effort ranking stay in the scores as last-resort retry targets:
+	// their worst-rank score keeps them behind every preferred candidate, but the
+	// retry loop can still escape to them when those fail.
+	const appendDemotedProviderScores = async (
 		metadata: RoutingMetadata,
 		demotedCandidates: ProviderModelMapping[],
 		modelId: string,
+		hybridDemoted = true,
 	) => {
 		const seenProviderIds = new Set(
 			metadata.providerScores.map((score) => score.providerId),
@@ -2670,7 +2833,7 @@ chat.openapi(completions, async (c) => {
 				price: price.toNumber(),
 				discount: discount.toNumber(),
 				cacheSupported: providerSupportsCaching(candidate),
-				hybrid_demoted: true,
+				...(hybridDemoted ? { hybrid_demoted: true } : {}),
 			});
 			offset++;
 		}
@@ -2717,7 +2880,13 @@ chat.openapi(completions, async (c) => {
 	const managedRegionAvailability =
 		project.mode === "api-keys"
 			? EMPTY_MANAGED_PROVIDER_AVAILABILITY
-			: await findManagedProviderAvailability();
+			: await findManagedProviderAvailability(
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					project.organizationId,
+				);
 	if (project.mode === "credits") {
 		modelInfo = {
 			...modelInfo,
@@ -2779,11 +2948,14 @@ chat.openapi(completions, async (c) => {
 	// would push the zero-credit org we just waived the charge for into negative
 	// credits. Forcing it here rather than zeroing at each cost site keeps the
 	// two in step: no stored payloads, therefore no storage to charge for.
-	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(organization);
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(
+		organization,
+		apiKey,
+	);
 	const retentionLevel =
 		sponsoredOnboarding || zeroDataRetentionEnabled
 			? "none"
-			: getEffectiveRetentionLevel(organization);
+			: getEffectiveRetentionLevel(organization, apiKey);
 
 	// Surface gateway-side rejections (guardrails, unsupported parameters,
 	// rate limits) in the activity feed as a client_error so users can see why
@@ -2914,6 +3086,7 @@ chat.openapi(completions, async (c) => {
 			orgKeysForDefaultTier,
 			project.mode,
 			envVariant,
+			project.organizationId,
 		);
 		const supportsDefaultFlex = tierEligibleProviderIds.size > 0;
 		if (supportsDefaultFlex) {
@@ -3162,13 +3335,21 @@ chat.openapi(completions, async (c) => {
 				modelId,
 				rateLimited,
 				rateLimitExemption,
+				project.organizationId,
 			);
 		}
 		const limited = new Set(
-			rateLimited ?? (await findRateLimitedManagedKeyIds(rateLimitExemption)),
+			rateLimited ??
+				(await findRateLimitedManagedKeyIds(rateLimitExemption, modelId)),
 		);
 		limited.delete(pinnedManagedKeyId);
-		return await findManagedProviderAvailability(variant, modelId, limited);
+		return await findManagedProviderAvailability(
+			variant,
+			modelId,
+			limited,
+			undefined,
+			project.organizationId,
+		);
 	};
 	const createSessionStore = (modelId: string) => {
 		const modelReasoningPin = reasoningPinFor(modelId);
@@ -3274,16 +3455,16 @@ chat.openapi(completions, async (c) => {
 	// OpenAI-format encrypted reasoning is dropped on a retry that leaves its
 	// credential (see resolveProviderContextForRetry), so only reasoning that
 	// cannot be dropped — Gemini signatures — still blocks fallback.
+	// Session affinity preserves caches, but must not prevent error fallback.
 	const isProviderPinned = () =>
-		sessionStickyEnabled ||
-		(hasProviderBoundReasoning(stripAccountBoundReasoning(messages).messages) &&
-			usedProviderEncryptsReasoning());
+		hasProviderBoundReasoning(stripAccountBoundReasoning(messages).messages) &&
+		usedProviderEncryptsReasoning();
 
 	const retryProjectContext = {
 		mode: project.mode,
 		organizationId: project.organizationId,
 	};
-	const retrySafetyIdentifier = apiKey.safetyIdentifier;
+	const organizationSafetyIdentifier = organization.safetyIdentifier;
 	const retryOrganizationContext = {
 		id: organization.id,
 		credits: organization.credits,
@@ -3311,20 +3492,40 @@ chat.openapi(completions, async (c) => {
 			organizationId: project.organizationId,
 			projectId: project.id,
 			messages: messages as Parameters<typeof checkGuardrails>[0]["messages"],
+			classify: createGuardrailClassifier(c),
 		});
 
+		if (guardrailResult.classifier?.error) {
+			// Classifier rules fail open; pattern rules still applied.
+			logger.warn("guardrail_classifier_failed", {
+				organizationId: project.organizationId,
+				projectId: project.id,
+				apiKeyId: apiKey.id,
+				questions: guardrailResult.classifier.questions,
+				error: guardrailResult.classifier.error,
+			});
+		}
+
+		const recordViolation = async (violation: RuleViolation) => {
+			try {
+				await logViolation(project.organizationId, violation, {
+					apiKeyId: apiKey.id,
+					model: requestedModel,
+					retainSensitiveContent: retentionLevel === "retain",
+				});
+			} catch (error) {
+				// The request outcome must not depend on the audit write.
+				logger.error("guardrail_violation_log_failed", {
+					organizationId: project.organizationId,
+					ruleId: violation.ruleId,
+					error: toError(error),
+				});
+			}
+		};
+
 		if (guardrailResult.blocked) {
-			// Log violations (don't let logging failures affect the request)
 			for (const violation of guardrailResult.violations) {
-				try {
-					await logViolation(project.organizationId, violation, {
-						apiKeyId: apiKey.id,
-						model: requestedModel,
-						retainSensitiveContent: retentionLevel === "retain",
-					});
-				} catch {
-					// Silently ignore logging failures
-				}
+				await recordViolation(violation);
 			}
 
 			const blockedViolations = guardrailResult.violations.map((v) => ({
@@ -3385,15 +3586,7 @@ chat.openapi(completions, async (c) => {
 		for (const violation of guardrailResult.violations.filter(
 			(v) => v.action !== "block",
 		)) {
-			try {
-				await logViolation(project.organizationId, violation, {
-					apiKeyId: apiKey.id,
-					model: requestedModel,
-					retainSensitiveContent: retentionLevel === "retain",
-				});
-			} catch {
-				// Silently ignore logging failures
-			}
+			await recordViolation(violation);
 		}
 	}
 
@@ -3468,6 +3661,23 @@ chat.openapi(completions, async (c) => {
 	const isStarterChatPlan = Boolean(
 		organization?.kind === "chat" && organization.chatPlan === "starter",
 	);
+	if (
+		!canUseModel(
+			modelInfo as ModelDefinition,
+			organization.id,
+			organization.plan,
+		)
+	) {
+		const message = enterpriseOnlyModelMessage(modelInfo.id);
+		await logGatewayRejection({
+			message,
+			statusCode: 403,
+			statusText: "Forbidden",
+			cause: "enterprise_only_model",
+		});
+		throw new HTTPException(403, { message });
+	}
+
 	if (isStarterChatPlan && !isChatPlanModelAllowed("starter", modelInfo.id)) {
 		throw new HTTPException(403, {
 			message: `Model ${modelInfo.id} is not available on the Starter chat plan. Upgrade to Plus or Pro at lounge.llmgateway.io/pricing to access frontier models.`,
@@ -3550,8 +3760,9 @@ chat.openapi(completions, async (c) => {
 			: modelInfo.providers;
 		const canElectSearch = candidates.some(
 			(p) =>
-				(p as ProviderModelMapping).webSearch === true &&
-				(p as ProviderModelMapping).webSearchForcedOnly !== true,
+				((p as ProviderModelMapping).webSearch === true &&
+					(p as ProviderModelMapping).webSearchForcedOnly !== true) ||
+				usesGatewayWebSearch(p as ProviderModelMapping),
 		);
 		if (!canElectSearch) {
 			webSearchTool = undefined;
@@ -3633,6 +3844,8 @@ chat.openapi(completions, async (c) => {
 				tools,
 				hasImages,
 				requestSignal: c.req.raw.signal,
+				classifierBillable:
+					getAvailableCredits(organization).totalAvailableCredits > 0,
 			});
 		}
 
@@ -3732,6 +3945,9 @@ chat.openapi(completions, async (c) => {
 	// when the only remaining active provider is a denied one but deactivated providers
 	// are still "allowed" by the IAM rules.
 	const clientIp = getClientIpFromRequest(c);
+	const requestedModelAlias = parseResult.dynamicRouteName
+		? undefined
+		: getRequestedModelAlias(modelInput, modelInfo.id);
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
@@ -3739,6 +3955,7 @@ chat.openapi(completions, async (c) => {
 		requestedModel: modelInfo.id,
 		requestedProvider,
 		customProviderName,
+		requestedModelAlias,
 		activeModelInfo: modelInfo,
 		clientIp,
 	});
@@ -3792,6 +4009,7 @@ chat.openapi(completions, async (c) => {
 						requestedModel: modelInfo.id,
 						requestedProvider: "custom",
 						customProviderName: providerKey.name,
+						requestedModelAlias,
 						activeModelInfo: { ...modelInfo, providers: [mapping] },
 						clientIp,
 						smartRouting: true,
@@ -3840,6 +4058,37 @@ chat.openapi(completions, async (c) => {
 			: routingExpandedModelProviders
 		: customRoutingMappings;
 
+	// The staff-managed provider access restriction narrows candidates inside
+	// IAM validation; record what it dropped so routing metadata explains why a
+	// provider was skipped.
+	const recordProviderAccessRestrictionDrops = (
+		modelId: string,
+		providers: readonly ProviderModelMapping[],
+		list: FilteredProvider[] = preRoutingFilteredProviders,
+	) => {
+		const restriction = organization.providerAccessRestriction;
+		if (!restriction) {
+			return;
+		}
+		for (const provider of providers) {
+			if (
+				!isCustomAutoRoutingMapping(provider) &&
+				!isProviderMappingAllowedByRestriction(
+					restriction,
+					provider.providerId,
+					modelId,
+				)
+			) {
+				recordFilteredProvider(list, provider.providerId, [
+					exclusionReason("provider_access_restriction"),
+				]);
+			}
+		}
+	};
+	if (requestedProvider === undefined && iamValidation.allowed) {
+		recordProviderAccessRestrictionDrops(modelInfo.id, modelInfo.providers);
+	}
+
 	// Resolved before the compliance gate: a custom provider key's self-attested
 	// posture is what the policy is evaluated against, and the auto-routing
 	// filter below is synchronous, so the attestation must already be in hand.
@@ -3859,7 +4108,7 @@ chat.openapi(completions, async (c) => {
 			message: `Provider '${customProviderName}' not found.`,
 		});
 	}
-	const effectiveProviders = getActiveCompliancePolicy(organization)
+	const effectiveProviders = getActiveCompliancePolicy(organization, apiKey)
 		? await getEffectiveProviders()
 		: undefined;
 	let complianceContext: ComplianceCheckContext = {
@@ -3871,7 +4120,7 @@ chat.openapi(completions, async (c) => {
 	// Enterprise provider compliance guardrails: drop providers that do not meet
 	// the org's required certifications/data policies, and block the request when
 	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
-	const compliancePolicy = getActiveCompliancePolicy(organization);
+	const compliancePolicy = getActiveCompliancePolicy(organization, apiKey);
 
 	const complianceContextFor = (
 		provider: ProviderModelMapping,
@@ -3883,7 +4132,7 @@ chat.openapi(completions, async (c) => {
 							?.complianceAttestation ?? null,
 					customProviderName: provider.customProviderName,
 				}
-			: complianceContext;
+			: { ...complianceContext, mappingDataPolicy: provider.dataPolicy };
 
 	// Which policy rules a dropped mapping failed, recorded next to the coarse
 	// "compliance" code so the routing analytics can break the total down by rule
@@ -3939,7 +4188,12 @@ chat.openapi(completions, async (c) => {
 			usedProvider !== undefined &&
 			usedProvider !== "llmgateway" &&
 			usedProvider !== "custom" &&
-			!isProviderIdCompliant(usedProvider, compliancePolicy, complianceContext);
+			!isProviderIdCompliant(usedProvider, compliancePolicy, {
+				...complianceContext,
+				mappingDataPolicy: modelInfo.providers.find(
+					(provider) => provider.providerId === usedProvider,
+				)?.dataPolicy,
+			});
 		if (iamFilteredModelProviders.length === 0 || pinnedBlocked) {
 			await logComplianceBlock(project.organizationId, {
 				apiKeyId: apiKey.id,
@@ -3998,6 +4252,7 @@ chat.openapi(completions, async (c) => {
 			serviceTierOrgKeys,
 			project.mode,
 			envVariant,
+			project.organizationId,
 		);
 		const tierEligibleProviders = iamFilteredModelProviders.filter((provider) =>
 			tierEligibleProviderIds.has(provider.providerId),
@@ -4025,7 +4280,7 @@ chat.openapi(completions, async (c) => {
 
 	const rejectUnsupportedSafeguards = async (): Promise<never> => {
 		const message =
-			"No compatible provider is available for the requested Anthropic safeguards. Use Anthropic or remove safeguards (in Claude Code, set CLAUDE_CODE_AUTO_MODE_SERVER=0 to use billed client-side classifier requests).";
+			"No compatible provider is available for the requested Anthropic safeguards. Use Claude on Anthropic or Amazon Bedrock, or remove safeguards (in Claude Code, set CLAUDE_CODE_AUTO_MODE_SERVER=0 to use billed client-side classifier requests).";
 		await logGatewayRejection({
 			message,
 			statusCode: 400,
@@ -4042,7 +4297,7 @@ chat.openapi(completions, async (c) => {
 			return;
 		}
 		const supportsSafeguards = (provider: ProviderModelMapping) =>
-			providerSupportsAnthropicSafeguards(provider.providerId);
+			mappingSupportsAnthropicSafeguards(provider);
 		const eligible = iamFilteredModelProviders.filter(supportsSafeguards);
 		recordPreRoutingDrops(
 			iamFilteredModelProviders,
@@ -4054,11 +4309,12 @@ chat.openapi(completions, async (c) => {
 		expandedIamFilteredModelProviders =
 			expandedIamFilteredModelProviders.filter(supportsSafeguards);
 		// Auto/smart reach this check after resolving a real provider. Custom
-		// transports cannot forward safeguards and must not bypass this guard.
+		// transports and non-Claude mappings of a supporting provider cannot
+		// forward safeguards and must not bypass this guard.
 		if (
 			eligible.length === 0 ||
 			(usedProvider !== undefined &&
-				!providerSupportsAnthropicSafeguards(usedProvider))
+				!eligible.some((provider) => provider.providerId === usedProvider))
 		) {
 			await rejectUnsupportedSafeguards();
 		}
@@ -4331,8 +4587,8 @@ chat.openapi(completions, async (c) => {
 		// configured region (e.g. aws_bedrock_region: "eu") instead of being
 		// collapsed to the pinned default by applyPinnedDefaultRegions.
 		const autoProviderLockedRegions = buildProviderLockedRegions(providerKeys);
-		// Keys at one of their own caps cannot serve any candidate this request,
-		// so read the caps once instead of per candidate model.
+		// Keys at one of their own key-wide caps cannot serve any candidate this
+		// request, so read those once; per-model caps are added per candidate.
 		const rateLimitedProviderKeyIds =
 			await getRateLimitedProviderKeyIds(providerKeys);
 		const rateLimitedManagedKeyIds =
@@ -4404,6 +4660,9 @@ chat.openapi(completions, async (c) => {
 
 		let selectedModel: ModelDefinition | undefined;
 		let selectedProviders: ProviderModelMapping[] = [];
+		// Per model: mappings the reasoning-effort preference ranked out, kept as
+		// last-resort retry targets for the selected model.
+		const effortDemotedByModel = new Map<string, ProviderModelMapping[]>();
 		let selectedFilteredProviders: Array<{
 			providerId: string;
 			reasons: string[];
@@ -4438,6 +4697,7 @@ chat.openapi(completions, async (c) => {
 			toolChoice: tool_choice,
 			strictToolChoice: !dynamicRouteSelection,
 			reasoningEffort: reasoning_effort,
+			reasoningPinnedProvider: reasoningPin?.provider,
 			reasoningMaxTokens: reasoning_max_tokens,
 			reasoningMode: reasoning_mode,
 			noReasoning: no_reasoning,
@@ -4476,6 +4736,16 @@ chat.openapi(completions, async (c) => {
 			// is intentionally relaxed.
 			const candidateOutput = (modelDef as ModelDefinition).output;
 			if (candidateOutput && !candidateOutput.includes("text")) {
+				continue;
+			}
+
+			if (
+				!canUseModel(
+					modelDef as ModelDefinition,
+					organization.id,
+					organization.plan,
+				)
+			) {
 				continue;
 			}
 
@@ -4561,12 +4831,18 @@ chat.openapi(completions, async (c) => {
 			});
 			const candidateAllowedProviders = candidateIam.allowedProviders;
 
+			const candidateRateLimitedKeyIds =
+				await withModelRateLimitedProviderKeyIds(
+					rateLimitedProviderKeyIds,
+					providerKeys,
+					modelDef.id,
+				);
 			const { availableProviders, providersWithKeys } =
 				getAvailableProvidersForProjectMode(
 					project.mode,
 					withReasoningPinnedKey(
 						providerKeys.filter(
-							(key) => !rateLimitedProviderKeyIds.has(key.id),
+							(key) => !candidateRateLimitedKeyIds.has(key.id),
 						),
 						modelDef.id,
 					).filter((key) =>
@@ -4576,7 +4852,12 @@ chat.openapi(completions, async (c) => {
 					await managedAvailabilityFor(
 						envVariant,
 						modelDef.id,
-						rateLimitedManagedKeyIds,
+						project.mode === "api-keys"
+							? rateLimitedManagedKeyIds
+							: await withModelRateLimitedManagedKeyIds(
+									rateLimitedManagedKeyIds,
+									modelDef.id,
+								),
 					),
 				);
 
@@ -4707,6 +4988,13 @@ chat.openapi(completions, async (c) => {
 			}
 			// Filter by context size requirement, reasoning capability, and deprecation status
 			const filteredOutForModel: FilteredProvider[] = [];
+			recordProviderAccessRestrictionDrops(
+				modelDef.id,
+				candidateProviders.filter((provider) =>
+					availableProviders.includes(provider.providerId),
+				),
+				filteredOutForModel,
+			);
 			const compliantProviders = new Set(complianceFilteredProviders);
 			for (const provider of preComplianceProviders) {
 				if (!compliantProviders.has(provider)) {
@@ -4725,7 +5013,10 @@ chat.openapi(completions, async (c) => {
 													)?.complianceAttestation ?? null,
 												customProviderName: provider.customProviderName,
 											}
-										: complianceContext,
+										: {
+												...complianceContext,
+												mappingDataPolicy: provider.dataPolicy,
+											},
 								).map((failure) =>
 									exclusionReason(complianceExclusionReason(failure)),
 								)
@@ -4768,13 +5059,26 @@ chat.openapi(completions, async (c) => {
 			// A dynamic route has already fixed the model, so treat its providers like
 			// pinned-model candidates: prefer mappings that honour tool_choice, but keep
 			// the downgrade-to-auto fallback when none do.
+			const effortSuitableProviders = preferDeclaredReasoningEffortProviders(
+				suitableProviders,
+				autoFilterOpts,
+				filteredOutForModel,
+			);
 			const toolChoiceSuitableProviders = dynamicRouteSelection
 				? preferToolChoiceCapableProviders(
-						suitableProviders,
+						effortSuitableProviders,
 						autoFilterOpts,
 						filteredOutForModel,
 					)
-				: suitableProviders;
+				: effortSuitableProviders;
+			effortDemotedByModel.set(
+				modelDef.id,
+				suitableProviders.filter(
+					(provider) =>
+						provider.providerId !== "custom" &&
+						!effortSuitableProviders.includes(provider),
+				),
+			);
 			const deduplicatedSuitableProviders =
 				await keepCheapestCustomRoutingMapping(
 					dropLowUptimeCustomProviders(
@@ -4908,6 +5212,11 @@ chat.openapi(completions, async (c) => {
 			classifierAllowed:
 				!compliancePolicy ||
 				isProviderIdCompliant("typesafe", compliancePolicy),
+			// The classifier is billed as credits before the credit check below
+			// runs, so an empty balance must never reach it: otherwise every
+			// rejected request still costs money and drives the balance negative.
+			classifierBillable:
+				getAvailableCredits(organization).totalAvailableCredits > 0,
 			sessionStore: smartRoutingSessionStore,
 			messages: (messages ?? []) as BaseMessage[],
 			toolNames: (tools ?? [])
@@ -4977,6 +5286,7 @@ chat.openapi(completions, async (c) => {
 					promptTokens: routingPromptTokens,
 					session: sessionStickyEnabled,
 				},
+				service_tier,
 			);
 			applyCustomProviderUptime(
 				metricsMap,
@@ -5025,6 +5335,12 @@ chat.openapi(completions, async (c) => {
 					...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
 					...filteredProvidersMetadata(selectedFilteredProviders),
 				};
+				await appendDemotedProviderScores(
+					routingMetadata,
+					effortDemotedByModel.get(selectedModel.id) ?? [],
+					selectedModel.id,
+					false,
+				);
 			} else {
 				// Fallback to first available provider if price comparison fails
 				usedProvider = selectedProviders[0].providerId;
@@ -5110,7 +5426,11 @@ chat.openapi(completions, async (c) => {
 		if (selectedModel) {
 			modelInfo = {
 				...selectedModel,
-				providers: providerAgnosticSelectedProviders,
+				// Effort-demoted mappings stay reachable as last-resort retry targets.
+				providers: [
+					...providerAgnosticSelectedProviders,
+					...(effortDemotedByModel.get(selectedModel.id) ?? []),
+				],
 			};
 		} else {
 			// Fallback case: look up the default model definition
@@ -5283,6 +5603,10 @@ chat.openapi(completions, async (c) => {
 					project.organizationId,
 					usedProvider,
 					modelInfo.id || usedInternalModel,
+					undefined,
+					buildByokKeyFilter(modelInfo.id || usedInternalModel),
+					undefined,
+					modelInfo.id || usedInternalModel,
 				);
 				lockedRegion = providerKey
 					? resolveExplicitRegionFromProviderKey(providerKey)
@@ -5316,6 +5640,7 @@ chat.openapi(completions, async (c) => {
 					toolChoice: tool_choice,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
+					reasoningPinnedProvider: reasoningPin?.provider,
 					n,
 					stream,
 				},
@@ -5338,6 +5663,7 @@ chat.openapi(completions, async (c) => {
 							promptTokens: routingPromptTokens,
 							session: sessionStickyEnabled,
 						},
+						service_tier,
 					);
 					const bestRegionResult = await getCheapestFromAvailableProviders(
 						eligibleMappings,
@@ -5391,9 +5717,12 @@ chat.openapi(completions, async (c) => {
 
 	const contentFilterMode = getContentFilterMode();
 	const contentFilterMethod = getContentFilterMethod();
+	// A follow-up round of gateway-run search repeats the conversation the first
+	// round already filtered, plus web results the caller never wrote.
 	const shouldApplyGatewayContentFilter =
 		contentFilterMode !== "disabled" &&
-		shouldApplyContentFilterToModel(requestedModel);
+		shouldApplyContentFilterToModel(requestedModel) &&
+		!webSearchLoopRound?.followUp;
 	const keywordContentFilterMatch =
 		shouldApplyGatewayContentFilter && contentFilterMethod === "keywords"
 			? checkContentFilter(messages as BaseMessage[])
@@ -5424,7 +5753,8 @@ chat.openapi(completions, async (c) => {
 					messages as BaseMessage[],
 					contentFilterContext,
 					c.req.raw.signal,
-					{ imagesAllowed: openAiContentFilterAllowed },
+					// The env filter has always read the whole conversation.
+					{ imagesAllowed: openAiContentFilterAllowed, openaiScope: "full" },
 				)
 			: null;
 	const contentFilterMatched =
@@ -5471,6 +5801,7 @@ chat.openapi(completions, async (c) => {
 							await excludeRateLimitedProviderKeys(
 								providerKeys,
 								providerKeyRateLimitExemption,
+								baseModelId,
 							),
 							baseModelId,
 						).filter((key) =>
@@ -5511,7 +5842,7 @@ chat.openapi(completions, async (c) => {
 					) {
 						return false;
 					}
-					if (webSearchTool && provider.webSearch !== true) {
+					if (webSearchTool && !supportsWebSearch(provider)) {
 						return false;
 					}
 					// Same rule the routing filter applies: search-on-demand-only
@@ -5594,6 +5925,7 @@ chat.openapi(completions, async (c) => {
 								promptTokens: routingPromptTokens,
 								session: sessionStickyEnabled,
 							},
+							service_tier,
 						);
 
 						const cheapestResult = await getCheapestFromAvailableProviders(
@@ -5637,7 +5969,7 @@ chat.openapi(completions, async (c) => {
 							const preferredCandidateSet = new Set(
 								preferredCandidatesForRouting,
 							);
-							await appendHybridDemotedProviderScores(
+							await appendDemotedProviderScores(
 								routingMetadata,
 								candidatesForRouting.filter(
 									(candidate) => !preferredCandidateSet.has(candidate),
@@ -5678,6 +6010,8 @@ chat.openapi(completions, async (c) => {
 				},
 			],
 			routingCfg,
+			undefined,
+			service_tier,
 		);
 
 		const metrics = metricsMap.get(
@@ -5710,6 +6044,7 @@ chat.openapi(completions, async (c) => {
 							await excludeRateLimitedProviderKeys(
 								providerKeys,
 								providerKeyRateLimitExemption,
+								baseModelId,
 							),
 							baseModelId,
 						).filter((key) =>
@@ -5751,6 +6086,7 @@ chat.openapi(completions, async (c) => {
 						toolChoice: tool_choice,
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
+						reasoningPinnedProvider: reasoningPin?.provider,
 						n,
 						stream,
 						contextTierMinSize: getContextTierMinSize(
@@ -5798,6 +6134,7 @@ chat.openapi(completions, async (c) => {
 								promptTokens: routingPromptTokens,
 								session: sessionStickyEnabled,
 							},
+							service_tier,
 						);
 						const providerAgnosticCandidates =
 							await collapseProvidersToBestRegionPerProvider(
@@ -5910,7 +6247,7 @@ chat.openapi(completions, async (c) => {
 								const preferredBetterUptimeSet = new Set(
 									preferredBetterUptimeProviders,
 								);
-								await appendHybridDemotedProviderScores(
+								await appendDemotedProviderScores(
 									routingMetadata,
 									betterUptimeProviders.filter(
 										(candidate) => !preferredBetterUptimeSet.has(candidate),
@@ -5979,6 +6316,7 @@ chat.openapi(completions, async (c) => {
 						await excludeRateLimitedProviderKeys(
 							providerKeys,
 							providerKeyRateLimitExemption,
+							routedModelId,
 						),
 						routedModelId,
 					).filter((key) =>
@@ -6019,16 +6357,19 @@ chat.openapi(completions, async (c) => {
 				toolChoice: tool_choice,
 				maxTokens: max_tokens,
 				reasoningEffort: reasoning_effort,
+				reasoningPinnedProvider: reasoningPin?.provider,
 				contextTierMinSize: getContextTierMinSize(
 					routedModelId,
 					modelInfo.providers,
 				),
 			};
 			const filteredOutProvidersDirect: FilteredProvider[] = [];
+			const effortDemotedProviders: ProviderModelMapping[] = [];
 			const eligibleModelProviders = filterEligibleModelProviders(
 				preparedModelProviders,
 				{ ...eligibilityOptions, n, stream },
 				filteredOutProvidersDirect,
+				effortDemotedProviders,
 			);
 			const availableModelProviders = await keepCheapestCustomRoutingMapping(
 				dropLowUptimeCustomProviders(
@@ -6215,6 +6556,7 @@ chat.openapi(completions, async (c) => {
 						promptTokens: routingPromptTokens,
 						session: sessionStickyEnabled,
 					},
+					service_tier,
 				);
 				applyCustomProviderUptime(
 					metricsMap,
@@ -6346,7 +6688,7 @@ chat.openapi(completions, async (c) => {
 						}
 					}
 					{
-						await appendHybridDemotedProviderScores(
+						await appendDemotedProviderScores(
 							routingMetadata,
 							contentFilterPreferredProviders.filter(
 								(candidate) =>
@@ -6354,6 +6696,12 @@ chat.openapi(completions, async (c) => {
 									!rateLimitedProviderIds.has(candidate.providerId),
 							),
 							modelWithPricing.id,
+						);
+						await appendDemotedProviderScores(
+							routingMetadata,
+							effortDemotedProviders,
+							modelWithPricing.id,
+							false,
 						);
 					}
 				} else {
@@ -6399,11 +6747,19 @@ chat.openapi(completions, async (c) => {
 			selectionReason = "fallback-first-available";
 		}
 
-		let routingMetadataProviders = anthropicSafeguards
-			? allModelProviders.filter((provider) =>
-					providerSupportsAnthropicSafeguards(provider.providerId),
-				)
-			: allModelProviders;
+		// A provider the access restriction denies was never a candidate, so it
+		// must not be listed as available or scored.
+		let routingMetadataProviders = allModelProviders.filter(
+			(provider) =>
+				(!anthropicSafeguards ||
+					mappingSupportsAnthropicSafeguards(provider)) &&
+				(isCustomAutoRoutingMapping(provider) ||
+					isProviderMappingAllowedByRestriction(
+						organization.providerAccessRestriction,
+						provider.providerId,
+						modelInfo.id,
+					)),
+		);
 		let directProviderRegionWasExplicit = false;
 
 		if (
@@ -6419,6 +6775,10 @@ chat.openapi(completions, async (c) => {
 				const providerKey = await findProviderKey(
 					project.organizationId,
 					requestedProvider,
+					modelInfo.id || usedInternalModel,
+					undefined,
+					buildByokKeyFilter(modelInfo.id || usedInternalModel),
+					undefined,
 					modelInfo.id || usedInternalModel,
 				);
 				explicitDirectRegion = providerKey
@@ -6456,6 +6816,7 @@ chat.openapi(completions, async (c) => {
 					toolChoice: tool_choice,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
+					reasoningPinnedProvider: reasoningPin?.provider,
 					n,
 					stream,
 				},
@@ -6496,6 +6857,7 @@ chat.openapi(completions, async (c) => {
 					promptTokens: routingPromptTokens,
 					session: sessionStickyEnabled,
 				},
+				service_tier,
 			);
 		}
 
@@ -6641,15 +7003,15 @@ chat.openapi(completions, async (c) => {
 	// Check if this is an image generation model. Identify the routed mapping
 	// by (providerId, region) — externalId is upstream-only and no longer
 	// participates in mapping selection.
+	const findFinalProviderMapping = (
+		providerId: string | undefined,
+		region: string | undefined,
+	) =>
+		finalModelInfo
+			? selectProviderMapping(finalModelInfo.providers, providerId, region)
+			: undefined;
 	const getUsedProviderMapping = () =>
-		finalModelInfo?.providers.find(
-			(p) =>
-				p.providerId === usedProvider &&
-				(p.region ?? null) === (usedRegion ?? null),
-		) ??
-		finalModelInfo?.providers.find(
-			(p) => p.providerId === usedProvider && p.region === undefined,
-		);
+		findFinalProviderMapping(usedProvider, usedRegion);
 	if (usedProvider !== "custom") {
 		const airsideMapping = await resolveAirsidePricingMapping();
 		if (airsideResolution || airsideMapping) {
@@ -6663,12 +7025,14 @@ chat.openapi(completions, async (c) => {
 	let airsideCustomBaseUrl = await resolveAirsideProviderBaseUrl(usedProvider);
 	let transportProvider = getProviderApiTransport(
 		usedProvider,
-		imageGenProviderMapping?.apiFormat,
+		getRequestApiFormat(imageGenProviderMapping, !!webSearchTool),
 	);
 	let isImageGeneration = imageGenProviderMapping?.imageGenerations === true;
 	const usesAwsBedrockConverse = () =>
-		usedProvider === "aws-bedrock" &&
-		getUsedProviderMapping()?.apiFormat !== "openai-chat-completions";
+		isAwsBedrockConverse(usedProvider, getUsedProviderMapping()?.apiFormat);
+	// Claude on Bedrock signs thinking for Bedrock, not the Anthropic transport.
+	const thinkingProvider = (): Provider | undefined =>
+		usedProvider === "aws-bedrock" ? usedProvider : undefined;
 
 	// `usedModelMapping` is the log column that stores the upstream model id.
 	let usedModelMapping = usedExternalId;
@@ -6681,6 +7045,7 @@ chat.openapi(completions, async (c) => {
 
 	// Auto-set reasoning_effort for auto-routing when model supports reasoning
 	// Skip when web_search tool is present since it's incompatible with "minimal" reasoning effort
+	let autoReasoningEffortPick: AutoReasoningEffortPick | undefined;
 	if (
 		(requestedModel === "auto" || requestedModel === "smart") &&
 		reasoning_effort === undefined &&
@@ -6721,6 +7086,10 @@ chat.openapi(completions, async (c) => {
 			) {
 				effortTier = "low";
 			}
+			autoReasoningEffortPick = {
+				modelId: usedInternalModel,
+				effortTier,
+			};
 			const autoEffort = pickAutoReasoningEffort(
 				usedInternalModel,
 				getUsedProviderMapping()?.reasoningEfforts,
@@ -6791,6 +7160,39 @@ chat.openapi(completions, async (c) => {
 			providerKeyLabel: providerKeyLabel(providerKey),
 		};
 	}
+	// Records a failed upstream attempt before its log row is written, so the
+	// row carries the full routing trail. A terminal attempt takes finalLogId,
+	// which is what earlier attempts' retriedByLogId points at.
+	function recordFailedAttempt(
+		attempts: RoutingAttempt[],
+		provider: string,
+		statusCode: number,
+		errorType: string,
+		willRetry: boolean,
+	): string {
+		const logId = willRetry ? shortid() : finalLogId;
+		attempts.push(
+			buildRoutingAttempt(
+				provider,
+				usedInternalModel,
+				statusCode,
+				errorType,
+				false,
+				{
+					region: usedRegion,
+					apiKeyHash: usedApiKeyHash,
+					credentialSource: currentCredentialSource(),
+					...currentProviderKeyIdentity(),
+					logId,
+				},
+			),
+		);
+		routingMetadata = withRoutingAttempts(
+			routingMetadata ?? directProviderRoutingMetadata(provider),
+			attempts,
+		);
+		return logId;
+	}
 	// The credential the current attempt sends, as recorded against the
 	// account-bound reasoning it produces.
 	function currentReasoningCredential(): ReasoningCredential | undefined {
@@ -6813,6 +7215,11 @@ chat.openapi(completions, async (c) => {
 	const serviceTierKeyFilter = isRequestedServiceTier(service_tier)
 		? providerKeySupportsServiceTier
 		: undefined;
+	// Skip keys whose allowedModels exclude the model, like the retry path.
+	const byokKeyFilter = buildByokKeyFilter(
+		usedInternalModel,
+		serviceTierKeyFilter,
+	);
 	if (
 		project.mode === "credits" &&
 		(usedProvider === "custom" || usedProvider === "llmgateway")
@@ -6857,8 +7264,9 @@ chat.openapi(completions, async (c) => {
 				usedProvider,
 				usedInternalModel,
 				undefined,
-				serviceTierKeyFilter,
+				byokKeyFilter,
 				providerKeyRateLimitExemption,
+				usedInternalModel,
 			);
 		}
 
@@ -6868,8 +7276,9 @@ chat.openapi(completions, async (c) => {
 				usedProvider,
 				{
 					customProviderName,
-					filter: serviceTierKeyFilter,
+					filter: byokKeyFilter,
 					rateLimitExemption: providerKeyRateLimitExemption,
+					model: usedInternalModel,
 				},
 			);
 			const providerDisplayName =
@@ -6910,7 +7319,7 @@ chat.openapi(completions, async (c) => {
 		}
 	} else if (project.mode === "credits") {
 		// Check regular credits, dev plan credits, and chat plan credits.
-		assertDevPlanPremiumCapNotExceeded(
+		await assertDevPlanPremiumCapNotExceeded(
 			organization,
 			(finalModelInfo ?? modelInfo) as ModelDefinition,
 			true,
@@ -6982,6 +7391,7 @@ chat.openapi(completions, async (c) => {
 				selectionScope: usedInternalModel,
 				model: usedInternalModel,
 				variant: envVariant,
+				organizationId: project.organizationId,
 				region: usedRegion,
 				requiresServiceTier: isRequestedServiceTier(service_tier),
 				rateLimitExemption: providerKeyRateLimitExemption,
@@ -7035,8 +7445,9 @@ chat.openapi(completions, async (c) => {
 				usedProvider,
 				usedInternalModel,
 				undefined,
-				serviceTierKeyFilter,
+				byokKeyFilter,
 				providerKeyRateLimitExemption,
+				usedInternalModel,
 			);
 		}
 
@@ -7094,7 +7505,7 @@ chat.openapi(completions, async (c) => {
 				);
 			}
 			// Check regular credits, dev plan credits, and chat plan credits.
-			assertDevPlanPremiumCapNotExceeded(
+			await assertDevPlanPremiumCapNotExceeded(
 				organization,
 				(finalModelInfo ?? modelInfo) as ModelDefinition,
 				true,
@@ -7151,6 +7562,7 @@ chat.openapi(completions, async (c) => {
 					selectionScope: usedInternalModel,
 					model: usedInternalModel,
 					variant: envVariant,
+					organizationId: project.organizationId,
 					region: usedRegion,
 					requiresServiceTier: isRequestedServiceTier(service_tier),
 					rateLimitExemption: providerKeyRateLimitExemption,
@@ -7185,21 +7597,6 @@ chat.openapi(completions, async (c) => {
 		throw new HTTPException(400, {
 			message: `Invalid project mode: ${project.mode}`,
 		});
-	}
-
-	if (usedProvider === "vertex-anthropic") {
-		if (managedKey) {
-			// The managed credential's token is the service-account JSON, so
-			// exchange it directly instead of reading the deployment's env var.
-			usedToken = await getGcpServiceAccountAccessToken(usedToken);
-		} else {
-			const gcpToken = await getGcpAccessToken(
-				providerKey ? undefined : envVariant,
-			);
-			if (gcpToken) {
-				usedToken = gcpToken;
-			}
-		}
 	}
 
 	// Check email verification and rate limits for free models (only when using credits/environment tokens)
@@ -7329,19 +7726,14 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Vertex's OpenAI-compatible endpoint requires an OAuth2 access token
-	// derived from the configured service account JSON. The SA JSON is the
-	// long-lived credential (kept in usedApiKeyHash above for health tracking)
-	// while the short-lived access token is what travels in the Authorization
-	// header — so swap usedToken here so downstream header builders just work.
-	// usedToken already holds the selected SA JSON: round-robin no longer
-	// splits a JSON credential on its inner commas, so the selected entry is
-	// used as-is (whether it came from a provider key or the env var).
+	// The SA JSON is the long-lived credential (kept in usedApiKeyHash above
+	// for health tracking); the short-lived access token travels in the
+	// Authorization header, so swap usedToken for downstream header builders.
 	// Keep the SA JSON: the endpoint derives the project from it when the
 	// credential carries no explicit project setting.
-	let vertexOpenaiServiceAccountJson: string | undefined;
-	if (usedProvider === "vertex-openai") {
-		vertexOpenaiServiceAccountJson = usedToken;
+	let vertexServiceAccountJson: string | undefined;
+	if (usesServiceAccountAccessToken(usedProvider)) {
+		vertexServiceAccountJson = usedToken;
 		usedToken = await getGcpServiceAccountAccessToken(usedToken);
 	}
 
@@ -7454,7 +7846,8 @@ chat.openapi(completions, async (c) => {
 		const contentFilterResponseId = `chatcmpl-${Date.now()}`;
 		const contentFilterCreated = Math.floor(Date.now() / 1000);
 
-		// Log the filtered request
+		// Log the filtered request under the model it was routed to; it never
+		// reached that provider, so the usage rollups skip it by finish reason.
 		try {
 			await insertLog(
 				{
@@ -7463,9 +7856,9 @@ chat.openapi(completions, async (c) => {
 						project,
 						apiKey,
 						undefined,
-						"",
-						undefined,
-						"llmgateway",
+						usedModelFormatted,
+						usedModelMapping,
+						usedProvider,
 						requestedModel,
 						requestedProvider,
 						messages as any[],
@@ -7621,6 +8014,12 @@ chat.openapi(completions, async (c) => {
 			usedInternalModel,
 			usedExternalId,
 			usedRegion,
+			{
+				providerKeyOptions: credentialOptions,
+				skipEnvVars: usesDatabaseCredential,
+				configIndex,
+				variant: envVariant,
+			},
 		);
 
 	// Resolve the Google Vertex token type from the live request state so the
@@ -7669,9 +8068,7 @@ chat.openapi(completions, async (c) => {
 				upstreamModelName,
 				usesGoogleQueryToken(transportProvider)
 					? usedToken
-					: usedProvider === "vertex-openai"
-						? vertexOpenaiServiceAccountJson
-						: undefined,
+					: vertexServiceAccountJson,
 				stream,
 				supportsReasoning,
 				hasExistingToolCalls,
@@ -7683,7 +8080,7 @@ chat.openapi(completions, async (c) => {
 				usedInternalModel,
 				activeVertexTokenType,
 				envVariant,
-				getUsedProviderMapping()?.apiFormat,
+				getRequestApiFormat(getUsedProviderMapping(), !!webSearchTool),
 			);
 		url = await routeProjectlessVertexEndpoint(
 			buildUrl(credentialOptions),
@@ -7777,7 +8174,7 @@ chat.openapi(completions, async (c) => {
 			tools: tools?.length ? tools : undefined,
 			tool_choice,
 			parallel_tool_calls,
-			webSearchTool,
+			webSearchTool: webSearchTool ?? cachedOnlyWebSearchTool,
 			reasoning_effort,
 			reasoning_max_tokens,
 			// Schema documents omitting reasoning.context as equivalent to "auto"
@@ -8403,6 +8800,7 @@ chat.openapi(completions, async (c) => {
 	let forceImageStreamUpstream =
 		isImageGeneration &&
 		(image_config?.n ?? 1) === 1 &&
+		supportsImageStreamUpstream(image_config?.output_format) &&
 		(usedProvider === "openai" || usedProvider === "azure");
 	const effectiveStream = fakeStreamingForImageGen
 		? false
@@ -8520,7 +8918,7 @@ chat.openapi(completions, async (c) => {
 	temperature = clampTemperature(
 		temperature,
 		usedProvider,
-		getUsedProviderMapping()?.maxTemperature,
+		getUsedProviderMapping(),
 	);
 
 	// Check if the request can be canceled
@@ -8601,16 +8999,207 @@ chat.openapi(completions, async (c) => {
 		region: usedRegion,
 	});
 
+	// The upstream has no native web search, so the gateway searches and adds
+	// the results to the prompt. From here on the request is a plain chat
+	// request: retries and fallbacks reuse the enriched messages and never
+	// search again. A skipped search still clears the tool: the upstream
+	// cannot search, and nothing is billed.
+	const usedMappingForSearch = getUsedProviderMapping();
+	if (
+		webSearchTool &&
+		usedMappingForSearch &&
+		usesGatewayWebSearch(usedMappingForSearch)
+	) {
+		const engine = resolveGatewayWebSearchEngine(organization?.webSearchEngine);
+		const skip = internalWebSearchSkipReason({
+			toolChoice: tool_choice,
+			engineCompliant:
+				!compliancePolicy ||
+				isWebSearchEngineCompliant(engine, compliancePolicy, {
+					effectiveProviders,
+				}),
+			// BYOK searches are charged to credits by the worker, so they need
+			// credits up front like data retention does.
+			unfundedByokSearch:
+				currentCredentialSource() === "byok" &&
+				!sponsoredOnboarding &&
+				!!organization &&
+				getAvailableCredits(organization).totalAvailableCredits <= 0,
+		});
+		if (skip) {
+			logger.info("Internal web search skipped", {
+				requestId,
+				engine,
+				reason: skip,
+			});
+		}
+		// Models that call tools search the way native search does: the model
+		// decides whether and what to search, reads the results, may search
+		// again, then answers. Each model call is its own gateway request.
+		// Excluded: a required search the mapping cannot force; /v1/responses,
+		// which logs its one request under the response id; and a caller
+		// function that already uses the search function's name.
+		const canForceSearchFunction = mappingSupportsToolChoice(
+			usedMappingForSearch,
+			{ type: "function", function: { name: WEB_SEARCH_FUNCTION_NAME } },
+		);
+		const callerUsesSearchName = (tools ?? []).some(
+			(tool) =>
+				tool.type === "function" &&
+				tool.function.name === WEB_SEARCH_FUNCTION_NAME,
+		);
+		if (
+			!skip &&
+			usedMappingForSearch.tools === true &&
+			(n === undefined || n <= 1) &&
+			usedProvider !== "custom" &&
+			!airsideCustomBaseUrl &&
+			apiOrigin !== "responses" &&
+			!callerUsesSearchName &&
+			(!webSearchTool.forced || canForceSearchFunction) &&
+			typeof rawBody === "object" &&
+			rawBody !== null
+		) {
+			const {
+				web_search: _webSearchFlag,
+				web_search_options: _webSearchOptions,
+				...loopBody
+			} = rawBody as Record<string, unknown>;
+			const callerTools = Array.isArray(loopBody.tools)
+				? (loopBody.tools as Array<{ type?: string }>).filter(
+						(tool) => tool?.type !== "web_search",
+					)
+				: [];
+			const callerToolChoice = loopBody.tool_choice;
+			const loopResponse = await runWebSearchLoop({
+				body: {
+					...loopBody,
+					tools: callerTools.length > 0 ? callerTools : undefined,
+					tool_choice:
+						typeof callerToolChoice === "object" &&
+						callerToolChoice !== null &&
+						(callerToolChoice as { type?: string }).type === "web_search"
+							? undefined
+							: callerToolChoice,
+				},
+				pin: {
+					provider: usedProvider,
+					model: usedInternalModel,
+					region: requestedRegion,
+				},
+				stream: stream === true,
+				forced: webSearchTool.forced === true,
+				canForceFunction: canForceSearchFunction,
+				maxSearches: webSearchTool.max_uses,
+				engine,
+				price: GATEWAY_WEB_SEARCH_ENGINES[engine].price,
+				requestId,
+				dispatch: gatewayRoundDispatcher(c, apiOrigin, requestId),
+				search: async (query) =>
+					await runInternalWebSearch(
+						engine,
+						[query],
+						webSearchTool!,
+						requestId,
+					),
+				streamResponse: (pipe) =>
+					streamSSE(c, async (sseStream) => {
+						let eventId = 0;
+						await pipe(async (data) => {
+							await sseStream.writeSSE({ data, id: String(eventId++) });
+						});
+					}),
+			});
+			if (loopResponse) {
+				return loopResponse;
+			}
+		}
+		const fallbackQuery = skip
+			? null
+			: buildWebSearchQuery(messages as BaseMessage[]);
+		// An LLM writes the queries and, for an offered tool, decides whether
+		// the turn needs a search at all. Only where the policy admits the
+		// planner's provider; otherwise the latest message is the query.
+		const plan =
+			fallbackQuery &&
+			(!compliancePolicy ||
+				isProviderIdCompliant(WEB_SEARCH_PLANNER_PROVIDER, compliancePolicy, {
+					effectiveProviders,
+				}))
+				? await planWebSearch(
+						messages as BaseMessage[],
+						webSearchTool.forced === true,
+						requestId,
+					)
+				: null;
+		const queries =
+			!fallbackQuery || plan?.search === false
+				? null
+				: plan?.queries.length
+					? plan.queries
+					: [fallbackQuery];
+		const search = queries
+			? await runInternalWebSearch(engine, queries, webSearchTool, requestId)
+			: null;
+		// `tool_choice: {type: "web_search"}` demands a search: answering
+		// without one would hide that it never ran.
+		if (webSearchTool.forced && (skip || (queries && !search))) {
+			const status =
+				skip === "unfunded_byok_search"
+					? 402
+					: skip === "compliance_policy"
+						? 403
+						: 503;
+			throw new HTTPException(status, {
+				message:
+					skip === "compliance_policy"
+						? `Web search is required by tool_choice, but the organization's web search engine (${GATEWAY_WEB_SEARCH_ENGINES[engine].name}) does not meet the compliance policy. Choose a model with native web search or a compliant engine.`
+						: skip === "unfunded_byok_search"
+							? "Web search is required by tool_choice, but the organization has no credits for the gateway-run search. Please add credits."
+							: "Web search is required by tool_choice, but the search engine is unavailable. Please retry.",
+			});
+		}
+		if (search) {
+			internalWebSearch = {
+				search,
+				price: GATEWAY_WEB_SEARCH_ENGINES[engine].price,
+			};
+			messages = injectWebSearchResults(
+				messages as BaseMessage[],
+				search,
+			) as typeof messages;
+		}
+		webSearchTool = undefined;
+		// web_search was the only tool: send a tool-free request.
+		if (tools?.length === 0) {
+			tools = undefined;
+			if (tool_choice === "required") {
+				tool_choice = undefined;
+			}
+		}
+	} else if (webSearchTool) {
+		// Native search keeps the tool, which only a native upstream takes, so
+		// retries stay on native mappings.
+		iamFilteredModelProviders = iamFilteredModelProviders.filter(
+			(p) => (p as ProviderModelMapping).webSearch === true,
+		);
+	}
+
 	// Encrypted reasoning another credential produced, or that an account
 	// already rejected, cannot verify here, so it is left out up front rather
 	// than cost a rejected attempt on every turn of the conversation.
+	// Thinking blocks an upstream already rejected are left out the same way.
+	const thinkingReplay = await stripRejectedAnthropicThinking(
+		project.organizationId,
+		messages,
+	);
 	const initialReplay = usedProviderEncryptsReasoning()
 		? await stripForeignReasoning(
 				project.organizationId,
-				messages,
+				thinkingReplay.messages,
 				currentReasoningCredential(),
 			)
-		: { messages, stripped: false };
+		: { messages: thinkingReplay.messages, stripped: false };
 	if (initialReplay.stripped && routingMetadata) {
 		routingMetadata.encryptedReasoningDropped = true;
 	}
@@ -8641,7 +9230,7 @@ chat.openapi(completions, async (c) => {
 			image_config,
 			effort,
 			isImageGeneration,
-			webSearchTool,
+			webSearchTool ?? cachedOnlyWebSearchTool,
 			reasoning_max_tokens,
 			useResponsesApi,
 			prompt_cache_key,
@@ -8653,7 +9242,9 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_options,
 			sessionId,
 			reasoning_context,
-			apiKey.safetyIdentifier,
+			providerKey
+				? undefined
+				: forwardedSafetyIdentifier(managedKey, organizationSafetyIdentifier),
 			getUsedProviderMapping(),
 			reasoning_mode,
 			providerCacheAutoTtl,
@@ -8770,13 +9361,14 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Switch xAI image generation endpoint to /edits when input images are present
+	// Switch xAI / MiniMax image generation endpoint to /edits when input images are present
 	if (
 		isImageGeneration &&
-		usedProvider === "xai" &&
 		url &&
 		!(requestBody instanceof FormData) &&
-		("image" in requestBody || "images" in requestBody)
+		((usedProvider === "xai" &&
+			("image" in requestBody || "images" in requestBody)) ||
+			(usedProvider === "minimax" && "images" in requestBody))
 	) {
 		url = url.replace("/v1/images/generations", "/v1/images/edits");
 	}
@@ -8821,6 +9413,9 @@ chat.openapi(completions, async (c) => {
 		failedKeys.remember(providerId, region, options);
 	}
 
+	// Set once a replayed thinking signature was rejected; every later attempt
+	// of this request then goes without Anthropic thinking blocks.
+	let retriedWithoutAnthropicThinking = false;
 	async function resolveProviderContextForRetry(
 		providerMapping: {
 			providerId: string;
@@ -8831,7 +9426,11 @@ chat.openapi(completions, async (c) => {
 	) {
 		// A retry moves to another credential or provider, which cannot verify
 		// the encrypted reasoning another account produced, so it goes without.
-		const replay = stripAccountBoundReasoning(messages);
+		const replay = stripAccountBoundReasoning(
+			retriedWithoutAnthropicThinking
+				? stripAnthropicThinking(thinkingReplay.messages).messages
+				: thinkingReplay.messages,
+		);
 		const ctx = await resolveProviderContext(
 			providerMapping,
 			retryProjectContext,
@@ -8850,15 +9449,22 @@ chat.openapi(completions, async (c) => {
 				response_format,
 				tools,
 				tool_choice,
-				reasoning_effort,
+				reasoning_effort: pickFallbackReasoningEffort(
+					reasoning_effort,
+					autoReasoningEffortPick,
+					findFinalProviderMapping(
+						providerMapping.providerId,
+						providerMapping.region,
+					)?.reasoningEfforts,
+				),
 				reasoning_max_tokens,
 				prompt_cache_key,
 				prompt_cache_retention,
 				prompt_cache_options,
 				session_id: sessionId,
-				safetyIdentifier: retrySafetyIdentifier,
+				safetyIdentifier: organizationSafetyIdentifier,
 				effort,
-				webSearchTool,
+				webSearchTool: webSearchTool ?? cachedOnlyWebSearchTool,
 				image_config,
 				sensitive_word_check,
 				maxImageSizeMB,
@@ -8896,6 +9502,37 @@ chat.openapi(completions, async (c) => {
 	}
 	const contextsWithoutEncryptedReasoning = new WeakSet();
 
+	async function pinSuccessfulFallback(options: {
+		failedProviders: ReadonlySet<string>;
+		finishReason: string | null | undefined;
+		hasError: boolean;
+		canceled?: boolean;
+	}): Promise<void> {
+		if (
+			!sessionStickyEnabled ||
+			!sessionId ||
+			!usedProvider ||
+			options.failedProviders.size === 0 ||
+			options.hasError ||
+			options.canceled ||
+			!["completed", "length_limit", "tool_calls"].includes(
+				getUnifiedFinishReason(options.finishReason, transportProvider),
+			)
+		) {
+			return;
+		}
+		await rememberDroppedReasoning(
+			retryProjectContext.organizationId,
+			messages,
+		);
+		await createSessionProviderStore(
+			retryProjectContext.organizationId,
+			modelInfo.id,
+			sessionId,
+			routingCfg.session.ttlSeconds,
+		).set(usedProvider, usedRegion);
+	}
+
 	async function applyResolvedProviderContext(
 		ctx: Awaited<ReturnType<typeof resolveProviderContext>>,
 	): Promise<void> {
@@ -8932,6 +9569,7 @@ chat.openapi(completions, async (c) => {
 		forceImageStreamUpstream =
 			isImageGeneration &&
 			(image_config?.n ?? 1) === 1 &&
+			supportsImageStreamUpstream(image_config?.output_format) &&
 			(usedProvider === "openai" || usedProvider === "azure");
 		if (forceImageStreamUpstream) {
 			requestBody = injectImageStreamParams(requestBody);
@@ -8957,16 +9595,26 @@ chat.openapi(completions, async (c) => {
 		}
 		if (
 			isImageGeneration &&
-			usedProvider === "xai" &&
 			url &&
 			!(requestBody instanceof FormData) &&
-			("image" in requestBody || "images" in requestBody)
+			((usedProvider === "xai" &&
+				("image" in requestBody || "images" in requestBody)) ||
+				(usedProvider === "minimax" && "images" in requestBody))
 		) {
 			url = url.replace("/v1/images/generations", "/v1/images/edits");
 		}
 		supportsReasoning = ctx.supportsReasoning;
 		splitTaggedReasoning = ctx.splitTaggedReasoning ?? false;
 		healStreamingJsonOutput = ctx.healStreamingJsonOutput ?? false;
+		// An auto-routed effort is re-picked per fallback mapping, so the logged
+		// effort has to follow what the new body carries. The header only lands
+		// on non-streaming responses: a stream has already sent its headers, and
+		// setting one then rebuilds a response whose body is already being read.
+		// An undefined effort clears the header the first attempt set.
+		reasoning_effort = ctx.reasoning_effort;
+		if (smartRoutingDecision && !stream) {
+			c.header("x-llmgateway-smart-effort", reasoning_effort);
+		}
 		temperature = ctx.temperature;
 		max_tokens = ctx.max_tokens;
 		top_p = ctx.top_p;
@@ -9059,6 +9707,44 @@ chat.openapi(completions, async (c) => {
 			initialReplay.messages,
 			currentReasoningCredential(),
 			errorText,
+		);
+		try {
+			const nextContext = await resolveProviderContextForRetry(
+				{
+					providerId: usedProvider,
+					externalId: usedExternalId,
+					region: usedRegion,
+				},
+				streamValue,
+			);
+			if ((await consumeProviderRateLimit(usedProvider, false)).rateLimited) {
+				return null;
+			}
+			return nextContext;
+		} catch {
+			return null;
+		}
+	}
+
+	// Self-heal: the upstream rejected a replayed thinking signature (e.g. the
+	// client changed the system prompt the block is bound to). Retry once on
+	// the same provider without thinking blocks, which the upstream accepts.
+	async function tryResolveRetryWithoutAnthropicThinking(
+		streamValue: boolean,
+		errorText: string | undefined,
+	): Promise<Awaited<ReturnType<typeof resolveProviderContext>> | null> {
+		if (
+			retriedWithoutAnthropicThinking ||
+			!usedProvider ||
+			!isInvalidThinkingSignatureError(errorText) ||
+			!stripAnthropicThinking(thinkingReplay.messages).stripped
+		) {
+			return null;
+		}
+		retriedWithoutAnthropicThinking = true;
+		await rememberRejectedAnthropicThinking(
+			retryProjectContext.organizationId,
+			thinkingReplay.messages,
 		);
 		try {
 			const nextContext = await resolveProviderContextForRetry(
@@ -9193,6 +9879,32 @@ chat.openapi(completions, async (c) => {
 					}
 				};
 
+				// Gateway-run search results go out first, where a native search
+				// would surface them, so /v1/messages clients get the
+				// server_tool_use + web_search_tool_result pair before the text.
+				if (internalWebSearch?.search.results.length) {
+					await writeSSEAndCache({
+						data: JSON.stringify({
+							id: `chatcmpl-${Date.now()}`,
+							object: "chat.completion.chunk",
+							created: Math.floor(Date.now() / 1000),
+							model: usedModelFormatted,
+							choices: [
+								{
+									index: 0,
+									delta: {
+										role: "assistant",
+										content: "",
+										annotations: webSearchAnnotations(internalWebSearch.search),
+									},
+									finish_reason: null,
+								},
+							],
+						}),
+						id: String(eventId++),
+					});
+				}
+
 				const writeStreamingContentFilterResponse = async ({
 					billingModel,
 					billingProvider,
@@ -9233,7 +9945,7 @@ chat.openapi(completions, async (c) => {
 						null,
 						0,
 						image_config?.image_size,
-						inputImageCount,
+						inputImageCountFor(billingModel),
 						0,
 						project.organizationId,
 						image_config?.image_quality,
@@ -9396,7 +10108,7 @@ chat.openapi(completions, async (c) => {
 							null, // No reasoning tokens
 							0, // No output images
 							undefined,
-							inputImageCount,
+							inputImageCountFor(usedInternalModel),
 							// Bill for web search if it was enabled, except where only
 							// response evidence may count one
 							webSearchTool && !usedWebSearchFormat() ? 1 : null,
@@ -9446,6 +10158,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLogEntry({
 						...baseLogEntry,
+						id: finalLogId,
 						providerKeyId: trackedKeyHealthId ?? null,
 						duration: Date.now() - perAttemptStartTime,
 						timeToFirstToken: null, // Not applicable for canceled request
@@ -9662,14 +10375,15 @@ chat.openapi(completions, async (c) => {
 						) {
 							appendAnthropicBeta(headers, "structured-outputs-2025-11-13");
 						}
-						for (const beta of anthropicToolBetas(
-							transportProvider,
-							requestBody,
-						)) {
+						for (const beta of [
+							...anthropicToolBetas(transportProvider, requestBody),
+							...anthropicThinkingBetas(transportProvider, requestBody),
+						]) {
 							appendAnthropicBeta(headers, beta);
 						}
 
 						applyAnthropicSafeguards(
+							usedProvider,
 							transportProvider,
 							requestBody,
 							headers,
@@ -9778,7 +10492,7 @@ chat.openapi(completions, async (c) => {
 								!willRetryTimeout &&
 								shouldRetrySameKey({
 									usedProvider,
-									providerPinned: isProviderPinned(),
+									providerPinned: sessionStickyEnabled || isProviderPinned(),
 									errorType: "upstream_timeout",
 									statusCode: 0,
 									envVarName,
@@ -9795,6 +10509,14 @@ chat.openapi(completions, async (c) => {
 									.rateLimited;
 							const willRetryRequest =
 								willRetrySameProvider || willRetryTimeout || willRetrySameKey;
+
+							const attemptLogId = recordFailedAttempt(
+								routingAttempts,
+								usedProvider,
+								0,
+								getErrorType(0),
+								willRetryRequest,
+							);
 
 							const baseLogEntry = createLogEntry(
 								requestId,
@@ -9831,7 +10553,6 @@ chat.openapi(completions, async (c) => {
 								timeoutPluginIds,
 								undefined, // No plugin results for error case
 							);
-							const attemptLogId = shortid();
 
 							await insertLogEntry({
 								...baseLogEntry,
@@ -9874,22 +10595,6 @@ chat.openapi(completions, async (c) => {
 							});
 
 							if (willRetrySameProvider && sameProviderRetryContext) {
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								await applyResolvedProviderContext(sameProviderRetryContext);
 								retryAttempt--;
 								continue;
@@ -9902,43 +10607,11 @@ chat.openapi(completions, async (c) => {
 								// retried upstream call still cancels.
 								c.req.raw.signal.addEventListener("abort", onAbort);
 								await sameKeyRetryDelay(sameKeyRetryCount);
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								retryAttempt--;
 								continue;
 							}
 
 							if (willRetryTimeout) {
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								failedProviderIds.add(
 									providerRetryKey(usedProvider, usedRegion),
 								);
@@ -10018,7 +10691,7 @@ chat.openapi(completions, async (c) => {
 								!willRetryFetch &&
 								shouldRetrySameKey({
 									usedProvider,
-									providerPinned: isProviderPinned(),
+									providerPinned: sessionStickyEnabled || isProviderPinned(),
 									errorType: "network_error",
 									statusCode: 0,
 									envVarName,
@@ -10035,6 +10708,14 @@ chat.openapi(completions, async (c) => {
 									.rateLimited;
 							const willRetryRequest =
 								willRetrySameProvider || willRetryFetch || willRetrySameKey;
+
+							const attemptLogId = recordFailedAttempt(
+								routingAttempts,
+								usedProvider,
+								0,
+								getErrorType(0),
+								willRetryRequest,
+							);
 
 							const baseLogEntry = createLogEntry(
 								requestId,
@@ -10071,7 +10752,6 @@ chat.openapi(completions, async (c) => {
 								fetchErrorPluginIds,
 								undefined, // No plugin results for error case
 							);
-							const attemptLogId = shortid();
 
 							await insertLogEntry({
 								...baseLogEntry,
@@ -10133,22 +10813,6 @@ chat.openapi(completions, async (c) => {
 							}
 
 							if (willRetrySameProvider && sameProviderRetryContext) {
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								await applyResolvedProviderContext(sameProviderRetryContext);
 								retryAttempt--;
 								continue;
@@ -10161,43 +10825,11 @@ chat.openapi(completions, async (c) => {
 								// retried upstream call still cancels.
 								c.req.raw.signal.addEventListener("abort", onAbort);
 								await sameKeyRetryDelay(sameKeyRetryCount);
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								retryAttempt--;
 								continue;
 							}
 
 							if (willRetryFetch) {
-								routingAttempts.push(
-									buildRoutingAttempt(
-										usedProvider,
-										usedInternalModel,
-										0,
-										getErrorType(0),
-										false,
-										{
-											region: usedRegion,
-											apiKeyHash: usedApiKeyHash,
-											credentialSource: currentCredentialSource(),
-											...currentProviderKeyIdentity(),
-											logId: attemptLogId,
-										},
-									),
-								);
 								failedProviderIds.add(
 									providerRetryKey(usedProvider, usedRegion),
 								);
@@ -10325,6 +10957,11 @@ chat.openapi(completions, async (c) => {
 								true,
 								errorResponseText,
 							);
+						sameProviderRetryContext ??=
+							await tryResolveRetryWithoutAnthropicThinking(
+								true,
+								errorResponseText,
+							);
 
 						// Check if we should retry before logging so we can mark the log as retried
 						const willRetryHttpError = shouldRetryRequest({
@@ -10346,7 +10983,7 @@ chat.openapi(completions, async (c) => {
 							!willRetryHttpError &&
 							shouldRetrySameKey({
 								usedProvider,
-								providerPinned: isProviderPinned(),
+								providerPinned: sessionStickyEnabled || isProviderPinned(),
 								errorType: finishReason,
 								statusCode: res.status,
 								envVarName,
@@ -10363,6 +11000,17 @@ chat.openapi(completions, async (c) => {
 								.rateLimited;
 						const willRetryRequest =
 							willRetrySameProvider || willRetryHttpError || willRetrySameKey;
+
+						const attemptLogId = recordFailedAttempt(
+							routingAttempts,
+							usedProvider,
+							res.status,
+							finishReason === "content_filter" ||
+								finishReason === "client_error"
+								? finishReason
+								: getErrorType(res.status),
+							willRetryRequest,
+						);
 
 						const baseLogEntry = createLogEntry(
 							requestId,
@@ -10399,7 +11047,6 @@ chat.openapi(completions, async (c) => {
 							streamingErrorPluginIds,
 							undefined, // No plugin results for error case
 						);
-						const attemptLogId = shortid();
 
 						const contentFilterPromptTokens =
 							finishReason === "content_filter"
@@ -10424,7 +11071,7 @@ chat.openapi(completions, async (c) => {
 										null,
 										0,
 										image_config?.image_size,
-										inputImageCount,
+										inputImageCountFor(usedInternalModel),
 										0,
 										project.organizationId,
 										image_config?.image_quality,
@@ -10508,22 +11155,6 @@ chat.openapi(completions, async (c) => {
 						}
 
 						if (willRetrySameProvider && sameProviderRetryContext) {
-							routingAttempts.push(
-								buildRoutingAttempt(
-									usedProvider,
-									usedInternalModel,
-									res.status,
-									getErrorType(res.status),
-									false,
-									{
-										region: usedRegion,
-										apiKeyHash: usedApiKeyHash,
-										credentialSource: currentCredentialSource(),
-										...currentProviderKeyIdentity(),
-										logId: attemptLogId,
-									},
-								),
-							);
 							await applyResolvedProviderContext(sameProviderRetryContext);
 							retryAttempt--;
 							continue;
@@ -10536,43 +11167,11 @@ chat.openapi(completions, async (c) => {
 							// retried upstream call still cancels.
 							c.req.raw.signal.addEventListener("abort", onAbort);
 							await sameKeyRetryDelay(sameKeyRetryCount);
-							routingAttempts.push(
-								buildRoutingAttempt(
-									usedProvider,
-									usedInternalModel,
-									res.status,
-									getErrorType(res.status),
-									false,
-									{
-										region: usedRegion,
-										apiKeyHash: usedApiKeyHash,
-										credentialSource: currentCredentialSource(),
-										...currentProviderKeyIdentity(),
-										logId: attemptLogId,
-									},
-								),
-							);
 							retryAttempt--;
 							continue;
 						}
 
 						if (willRetryHttpError) {
-							routingAttempts.push(
-								buildRoutingAttempt(
-									usedProvider,
-									usedInternalModel,
-									res.status,
-									getErrorType(res.status),
-									false,
-									{
-										region: usedRegion,
-										apiKeyHash: usedApiKeyHash,
-										credentialSource: currentCredentialSource(),
-										...currentProviderKeyIdentity(),
-										logId: attemptLogId,
-									},
-								),
-							);
 							failedProviderIds.add(providerRetryKey(usedProvider, usedRegion));
 							continue;
 						}
@@ -10658,7 +11257,13 @@ chat.openapi(completions, async (c) => {
 					}
 
 					const inspectedStreamingResponse =
-						await inspectImmediateStreamingProviderError(res, usedProvider);
+						await inspectImmediateStreamingProviderError(
+							res,
+							// Bedrock's Messages API streams plain SSE.
+							getUsedProviderMapping()?.apiFormat === "anthropic-messages"
+								? transportProvider
+								: usedProvider,
+						);
 					res = inspectedStreamingResponse.response;
 					if (inspectedStreamingResponse.immediateError) {
 						const {
@@ -10717,6 +11322,11 @@ chat.openapi(completions, async (c) => {
 								true,
 								errorResponseText,
 							);
+						sameProviderRetryContext ??=
+							await tryResolveRetryWithoutAnthropicThinking(
+								true,
+								errorResponseText,
+							);
 
 						const willRetryStreamingError = shouldRetryRequest({
 							requestedProvider,
@@ -10737,7 +11347,7 @@ chat.openapi(completions, async (c) => {
 							!willRetryStreamingError &&
 							shouldRetrySameKey({
 								usedProvider,
-								providerPinned: isProviderPinned(),
+								providerPinned: sessionStickyEnabled || isProviderPinned(),
 								errorType,
 								statusCode: inferredStatusCode,
 								envVarName,
@@ -10757,32 +11367,13 @@ chat.openapi(completions, async (c) => {
 							willRetryStreamingError ||
 							willRetrySameKey;
 
-						const attemptLogId = shortid();
-						routingAttempts.push(
-							buildRoutingAttempt(
-								usedProvider,
-								usedInternalModel,
-								inferredStatusCode,
-								getErrorType(inferredStatusCode),
-								false,
-								{
-									region: usedRegion,
-									apiKeyHash: usedApiKeyHash,
-									credentialSource: currentCredentialSource(),
-									...currentProviderKeyIdentity(),
-									logId: attemptLogId,
-								},
-							),
+						const attemptLogId = recordFailedAttempt(
+							routingAttempts,
+							usedProvider,
+							inferredStatusCode,
+							getErrorType(inferredStatusCode),
+							willRetryRequest,
 						);
-						routingMetadata = {
-							...(routingMetadata ?? {
-								availableProviders: [usedProvider],
-								selectedProvider: usedProvider,
-								selectionReason: "direct-provider-specified",
-								providerScores: [],
-							}),
-							routing: [...routingAttempts],
-						};
 
 						const baseLogEntry = createLogEntry(
 							requestId,
@@ -10959,28 +11550,10 @@ chat.openapi(completions, async (c) => {
 
 				// Update routingMetadata with all routing attempts for DB logging
 				if (routingMetadata) {
-					// Enrich providerScores with failure info from routing attempts
-					const failedMap = new Map(
-						routingAttempts
-							.filter((a) => !a.succeeded)
-							.map((f) => [f.provider, f]),
+					routingMetadata = withRoutingAttempts(
+						routingMetadata,
+						routingAttempts,
 					);
-					routingMetadata = {
-						...routingMetadata,
-						routing: routingAttempts,
-						providerScores: routingMetadata.providerScores.map((score) => {
-							const failure = failedMap.get(score.providerId);
-							if (failure) {
-								return {
-									...score,
-									failed: true,
-									status_code: failure.status_code,
-									error_type: failure.error_type,
-								};
-							}
-							return score;
-						}),
-					};
 				}
 
 				// If all retries exhausted without a successful response
@@ -11053,6 +11626,7 @@ chat.openapi(completions, async (c) => {
 				let audioInputTokens: number | null = null;
 				let cachedAudioInputTokens: number | null = null;
 				let imageInputTokens: number | null = null;
+				let imageOutputTokens: number | null = null;
 				let streamingToolCalls = null;
 				let imageByteSize = 0; // Track total image data size for token estimation
 				let outputImageCount = 0; // Track number of output images for cost calculation
@@ -11064,8 +11638,7 @@ chat.openapi(completions, async (c) => {
 					webSearchTool &&
 					!usedWebSearchFormat() &&
 					(usedProvider === "zai" ||
-						((usedProvider === "alibaba" || usedProvider === "scx-ai-gp") &&
-							webSearchTool.forced))
+						(usedProvider === "alibaba" && webSearchTool.forced))
 						? 1
 						: 0;
 				const serverToolUseIndices = new Set<number>(); // Track Anthropic server_tool_use block indices
@@ -11097,15 +11670,16 @@ chat.openapi(completions, async (c) => {
 				// payload rather than only our synthesized error message.
 				let upstreamErrorChunkRaw: string | null = null;
 				const isAwsBedrock = usesAwsBedrockConverse();
-				const streamFormatProvider: Provider =
-					usedProvider === "aws-bedrock" && !isAwsBedrock
-						? "openai"
-						: transportProvider;
+				const streamFormatProvider: Provider = transportProvider;
 				const taggedReasoningStreamState = {
 					inReasoning: false,
 					pending: "",
 				};
 				let shouldTerminateStream = false;
+				// Set when the AWS EventStream parser rejects a frame outright. The
+				// abort is emitted after the current chunk's valid events so the
+				// client never receives data after [DONE].
+				let malformedEventStreamFrame = false;
 
 				// Response healing for streaming mode
 				const streamingResponseHealingEnabled = plugins?.some(
@@ -11168,13 +11742,28 @@ chat.openapi(completions, async (c) => {
 							binaryBuffer = newBuffer;
 
 							// Parse and convert available events
-							const { sse, bytesConsumed } =
+							const { sse, bytesConsumed, invalid } =
 								convertAwsEventStreamToSSE(binaryBuffer);
 							chunk = sse;
 
 							// Remove consumed bytes from binary buffer
 							if (bytesConsumed > 0) {
 								binaryBuffer = binaryBuffer.slice(bytesConsumed);
+							}
+
+							// A frame that breaks the EventStream framing can never be
+							// consumed, however many bytes follow, so binaryBuffer would
+							// grow (and be re-copied) for the rest of the response while
+							// the client receives nothing. Flush what parsed, then abort.
+							if (invalid) {
+								logger.error("Malformed AWS EventStream frame", {
+									provider: usedProvider,
+									model: usedInternalModel,
+									binaryBufferSize: binaryBuffer.length,
+								});
+								malformedEventStreamFrame = true;
+								shouldTerminateStream = true;
+								binaryBuffer = new Uint8Array(0);
 							}
 						} else {
 							// Convert the Uint8Array to a string for SSE
@@ -11194,8 +11783,13 @@ chat.openapi(completions, async (c) => {
 							rawUpstreamData += chunk;
 						}
 
-						// Check buffer size to prevent memory exhaustion
-						if (buffer.length > MAX_BUFFER_SIZE) {
+						// Check buffer size to prevent memory exhaustion. binaryBuffer is
+						// covered too: an incomplete AWS EventStream frame yields an empty
+						// chunk, so the decoded string buffer alone would never trip this.
+						if (
+							buffer.length > MAX_BUFFER_SIZE ||
+							binaryBuffer.length > MAX_BUFFER_SIZE
+						) {
 							const bufferSizeMB = MAX_BUFFER_SIZE / 1024 / 1024;
 							logger.error(
 								`Buffer size exceeded ${bufferSizeMB}MB limit, aborting stream`,
@@ -11256,7 +11850,8 @@ chat.openapi(completions, async (c) => {
 						// the event can actually complete.
 						if (
 							buffer.length > SSE_SCAN_SKIP_MIN_BUFFER &&
-							!chunkMayCompleteSseEvent(chunk)
+							!chunkMayCompleteSseEvent(chunk) &&
+							!shouldTerminateStream
 						) {
 							continue;
 						}
@@ -11533,12 +12128,12 @@ chat.openapi(completions, async (c) => {
 										reasoningTokens,
 										outputImageCount,
 										image_config?.image_size,
-										inputImageCount,
+										inputImageCountFor(usedInternalModel),
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
 										imageInputTokens,
-										null,
+										imageOutputTokens,
 										{
 											cacheWriteTokens: cacheCreationTokens,
 											cacheWrite1hTokens: cacheCreation1hTokens,
@@ -11958,6 +12553,7 @@ chat.openapi(completions, async (c) => {
 										googleThoughtSignatureState,
 										googleToolCallIndices,
 										anthropicThinkingText,
+										thinkingProvider: thinkingProvider(),
 									},
 								);
 
@@ -12333,7 +12929,7 @@ chat.openapi(completions, async (c) => {
 								if (isGoogleCompatibleProvider(transportProvider)) {
 									const parts = data.candidates?.[0]?.content?.parts ?? [];
 									for (const part of parts) {
-										if (part.inlineData?.data) {
+										if (isGoogleOutputImagePart(part) && part.inlineData.data) {
 											// Base64 string length * 0.75 ≈ actual byte size
 											imageByteSize += Math.ceil(
 												part.inlineData.data.length * 0.75,
@@ -12352,8 +12948,16 @@ chat.openapi(completions, async (c) => {
 									);
 								} else if (isAnthropicMessagesProvider(transportProvider)) {
 									// For Anthropic, count successful web_search_tool_result
-									// blocks; errored searches carry an object and are not billed
-									if (
+									// blocks; errored searches carry an object and are not billed.
+									// DeepSeek's final message_delta reports the billed count.
+									const serverToolUse = billedServerToolUseCount(
+										data.usage,
+										usedProvider === "deepseek" &&
+											data.type === "message_delta",
+									);
+									if (serverToolUse !== undefined) {
+										webSearchCount = serverToolUse;
+									} else if (
 										data.type === "content_block_start" &&
 										data.content_block?.type === "web_search_tool_result" &&
 										Array.isArray(data.content_block.content)
@@ -12381,9 +12985,22 @@ chat.openapi(completions, async (c) => {
 											webSearchCount = 1;
 										}
 									}
-								} else if (streamFormatProvider === "openai") {
-									// For OpenAI Responses API, count web_search_call.completed events
-									if (data.type === "response.web_search_call.completed") {
+								} else if (
+									streamFormatProvider === "openai" ||
+									streamFormatProvider === "azure"
+								) {
+									// For OpenAI Responses API, count web_search_call.completed
+									// events, unless the terminal event's usage reports the
+									// billable operations itself (DeepSeek).
+									const serverToolUse = billedServerToolUseCount(
+										data.response?.usage,
+										usedProvider === "deepseek",
+									);
+									if (serverToolUse !== undefined) {
+										webSearchCount = serverToolUse;
+									} else if (
+										data.type === "response.web_search_call.completed"
+									) {
 										webSearchCount++;
 									}
 								} else if (streamFormatProvider === "perplexity") {
@@ -12462,7 +13079,6 @@ chat.openapi(completions, async (c) => {
 								// Handle provider-specific finish reason extraction
 								switch (streamFormatProvider) {
 									case "google-ai-studio":
-									case "glacier":
 									case "google-vertex":
 									case "quartz":
 										// Preserve original Google finish reason for logging
@@ -12566,6 +13182,9 @@ chat.openapi(completions, async (c) => {
 								if (usage.imageInputTokens !== null) {
 									imageInputTokens = usage.imageInputTokens;
 								}
+								if (usage.imageOutputTokens !== null) {
+									imageOutputTokens = usage.imageOutputTokens;
+								}
 								if (
 									usage.totalTokens === null &&
 									promptTokens !== null &&
@@ -12609,6 +13228,54 @@ chat.openapi(completions, async (c) => {
 						// Remove processed data from buffer
 						if (processedLength > 0) {
 							buffer = bufferCopy.slice(processedLength);
+						}
+
+						if (malformedEventStreamFrame && !doneSent) {
+							malformedEventStreamFrame = false;
+							const malformedMessage =
+								"Upstream sent a malformed AWS EventStream frame";
+							streamingError = {
+								message: malformedMessage,
+								type: "upstream_error",
+								code: "malformed_event_stream",
+								details: {
+									statusCode: 502,
+									statusText: "Malformed Event Stream",
+									responseText: malformedMessage,
+									provider: usedProvider,
+									model: usedInternalModel,
+								},
+							};
+							finishReason = "upstream_error";
+
+							try {
+								await writeSSEAndCache({
+									event: "error",
+									data: JSON.stringify({
+										error: {
+											message: malformedMessage,
+											type: "upstream_error",
+											code: "malformed_event_stream",
+											param: null,
+											responseText: malformedMessage,
+										},
+									}),
+									id: String(eventId++),
+								});
+								if (!doneSent) {
+									await writeSSEAndCache({
+										event: "done",
+										data: "[DONE]",
+										id: String(eventId++),
+									});
+									doneSent = true;
+								}
+							} catch (sseError) {
+								logger.error(
+									"Failed to send malformed event stream error SSE",
+									toError(sseError),
+								);
+							}
 						}
 
 						if (shouldTerminateStream) {
@@ -13095,7 +13762,7 @@ chat.openapi(completions, async (c) => {
 											delta: {},
 											finish_reason: mapFinishReasonToOpenai(
 												finishReason,
-												usedProvider,
+												streamFormatProvider,
 												!!streamingToolCalls && streamingToolCalls.length > 0,
 											),
 										},
@@ -13126,6 +13793,7 @@ chat.openapi(completions, async (c) => {
 										cacheWriteInputCost: null,
 										requestCost: null,
 										webSearchCost: null,
+										webSearchCount: 0,
 										contentFilterCost: null,
 										imageInputTokens: null,
 										imageOutputTokens: null,
@@ -13161,12 +13829,12 @@ chat.openapi(completions, async (c) => {
 										reasoningTokens,
 										outputImageCount,
 										image_config?.image_size,
-										inputImageCount,
+										inputImageCountFor(usedInternalModel),
 										webSearchCount,
 										project.organizationId,
 										image_config?.image_quality,
 										imageInputTokens,
-										null,
+										imageOutputTokens,
 										{
 											cacheWriteTokens: cacheCreationTokens,
 											cacheWrite1hTokens: cacheCreation1hTokens,
@@ -13295,6 +13963,7 @@ chat.openapi(completions, async (c) => {
 										reasoningTokens: calculatedReasoningTokens,
 										imageInputTokens:
 											imageInputTokens ?? streamingCostsEarly.imageInputTokens,
+										imageOutputTokens: streamingCostsEarly.imageOutputTokens,
 										audioInputTokens,
 									});
 									return earlyUsage;
@@ -13382,7 +14051,7 @@ chat.openapi(completions, async (c) => {
 											delta: {},
 											finish_reason: mapFinishReasonToOpenai(
 												finishReason,
-												usedProvider,
+												streamFormatProvider,
 												!!streamingToolCalls && streamingToolCalls.length > 0,
 											),
 										},
@@ -13476,6 +14145,7 @@ chat.openapi(completions, async (c) => {
 									cacheWriteInputCost: null,
 									requestCost: null,
 									webSearchCost: null,
+									webSearchCount: 0,
 									contentFilterCost: null,
 									imageInputTokens: null,
 									imageOutputTokens: null,
@@ -13511,12 +14181,12 @@ chat.openapi(completions, async (c) => {
 									reasoningTokens,
 									outputImageCount,
 									image_config?.image_size,
-									inputImageCount,
+									inputImageCountFor(usedInternalModel),
 									webSearchCount,
 									project.organizationId,
 									image_config?.image_quality,
 									imageInputTokens,
-									null,
+									imageOutputTokens,
 									{
 										cacheWriteTokens: cacheCreationTokens,
 										cacheWrite1hTokens: cacheCreation1hTokens,
@@ -13683,6 +14353,13 @@ chat.openapi(completions, async (c) => {
 						typeof streamingError.details.statusCode === "number"
 							? streamingError.details.statusCode
 							: 500;
+
+					await pinSuccessfulFallback({
+						failedProviders: failedProviderIds,
+						finishReason,
+						hasError: streamingError !== null,
+						canceled,
+					});
 
 					await insertLogEntry({
 						...baseLogEntry,
@@ -13932,7 +14609,7 @@ chat.openapi(completions, async (c) => {
 				null, // No reasoning tokens
 				0, // No output images
 				undefined,
-				inputImageCount,
+				inputImageCountFor(usedInternalModel),
 				webSearchTool ? 1 : null, // Bill for web search if it was enabled
 				project.organizationId,
 				undefined, // imageQuality
@@ -13980,6 +14657,7 @@ chat.openapi(completions, async (c) => {
 
 		await insertLogEntry({
 			...baseLogEntry,
+			id: finalLogId,
 			providerKeyId: trackedKeyHealthId ?? null,
 			duration: Date.now() - startTime,
 			timeToFirstToken: null, // Not applicable for canceled request
@@ -14192,11 +14870,15 @@ chat.openapi(completions, async (c) => {
 			) {
 				appendAnthropicBeta(headers, "structured-outputs-2025-11-13");
 			}
-			for (const beta of anthropicToolBetas(transportProvider, requestBody)) {
+			for (const beta of [
+				...anthropicToolBetas(transportProvider, requestBody),
+				...anthropicThinkingBetas(transportProvider, requestBody),
+			]) {
 				appendAnthropicBeta(headers, beta);
 			}
 
 			applyAnthropicSafeguards(
+				usedProvider,
 				transportProvider,
 				requestBody,
 				headers,
@@ -14333,7 +15015,7 @@ chat.openapi(completions, async (c) => {
 				!willRetryFetchNonStreaming &&
 				shouldRetrySameKey({
 					usedProvider,
-					providerPinned: isProviderPinned(),
+					providerPinned: sessionStickyEnabled || isProviderPinned(),
 					errorType: "network_error",
 					statusCode: 0,
 					envVarName,
@@ -14349,6 +15031,14 @@ chat.openapi(completions, async (c) => {
 				!(await consumeProviderRateLimit(usedProvider, false)).rateLimited;
 			const willRetryRequest =
 				willRetrySameProvider || willRetryFetchNonStreaming || willRetrySameKey;
+
+			const attemptLogId = recordFailedAttempt(
+				routingAttempts,
+				usedProvider,
+				0,
+				getErrorType(0),
+				willRetryRequest,
+			);
 
 			const baseLogEntry = createLogEntry(
 				requestId,
@@ -14385,7 +15075,6 @@ chat.openapi(completions, async (c) => {
 				nonStreamingFetchErrorPluginIds,
 				undefined, // No plugin results for error case
 			);
-			const attemptLogId = shortid();
 
 			await insertLogEntry({
 				...baseLogEntry,
@@ -14448,22 +15137,6 @@ chat.openapi(completions, async (c) => {
 			}
 
 			if (willRetrySameProvider && sameProviderRetryContext) {
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						0,
-						getErrorType(0),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				await applyResolvedProviderContext(sameProviderRetryContext);
 				retryAttempt--;
 				continue;
@@ -14476,43 +15149,11 @@ chat.openapi(completions, async (c) => {
 				// cancels.
 				c.req.raw.signal.addEventListener("abort", onAbort);
 				await sameKeyRetryDelay(sameKeyRetryCount);
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						0,
-						getErrorType(0),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				retryAttempt--;
 				continue;
 			}
 
 			if (willRetryFetchNonStreaming) {
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						0,
-						getErrorType(0),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				failedProviderIds.add(providerRetryKey(usedProvider, usedRegion));
 				continue;
 			}
@@ -14600,6 +15241,13 @@ chat.openapi(completions, async (c) => {
 						},
 					);
 
+					recordFailedAttempt(
+						routingAttempts,
+						usedProvider!,
+						res.status,
+						isTimeoutBody ? "upstream_timeout" : "upstream_error",
+						false,
+					);
 					const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
 					const baseLogEntry = createLogEntry(
 						requestId,
@@ -14639,6 +15287,7 @@ chat.openapi(completions, async (c) => {
 
 					await insertLogEntry({
 						...baseLogEntry,
+						id: finalLogId,
 						providerKeyId: trackedKeyHealthId ?? null,
 						duration: Date.now() - perAttemptStartTime,
 						timeToFirstToken: null,
@@ -14766,6 +15415,11 @@ chat.openapi(completions, async (c) => {
 					stream,
 					errorResponseText,
 				);
+			sameProviderRetryContext ??=
+				await tryResolveRetryWithoutAnthropicThinking(
+					stream,
+					errorResponseText,
+				);
 
 			// Check if we should retry before logging so we can mark the log as retried
 			const willRetryHttpNonStreaming = shouldRetryRequest({
@@ -14787,7 +15441,7 @@ chat.openapi(completions, async (c) => {
 				!willRetryHttpNonStreaming &&
 				shouldRetrySameKey({
 					usedProvider,
-					providerPinned: isProviderPinned(),
+					providerPinned: sessionStickyEnabled || isProviderPinned(),
 					errorType: finishReason,
 					statusCode: res.status,
 					envVarName,
@@ -14803,6 +15457,16 @@ chat.openapi(completions, async (c) => {
 				!(await consumeProviderRateLimit(usedProvider, false)).rateLimited;
 			const willRetryRequest =
 				willRetrySameProvider || willRetryHttpNonStreaming || willRetrySameKey;
+
+			const attemptLogId = recordFailedAttempt(
+				routingAttempts,
+				usedProvider,
+				res.status,
+				finishReason === "content_filter" || finishReason === "client_error"
+					? finishReason
+					: getErrorType(res.status),
+				willRetryRequest,
+			);
 
 			const baseLogEntry = createLogEntry(
 				requestId,
@@ -14839,7 +15503,6 @@ chat.openapi(completions, async (c) => {
 				providerErrorPluginIds,
 				undefined, // No plugin results for error case
 			);
-			const attemptLogId = shortid();
 
 			const nonStreamContentFilterPromptTokens =
 				finishReason === "content_filter"
@@ -14864,7 +15527,7 @@ chat.openapi(completions, async (c) => {
 							null,
 							0,
 							image_config?.image_size,
-							inputImageCount,
+							inputImageCountFor(usedInternalModel),
 							0,
 							project.organizationId,
 							image_config?.image_quality,
@@ -14967,22 +15630,6 @@ chat.openapi(completions, async (c) => {
 			}
 
 			if (willRetrySameProvider && sameProviderRetryContext) {
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						res.status,
-						getErrorType(res.status),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				await applyResolvedProviderContext(sameProviderRetryContext);
 				retryAttempt--;
 				continue;
@@ -14995,43 +15642,11 @@ chat.openapi(completions, async (c) => {
 				// cancels.
 				c.req.raw.signal.addEventListener("abort", onAbort);
 				await sameKeyRetryDelay(sameKeyRetryCount);
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						res.status,
-						getErrorType(res.status),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				retryAttempt--;
 				continue;
 			}
 
 			if (willRetryHttpNonStreaming) {
-				routingAttempts.push(
-					buildRoutingAttempt(
-						usedProvider,
-						usedInternalModel,
-						res.status,
-						getErrorType(res.status),
-						false,
-						{
-							region: usedRegion,
-							apiKeyHash: usedApiKeyHash,
-							credentialSource: currentCredentialSource(),
-							...currentProviderKeyIdentity(),
-							logId: attemptLogId,
-						},
-					),
-				);
 				failedProviderIds.add(providerRetryKey(usedProvider, usedRegion));
 				continue;
 			}
@@ -15169,26 +15784,7 @@ chat.openapi(completions, async (c) => {
 
 	// Update routingMetadata with all routing attempts for DB logging
 	if (routingMetadata) {
-		// Enrich providerScores with failure info from routing attempts
-		const failedMap = new Map(
-			routingAttempts.filter((a) => !a.succeeded).map((f) => [f.provider, f]),
-		);
-		routingMetadata = {
-			...routingMetadata,
-			routing: routingAttempts,
-			providerScores: routingMetadata.providerScores.map((score) => {
-				const failure = failedMap.get(score.providerId);
-				if (failure) {
-					return {
-						...score,
-						failed: true,
-						status_code: failure.status_code,
-						error_type: failure.error_type,
-					};
-				}
-				return score;
-			}),
-		};
+		routingMetadata = withRoutingAttempts(routingMetadata, routingAttempts);
 	}
 
 	if (!res || !res.ok) {
@@ -15355,6 +15951,7 @@ chat.openapi(completions, async (c) => {
 
 				await insertLogEntry({
 					...sseLogEntry,
+					id: finalLogId,
 					providerKeyId: trackedKeyHealthId ?? null,
 					duration: Date.now() - startTime,
 					timeToFirstToken: null,
@@ -15554,27 +16151,7 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 			if (routingMetadata) {
-				const failedMap = new Map(
-					routingAttempts
-						.filter((a) => !a.succeeded)
-						.map((f) => [f.provider, f]),
-				);
-				routingMetadata = {
-					...routingMetadata,
-					routing: routingAttempts,
-					providerScores: routingMetadata.providerScores.map((score) => {
-						const failure = failedMap.get(score.providerId);
-						if (failure) {
-							return {
-								...score,
-								failed: true,
-								status_code: failure.status_code,
-								error_type: failure.error_type,
-							};
-						}
-						return score;
-					}),
-				};
+				routingMetadata = withRoutingAttempts(routingMetadata, routingAttempts);
 			}
 
 			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
@@ -15616,6 +16193,7 @@ chat.openapi(completions, async (c) => {
 
 			await insertLogEntry({
 				...baseLogEntry,
+				id: finalLogId,
 				providerKeyId: trackedKeyHealthId ?? null,
 				duration: Date.now() - startTime,
 				timeToFirstToken: null,
@@ -15733,7 +16311,12 @@ chat.openapi(completions, async (c) => {
 		// A declared format leaves the count to response evidence below.
 		!!webSearchTool && !usedWebSearchFormat(),
 		!!webSearchTool?.forced && !usedWebSearchFormat(),
-		{ cacheThoughtSignatures: !zeroDataRetentionEnabled },
+		{
+			cacheThoughtSignatures: !zeroDataRetentionEnabled,
+			// DeepSeek omits server_tool_use when nothing billable ran.
+			serverToolUseAlwaysReported: usedProvider === "deepseek",
+			thinkingProvider: thinkingProvider(),
+		},
 	);
 	let { content, totalTokens, webSearchCount } = parsedResponse;
 	const {
@@ -15752,9 +16335,15 @@ chat.openapi(completions, async (c) => {
 		cachedAudioInputTokens,
 		toolResults,
 		images,
-		annotations,
+		annotations: parsedAnnotations,
 		searchResults,
 	} = parsedResponse;
+	const annotations = internalWebSearch?.search.results.length
+		? [
+				...webSearchAnnotations(internalWebSearch.search),
+				...(parsedAnnotations ?? []),
+			]
+		: parsedAnnotations;
 	if (webSearchTool && usedWebSearchFormat()) {
 		const reported = Math.max(
 			webSearchCount ?? 0,
@@ -15901,7 +16490,7 @@ chat.openapi(completions, async (c) => {
 		reasoningTokens,
 		convertedImages?.length || 0,
 		alibabaServedImageTier ?? image_config?.image_size,
-		inputImageCount,
+		inputImageCountFor(usedInternalModel),
 		webSearchCount,
 		project.organizationId,
 		image_config?.image_quality,
@@ -15915,6 +16504,7 @@ chat.openapi(completions, async (c) => {
 			explicitCacheUsed,
 			servedServiceTier,
 			customPricing: customPricingMapping,
+			svgAuthorUsage: parsedResponse.svgAuthorUsage,
 		},
 		finishReason === "content_filter",
 	);
@@ -16225,6 +16815,12 @@ chat.openapi(completions, async (c) => {
 		base64Images.length > 0
 			? base64Images.map((img) => img.image_url.url).join("\n")
 			: content;
+
+	await pinSuccessfulFallback({
+		failedProviders: failedProviderIds,
+		finishReason,
+		hasError: hasEmptyNonStreamingResponse,
+	});
 
 	await insertLogEntry({
 		...baseLogEntry,

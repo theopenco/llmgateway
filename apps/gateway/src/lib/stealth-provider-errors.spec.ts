@@ -12,7 +12,6 @@ import {
 
 describe("shouldRedactProviderError", () => {
 	it("returns true for stealth providers", () => {
-		expect(shouldRedactProviderError("glacier")).toBe(true);
 		expect(shouldRedactProviderError("quartz")).toBe(true);
 	});
 
@@ -84,13 +83,13 @@ describe("buildUpstreamErrorClientPayload", () => {
 
 	it("redacts the body and upstream status text for stealth providers", () => {
 		const payload = buildUpstreamErrorClientPayload(
-			"glacier",
+			"quartz",
 			500,
 			"SecretVendor exploded",
 			'{"error":{"message":"SecretVendor internal error"}}',
 		);
 		expect(payload.message).toBe(
-			"Error from provider glacier: 500 Internal Server Error",
+			"Error from provider quartz: 500 Internal Server Error",
 		);
 		expect(payload.responseText).toBe(
 			"Upstream provider error (500 Internal Server Error)",
@@ -127,7 +126,7 @@ describe("clientFacingUpstreamErrorMessage", () => {
 	it("redacts an HTTP error body for stealth providers", () => {
 		expect(
 			clientFacingUpstreamErrorMessage(
-				"glacier",
+				"quartz",
 				500,
 				"quota exceeded at https://plataforma-secreta.example.com",
 			),

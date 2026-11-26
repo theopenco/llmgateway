@@ -1,9 +1,28 @@
+import { AIRSIDE_INFERENCE_LOG_SOURCE } from "@llmgateway/actions";
 import { log, sql } from "@llmgateway/db";
 
 const usedModelWithRegionSql = sql<string>`split_part(${log.usedModel}, '/', 2)`;
 const usedRegionSql = sql<
 	string | null
 >`nullif(split_part(${usedModelWithRegionSql}, ':', 2), '')`;
+
+/**
+ * Drop internal Airside inference (scheduled verification and benchmark
+ * probes). They pin one mapping and region and are never retried, so their
+ * failures would skew mapping health, routing metrics and error-rate alerts.
+ */
+export function excludeAirsideInference() {
+	return sql<boolean>`${log.source} is distinct from ${AIRSIDE_INFERENCE_LOG_SOURCE}`;
+}
+
+/**
+ * Drop requests the gateway content filter blocked. They are logged under the
+ * model they were routed to but never reached its provider, so they carry no
+ * usage, latency or availability signal for it.
+ */
+export function excludeGatewayContentFilterBlocks() {
+	return sql<boolean>`${log.finishReason} is distinct from 'llmgateway_content_filter'`;
+}
 
 /**
  * Drop the failed attempt of a request that was retried and recovered on the

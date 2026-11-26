@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 
-import { afterAll, beforeEach, describe, expect, test } from "vitest";
+import { Decimal } from "decimal.js";
+import {
+	afterAll,
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	test,
+} from "vitest";
 
 import {
 	cdb,
@@ -20,6 +28,7 @@ import {
 	getDevPlanPremiumWeeklyLimit,
 	LOUNGE_SOURCE,
 } from "@llmgateway/shared";
+import { BATCH_SOURCE } from "@llmgateway/shared/batch";
 
 import { batchProcessLogs } from "./worker.js";
 
@@ -197,6 +206,160 @@ describe("Log Processing", () => {
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.01);
 		});
 
+		describe("referral earnings", () => {
+			const referrerId = () => `${testOrg.id}-referrer`;
+
+			const seedReferral = async (opts: {
+				paidTopUp?: string;
+				referredCredits?: string;
+				referrerStatus?: "active" | "deleted";
+			}) => {
+				await db.insert(organization).values({
+					id: referrerId(),
+					name: "Referrer",
+					billingEmail: `referrer-${testOrg.id}@example.com`,
+					credits: "0",
+					status: opts.referrerStatus ?? "active",
+				});
+				await db.insert(tables.referral).values({
+					referrerOrganizationId: referrerId(),
+					referredOrganizationId: testOrg.id,
+				});
+				if (opts.paidTopUp) {
+					await db.insert(tables.transaction).values({
+						organizationId: testOrg.id,
+						type: "credit_topup",
+						amount: opts.paidTopUp,
+						creditAmount: opts.paidTopUp,
+						currency: "USD",
+						status: "completed",
+					});
+				}
+				if (opts.referredCredits) {
+					await db
+						.update(organization)
+						.set({ credits: opts.referredCredits })
+						.where(eq(organization.id, testOrg.id));
+				}
+			};
+
+			const insertCostLog = async (cost: number) => {
+				await db.insert(log).values({
+					requestId: `referral-${randomUUID()}`,
+					organizationId: testOrg.id,
+					projectId: testProject.id,
+					apiKeyId: testApiKey.id,
+					cost,
+					cached: false,
+					usedMode: "credits",
+					duration: 1000,
+					requestedModel: "openai/gpt-4o-mini",
+					requestedProvider: "openai",
+					usedModel: "gpt-4o-mini",
+					usedProvider: "openai",
+					responseSize: 100,
+					mode: "credits",
+				});
+			};
+
+			const referrerEarnings = async () => {
+				const referrer = await db.query.organization.findFirst({
+					where: { id: { eq: referrerId() } },
+				});
+				return {
+					credits: Number(referrer!.credits),
+					earnings: Number(referrer!.referralEarnings),
+				};
+			};
+
+			afterEach(async () => {
+				await db.delete(organization).where(eq(organization.id, referrerId()));
+				await db
+					.delete(tables.transaction)
+					.where(eq(tables.transaction.organizationId, testOrg.id));
+			});
+
+			test("pays 1% on usage a paying referred org covered", async () => {
+				await seedReferral({ paidTopUp: "100" });
+				await insertCostLog(1);
+
+				await batchProcessLogs();
+
+				expect(await referrerEarnings()).toEqual({
+					credits: 0.01,
+					earnings: 0.01,
+				});
+			});
+
+			test("pays nothing when the referred org never paid", async () => {
+				await seedReferral({});
+				await insertCostLog(1);
+
+				await batchProcessLogs();
+
+				expect(await referrerEarnings()).toEqual({ credits: 0, earnings: 0 });
+			});
+
+			test("pays nothing on the part of a charge that drives the balance negative", async () => {
+				await seedReferral({ paidTopUp: "100", referredCredits: "0.5" });
+				await insertCostLog(1);
+
+				await batchProcessLogs();
+
+				expect((await referrerEarnings()).earnings).toBeCloseTo(0.005);
+			});
+
+			test("pays nothing to a blocked referrer", async () => {
+				await seedReferral({ paidTopUp: "100", referrerStatus: "deleted" });
+				await insertCostLog(1);
+
+				await batchProcessLogs();
+
+				expect(await referrerEarnings()).toEqual({ credits: 0, earnings: 0 });
+			});
+		});
+
+		test("bills a Batch API log exactly like the same live request", async () => {
+			const credits = async () =>
+				new Decimal(
+					(await db.query.organization.findFirst({
+						where: { id: { eq: testOrg.id } },
+					}))!.credits,
+				);
+			const insert = async (requestId: string, source?: string) =>
+				await db.insert(log).values({
+					requestId,
+					organizationId: testOrg.id,
+					projectId: testProject.id,
+					apiKeyId: testApiKey.id,
+					cost: 0.0123,
+					inputCost: 0.0023,
+					outputCost: 0.01,
+					cached: false,
+					usedMode: "credits",
+					duration: 2000,
+					requestedModel: "gpt-4o-mini",
+					requestedProvider: "openai",
+					usedModel: "gpt-4o-mini",
+					usedProvider: "openai",
+					responseSize: 150,
+					mode: "credits",
+					...(source && { source }),
+				});
+
+			const start = await credits();
+			await insert("live-request");
+			await batchProcessLogs();
+			const afterLive = await credits();
+			await insert("batch_req_parity", BATCH_SOURCE);
+			await batchProcessLogs();
+			const afterBatch = await credits();
+
+			const liveCharge = start.minus(afterLive);
+			expect(liveCharge.gt(0)).toBe(true);
+			expect(afterLive.minus(afterBatch).equals(liveCharge)).toBe(true);
+		});
+
 		test("evicts the debited org's tagged cache entry after settling", async () => {
 			// Same tagged read the gateway's findOrganizationCachedById uses.
 			const readCached = async () =>
@@ -282,6 +445,60 @@ describe("Log Processing", () => {
 			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(0.5);
 			expect(Number(updatedOrg!.devPlanPremiumCreditsUsed)).toBe(0.5);
 			expect(updatedOrg!.devPlanPremiumWeekStart).toBeInstanceOf(Date);
+		});
+
+		test("should not accrue premium weekly usage for a model a global discount prices as standard", async () => {
+			await db
+				.update(organization)
+				.set({
+					devPlan: "pro",
+					devPlanCreditsLimit: "237",
+					devPlanCreditsUsed: "0",
+					devPlanPremiumCreditsUsed: "0",
+					devPlanPremiumWeekStart: null,
+				})
+				.where(eq(organization.id, testOrg.id));
+			const discountId = `log-processing-discount-${randomUUID()}`;
+			// Through cdb so its mutation hook drops cached discount lookups.
+			await cdb.insert(tables.discount).values({
+				id: discountId,
+				organizationId: null,
+				provider: null,
+				model: "claude-fable-5",
+				discountPercent: "0.9",
+			});
+
+			try {
+				await db.insert(log).values({
+					requestId: "test-request-premium-discounted",
+					organizationId: testOrg.id,
+					projectId: testProject.id,
+					apiKeyId: testApiKey.id,
+					cost: 0.5,
+					cached: false,
+					usedMode: "credits",
+					duration: 2000,
+					requestedModel: "anthropic/claude-fable-5",
+					requestedProvider: "anthropic",
+					usedModel: "anthropic/claude-fable-5",
+					usedProvider: "anthropic",
+					responseSize: 150,
+					mode: "credits",
+				});
+
+				await batchProcessLogs();
+
+				const updatedOrg = await db.query.organization.findFirst({
+					where: { id: { eq: testOrg.id } },
+				});
+
+				expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(0.5);
+				expect(Number(updatedOrg!.devPlanPremiumCreditsUsed)).toBe(0);
+			} finally {
+				await cdb
+					.delete(tables.discount)
+					.where(eq(tables.discount.id, discountId));
+			}
 		});
 
 		test("should bill overflow to organization credits once the dev plan pool is exhausted", async () => {
@@ -843,6 +1060,60 @@ describe("Log Processing", () => {
 			});
 
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits);
+		});
+
+		test("deducts a gateway-run web search for api-keys mode logs, not a native one", async () => {
+			const initialCredits = Number(testOrg.credits);
+			const base = {
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cached: false,
+				usedMode: "api-keys" as const,
+				duration: 2000,
+				responseSize: 150,
+				mode: "api-keys" as const,
+			};
+
+			await db.insert(log).values([
+				{
+					...base,
+					requestId: "test-request-api-keys-gateway-search",
+					cost: 0.006,
+					webSearchCost: 0.005,
+					webSearchEngine: "perplexity",
+					webSearchType: "gateway",
+					webSearchCount: 1,
+					requestedModel: "deepinfra/deepseek-v4.1-flash",
+					requestedProvider: "deepinfra",
+					usedModel: "deepseek-v4.1-flash",
+					usedProvider: "deepinfra",
+				},
+				{
+					...base,
+					requestId: "test-request-api-keys-native-search",
+					cost: 0.02,
+					webSearchCost: 0.01,
+					webSearchEngine: "openai",
+					webSearchType: "native",
+					webSearchCount: 1,
+					requestedModel: "openai/gpt-4o-mini",
+					requestedProvider: "openai",
+					usedModel: "gpt-4o-mini",
+					usedProvider: "openai",
+				},
+			]);
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.credits)).toBeCloseTo(
+				initialCredits - 0.005,
+				9,
+			);
 		});
 
 		test("should deduct storage cost on top of inference cost for credits mode logs", async () => {

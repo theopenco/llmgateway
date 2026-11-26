@@ -1,3 +1,7 @@
+import Image from "next/image";
+
+const sizes = "(min-width: 1024px) 804px, (min-width: 768px) 430px, 100vw";
+
 export function ThemedImage({
 	alt,
 	basePath,
@@ -13,22 +17,20 @@ export function ThemedImage({
 }) {
 	return (
 		<>
-			<img
+			<Image
 				src={`${basePath}-light.png`}
 				alt={alt}
 				width={width}
 				height={height}
-				loading="lazy"
-				decoding="async"
+				sizes={sizes}
 				className="block dark:hidden rounded-lg border"
 			/>
-			<img
+			<Image
 				src={`${basePath}-dark.png`}
 				alt={alt}
 				width={width}
 				height={darkHeight}
-				loading="lazy"
-				decoding="async"
+				sizes={sizes}
 				className="hidden dark:block rounded-lg border"
 			/>
 		</>

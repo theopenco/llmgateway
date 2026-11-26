@@ -16,6 +16,7 @@ import type {
 	OpenAIResponsesRequestBody,
 	ProviderCacheControlMode,
 	ProviderModelMapping,
+	WebSearchTool,
 } from "@llmgateway/models";
 
 /**
@@ -2203,6 +2204,85 @@ describe("prepareRequestBody - Tencent Hy Image generation", () => {
 	});
 });
 
+describe("prepareRequestBody - MiniMax H3 Image", () => {
+	async function prepareMinimaxImageRequest(
+		messages: BaseMessage[],
+		imageConfig?: {
+			aspect_ratio?: string;
+			image_size?: string;
+			n?: number;
+			output_format?: string;
+		},
+	) {
+		return (await prepareRequestBody(
+			"minimax",
+			"minimax-h3-image",
+			null,
+			"MiniMax-H3-Image",
+			messages,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			imageConfig,
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("maps an area tier and aspect ratio, and drops unsupported formats", async () => {
+		const requestBody = await prepareMinimaxImageRequest(
+			[{ role: "user", content: "A lighthouse at dawn" }],
+			{ image_size: "2k", aspect_ratio: "16:9", n: 2, output_format: "svg" },
+		);
+
+		expect(requestBody).toEqual({
+			model: "MiniMax-H3-Image",
+			prompt: "A lighthouse at dawn",
+			area: "2K",
+			aspect_ratio: "16:9",
+			n: 2,
+		});
+	});
+
+	test("sends a WxH size without aspect ratio and reference images for edits", async () => {
+		const requestBody = await prepareMinimaxImageRequest(
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Make it a watercolor" },
+						{
+							type: "image_url",
+							image_url: { url: "https://example.com/ref.png" },
+						},
+					],
+				},
+			],
+			{ image_size: "1536x1024", aspect_ratio: "3:2", output_format: "png" },
+		);
+
+		expect(requestBody).toEqual({
+			model: "MiniMax-H3-Image",
+			prompt: "Make it a watercolor",
+			images: [{ image_url: "https://example.com/ref.png" }],
+			size: "1536x1024",
+			output_format: "png",
+		});
+	});
+});
+
 describe("prepareRequestBody - xAI image generation", () => {
 	async function prepareXaiImageRequest(imageConfig: {
 		aspect_ratio?: string;
@@ -2980,13 +3060,13 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 	);
 
 	test("strips none for an OpenAI-compatible mapping that does not declare it", async () => {
-		// grok-4-3 via azure-ai-foundry speaks a non-allowlisted provider and
+		// grok-4-1-fast-reasoning via xai speaks a non-allowlisted provider and
 		// its catalog entry omits `none` from reasoningEfforts. The mapping
 		// must be the authority: with `none` undeclared, the value is
 		// normalized away instead of forwarded to a provider that may 4xx.
 		const requestBody = await prepare({
-			provider: "azure-ai-foundry",
-			model: "grok-4-3",
+			provider: "xai",
+			model: "grok-4-1-fast-reasoning",
 		});
 		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
@@ -3115,6 +3195,30 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 		expect(requestBody.max_tokens).toBeUndefined();
 	});
 
+	test.each(["kimi-k3.1-pro", "kimi-k3.1-pro-highspeed"])(
+		"forwards reasoning_effort and max_completion_tokens for %s",
+		async (model) => {
+			const requestBody = await prepare({
+				model,
+				reasoningEffort: "low",
+				maxTokens: 4096,
+			});
+			expect(requestBody.reasoning_effort).toBe("low");
+			expect(requestBody.thinking).toBeUndefined();
+			expect(requestBody.max_completion_tokens).toBe(4096);
+			expect(requestBody.max_tokens).toBeUndefined();
+		},
+	);
+
+	test("collapses disable requests onto the provider default for kimi-k3.1-pro", async () => {
+		const requestBody = await prepare({
+			model: "kimi-k3.1-pro",
+			reasoningEffort: "none",
+		});
+		expect(requestBody.reasoning_effort).toBeUndefined();
+		expect(requestBody.thinking).toBeUndefined();
+	});
+
 	type Effort = Parameters<typeof prepareRequestBody>[14];
 	const xaiEffortCases: Array<
 		[Parameters<typeof prepareRequestBody>[0], string, Extract<Effort, string>]
@@ -3122,8 +3226,8 @@ describe("prepareRequestBody - Moonshot thinking", () => {
 		// xAI mappings that declare reasoning: true but previously omitted
 		// reasoning_effort from supportedParameters, silently dropping any
 		// effort value before the request was built (#3436, #3403).
-		["azure-ai-foundry", "grok-4-3", "medium"],
-		["azure-ai-foundry", "grok-4-1-fast-reasoning", "high"],
+		["azure", "grok-4-3", "medium"],
+		["azure", "grok-4-1-fast-reasoning", "high"],
 		["xai", "grok-4", "high"],
 	];
 
@@ -3414,53 +3518,6 @@ describe("prepareRequestBody - InclusionAI Ling-3.0-flash thinking", () => {
 			expect(requestBody.response_format).toEqual(responseFormat);
 		},
 	);
-});
-
-describe("prepareRequestBody - embercloud reasoning shape", () => {
-	// embercloud's documented request body uses a nested `reasoning` object
-	// (reasoning.enabled + reasoning.effort) — the flat OpenAI-style
-	// `reasoning_effort` field is not documented and is silently ignored
-	// (https://embercloud.ai/docs/request-body).
-	async function prepare(
-		effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
-	) {
-		return (await prepareRequestBody(
-			"embercloud",
-			"glm-5.2",
-			null,
-			"glm-5.2",
-			[{ role: "user", content: "Hello!" }],
-			false, // stream
-			undefined, // temperature
-			undefined, // max_tokens
-			undefined, // top_p
-			undefined, // frequency_penalty
-			undefined, // presence_penalty
-			undefined, // response_format
-			undefined, // tools
-			undefined, // tool_choice
-			effort, // reasoning_effort
-			true, // supportsReasoning
-		)) as any;
-	}
-
-	test("builds the nested reasoning object instead of flat reasoning_effort", async () => {
-		const requestBody = await prepare("high");
-		expect(requestBody.reasoning).toEqual({
-			enabled: true,
-			effort: "high",
-		});
-		expect(requestBody.reasoning_effort).toBeUndefined();
-	});
-
-	test("forwards the top declared tier through the nested shape", async () => {
-		const requestBody = await prepare("max");
-		expect(requestBody.reasoning).toEqual({
-			enabled: true,
-			effort: "max",
-		});
-		expect(requestBody.reasoning_effort).toBeUndefined();
-	});
 });
 
 describe("prepareRequestBody - Alibaba thinking", () => {
@@ -4886,13 +4943,11 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			false, // isProd
 		)) as any;
 
-		expect(requestBody.additionalModelRequestFields.thinking).toEqual({
+		expect(requestBody.thinking).toEqual({
 			type: "adaptive",
 			display: "summarized",
 		});
-		expect(requestBody.additionalModelRequestFields.output_config.effort).toBe(
-			"max",
-		);
+		expect(requestBody.output_config.effort).toBe("max");
 	});
 
 	test('sets display "summarized" for adaptive thinking on Bedrock', async () => {
@@ -4916,7 +4971,7 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			false, // isProd
 		)) as any;
 
-		expect(requestBody.additionalModelRequestFields.thinking).toEqual({
+		expect(requestBody.thinking).toEqual({
 			type: "adaptive",
 			display: "summarized",
 		});
@@ -4985,6 +5040,11 @@ describe("prepareRequestBody - Google AI Studio", () => {
 			// minimal is undeclared (and 400s) on 3.8 Flash and Pro.
 			{ model: "gemini-3.8-flash", effort: "minimal", expected: "low" },
 			{ model: "gemini-3.1-pro-preview", effort: "minimal", expected: "low" },
+			// xhigh is sent only where declared.
+			{ model: "gemini-3.6-flash", effort: "xhigh", expected: "high" },
+			{ model: "gemini-4-hydrogen", effort: "xhigh", expected: "xhigh" },
+			{ model: "gemini-4-hydrogen", effort: "max", expected: "xhigh" },
+			{ model: "gemini-4-hydrogen", effort: "minimal", expected: "low" },
 		] as const;
 
 		for (const { model, effort, expected } of cases) {
@@ -5235,9 +5295,9 @@ describe("prepareRequestBody - Google AI Studio", () => {
 
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			[{ role: "user", content: "test" }],
 			false,
 			undefined,
@@ -6137,7 +6197,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 	test("should default missing parameters to a JSON Schema object for DeepSeek", async () => {
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
@@ -6173,7 +6233,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 	test("should rewrite parameters with type: null to type: object", async () => {
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
@@ -6214,7 +6274,7 @@ describe("prepareRequestBody - function tool parameter normalization", () => {
 		};
 		const requestBody = (await prepareRequestBody(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			"deepseek-chat",
 			[{ role: "user", content: "hi" }],
@@ -6480,9 +6540,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		const marker = { type: "ephemeral" as const };
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-opus-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-opus-4-6-v1",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[
 				{
 					role: "system",
@@ -6632,6 +6692,44 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 		]);
 	});
 
+	test("emits no cachePoints for a model without prompt caching", async () => {
+		const longContent = "A".repeat(5000);
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"pixtral-large-2502",
+			null,
+			"mistral.pixtral-large-2502-v1:0",
+			[
+				{ role: "system", content: longContent },
+				{ role: "user", content: longContent },
+				{ role: "assistant", content: "Hi!" },
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "What should I do next?",
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+		)) as any;
+
+		expect(JSON.stringify(requestBody)).not.toContain("cachePoint");
+		expect(requestBody.system).toEqual([{ text: longContent }]);
+		expect(requestBody.messages[2].content).toEqual([
+			{ text: "What should I do next?" },
+		]);
+	});
+
 	test("keeps heuristic cachePoints when a caller 1h ttl is downgraded to 5m", async () => {
 		const longContent = "A".repeat(5000);
 		const requestBody = (await prepareRequestBody(
@@ -6740,9 +6838,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("should sanitize complex tool schemas for Bedrock Converse", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-sonnet-4-6",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[{ role: "user", content: "Run a tool" }],
 			false,
 			undefined,
@@ -6828,9 +6926,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("should group consecutive tool results into a single user message", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-sonnet-4-6",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[
 				{ role: "user", content: "What is the weather and time in Berlin?" },
 				{
@@ -6926,12 +7024,70 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 			],
 		});
 	});
+	test("sends text parts of an assistant message with tool calls as text blocks", async () => {
+		const requestBody = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-5",
+			null,
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
+			[
+				{ role: "user", content: "What is the weather in Berlin?" },
+				{
+					role: "assistant",
+					content: [
+						{ type: "text", text: "Let me check." },
+						{ type: "text", text: "   " },
+						{ type: "text", text: "One moment." },
+					],
+					tool_calls: [
+						{
+							id: "tool_1",
+							type: "function",
+							function: {
+								name: "get_weather",
+								arguments: JSON.stringify({ city: "Berlin" }),
+							},
+						},
+					],
+				},
+				{
+					role: "tool",
+					tool_call_id: "tool_1",
+					content: JSON.stringify({ temperature: 17 }),
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const assistant = requestBody.messages[1];
+		expect(assistant.role).toBe("assistant");
+		expect(assistant.content[0]).toEqual({ text: "Let me check." });
+		expect(assistant.content[1]).toEqual({ text: "One moment." });
+		expect(assistant.content[2]).toEqual({
+			toolUse: {
+				toolUseId: "tool_1",
+				name: "get_weather",
+				input: { city: "Berlin" },
+			},
+		});
+	});
 	test("synthesizes toolConfig when history has tool blocks but request omits tools", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-opus-4-8",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-opus-4-8",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[
 				{ role: "user", content: "What is the weather in Berlin?" },
 				{
@@ -6992,9 +7148,9 @@ describe("prepareRequestBody - AWS Bedrock", () => {
 	test("does not synthesize toolConfig when history has no tool blocks", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-opus-4-8",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-opus-4-8",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[{ role: "user", content: "Hello there" }],
 			false,
 			undefined,
@@ -7108,9 +7264,9 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 	test("aws-bedrock forwards budget into additionalModelRequestFields.thinking.budget_tokens", async () => {
 		const requestBody = (await prepareRequestBody(
 			"aws-bedrock",
-			"claude-sonnet-4-6",
+			"claude-sonnet-4-5",
 			null,
-			"anthropic.claude-sonnet-4-6",
+			"anthropic.claude-sonnet-4-5-20250929-v1:0",
 			[{ role: "user", content: "What is 2/3 + 1/4 + 5/6?" }],
 			false,
 			undefined,
@@ -7207,6 +7363,69 @@ describe("prepareRequestBody - reasoning.max_tokens forwarding", () => {
 			budget,
 		);
 	});
+});
+
+describe("prepareRequestBody - Alibaba Wan 2.7 image size", () => {
+	async function prepareWanImageRequest(
+		content: BaseMessage["content"],
+		image_size: string,
+	) {
+		return (await prepareRequestBody(
+			"alibaba",
+			"wan-2-7-image-pro",
+			null,
+			"wan2.7-image-pro",
+			[{ role: "user", content }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			{ image_size },
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("forwards 4K for text-to-image", async () => {
+		const body = await prepareWanImageRequest("A teapot", "4K");
+		expect(body.parameters.size).toBe("4K");
+	});
+
+	const editContent: BaseMessage["content"] = [
+		{ type: "text", text: "Make it blue" },
+		{
+			type: "image_url",
+			image_url: { url: "https://example.com/teapot.png" },
+		},
+	];
+
+	test.each(["4K", "4096x4096", "3000x2000"])(
+		"rejects %s with an input image",
+		async (size) => {
+			await expect(prepareWanImageRequest(editContent, size)).rejects.toThrow(
+				"Wan 2.7 image edits support at most 2K",
+			);
+		},
+	);
+
+	test.each(["2K", "2048x2048", "1536x1024"])(
+		"forwards %s with an input image",
+		async (size) => {
+			const body = await prepareWanImageRequest(editContent, size);
+			expect(body.parameters.size).toBe(size.replace("x", "*"));
+		},
+	);
 });
 
 describe("prepareRequestBody - Alibaba cache_control", () => {
@@ -7344,9 +7563,9 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 		test("forwards caller-supplied max_tokens verbatim", async () => {
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7370,9 +7589,9 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			// is omitted.
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7388,15 +7607,15 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				false,
 			)) as any;
 
-			expect(requestBody.inferenceConfig?.maxTokens).toBe(64000);
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(8192);
 		});
 
 		test("falls back to model maxOutput when caller omits with reasoning enabled", async () => {
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7412,18 +7631,18 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				false,
 			)) as any;
 
-			// claude-sonnet-4-6's aws-bedrock provider mapping declares maxOutput:
-			// 64000. Falling back to a flat 1024 (the old historical Anthropic
+			// claude-sonnet-4-5's aws-bedrock provider mapping declares maxOutput:
+			// 8192. Falling back to a flat 1024 (the old historical Anthropic
 			// default) silently truncates large reasoning + tool responses.
-			expect(requestBody.inferenceConfig?.maxTokens).toBe(64000);
+			expect(requestBody.inferenceConfig?.maxTokens).toBe(8192);
 		});
 
 		test("preserves caller max_tokens even when reasoning is enabled", async () => {
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7449,9 +7668,9 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			// floored by the reasoning check on the way out.
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7481,9 +7700,9 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			// builder must drop them too.
 			const requestBody = (await prepareRequestBody(
 				"aws-bedrock",
-				"claude-sonnet-4-6",
+				"claude-sonnet-4-5",
 				null,
-				"anthropic.claude-sonnet-4-6",
+				"anthropic.claude-sonnet-4-5-20250929-v1:0",
 				[
 					{ role: "user", content: "say hi" },
 					{ role: "assistant", content: "" },
@@ -7840,41 +8059,66 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				expect(requestBody.messages[3].reasoning).toBe(reasoningLeft);
 			},
 		);
-	});
 
-	describe("azure-ai-foundry", () => {
-		test("keeps Grok 4.3 as Azure Foundry chat completions", async () => {
+		test("backfills reasoning_content on every assistant turn for Reflection Beam", async () => {
+			// Beam's chat template rejects any earlier assistant turn without a
+			// non-empty reasoning_content, tool call or not (verified 2026-11-16).
 			const requestBody = (await prepareRequestBody(
-				"azure-ai-foundry",
-				"grok-4-3",
+				"together-ai",
+				"beam-1.0-501b-a23b",
 				null,
-				"grok-4.3",
-				[{ role: "user", content: "Hello!" }],
-				true,
-				0.2,
-				8192,
-				0.9,
+				"reflection/Beam-1.0-501B-A23B",
+				[
+					{ role: "user", content: "Hi" },
+					{ role: "assistant", content: "Hello!" },
+					{ role: "user", content: "Weather in Paris?" },
+					{
+						role: "assistant",
+						content: "",
+						reasoning: "Look it up.",
+						tool_calls: [
+							{
+								id: "call_1",
+								type: "function",
+								function: {
+									name: "get_weather",
+									arguments: '{"city":"Paris"}',
+								},
+							},
+						],
+					},
+					{ role: "tool", tool_call_id: "call_1", content: "sunny" },
+					{ role: "assistant", content: "Sunny.", reasoning_content: "" },
+					{ role: "user", content: "Thanks!" },
+				],
+				false,
 				undefined,
 				undefined,
 				undefined,
 				undefined,
 				undefined,
-				"medium",
-				true,
-			)) as unknown as Record<string, unknown>;
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
 
-			expect(requestBody.model).toBe("grok-4.3");
-			expect(requestBody.messages).toEqual([
-				{ role: "user", content: "Hello!" },
-			]);
-			expect(requestBody.stream).toBe(true);
-			expect(requestBody.stream_options).toEqual({ include_usage: true });
-			expect(requestBody.temperature).toBe(0.2);
-			expect(requestBody.max_tokens).toBe(8192);
-			expect(requestBody.max_completion_tokens).toBeUndefined();
-			expect(requestBody.top_p).toBe(0.9);
-			expect(requestBody.reasoning_effort).toBe("medium");
-			expect(requestBody.inferenceConfig).toBeUndefined();
+			expect(
+				[1, 3, 5].map((i) => requestBody.messages[i].reasoning_content),
+			).toEqual([" ", "Look it up.", " "]);
+			expect(requestBody.messages[3].reasoning).toBeUndefined();
+			expect(requestBody.messages[0].reasoning_content).toBeUndefined();
 		});
 	});
 
@@ -9059,6 +9303,62 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			expect(requestBody.max_tokens).toBeUndefined();
 		});
 	});
+
+	describe("meta", () => {
+		test.each([
+			["meta", "muse-wonder-1.0"],
+			["meta-contributor", "muse-spark-1.3-contributor"],
+		] as const)(
+			"raises max_tokens below 16 to 16 for %s",
+			async (provider, model) => {
+				const requestBody = (await prepareRequestBody(
+					provider,
+					model,
+					null,
+					model,
+					[{ role: "user", content: "Hello!" }],
+					false,
+					undefined,
+					1,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					false,
+				)) as OpenAIResponsesRequestBody;
+
+				expect(requestBody.max_output_tokens).toBe(16);
+			},
+		);
+
+		test("forwards max_tokens of 16 or more verbatim", async () => {
+			const requestBody = (await prepareRequestBody(
+				"meta",
+				"muse-wonder-1.0",
+				null,
+				"muse-wonder-1.0",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				32,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as OpenAIResponsesRequestBody;
+
+			expect(requestBody.max_output_tokens).toBe(32);
+		});
+	});
 });
 
 describe("prepareRequestBody - upstream prompt_cache_key", () => {
@@ -9369,10 +9669,16 @@ describe("prepareRequestBody - Xiaomi", () => {
 			false,
 		)) as any;
 
-		expect(requestBody.messages).toHaveLength(2);
+		expect(requestBody.messages).toHaveLength(3);
 		expect(requestBody.messages[0].content).toBe("describe this");
 		expect(requestBody.messages[1].role).toBe("tool");
 		expect(requestBody.messages[1].content).toBe("screenshot taken");
+		// The image moves to a user turn instead of being dropped.
+		expect(requestBody.messages[2].role).toBe("user");
+		expect(requestBody.messages[2].content).toContainEqual({
+			type: "image_url",
+			image_url: { url: "data:image/png;base64,abc" },
+		});
 	});
 
 	test("leaves tool message with plain string content unchanged", async () => {
@@ -9518,7 +9824,14 @@ describe("prepareRequestBody - Xiaomi", () => {
 			false,
 		)) as any;
 
-		expect(requestBody.messages[0].content).toBe("");
+		expect(requestBody.messages[0].content).toBe(
+			"The tool returned an image, attached in the next user message.",
+		);
+		expect(requestBody.messages[1].role).toBe("user");
+		expect(requestBody.messages[1].content).toContainEqual({
+			type: "image_url",
+			image_url: { url: "data:image/png;base64,abc" },
+		});
 	});
 
 	test("applies standard default params (stream_options, temperature, etc.)", async () => {
@@ -9600,6 +9913,8 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 		["anthropic", "claude-sonnet-5"],
 		["anthropic", "claude-sonnet-4-5"],
 		["vertex-anthropic", "claude-sonnet-4-5"],
+		["aws-bedrock", "claude-haiku-5-5"],
+		["aws-bedrock", "claude-sonnet-5"],
 	] as const)(
 		"%s %s forwards none as thinking disabled",
 		async (provider, model) => {
@@ -9635,8 +9950,8 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 		expect(requestBody.thinking).toBeUndefined();
 	});
 
-	test.each(["claude-haiku-5-5", "claude-sonnet-5", "claude-sonnet-4-5"])(
-		"aws-bedrock %s forwards none as thinking disabled",
+	test.each(["claude-sonnet-4-5"])(
+		"aws-bedrock Converse %s forwards none as thinking disabled",
 		async (model) => {
 			const requestBody = await prepare({
 				provider: "aws-bedrock",
@@ -9657,7 +9972,7 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 	test("aws-bedrock sends no thinking field when no effort is requested", async () => {
 		const requestBody = await prepare({
 			provider: "aws-bedrock",
-			model: "claude-haiku-5-5",
+			model: "claude-sonnet-4-5",
 		});
 
 		expect(requestBody.additionalModelRequestFields?.thinking).toBeUndefined();
@@ -9676,10 +9991,10 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 		])(
 			"forwards %s as toolConfig.toolChoice",
 			async (_label, toolChoice, expected) => {
-				for (const reasoningEffort of [undefined, "none", "high"] as const) {
+				for (const reasoningEffort of [undefined, "none"] as const) {
 					const requestBody = await prepare({
 						provider: "aws-bedrock",
-						model: "claude-haiku-5-5",
+						model: "claude-sonnet-4-5",
 						reasoningEffort,
 						toolChoice,
 					});
@@ -9695,6 +10010,7 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 				"anthropic",
 				"vertex-anthropic",
 				"azure-anthropic",
+				"aws-bedrock",
 			] as const) {
 				const requestBody = await prepare({
 					provider,
@@ -9703,18 +10019,12 @@ describe("prepareRequestBody - Anthropic thinking disabled", () => {
 				});
 				expect(requestBody.tool_choice).toEqual({ type: "any" });
 			}
-			const bedrock = await prepare({
-				provider: "aws-bedrock",
-				model: "claude-sonnet-5",
-				toolChoice: "required",
-			});
-			expect(bedrock.toolConfig.toolChoice).toEqual({ any: {} });
 		});
 
 		test("leaves auto unset", async () => {
 			const requestBody = await prepare({
 				provider: "aws-bedrock",
-				model: "claude-haiku-5-5",
+				model: "claude-sonnet-4-5",
 				toolChoice: "auto",
 			});
 
@@ -9977,7 +10287,7 @@ describe("prepareRequestBody - DashScope web search", () => {
 			webSearchTool,
 		) as Promise<any>;
 
-	test.each(["alibaba", "scx-ai-gp"])(
+	test.each(["alibaba"])(
 		"%s pairs enable_search with forced_search when forced",
 		async (provider) => {
 			const requestBody = await prepare(provider, "qwen3.8-max", {
@@ -9992,20 +10302,17 @@ describe("prepareRequestBody - DashScope web search", () => {
 		},
 	);
 
-	test.each(["alibaba", "scx-ai-gp"])(
-		"%s omits search_strategy",
-		async (provider) => {
-			const requestBody = await prepare(provider, "qwen3.8-max", {
-				type: "web_search",
-				forced: true,
-			});
+	test.each(["alibaba"])("%s omits search_strategy", async (provider) => {
+		const requestBody = await prepare(provider, "qwen3.8-max", {
+			type: "web_search",
+			forced: true,
+		});
 
-			// The Qwen max models 400 on the documented "agent" policy.
-			expect(requestBody.search_options.search_strategy).toBeUndefined();
-		},
-	);
+		// The Qwen max models 400 on the documented "agent" policy.
+		expect(requestBody.search_options.search_strategy).toBeUndefined();
+	});
 
-	test.each(["alibaba", "scx-ai-gp"])(
+	test.each(["alibaba"])(
 		"%s sends no search params for a merely offered tool",
 		async (provider) => {
 			// A chat client that leaves a web search toggle on attaches the tool to
@@ -10042,7 +10349,7 @@ describe("prepareRequestBody - DashScope web search", () => {
 		expect(requestBody.tools).toContainEqual({ type: "web_search" });
 	});
 
-	test.each(["alibaba", "scx-ai-gp"])(
+	test.each(["alibaba"])(
 		"%s sends no search params without a web_search tool",
 		async (provider) => {
 			const requestBody = await prepare(provider, "qwen3.8-max");
@@ -10051,6 +10358,91 @@ describe("prepareRequestBody - DashScope web search", () => {
 			expect(requestBody.search_options).toBeUndefined();
 		},
 	);
+});
+
+describe("prepareRequestBody - cache-only web search", () => {
+	const cachedOnly = {
+		type: "web_search",
+		external_web_access: false,
+	} as const;
+	const prepare = (
+		provider: string,
+		model: string,
+		useResponsesApi?: boolean,
+		webSearchTool: WebSearchTool = cachedOnly,
+	) =>
+		prepareRequestBody(
+			provider as any,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "hi" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			20,
+			null,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			webSearchTool,
+			undefined,
+			useResponsesApi,
+		) as Promise<any>;
+
+	test("openai forwards external_web_access on the Responses API", async () => {
+		const requestBody = await prepare("openai", "gpt-5");
+
+		expect(requestBody.tools).toEqual([
+			{ type: "web_search", external_web_access: false },
+		]);
+	});
+
+	test("openai drops it on Chat Completions, which has no cache-only mode", async () => {
+		const requestBody = await prepare("openai", "gpt-5", false);
+
+		expect(requestBody.tools).toBeUndefined();
+		expect(requestBody.web_search_options).toBeUndefined();
+	});
+
+	test.each([
+		["azure", "gpt-5"],
+		["anthropic", "claude-sonnet-4-6"],
+		["google-ai-studio", "gemini-2.5-flash"],
+	])(
+		"%s drops it instead of running a live search",
+		async (provider, model) => {
+			const requestBody = await prepare(provider, model);
+
+			expect(JSON.stringify(requestBody)).not.toMatch(
+				/web_search|googleSearch|google_search/,
+			);
+		},
+	);
+
+	test("live search is unchanged on a provider without cache-only mode", async () => {
+		const requestBody = await prepare(
+			"anthropic",
+			"claude-sonnet-4-6",
+			undefined,
+			{
+				type: "web_search",
+				external_web_access: true,
+			},
+		);
+
+		expect(JSON.stringify(requestBody.tools)).toContain("web_search");
+	});
 });
 
 describe("prepareRequestBody - declared web search format", () => {
@@ -10075,7 +10467,7 @@ describe("prepareRequestBody - declared web search format", () => {
 		return (prepareRequestBody as (...a: unknown[]) => Promise<any>)(...args);
 	};
 
-	test.each(["openai", "scx-ai-gp", "custom"])(
+	test.each(["openai", "custom"])(
 		"%s sends the tool shape, forcing with required",
 		async (provider) => {
 			const body = await prepare(
@@ -10092,7 +10484,7 @@ describe("prepareRequestBody - declared web search format", () => {
 		},
 	);
 
-	test.each(["openai", "scx-ai-gp", "custom"])(
+	test.each(["openai", "custom"])(
 		"%s sends web_search_options for an offered search",
 		async (provider) => {
 			const body = await prepare(
@@ -10159,6 +10551,68 @@ describe("prepareRequestBody - declared web search format", () => {
 		});
 		expect(body.enable_search).toBe(true);
 		expect(body.search_options).toEqual({ forced_search: true });
+	});
+});
+
+describe("prepareRequestBody - forced Anthropic web search", () => {
+	const prepare = (
+		provider: string,
+		model: string,
+		webSearchTool: unknown,
+		reasoningMaxTokens?: number,
+	) => {
+		const args: unknown[] = [
+			provider,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "hi" }],
+			false,
+		];
+		args[15] = reasoningMaxTokens !== undefined;
+		args[23] = webSearchTool;
+		args[24] = reasoningMaxTokens;
+		return (prepareRequestBody as (...a: unknown[]) => Promise<any>)(...args);
+	};
+
+	test.each(["anthropic", "vertex-anthropic", "azure-anthropic"])(
+		"%s forces the server tool",
+		async (provider) => {
+			const body = await prepare(provider, "claude-sonnet-5", {
+				type: "web_search",
+				forced: true,
+			});
+			expect(body.tools).toEqual([
+				{ type: "web_search_20250305", name: "web_search" },
+			]);
+			expect(body.tool_choice).toEqual({ type: "tool", name: "web_search" });
+		},
+	);
+
+	test("does not force on a model without forced tool choice", async () => {
+		const body = await prepare("anthropic", "claude-fable-5-2", {
+			type: "web_search",
+			forced: true,
+		});
+		expect(body.tool_choice).toBeUndefined();
+	});
+
+	test("leaves an offered search to the model", async () => {
+		const body = await prepare("anthropic", "claude-sonnet-5", {
+			type: "web_search",
+		});
+		expect(body.tool_choice).toBeUndefined();
+	});
+
+	test("does not force under budgeted thinking, which rejects it", async () => {
+		const body = await prepare(
+			"anthropic",
+			"claude-sonnet-4-5",
+			{ type: "web_search", forced: true },
+			2048,
+		);
+		expect(body.thinking).toMatchObject({ type: "enabled" });
+		expect(body.tool_choice).toBeUndefined();
 	});
 });
 
@@ -10360,6 +10814,149 @@ describe("prepareRequestBody - alibaba forced tool use", () => {
 			expect(requestBody.enable_thinking).toBe(false);
 		},
 	);
+});
+
+describe("prepareRequestBody - empty text parts", () => {
+	test.each([
+		["baidu", "kimi-k3", "qianfan-vl-v1"],
+		["sakana", "sakana-namazu", "sakana-namazu-v1.0"],
+	] as const)(
+		"drops empty text parts for %s/%s",
+		async (provider, model, externalId) => {
+			const requestBody = (await prepareRequestBody(
+				provider,
+				model,
+				null,
+				externalId,
+				[
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "describe this" },
+							{ type: "text", text: "" },
+						],
+					},
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as { messages: { content: unknown }[] };
+
+			expect(requestBody.messages[0].content).toEqual([
+				{ type: "text", text: "describe this" },
+			]);
+		},
+	);
+});
+
+describe("prepareRequestBody - fal image generation", () => {
+	async function prepareFalImageRequest(
+		model: string,
+		externalId: string,
+		imageConfig?: {
+			image_size?: string;
+			n?: number;
+			seed?: number;
+			output_format?: string;
+		},
+	) {
+		return (await prepareRequestBody(
+			"fal-ai",
+			model,
+			null,
+			externalId,
+			[
+				{ role: "user", content: "An earlier prompt" },
+				{ role: "assistant", content: "Image generated" },
+				{
+					role: "user",
+					content: [{ type: "text", text: "A lighthouse at dusk" }],
+				},
+			],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+			undefined,
+			imageConfig,
+			undefined,
+			true,
+		)) as any;
+	}
+
+	test("sends the prompt with an explicit size, count, format and seed", async () => {
+		expect(
+			await prepareFalImageRequest(
+				"flux-2-klein-4b",
+				"fal-ai/flux-2/klein/4b",
+				{
+					image_size: "1536x1024",
+					n: 2,
+					seed: 7,
+					output_format: "webp",
+				},
+			),
+		).toEqual({
+			prompt: "A lighthouse at dusk",
+			image_size: { width: 1536, height: 1024 },
+			num_images: 2,
+			output_format: "webp",
+			seed: 7,
+		});
+	});
+
+	test("defaults to the 1024x1024 tier the catalogue bills without a size", async () => {
+		expect(
+			await prepareFalImageRequest("z-image-turbo", "fal-ai/z-image/turbo"),
+		).toEqual({
+			prompt: "A lighthouse at dusk",
+			image_size: { width: 1024, height: 1024 },
+		});
+	});
+
+	test("omits parameters Recraft does not accept", async () => {
+		expect(
+			await prepareFalImageRequest(
+				"recraft-v4.1-flash",
+				"recraft/v4.1/flash/text-to-image",
+				{ image_size: "1024x1536", n: 2, seed: 7, output_format: "png" },
+			),
+		).toEqual({
+			prompt: "A lighthouse at dusk",
+			image_size: { width: 1024, height: 1536 },
+		});
+	});
+
+	test("rejects sizes without a catalogue price", async () => {
+		await expect(
+			prepareFalImageRequest(
+				"flux-3-klein",
+				"blackforestlabs/flux-3/klein/text-to-image",
+				{
+					image_size: "4096x4096",
+				},
+			),
+		).rejects.toBeInstanceOf(RequestError);
+	});
 });
 
 describe("prepareRequestBody - bytedance prompt caching", () => {
@@ -10567,7 +11164,7 @@ describe("prepareRequestBody - parallel_tool_calls", () => {
 	});
 });
 
-describe("prepareRequestBody - tool strict and allowed_callers", () => {
+describe("prepareRequestBody - tool strict, allowed_callers and eager_input_streaming", () => {
 	const strictTool = {
 		type: "function" as const,
 		function: {
@@ -10581,12 +11178,14 @@ describe("prepareRequestBody - tool strict and allowed_callers", () => {
 			strict: true,
 		},
 		allowed_callers: ["code_execution"],
+		eager_input_streaming: true,
 	};
 
 	async function prepare(
 		provider: Parameters<typeof prepareRequestBody>[0],
 		model: string,
 		useResponsesApi = false,
+		stream = false,
 	) {
 		return (await prepareRequestBody(
 			provider,
@@ -10594,7 +11193,7 @@ describe("prepareRequestBody - tool strict and allowed_callers", () => {
 			null,
 			model,
 			[{ role: "user", content: "Weather in Paris?" }],
-			false,
+			stream,
 			undefined,
 			undefined,
 			undefined,
@@ -10618,33 +11217,79 @@ describe("prepareRequestBody - tool strict and allowed_callers", () => {
 		)) as unknown as Record<string, any>;
 	}
 
-	test("Anthropic takes strict and allowed_callers on the tool", async () => {
+	test("Anthropic takes strict, allowed_callers and eager_input_streaming on the tool", async () => {
 		const body = await prepare("anthropic", "claude-sonnet-4-6");
 		expect(body.tools[0]).toMatchObject({
 			name: "get_weather",
 			strict: true,
 			allowed_callers: ["code_execution"],
+			eager_input_streaming: true,
 		});
 	});
 
-	test("OpenAI chat completions keeps function.strict and drops allowed_callers", async () => {
+	test("OpenAI chat completions keeps function.strict and drops the Anthropic fields", async () => {
 		const body = await prepare("openai", "gpt-4o-mini");
 		expect(body.tools[0].function.strict).toBe(true);
 		expect(body.tools[0]).not.toHaveProperty("allowed_callers");
+		expect(body.tools[0]).not.toHaveProperty("eager_input_streaming");
 	});
 
 	test("OpenAI Responses API keeps strict on the flat tool", async () => {
 		const body = await prepare("openai", "gpt-5", true);
 		expect(body.tools[0]).toMatchObject({ name: "get_weather", strict: true });
 		expect(body.tools[0]).not.toHaveProperty("allowed_callers");
+		expect(body.tools[0]).not.toHaveProperty("eager_input_streaming");
 	});
 
-	test("Google drops both", async () => {
+	test("Bedrock Converse turns eager_input_streaming into the fine-grained tool streaming beta", async () => {
+		const body = await prepare("aws-bedrock", "claude-sonnet-4-5", false, true);
+		expect(body.toolConfig.tools[0].toolSpec).not.toHaveProperty(
+			"eager_input_streaming",
+		);
+		expect(body.additionalModelRequestFields.anthropic_beta).toEqual([
+			"fine-grained-tool-streaming-2025-05-14",
+		]);
+
+		const nonStreaming = await prepare("aws-bedrock", "claude-sonnet-4-5");
+		expect(
+			nonStreaming.additionalModelRequestFields?.anthropic_beta,
+		).toBeUndefined();
+	});
+
+	test("Bedrock Converse keeps buffered streaming unless every tool opts in", async () => {
+		const body = (await prepareRequestBody(
+			"aws-bedrock",
+			"claude-sonnet-4-5",
+			null,
+			"claude-sonnet-4-5",
+			[{ role: "user", content: "Weather in Paris?" }],
+			true,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			[
+				strictTool,
+				{
+					...strictTool,
+					function: { ...strictTool.function, name: "get_time" },
+					eager_input_streaming: false,
+				},
+			],
+		)) as unknown as Record<string, any>;
+		expect(body.toolConfig.tools).toHaveLength(2);
+		expect(body.additionalModelRequestFields?.anthropic_beta).toBeUndefined();
+	});
+
+	test("Google drops all of them", async () => {
 		const body = await prepare("google-ai-studio", "gemini-2.5-flash");
 		const declaration = body.tools[0].functionDeclarations[0];
 		expect(declaration.name).toBe("get_weather");
 		expect(declaration).not.toHaveProperty("strict");
 		expect(declaration).not.toHaveProperty("allowed_callers");
+		expect(declaration).not.toHaveProperty("eager_input_streaming");
 	});
 });
 
@@ -10998,4 +11643,54 @@ describe("prepareRequestBody - custom provider cache_control forwarding", () => 
 
 		expect(markers(body).every((marker) => marker === undefined)).toBe(true);
 	});
+});
+
+describe("prepareRequestBody - Alibaba input_audio", () => {
+	async function prepare(data: string) {
+		return (await prepareRequestBody(
+			"alibaba",
+			"qwen3.8-omni-flash",
+			null,
+			"qwen3.8-omni-flash",
+			[
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "What do you hear?" },
+						{ type: "input_audio", input_audio: { data, format: "wav" } },
+					],
+				},
+			],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			true, // supportsReasoning
+			false, // isProd
+		)) as {
+			messages: { content: { input_audio?: { data: string } }[] }[];
+		};
+	}
+
+	test("wraps bare base64 audio in a data URL", async () => {
+		const requestBody = await prepare("UklGRg==");
+		expect(requestBody.messages[0].content[1].input_audio).toEqual({
+			data: "data:;base64,UklGRg==",
+			format: "wav",
+		});
+	});
+
+	test.each(["data:audio/wav;base64,UklGRg==", "https://example.com/a.wav"])(
+		"forwards %s unchanged",
+		async (data) => {
+			const requestBody = await prepare(data);
+			expect(requestBody.messages[0].content[1].input_audio?.data).toBe(data);
+		},
+	);
 });

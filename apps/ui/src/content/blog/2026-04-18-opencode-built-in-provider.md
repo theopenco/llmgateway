@@ -5,6 +5,11 @@ date: 2026-04-18
 title: "LLM Gateway Is Now a Built-in Provider in OpenCode"
 summary: "No config files, no env vars. OpenCode ships LLM Gateway as a first-class provider — select it, paste your key, and start coding with 200+ models."
 categories: ["Integrations"]
+faqs:
+  - question: "How do I use LLM Gateway with OpenCode?"
+    answer: "OpenCode ships LLM Gateway as a built-in provider. Select LLM Gateway from the provider list and add your API key. No config file, environment variable, or adapter package is needed."
+  - question: "What changed in the OpenCode integration?"
+    answer: "Previously you had to create a config file and install an OpenAI-compatible adapter by hand. With native support, OpenCode works like your other tools on the same API key and dashboard."
 image:
   src: "/blog/opencode-built-in-provider.png"
   alt: "LLM Gateway Is Now a Built-in Provider in OpenCode"

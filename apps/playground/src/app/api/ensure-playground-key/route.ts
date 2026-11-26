@@ -8,19 +8,24 @@ import {
 	PLAYGROUND_KEY_COOKIE_NAME,
 } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
+import { readJsonBody } from "@/lib/read-json-body";
 
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 import type { NextRequest } from "next/server";
 
 export async function POST(req: NextRequest) {
+	const bodyPromise = readJsonBody<{ projectId?: string } | null>(req);
 	const user = await getUser();
 	const cookieStore = await cookies();
 	if (!user) {
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
-	const body = await req.json();
-	const { projectId } = body ?? {};
+	const bodyResult = await bodyPromise;
+	if (!bodyResult.ok) {
+		throw bodyResult.error;
+	}
+	const { projectId } = bodyResult.body ?? {};
 	if (!projectId) {
 		return NextResponse.json({ error: "Missing projectId" }, { status: 400 });
 	}

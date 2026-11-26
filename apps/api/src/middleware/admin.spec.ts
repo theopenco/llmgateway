@@ -128,32 +128,39 @@ describe("isAdminRequestAllowed", () => {
 		expect(isAdminRequestAllowed("admin", "DELETE", "/discounts/x")).toBe(true);
 		expect(isAdminRequestAllowed("admin", "GET", "/metrics")).toBe(true);
 	});
-
-	test("viewer is read-only and cannot see platform financials", () => {
-		expect(isAdminRequestAllowed("viewer", "GET", "/organizations/o1")).toBe(
-			true,
-		);
-		expect(isAdminRequestAllowed("viewer", "GET", "/devpass/o1")).toBe(true);
-		expect(isAdminRequestAllowed("viewer", "POST", "/devpass/o1/refund")).toBe(
-			false,
-		);
-		expect(
-			isAdminRequestAllowed("viewer", "PATCH", "/organizations/o1/status"),
-		).toBe(false);
-		for (const path of [
-			"/metrics",
-			"/metrics/timeseries",
-			"/global-stats/providers",
-			"/devpass/kpis",
-			"/chat-plans/usage",
-			"/sdk",
-			"/provider-credentials/spend",
-		]) {
-			expect(isAdminRequestAllowed("viewer", "GET", path)).toBe(false);
-		}
-	});
-
-	test("support can additionally refund", () => {
+	test.each(["GET", "HEAD", "OPTIONS"])(
+		"viewer can read all admin resources with %s",
+		(method) => {
+			for (const path of [
+				"/organizations/o1",
+				"/devpass/o1",
+				"/metrics",
+				"/metrics/timeseries",
+				"/global-stats",
+				"/global-stats/provider-keys",
+				"/global-stats/providers",
+				"/devpass/kpis",
+				"/chat-plans/usage",
+				"/sdk",
+				"/provider-credentials/spend",
+			]) {
+				expect(isAdminRequestAllowed("viewer", method, path), path).toBe(true);
+			}
+		},
+	);
+	test.each(["POST", "PUT", "PATCH", "DELETE", "TRACE", "CONNECT"])(
+		"viewer cannot mutate with %s",
+		(method) => {
+			for (const path of [
+				"/organizations/o1/status",
+				"/discounts/x",
+				"/devpass/o1/refund",
+			]) {
+				expect(isAdminRequestAllowed("viewer", method, path), path).toBe(false);
+			}
+		},
+	);
+	test("support can refund but cannot read platform financials", () => {
 		expect(isAdminRequestAllowed("support", "POST", "/devpass/o1/refund")).toBe(
 			true,
 		);
@@ -164,7 +171,23 @@ describe("isAdminRequestAllowed", () => {
 				"/devpass/o1/cancel-subscription",
 			),
 		).toBe(false);
-		expect(isAdminRequestAllowed("support", "GET", "/metrics")).toBe(false);
+		expect(
+			isAdminRequestAllowed("support", "PATCH", "/organizations/o1/status"),
+		).toBe(false);
+		expect(isAdminRequestAllowed("support", "GET", "/organizations/o1")).toBe(
+			true,
+		);
+		for (const path of [
+			"/metrics",
+			"/global-stats",
+			"/global-stats/provider-keys",
+			"/devpass/kpis",
+			"/chat-plans/usage",
+			"/sdk",
+			"/provider-credentials/spend",
+		]) {
+			expect(isAdminRequestAllowed("support", "GET", path), path).toBe(false);
+		}
 	});
 });
 

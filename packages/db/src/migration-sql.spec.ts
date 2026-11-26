@@ -41,6 +41,112 @@ describe("lintMigrationSql", () => {
 		).toEqual(["multi-table-lock"]);
 	});
 
+	// The previous release keeps running against the migrated schema during the
+	// rollout and after a rollback; #4552 dropped user.time_zone while the
+	// deployed schema.ts still had it, and old pods failed user reads until the
+	// rollout finished.
+	it("flags changes the previous release cannot run against", () => {
+		const sql = [
+			`ALTER TABLE "user" DROP COLUMN "time_zone";`,
+			`ALTER TABLE "project" RENAME COLUMN "name" TO "title";`,
+			`ALTER TABLE "stats" DROP CONSTRAINT "stats_bucket_unique";`,
+			`ALTER TABLE "project" ADD COLUMN "region" text NOT NULL;`,
+			`ALTER TABLE "project" ALTER COLUMN "mode" DROP DEFAULT;`,
+			`DROP TABLE "old_feature";`,
+		].join(`\n${BP}\n`);
+		expect(lintMigrationSql(sql).map((f) => f.rule)).toEqual([
+			"drop-column",
+			"rename",
+			"drop-constraint",
+			"add-not-null-without-default",
+			"drop-default",
+			"drop-table",
+			"multi-table-lock",
+		]);
+	});
+
+	it("accepts contract changes acknowledged on the statement", () => {
+		const sql = `-- migrate:contract #4551 removed it from schema.ts and is deployed\nALTER TABLE "user" DROP COLUMN "time_zone";`;
+		expect(lintMigrationSql(sql)).toEqual([]);
+		expect(
+			lintMigrationSql(
+				`-- migrate:reviewed tiny table\nALTER TABLE "user" DROP COLUMN "time_zone";`,
+			).map((f) => f.rule),
+		).toEqual(["drop-column"]);
+		expect(
+			lintMigrationSql(
+				`-- migrate:contract\nALTER TABLE "user" DROP COLUMN "time_zone";`,
+			).map((f) => f.rule),
+		).toEqual(["drop-column"]);
+	});
+
+	it("ignores keywords inside names, foreign key drops, and generated columns", () => {
+		const sql = [
+			`ALTER TABLE "project" ADD COLUMN "rename_mode" text DEFAULT 'drop column';`,
+			`ALTER TABLE "project" DROP CONSTRAINT "project_org_id_organization_id_fk";`,
+			`ALTER TABLE "project" ADD COLUMN "total" integer GENERATED ALWAYS AS (1) STORED NOT NULL;`,
+		].join(`\n${BP}\n`);
+		expect(lintMigrationSql(sql)).toEqual([]);
+	});
+
+	it("flags dropping an index the previous release may target", () => {
+		const sql = `DROP INDEX IF EXISTS "rate_limit_org_provider_model_unique";`;
+		expect(lintMigrationSql(sql).map((f) => f.rule)).toEqual(["drop-index"]);
+		expect(lintMigrationSql(`-- migrate:contract not unique\n${sql}`)).toEqual(
+			[],
+		);
+	});
+
+	it("checks each ADD COLUMN action and every dropped table", () => {
+		const sql = [
+			`ALTER TABLE "project" ADD COLUMN "a" text DEFAULT 'x' NOT NULL, ADD COLUMN "b" text NOT NULL;`,
+			`CREATE TABLE "scratch" ("id" text);`,
+			`DROP TABLE "scratch", "old_feature";`,
+		].join(`\n${BP}\n`);
+		expect(lintMigrationSql(sql).map((f) => f.rule)).toEqual([
+			"add-not-null-without-default",
+			"drop-table",
+		]);
+	});
+
+	it("flags a table dropped before it is recreated", () => {
+		const sql = [
+			`DROP TABLE "project";`,
+			`CREATE TABLE "project" ("id" text PRIMARY KEY NOT NULL);`,
+		].join(`\n${BP}\n`);
+		expect(lintMigrationSql(sql).map((f) => f.rule)).toEqual(["drop-table"]);
+		expect(
+			lintMigrationSql(
+				[
+					`CREATE TABLE IF NOT EXISTS "project" ("id" text PRIMARY KEY NOT NULL);`,
+					`ALTER TABLE "project" DROP COLUMN "name";`,
+				].join(`\n${BP}\n`),
+			).map((f) => f.rule),
+		).toEqual(["drop-column"]);
+	});
+
+	it("requires a separator between a marker and its reason", () => {
+		expect(
+			lintMigrationSql(
+				`-- migrate:contractual note\nALTER TABLE "user" DROP COLUMN "time_zone";`,
+			).map((f) => f.rule),
+		).toEqual(["drop-column"]);
+		expect(
+			lintMigrationSql(
+				`-- migrate:contract: #4551 is deployed\nALTER TABLE "user" DROP COLUMN "time_zone";`,
+			),
+		).toEqual([]);
+	});
+
+	it("allows additive changes and contract changes on new tables", () => {
+		const sql = [
+			`CREATE TABLE "feature" ("id" text PRIMARY KEY NOT NULL, "x" text);`,
+			`ALTER TABLE "feature" DROP COLUMN "x";`,
+			`ALTER TABLE "project" ADD COLUMN "mode" text DEFAULT 'strict' NOT NULL;`,
+		].join(`\n${BP}\n`);
+		expect(lintMigrationSql(sql)).toEqual([]);
+	});
+
 	it("requires IF NOT EXISTS / IF EXISTS on index changes to existing tables", () => {
 		const sql = [
 			`CREATE INDEX "log_x_idx" ON "log" USING btree ("x");`,
@@ -49,10 +155,11 @@ describe("lintMigrationSql", () => {
 		expect(lintMigrationSql(sql).map((f) => f.rule)).toEqual([
 			"create-index-if-not-exists",
 			"drop-index-if-exists",
+			"drop-index",
 		]);
 		expect(
 			lintMigrationSql(
-				`CREATE INDEX IF NOT EXISTS "log_x_idx" ON "log" ("x");\n${BP}\nDROP INDEX IF EXISTS "log_y_idx";`,
+				`CREATE INDEX IF NOT EXISTS "log_x_idx" ON "log" ("x");\n${BP}\n-- migrate:contract not unique\nDROP INDEX IF EXISTS "log_y_idx";`,
 			),
 		).toEqual([]);
 	});

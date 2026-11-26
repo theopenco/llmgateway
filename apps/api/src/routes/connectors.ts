@@ -377,7 +377,7 @@ connectors.openapi(
 									connectorId,
 									name: z.string(),
 									description: z.string(),
-									inputSchema: z.record(z.unknown()),
+									inputSchema: z.record(z.string(), z.unknown()),
 								}),
 							),
 						}),
@@ -410,7 +410,9 @@ connectors.openapi(
 				required: true,
 				content: {
 					"application/json": {
-						schema: z.object({ input: z.record(z.unknown()) }).strict(),
+						schema: z
+							.object({ input: z.record(z.string(), z.unknown()) })
+							.strict(),
 					},
 				},
 			},

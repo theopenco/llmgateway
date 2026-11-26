@@ -17,6 +17,7 @@ export interface ImageSettings {
 	quality: NonNullable<ImageRequest["quality"]>;
 	moderation: NonNullable<ImageRequest["moderation"]>;
 	aspectRatio: string;
+	format: "image" | "svg";
 }
 export interface ImageResult {
 	modelId: string;
@@ -32,6 +33,7 @@ export function defaultImageSettings(model = "auto"): ImageSettings {
 		quality: config.defaultQuality === "medium" ? "medium" : "low",
 		moderation: "auto",
 		aspectRatio: "auto",
+		format: "image",
 	};
 }
 export async function generateImages(
@@ -47,11 +49,13 @@ export async function generateImages(
 			`This model accepts at most ${config.maxInputImages} reference images.`,
 		);
 	}
+	const svg =
+		settings.format === "svg" && config.supportsSvgOutput && !inputs.length;
 	const gateway = await gatewayClient(projectId, settings.model);
 	const body = {
 		model: settings.model,
 		prompt: prompt.trim(),
-		n: count,
+		n: svg ? 1 : count,
 		...(settings.model !== "auto" && { size: settings.size }),
 		...(!config.usesPixelDimensions &&
 			settings.aspectRatio !== "auto" && {
@@ -70,7 +74,11 @@ export async function generateImages(
 				},
 			})
 		: await gateway.POST("/v1/images/generations", {
-				body: { ...body, response_format: "b64_json" },
+				body: {
+					...body,
+					response_format: "b64_json",
+					...(svg && { output_format: "svg" as const }),
+				},
 			});
 	if (!data?.data?.length || data.data.some((image) => !image.b64_json)) {
 		throw new Error("The model returned no images. Please try again.");
@@ -80,7 +88,7 @@ export async function generateImages(
 		modelName: settings.model,
 		images: data.data.map((image) => ({
 			base64: image.b64_json,
-			mediaType: imageMediaType(image.b64_json),
+			mediaType: svg ? "image/svg+xml" : imageMediaType(image.b64_json),
 		})),
 	};
 }

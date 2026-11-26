@@ -15,7 +15,12 @@ re-derive them.
 Third-party inference providers onboard only through
 [Airside](https://airside.llmgateway.io), the self-serve provider portal. Never
 add a new provider or its mappings here on someone's behalf; if asked to, stop
-and point the user to https://airside.llmgateway.io.
+and point the user to https://airside.llmgateway.io. A maintainer adding a
+provider to the catalogue on our own account (e.g. Cloudflare Workers AI) is
+not onboarding and belongs here.
+
+Configure new production platform credentials in **Admin → Provider credentials**.
+Use `LLM_*` environment keys for local testing, not production credential setup.
 
 ## 1. Scope
 
@@ -47,7 +52,7 @@ git diff origin/main...HEAD -- packages/models/src/models/
 Apply these to every change in `packages/models`:
 
 - Write each model and provider mapping in full as a plain object literal in the `models` array. Duplicated fields are preferred here; small shared `const` values are fine, but no helper (e.g. `makeModel(...)`) builds definition objects.
-- A mapping on `origin/main` is never removed: historical usage and analytics reference it. Retire it with `deactivatedAt: new Date("YYYY-MM-DD")`. Mappings added only on the current branch may be removed. Exception: Iceberg and Granite may be removed with a one-time database cleanup after the source removal deploys, keeping shared models, logs, usage aggregates, and history. Also exempt: providers configured in Airside, as described in [Airside-only providers](#airside-only-providers).
+- A mapping on `origin/main` is never removed: historical usage and analytics reference it. Retire it with `deactivatedAt: new Date("YYYY-MM-DD")`. Mappings added only on the current branch may be removed. Exception: Iceberg, Granite, and Glacier may be removed with a one-time database cleanup after the source removal deploys, keeping shared models, logs, usage aggregates, and history. EmberCloud may be removed once its 2026-10-28 `deactivatedAt` has passed. Reve was removed after its 2026-08-06 `deactivatedAt` passed. RanoAI was removed by explicit user authorization because it stopped serving requests. NanoGPT's static provider and three already-deactivated mappings may be removed by explicit user authorization; retain shared canonical models and historical DB rows. Azure AI Foundry (`azure-ai-foundry`) was removed by explicit user authorization after its 2026-11-07 `deactivatedAt` passed; `azure` serves its models. Also exempt: providers configured in Airside, as described in [Airside-only providers](#airside-only-providers).
 - Set `deactivatedAt` at least 7 days out for a mapping that still serves live requests, or on the provider's announced retirement date. A same-day or retroactive date requires the mapping to be unable to serve any live request today. A rejected parameter, a missing capability, or flaky quality is a metadata fix (`jsonOutput`, `vision`, `reasoningEfforts`, `supportedToolChoices`, `stability: "unstable"`, `test: "skip"`) or a gateway fix; leave the mapping active and say so in the PR.
 - Write per-token prices (`inputPrice`, `outputPrice`, `cachedInputPrice`, …) in `e-6` notation so the coefficient reads as USD per million tokens (`"1.4e-6"`). `requestPrice` (flat USD per request) and `perSecondPrice` are exempt.
 - One model definition has at most one mapping per `providerId`; regional variants go in that mapping's `regions` array. Lookups key on `(providerId, region)`, so a second same-provider mapping silently resolves to the first and bills at its prices. A distinct upstream deployment (e.g. a priority router with its own `externalId` and pricing) gets its own model entry and `id`.
@@ -133,6 +138,8 @@ Probe the deployment. The same model differs between providers, and an
 - `supportsDeveloperRole` / `supportsAssistantPrefill` — default true, flip only
   on a 400.
 - `serviceTiers` — declaring one narrows routing pre-flight.
+- `dataPolicy` — overrides the provider's data policy for compliance checks
+  when the model's retention differs (Fable on Bedrock needs `aws_review`).
 - `stability: "unstable"` / `test: "skip"` for flaky, paid-per-call or
   region-locked mappings.
 - `releasedAt`, plus an `output` entry per capability flag — both enforced by
@@ -146,7 +153,9 @@ reasoning payloads only verify on that provider; routing then never moves such
 models to another provider (exploration, low-uptime fallback, error retry).
 Probed 2026-09: OpenAI and Azure reject each other's `encrypted_content`, AI
 Studio and Vertex reject each other's Gemini 3 signatures, but signatures
-replay across different keys of the same Google platform.
+replay across different keys of the same Google platform. On mixed-protocol
+providers, set mapping-level `encryptedReasoning: false` when a deployment
+returns no bound payloads; keep its actual `reasoning` capability.
 
 ## 5. Reasoning efforts
 
@@ -210,10 +219,9 @@ newly priced knob isn't forwarded by
 | `ocr`               | `ocrPagePrice`                                               | `ocr.e2e.ts`            |
 | `rerank`            | token prices                                                 | `rerank.e2e.ts`         |
 
-`realtime` has no e2e file — it is covered by `apps/gateway/src/realtime/*.spec.ts`
-plus `realtime-models.spec.ts`, which fails any realtime mapping missing its
-per-modality token prices. `realtimeTranscription` only on token-metered ASR
-mappings.
+`realtime` and `realtimeTranscription` mappings run in `realtime.e2e.ts` and
+`realtime-transcription.e2e.ts`; `realtime-models.spec.ts` fails any realtime
+mapping missing its per-modality token prices.
 
 Image and video are the one docs exception to never enumerating models: update
 `apps/docs/content/(gateway)/features/{image,video}-generation.mdx`.
@@ -232,6 +240,32 @@ maximum is the subscription's shared quota for the model (Operate → Quota). On
 a model shows 100% allocated there, more capacity needs a Request quota
 submission to Microsoft or a resource in another subscription, which has its own
 quota.
+
+## Alibaba regions and workspaces
+
+Alibaba keys are region-scoped (`regionConfig` in `providers.ts` leaves
+`sharedCredentialAcrossRegions` unset). A key works only against its own
+region's host, so a 401 on every Alibaba model, existing ones included, means a
+wrong or missing regional key, not a broken mapping.
+
+- Keys: `LLM_ALIBABA_API_KEY` covers only the default region (`singapore`).
+  Every other region needs its own `LLM_ALIBABA_API_KEY__<REGION>` (suffix from
+  `getRegionEnvVarSuffix`, e.g. `EU_FRANKFURT`, `US_VIRGINIA`, `CN_BEIJING`,
+  `CN_HONGKONG`, `AP_TOKYO`); without it routing treats the region as
+  unavailable.
+- Routing: `pinDefaultRegion` is unset, so a request without `:region` goes to
+  the cheapest region the mapping lists that has a key, not always to
+  Singapore. Put each region the model is listed for on Model Studio's pricing
+  page in the mapping's `regions` array with that region's prices; models are
+  often region-limited, so don't claim a region without checking.
+- Workspaces: Singapore, US Virginia and Beijing use shared DashScope hosts.
+  Frankfurt, Hong Kong and Tokyo are served only by a workspace-dedicated
+  `https://<workspaceId>.<region>.maas.aliyuncs.com` host. The workspace id
+  comes from the key's provider options, else
+  `LLM_ALIBABA_WORKSPACE_ID__<REGION>`, else `LLM_ALIBABA_WORKSPACE_ID`. When
+  none resolves, the gateway uses that region's trial host (1000 RPM, no SLA),
+  which is not a valid test of the mapping.
+- Test every region separately: `TEST_MODELS="alibaba/<model>:<region>"`.
 
 ## 7. Verify
 
@@ -256,10 +290,12 @@ TEST_MODELS="<provider>/<model>" FULL_MODE=true pnpm test:e2e
 Add the relevant action and Playground specs when those files changed. Run all
 tests against the isolated database required by `AGENTS.md`.
 
+- Run the scoped e2e locally for every new or edited mapping whenever its
+  credentials are available, before opening the PR or enabling auto-merge.
 - For mapping-only changes, the scoped local run is the only relevant e2e
-  result. Never run e2e without `TEST_MODELS` or trigger the GitHub e2e
-  workflow. Failures outside the selected mappings, including failures from an
-  accidentally triggered full run, do not affect acceptance or auto-merge.
+  result. NEVER run e2e without `TEST_MODELS`: it runs every model and burns
+  real spend. Failures outside the selected mappings do not affect acceptance
+  or auto-merge.
   Once every selected mapping passes, e2e has passed for the change.
 - Scope e2e with `TEST_MODELS`, and don't invoke the `*.e2e.ts` files one by
   one. It overrides `test: "skip"`, takes regions as `provider/model:region`,

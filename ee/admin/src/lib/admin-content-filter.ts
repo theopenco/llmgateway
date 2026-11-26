@@ -23,6 +23,16 @@ export async function getContentFilterViolations(
 	return data ?? null;
 }
 
+export async function getContentFilterClassifiers(
+	window: ContentFilterViolationsWindow,
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/content-filter/classifiers", {
+		params: { query: { window } },
+	});
+	return data ?? null;
+}
+
 export type ContentFilterErrorKind =
 	| "upstream_4xx"
 	| "upstream_5xx"
