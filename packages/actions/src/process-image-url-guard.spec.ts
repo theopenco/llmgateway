@@ -81,7 +81,41 @@ test("uses the connect-time guard when content URL safety is enabled", async () 
 	});
 	expect(fetchSafeUserUrl).toHaveBeenCalledWith(
 		"https://example.com/image.png",
-		undefined,
+		{ signal: expect.any(AbortSignal) },
 	);
 	expect(unsafeFetch).not.toHaveBeenCalled();
 });
+
+test.each([
+	new RequestError("fixture policy rejection"),
+	Object.assign(new Error("fetch failed"), {
+		cause: Object.assign(new Error("unsafe socket"), { code: "EACCES" }),
+	}),
+])(
+	"preserves policy-error precedence over simultaneous caller cancellation: %j",
+	async (error) => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "false");
+		vi.mocked(assertSafeUserContentUrl).mockResolvedValueOnce(undefined);
+		const caller = new AbortController();
+		vi.mocked(fetchSafeUserUrl).mockImplementationOnce(async () => {
+			caller.abort(new DOMException("caller deadline", "TimeoutError"));
+			throw error;
+		});
+		const result = processImageUrl(
+			"https://example.com/image.png",
+			false,
+			20,
+			null,
+			caller.signal,
+		);
+		if (error instanceof RequestError) {
+			await expect(result).rejects.toBe(error);
+		} else {
+			await expect(result).rejects.toMatchObject({
+				name: "RequestError",
+				statusCode: 400,
+				message: "Image URL is invalid or points to a disallowed host",
+			});
+		}
+	},
+);
