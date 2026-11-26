@@ -277,6 +277,7 @@ const EXPECTED_REGIONS: Record<string, string[]> = {
 	"gpt-6.1-sol": ["global", "us", "us-east-1"],
 	"gpt-6.1-terra": ["global", "us", "us-east-1"],
 	"gpt-6.2-astra": ["global", "us", "us-east-1"],
+	"gpt-6.2-sol": ["global", "us", "us-east-1"],
 };
 
 const PRICE_FIELDS = [
@@ -502,7 +503,11 @@ describe("OpenAI models on AWS Bedrock", () => {
 		// Web search requests hang on these, though plain requests complete.
 		const hangs = new Set(["gpt-5.4:us-east-1", "gpt-5.5:us-east-1"]);
 		// Not yet verified against Bedrock Web Search; gateway-run search serves them.
-		const unverified = new Set(["gpt-6.1-terra", "gpt-6.2-astra"]);
+		const unverified = new Set([
+			"gpt-6.1-terra",
+			"gpt-6.2-astra",
+			"gpt-6.2-sol",
+		]);
 		for (const { modelId, routes } of mantleEntries) {
 			for (const route of routes) {
 				const region = route.region ?? "";
