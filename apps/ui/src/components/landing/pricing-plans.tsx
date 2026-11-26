@@ -83,7 +83,7 @@ export function PricingPlans() {
 			price: "Custom",
 			features: [
 				"Everything in Free",
-				"Unlimited seats",
+				"Up to 100 seats, more on request",
 				"Prioritized feature requests",
 				"On-boarding assistance",
 				"Full request & response retention (30 days)",
