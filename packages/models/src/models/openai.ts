@@ -54,7 +54,6 @@ const OPENAI_REALTIME_VOICES = [
 	"shimmer",
 	"verse",
 ];
-
 export const openaiModels = [
 	{
 		id: "gpt-4o-mini",
@@ -820,6 +819,64 @@ export const openaiModels = [
 				// in a `{"final": "..."}` envelope instead of the requested schema.
 				jsonOutput: false,
 			},
+			{
+				providerId: "aws-mantle",
+				externalId: "openai.gpt-oss-120b",
+				// Mantle serves gpt-oss on `/v1` chat completions only, not the
+				// `/openai/v1` Responses route the GPT-5/6 mappings use.
+				apiFormat: "openai-chat-completions",
+				regions: [
+					{ id: "us-east-1" },
+					{ id: "us-east-2" },
+					{ id: "us-west-2" },
+					{ id: "eu-north-1" },
+					{
+						id: "eu-central-1",
+						inputPrice: "0.2e-6",
+						outputPrice: "0.79e-6",
+					},
+					{
+						id: "eu-west-1",
+						inputPrice: "0.18e-6",
+						outputPrice: "0.7e-6",
+					},
+					{
+						id: "eu-west-2",
+						inputPrice: "0.23e-6",
+						outputPrice: "0.93e-6",
+					},
+					{
+						id: "ap-northeast-1",
+						inputPrice: "0.18e-6",
+						outputPrice: "0.73e-6",
+					},
+				],
+				inputPrice: "0.15e-6",
+				outputPrice: "0.6e-6",
+				requestPrice: "0",
+				contextSize: 131072,
+				maxOutput: 131072,
+				// Near 2 the deployment samples until the output limit (8K+ tokens,
+				// 45-90s for a one-word reply); 1.5 still finishes in seconds.
+				maxTemperature: 1.5,
+				streaming: true,
+				vision: false,
+				tools: true,
+				// tool_choice "none" is ignored: the model still calls tools.
+				supportedToolChoices: ["auto", "required", "function"],
+				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
+				// response_format is accepted but the output is frequently not valid JSON.
+				jsonOutput: false,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+			},
 		],
 	},
 	{
@@ -862,6 +919,62 @@ export const openaiModels = [
 				// ("Input validation error") on anything outside low/medium/high.
 				reasoningEfforts: ["low", "medium", "high"],
 				jsonOutput: false,
+			},
+			{
+				providerId: "aws-mantle",
+				externalId: "openai.gpt-oss-20b",
+				apiFormat: "openai-chat-completions",
+				regions: [
+					{ id: "us-east-1" },
+					{ id: "us-east-2" },
+					{ id: "us-west-2" },
+					{ id: "eu-north-1" },
+					{
+						id: "eu-central-1",
+						inputPrice: "0.09e-6",
+						outputPrice: "0.4e-6",
+					},
+					{
+						id: "eu-west-1",
+						inputPrice: "0.08e-6",
+						outputPrice: "0.35e-6",
+					},
+					{
+						id: "eu-west-2",
+						inputPrice: "0.11e-6",
+						outputPrice: "0.47e-6",
+					},
+					{
+						id: "ap-northeast-1",
+						inputPrice: "0.08e-6",
+						outputPrice: "0.36e-6",
+					},
+				],
+				inputPrice: "0.07e-6",
+				outputPrice: "0.3e-6",
+				requestPrice: "0",
+				contextSize: 131072,
+				maxOutput: 131072,
+				// Near 2 the deployment samples until the output limit (8K+ tokens,
+				// 45-90s for a one-word reply); 1.5 still finishes in seconds.
+				maxTemperature: 1.5,
+				streaming: true,
+				vision: false,
+				tools: true,
+				// tool_choice "none" is ignored: the model still calls tools.
+				supportedToolChoices: ["auto", "required", "function"],
+				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high"],
+				// response_format is accepted but the output is frequently not valid JSON.
+				jsonOutput: false,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 		],
 	},
@@ -1630,6 +1743,65 @@ export const openaiModels = [
 				],
 				jsonOutput: true,
 			},
+			{
+				providerId: "aws-mantle",
+				externalId: "openai.gpt-5.4",
+				// Requests carrying a reasoning summary never complete on several of
+				// these routes, so none is requested.
+				reasoningSummary: "omit",
+				regions: [
+					// Web search requests never complete in us-east-1 (no response
+					// in 400s), while plain requests there do.
+					{ id: "us-east-1", webSearch: false },
+					{ id: "us-east-2" },
+					{ id: "us-west-2" },
+				],
+				inputPrice: "2.75e-6",
+				outputPrice: "16.5e-6",
+				cachedInputPrice: "0.275e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "2.75e-6",
+						outputPrice: "16.5e-6",
+						cachedInputPrice: "0.275e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "5.5e-6",
+						outputPrice: "24.75e-6",
+						cachedInputPrice: "0.55e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 921600,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				// Bedrock Web Search runs only on in-region Mantle routes in the
+				// commercial US regions; cross-region profiles go through
+				// bedrock-runtime, which lacks it. $12 per 1,000 queries.
+				webSearch: true,
+				webSearchPrice: "0.012",
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"verbosity",
+					"tools",
+					"tool_choice",
+				],
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -1933,6 +2105,58 @@ export const openaiModels = [
 				],
 				jsonOutput: true,
 			},
+			{
+				providerId: "aws-mantle",
+				externalId: "openai.gpt-5.5",
+				// Requests carrying a reasoning summary never complete on several of
+				// these routes, so none is requested.
+				reasoningSummary: "omit",
+				// Web search requests never complete in us-east-1 (no response in
+				// 400s), while plain requests there do.
+				regions: [{ id: "us-east-1", webSearch: false }, { id: "us-east-2" }],
+				inputPrice: "5.5e-6",
+				outputPrice: "33.0e-6",
+				cachedInputPrice: "0.55e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "5.5e-6",
+						outputPrice: "33.0e-6",
+						cachedInputPrice: "0.55e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "11.0e-6",
+						outputPrice: "49.5e-6",
+						cachedInputPrice: "1.1e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 921600,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.012",
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"verbosity",
+					"tools",
+					"tool_choice",
+				],
+				jsonOutput: true,
+			},
 		],
 	},
 	{
@@ -2109,6 +2333,7 @@ export const openaiModels = [
 				regions: [
 					{
 						id: "global",
+						webSearch: false,
 						inputPrice: "5.0e-6",
 						outputPrice: "30.0e-6",
 						cachedInputPrice: "0.5e-6",
@@ -2132,6 +2357,7 @@ export const openaiModels = [
 							},
 						],
 					},
+					{ id: "us", webSearch: false },
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },
 				],
@@ -2171,9 +2397,9 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.012",
 				reasoning: true,
-				// AWS rejects the explicit `detailed` and `concise` summary modes
-				// with `unsupported_parameter` on both routes; `auto` is accepted.
 				reasoningSummary: "auto",
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
@@ -2307,14 +2533,10 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-terra",
-				// Global cross-region inference (global.openai.gpt-5.6-terra)
-				// runs on the Runtime endpoint at OpenAI's own rates; the 10%
-				// data-residency premium below applies to the in-region Mantle
-				// deployments only. In-region pricing is identical across the
-				// concrete regions, so those entries carry no overrides.
 				regions: [
 					{
 						id: "global",
+						webSearch: false,
 						inputPrice: "2.0e-6",
 						outputPrice: "12.0e-6",
 						cachedInputPrice: "0.2e-6",
@@ -2338,6 +2560,7 @@ export const openaiModels = [
 							},
 						],
 					},
+					{ id: "us", webSearch: false },
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },
 					{ id: "us-west-2" },
@@ -2378,9 +2601,9 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.012",
 				reasoning: true,
-				// AWS rejects the explicit `detailed` and `concise` summary modes
-				// with `unsupported_parameter` on both routes; `auto` is accepted.
 				reasoningSummary: "auto",
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
@@ -2513,14 +2736,10 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-luna",
-				// Global cross-region inference (global.openai.gpt-5.6-luna)
-				// runs on the Runtime endpoint at OpenAI's own rates; the 10%
-				// data-residency premium below applies to the in-region Mantle
-				// deployments only. In-region pricing is identical across the
-				// concrete regions, so those entries carry no overrides.
 				regions: [
 					{
 						id: "global",
+						webSearch: false,
 						inputPrice: "0.2e-6",
 						outputPrice: "1.2e-6",
 						cachedInputPrice: "0.02e-6",
@@ -2544,6 +2763,7 @@ export const openaiModels = [
 							},
 						],
 					},
+					{ id: "us", webSearch: false },
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },
 					{ id: "us-west-2" },
@@ -2584,9 +2804,9 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.012",
 				reasoning: true,
-				// AWS rejects the explicit `detailed` and `concise` summary modes
-				// with `unsupported_parameter` on both routes; `auto` is accepted.
 				reasoningSummary: "auto",
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
@@ -2718,9 +2938,35 @@ export const openaiModels = [
 				externalId: "openai.gpt-6-astra",
 				reasoningSummary: "auto",
 				regions: [
-					{ id: "global" },
+					{ id: "global", webSearch: false },
 					{
 						id: "us",
+						webSearch: false,
+						inputPrice: "11.0e-6",
+						outputPrice: "55.0e-6",
+						cachedInputPrice: "1.1e-6",
+						cacheWriteInputPrice: "13.75e-6",
+						pricingTiers: [
+							{
+								name: "Up to 272K",
+								upToTokens: 272000,
+								inputPrice: "11.0e-6",
+								outputPrice: "55.0e-6",
+								cachedInputPrice: "1.1e-6",
+								cacheWriteInputPrice: "13.75e-6",
+							},
+							{
+								name: "Over 272K",
+								upToTokens: Infinity,
+								inputPrice: "22.0e-6",
+								outputPrice: "82.5e-6",
+								cachedInputPrice: "2.2e-6",
+								cacheWriteInputPrice: "27.5e-6",
+							},
+						],
+					},
+					{
+						id: "us-east-1",
 						inputPrice: "11.0e-6",
 						outputPrice: "55.0e-6",
 						cachedInputPrice: "1.1e-6",
@@ -2793,12 +3039,14 @@ export const openaiModels = [
 					},
 				],
 				requestPrice: "0",
-				contextSize: 1050000,
+				contextSize: 921600,
 				maxOutput: 128000,
 				streaming: true,
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.012",
 				reasoning: true,
 				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
@@ -2931,9 +3179,10 @@ export const openaiModels = [
 				externalId: "openai.gpt-6-sol",
 				reasoningSummary: "auto",
 				regions: [
-					{ id: "global" },
+					{ id: "global", webSearch: false },
 					{
 						id: "us",
+						webSearch: false,
 						inputPrice: "2.2e-6",
 						outputPrice: "11.0e-6",
 						cachedInputPrice: "0.22e-6",
@@ -3012,6 +3261,8 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.012",
 				reasoning: true,
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
@@ -3144,9 +3395,10 @@ export const openaiModels = [
 				externalId: "openai.gpt-6.1-sol",
 				reasoningSummary: "auto",
 				regions: [
-					{ id: "global" },
+					{ id: "global", webSearch: false },
 					{
 						id: "us",
+						webSearch: false,
 						inputPrice: "2.2e-6",
 						outputPrice: "11.0e-6",
 						cachedInputPrice: "0.11e-6",
@@ -3225,6 +3477,8 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.012",
 				reasoning: true,
 				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
@@ -3994,9 +4248,10 @@ export const openaiModels = [
 				externalId: "openai.gpt-6-luna",
 				reasoningSummary: "auto",
 				regions: [
-					{ id: "global" },
+					{ id: "global", webSearch: false },
 					{
 						id: "us",
+						webSearch: false,
 						inputPrice: "0.11e-6",
 						outputPrice: "0.55e-6",
 						cachedInputPrice: "0.011e-6",
@@ -4075,6 +4330,8 @@ export const openaiModels = [
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.012",
 				reasoning: true,
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",

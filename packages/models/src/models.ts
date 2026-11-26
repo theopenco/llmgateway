@@ -676,8 +676,11 @@ export interface ProviderModelMapping {
 	reasoningOutput?: "omit";
 	/** Overrides the provider default for credential-bound reasoning payloads. */
 	encryptedReasoning?: boolean;
-	/** Responses API reasoning summary mode. Defaults to detailed. */
-	reasoningSummary?: "auto" | "detailed";
+	/**
+	 * Responses API reasoning summary mode. Defaults to detailed; `omit` sends
+	 * no summary request.
+	 */
+	reasoningSummary?: "auto" | "detailed" | "omit";
 	/**
 	 * Whether this model supports explicit reasoning.max_tokens parameter.
 	 * When true, users can specify the exact token budget for reasoning instead of using reasoning_effort levels.

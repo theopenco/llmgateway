@@ -3237,6 +3237,11 @@ export async function prepareRequestBody(
 							: "high"
 						: (reasoning_effort ?? defaultEffort);
 
+				const reasoningSummary =
+					providerMappingForOptions?.reasoningSummary ?? "detailed";
+				const reasoningSummaryField =
+					reasoningSummary === "omit" ? {} : { summary: reasoningSummary };
+
 				// Muse Spark reasons adaptively when effort is omitted and rejects
 				// "none", so only forward an effort the caller explicitly set.
 				const responsesBody: OpenAIResponsesRequestBody = {
@@ -3248,13 +3253,11 @@ export async function prepareRequestBody(
 									...(reasoning_effort !== undefined && {
 										effort: reasoning_effort,
 									}),
-									summary:
-										providerMappingForOptions?.reasoningSummary ?? "detailed",
+									...reasoningSummaryField,
 								}
 							: {
 									effort: responsesReasoningEffort,
-									summary:
-										providerMappingForOptions?.reasoningSummary ?? "detailed",
+									...reasoningSummaryField,
 									// reasoning.context is only documented on OpenAI's
 									// Responses API surface; other providers reject
 									// unknown reasoning fields.
@@ -3437,8 +3440,14 @@ export async function prepareRequestBody(
 					// so a forced search is forwarded rather than translated. Verified
 					// live: "What is 2+2?" produces no web_search_call without it and
 					// one with it.
+					// Bedrock Mantle rejects that choice ("Tool choice 'web_search'
+					// is not supported"), so it gets "required" instead, which
+					// forces a search when web search is the only tool.
 					if (webSearchTool.forced) {
-						responsesBody.tool_choice = { type: "web_search" };
+						responsesBody.tool_choice =
+							usedProvider === "aws-mantle"
+								? "required"
+								: { type: "web_search" };
 					}
 				}
 

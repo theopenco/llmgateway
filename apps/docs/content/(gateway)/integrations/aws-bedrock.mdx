@@ -118,7 +118,19 @@ Bedrock does not offer Anthropic's web search, web fetch or programmatic tool ca
 
 Some Claude models on Bedrock reject a forced `tool_choice` (`required` or a named function). When a request routes by model, the gateway excludes a Bedrock mapping that cannot honor the forced choice. On other routes, the gateway prefers a provider that honors it and otherwise sends `tool_choice: auto`. The [models page](https://llmgateway.io/models?provider=aws-bedrock) shows what each model supports.
 
+## OpenAI Models and Web Search
+
+OpenAI models on Bedrock use the separate **AWS Bedrock (OpenAI)** provider key. Add the same Long-Term API Key there to use them.
+
+Those models support [native web search](/features/web-search) through Bedrock Web Search, which AWS serves only for in-region routes in its commercial US regions. Requests sent through a cross-region route (`global` or `us`) cannot search, and a few in-region routes are excluded; the [models page](https://llmgateway.io/models?provider=aws-mantle) lists which routes support web search. Bedrock bills each search query separately.
+
+Web search needs IAM permissions beyond `AmazonBedrockFullAccess`, which lacks external web access. Attach the `AmazonBedrockExternalWebSearchReadOnly` managed policy to the key's IAM user, or grant `bedrock-websearch:InvokeSearch`, `bedrock-websearch:InvokeFetch` and `bedrock-websearch:ExternalWebAccess`. When the key's region offers web search, LLM Gateway checks for these permissions when you add the key and rejects a key that lacks them.
+
 ## Troubleshooting
+
+### "Web search is not authorized for this identity"
+
+The key is missing the web search permissions above. Attach the policy in the IAM console and add the key again.
 
 ### "Model not available" error
 

@@ -12987,7 +12987,8 @@ chat.openapi(completions, async (c) => {
 									}
 								} else if (
 									streamFormatProvider === "openai" ||
-									streamFormatProvider === "azure"
+									streamFormatProvider === "azure" ||
+									streamFormatProvider === "aws-mantle"
 								) {
 									// For OpenAI Responses API, count web_search_call.completed
 									// events, unless the terminal event's usage reports the
