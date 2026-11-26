@@ -10,6 +10,7 @@ export * from "./process-image-url.js";
 export * from "./transform-google-messages.js";
 export * from "./google-thought-signatures.js";
 export * from "./get-provider-headers.js";
+export * from "./upstream-request-id.js";
 export * from "./apply-service-tier.js";
 export * from "./costs.js";
 export * from "./routing-baseline.js";

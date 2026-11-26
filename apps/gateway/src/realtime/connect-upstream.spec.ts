@@ -252,6 +252,27 @@ describe("resolveUpstreamTarget", () => {
 			Authorization: "Bearer upstream-secret",
 		});
 	});
+
+	it("sends the session's client request id to OpenAI and Azure only", () => {
+		process.env.LLM_AZURE_RESOURCE = "my-resource";
+		const withId = (providerId: string, externalId: string) =>
+			({
+				...buildPreflight(providerId, externalId),
+				upstreamClientRequestId: "lgr_session",
+			}) as unknown as RealtimePreflightResult;
+		expect(
+			resolveUpstreamTarget(withId("openai", "gpt-realtime-2.1-mini")).headers,
+		).toMatchObject({ "X-Client-Request-Id": "lgr_session" });
+		expect(
+			resolveUpstreamTarget(withId("azure", "gpt-realtime-2.1-mini")).headers,
+		).toEqual({
+			"api-key": "upstream-secret",
+			"x-ms-client-request-id": "lgr_session",
+		});
+		expect(
+			resolveUpstreamTarget(withId("xai", "grok-voice-3.0")).headers,
+		).toEqual({ Authorization: "Bearer upstream-secret" });
+	});
 });
 
 it("omits the gateway safety identifier on BYOK realtime sessions", () => {

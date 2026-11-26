@@ -66,6 +66,8 @@ import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
 import {
 	getProviderDefaultBaseUrl,
 	getProviderHeaders,
+	getUpstreamRequestId,
+	createUpstreamClientRequestId,
 	providerKeyLabel,
 	readProviderKey,
 } from "@llmgateway/actions";
@@ -817,6 +819,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			const providerKeyId = attempt.providerKey?.id;
 			const keyLabel = providerKeyLabel(attempt.providerKey);
 			const usedProviderKey = { id: providerKeyId, label: keyLabel };
+			const upstreamClientRequestId = createUpstreamClientRequestId(providerId);
 			const baseLogEntry = createLogEntry({
 				requestId,
 				project,
@@ -838,6 +841,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				userAgent,
 				rawRequest: { ...upstreamRequestSummary, ...clientSafetyParams },
 				upstreamRequest: upstreamRequestSummary,
+				upstreamClientRequestId,
 			});
 
 			let upstreamResponse: Response;
@@ -856,6 +860,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 						redirect: "error",
 						headers: getProviderHeaders(providerId, attempt.usedToken, {
 							requestId,
+							clientRequestId: upstreamClientRequestId,
 						}),
 						body: buildTranscriptionForm(
 							providerId,
@@ -1039,6 +1044,11 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				}
 			}
 
+			const upstreamRequestId = getUpstreamRequestId(
+				providerId,
+				upstreamResponse.headers,
+			);
+
 			if (!upstreamResponse.ok) {
 				const status = upstreamResponse.status;
 				if (attempt.envVarName !== undefined) {
@@ -1092,6 +1102,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 					{
 						...baseLogEntry,
 						id: willRetry ? attemptLogId : finalLogId,
+						upstreamRequestId,
 						routingMetadata: buildTranscriptionRoutingMetadata(
 							usedApiKeyHash,
 							credentialSource,
@@ -1238,6 +1249,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				{
 					...baseLogEntry,
 					id: finalLogId,
+					upstreamRequestId,
 					routingMetadata: buildTranscriptionRoutingMetadata(
 						usedApiKeyHash,
 						credentialSource,
