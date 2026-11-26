@@ -305,6 +305,15 @@ async function readBoundedResponse(
 }
 
 const UPSTREAM_TIMEOUT_MS = 300_000;
+const MAX_LOGGED_ERROR_CHARS = 10_000;
+
+function errorText(error: unknown): string {
+	if (!(error instanceof Error)) {
+		return String(error);
+	}
+	const cause = error.cause instanceof Error ? `: ${error.cause.message}` : "";
+	return `${error.message || error.constructor.name}${cause}`;
+}
 
 /** Names the provider endpoint as the failing side, not the gateway. */
 function upstreamFailureBody(signal: AbortSignal): string {
@@ -489,6 +498,15 @@ async function handleAirsideInference(c: Context<ServerTypes>) {
 	let completed = false;
 	const nativeInput = nativeInputAccounting(payload.body);
 	let failed = false;
+	// The provider's own error, redacted, so the log shows why a probe failed.
+	let upstreamError: string | null = null;
+	function noteUpstreamError(text: string) {
+		upstreamError ??= redactUpstream(
+			text,
+			payload.endpoint,
+			payload.headers,
+		).slice(0, MAX_LOGGED_ERROR_CHARS);
+	}
 	async function recordResult() {
 		const ok = status >= 200 && status < 300;
 		const input =
@@ -568,7 +586,8 @@ async function handleAirsideInference(c: Context<ServerTypes>) {
 						: {
 								statusCode: status,
 								statusText: "Upstream error",
-								responseText: "Internal inference upstream failed",
+								responseText:
+									upstreamError || "Internal inference upstream failed",
 							},
 				inputCost: costs.inputCost,
 				outputCost: costs.outputCost,
@@ -634,9 +653,10 @@ async function handleAirsideInference(c: Context<ServerTypes>) {
 			controller,
 		);
 		status = response.status;
-	} catch {
+	} catch (error) {
 		status = signal.aborted ? 504 : 502;
 		failed = true;
+		noteUpstreamError(errorText(error));
 		await recordResult();
 		return new Response(upstreamFailureBody(signal), {
 			status,
@@ -673,10 +693,14 @@ async function handleAirsideInference(c: Context<ServerTypes>) {
 			);
 			usage = airsideInferenceUsage(text, usageProvider, contentType);
 			failed ||= usage.providerError;
+			if (!response.ok || usage.providerError) {
+				noteUpstreamError(text);
+			}
 			completed = true;
 			responseSize = Buffer.byteLength(text);
 		} catch (error) {
 			failed = true;
+			noteUpstreamError(errorText(error));
 			infrastructureFailure =
 				error instanceof AirsideInferenceInfrastructureFailure;
 			status = infrastructureFailure ? 503 : signal.aborted ? 504 : 502;
@@ -743,6 +767,9 @@ async function handleAirsideInference(c: Context<ServerTypes>) {
 				providerError: usage.providerError || next.providerError,
 			};
 			failed ||= next.providerError;
+			if (next.providerError) {
+				noteUpstreamError(safe);
+			}
 			if (next.completionCharacters) {
 				firstTokenAt ??= Date.now();
 			}
@@ -837,6 +864,7 @@ async function handleAirsideInference(c: Context<ServerTypes>) {
 			}
 		} catch (error) {
 			failed = true;
+			noteUpstreamError(errorText(error));
 			if (
 				!signal.aborted &&
 				error instanceof AirsideInferenceInfrastructureFailure

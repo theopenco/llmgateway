@@ -74,3 +74,57 @@ describe("exact native verification requests", () => {
 		},
 	);
 });
+
+describe("catalogue verification requests", () => {
+	it.each([
+		{ providerId: "anthropic", apiFormat: "provider-native", region: null },
+		{
+			providerId: "aws-bedrock",
+			apiFormat: "anthropic-messages",
+			region: "us",
+		},
+	] as const)(
+		"shapes $providerId probes from the catalogue mapping",
+		async ({ providerId, apiFormat, region }) => {
+			const target = buildVerificationTarget({
+				providerId,
+				modelName: "claude-opus-5-5",
+				externalId:
+					providerId === "aws-bedrock"
+						? "anthropic.claude-opus-5-5"
+						: "claude-opus-5-5",
+				apiFormat,
+				region,
+				reasoning: true,
+				webSearch: true,
+				tools: true,
+			});
+			const prepare = (request: Record<string, unknown>) =>
+				prepareProviderModelVerificationRequest(
+					{
+						model: target.modelName,
+						messages: [{ role: "user", content: "Hello" }],
+						max_tokens: 2048,
+						...request,
+					},
+					{
+						target,
+						token: "test-provider-key",
+						baseUrl: "https://example.com/v1",
+						skipEnvVars: true,
+						providerKeyOptions: { aws_bedrock_region: "us-east-1" },
+					},
+				);
+			const reasoning = (await prepare({ reasoning_effort: "medium" }))
+				.payload as unknown as Record<string, unknown>;
+			expect(reasoning.thinking).toMatchObject({ type: "adaptive" });
+			const search = (
+				await prepare({
+					tools: [{ type: "web_search" }],
+					tool_choice: { type: "web_search" },
+				})
+			).payload as unknown as Record<string, unknown>;
+			expect(search.tool_choice).toBeUndefined();
+		},
+	);
+});

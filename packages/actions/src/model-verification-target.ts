@@ -101,9 +101,12 @@ export function buildVerificationTarget(
 		promptCaching: false,
 	};
 }
-function catalogueMappingFor(
-	mapping: MappingRow,
-): ProviderModelMapping | undefined {
+/** The catalogue mapping a target resolves to, region first. */
+export function catalogueMappingFor(mapping: {
+	modelId: string;
+	providerId: string;
+	region?: string | null;
+}): ProviderModelMapping | undefined {
 	const model = catalogueModels.find((entry) => entry.id === mapping.modelId);
 	if (!model) {
 		return undefined;
@@ -113,7 +116,7 @@ function catalogueMappingFor(
 		expanded.find(
 			(entry) =>
 				entry.providerId === mapping.providerId &&
-				(entry.region ?? null) === mapping.region,
+				(entry.region ?? null) === (mapping.region ?? null),
 		) ?? expanded.find((entry) => entry.providerId === mapping.providerId)
 	);
 }
