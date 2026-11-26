@@ -3335,6 +3335,18 @@ export async function prepareRequestBody(
 					}
 				}
 
+				// Bedrock serves GPT-5.6+ on Mantle and on the runtime /openai/v1
+				// surface (cross-region profiles) with the same implicit caching, and
+				// bills its writes at 1.25x. Breakpoints are already stripped for this
+				// provider, so explicit mode disables caching for off-mode projects.
+				if (
+					usedProvider === "aws-mantle" &&
+					!allowProviderCacheWrites &&
+					supportsOpenAIExplicitPromptCache(usedInternalModel)
+				) {
+					responsesBody.prompt_cache_options = { mode: "explicit" };
+				}
+
 				// prompt_cache_key influences upstream cache-shard routing; only
 				// OpenAI, Azure (v1 surface — the Responses API path is always v1),
 				// Bedrock Mantle, and Meta support it. Sakana does not document the
@@ -3586,6 +3598,18 @@ export async function prepareRequestBody(
 							requestBody.prompt_cache_options = { mode: "explicit" };
 						}
 					}
+				}
+
+				// Bedrock serves GPT-5.6+ on Mantle and on the runtime /openai/v1
+				// surface (cross-region profiles) with the same implicit caching, and
+				// bills its writes at 1.25x. Breakpoints are already stripped for this
+				// provider, so explicit mode disables caching for off-mode projects.
+				if (
+					usedProvider === "aws-mantle" &&
+					!allowProviderCacheWrites &&
+					supportsOpenAIExplicitPromptCache(usedInternalModel)
+				) {
+					requestBody.prompt_cache_options = { mode: "explicit" };
 				}
 
 				if (stream) {
