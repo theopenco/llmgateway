@@ -28,6 +28,8 @@ When you include the `web_search` tool in your request, the model can search the
 
 The `web_search` tool works on every chat model. Models with native web search, listed on our [models page](https://llmgateway.io/models?filters=1&webSearch=true), search through their provider. For every other chat model, LLM Gateway runs the search itself. If a request with native search fails, it falls back only to providers with native search; after a gateway-run search, it falls back to any provider with the searched prompt.
 
+To check programmatically, read each entry of a model's `providers` array in [`GET /v1/models`](https://api.llmgateway.io/v1/models): `web_search` is `true` when the `web_search` tool works on that provider, `web_search_native` is `true` when the provider searches natively, and `web_search_forced_only` is `true` when that native search only runs when you [require a search](#requiring-a-search).
+
 ### Gateway-run search
 
 When the provider serving the request has no native web search, LLM Gateway gives the model a `web_search` function and runs the searches it asks for with a search engine. Like native search, the model decides whether a turn needs a search, writes its own queries, reads the results, can search again, and then answers. The request and response look the same as native search, with these differences:
