@@ -3,7 +3,11 @@ import { beforeAll, describe, expect, test, vi } from "vitest";
 import { app } from "@/app.js";
 
 import { cdb, eq, tables } from "@llmgateway/db";
-import { models as modelsList, providers } from "@llmgateway/models";
+import {
+	models as modelsList,
+	providers,
+	supportsWebSearch,
+} from "@llmgateway/models";
 
 import type { ListModelsResponse } from "./models.js";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
@@ -93,6 +97,9 @@ describe("Models API", () => {
 		expect(firstModel).toHaveProperty("family");
 		expect(firstModel).toHaveProperty("json_output");
 		expect(firstModel).toHaveProperty("structured_outputs");
+		expect(firstProvider).toHaveProperty("web_search");
+		expect(firstProvider).toHaveProperty("web_search_native");
+		expect(firstProvider).toHaveProperty("web_search_forced_only");
 	});
 
 	// Claude Code populates its /model picker from GET /v1/models?limit=1000 when
@@ -635,6 +642,69 @@ describe("Models API", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	test("GET /v1/models tells native web search apart from gateway-run search", async () => {
+		const res = await app.request("/v1/models?include_deactivated=true");
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		const definitionById = new Map(modelsList.map((m) => [m.id, m]));
+
+		const seen = { native: 0, gatewayRun: 0, forcedOnly: 0, none: 0 };
+		for (const model of json.data) {
+			const definition = definitionById.get(
+				model.virtual_model_target ?? model.id,
+			);
+			expect(definition).toBeDefined();
+			for (const entry of model.providers) {
+				const mapping = (definition!.providers as ProviderModelMapping[]).find(
+					(p) =>
+						p.providerId === entry.providerId &&
+						p.externalId === entry.externalId,
+				);
+				expect(mapping).toBeDefined();
+				const label = `${model.id} via ${entry.providerId}`;
+				expect(entry.web_search, label).toBe(supportsWebSearch(mapping!));
+				expect(entry.web_search_native, label).toBe(
+					mapping!.webSearch === true,
+				);
+				expect(entry.web_search_forced_only, label).toBe(
+					mapping!.webSearch === true && mapping!.webSearchForcedOnly === true,
+				);
+				if (entry.web_search_native) {
+					expect(entry.web_search, label).toBe(true);
+					seen.native++;
+				} else if (entry.web_search) {
+					seen.gatewayRun++;
+				} else {
+					seen.none++;
+				}
+				if (entry.web_search_forced_only) {
+					seen.forcedOnly++;
+				}
+			}
+		}
+		expect(seen.native).toBeGreaterThan(0);
+		expect(seen.gatewayRun).toBeGreaterThan(0);
+		expect(seen.forcedOnly).toBeGreaterThan(0);
+		expect(seen.none).toBeGreaterThan(0);
+
+		// gpt-5 searches natively on OpenAI; Azure gets a gateway-run search.
+		const gpt5 = json.data.find((m: { id: string }) => m.id === "gpt-5");
+		const gpt5Provider = (providerId: string) =>
+			gpt5.providers.find(
+				(p: { providerId: string }) => p.providerId === providerId,
+			);
+		expect(gpt5Provider("openai")).toMatchObject({
+			web_search: true,
+			web_search_native: true,
+			web_search_forced_only: false,
+		});
+		expect(gpt5Provider("azure")).toMatchObject({
+			web_search: true,
+			web_search_native: false,
+			web_search_forced_only: false,
+		});
 	});
 
 	test("GET /v1/models exposes cache pricing detail per provider mapping", async () => {
