@@ -1,7 +1,12 @@
 import { describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
+import { isTrackedKeyHealthy } from "@/lib/api-key-health.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
+import {
+	getLastElevenLabsVoiceId,
+	getLastGoogleSpeechPart,
+} from "@/test-utils/mock-openai-server.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
@@ -19,8 +24,10 @@ describe("speech", () => {
 			| "google-ai-studio"
 			| "google-vertex"
 			| "openai"
+			| "azure"
 			| "elevenlabs"
-			| "alibaba" = "google-ai-studio",
+			| "alibaba"
+			| "groq" = "google-ai-studio",
 	) {
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
@@ -30,8 +37,8 @@ describe("speech", () => {
 			createdBy: "user-id",
 		});
 		const providerToken =
-			provider === "openai"
-				? "openai-test-key"
+			provider === "openai" || provider === "azure"
+				? `${provider}-test-key`
 				: provider === "elevenlabs"
 					? "elevenlabs-test-key"
 					: provider === "alibaba"
@@ -429,6 +436,82 @@ describe("speech", () => {
 		expect(log?.finishReason).toBe("stop");
 	});
 
+	test("/v1/audio/speech passes Gemini 3.8 WAV through without re-wrapping", async () => {
+		await seedKeys("real-token-speech-38-wav", "token-id-speech-38-wav");
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-38-wav",
+			},
+			body: JSON.stringify({
+				model: "google-ai-studio/gemini-3.8-flash-tts",
+				input: "Hello there",
+				instructions: "Say cheerfully",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("audio/wav");
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.subarray(0, 4).toString("ascii")).toBe("RIFF");
+		// Single 44-byte header + 16 bytes of mock PCM payload.
+		expect(bytes.length).toBe(44 + 16);
+		expect(getLastGoogleSpeechPart()).toEqual({
+			text: "Hello there",
+			speechMetadata: { style: "Say cheerfully" },
+		});
+	});
+
+	test("/v1/audio/speech strips the Gemini 3.8 WAV header for PCM", async () => {
+		await seedKeys("real-token-speech-38-pcm", "token-id-speech-38-pcm");
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-38-pcm",
+			},
+			body: JSON.stringify({
+				model: "google-ai-studio/gemini-3.8-flash-lite-tts",
+				input: "Hello there",
+				response_format: "pcm",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("audio/pcm");
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.length).toBe(16);
+		expect(getLastGoogleSpeechPart()).toEqual({ text: "Hello there" });
+	});
+
+	test("/v1/audio/speech prefixes instructions for earlier Gemini TTS", async () => {
+		await seedKeys(
+			"real-token-speech-instructions",
+			"token-id-speech-instructions",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-instructions",
+			},
+			body: JSON.stringify({
+				model: "google-ai-studio/gemini-3.1-flash-tts-preview",
+				input: "Hello there",
+				instructions: "Say cheerfully",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(getLastGoogleSpeechPart()).toEqual({
+			text: "Say cheerfully: Hello there",
+		});
+	});
+
 	test("/v1/audio/speech proxies OpenAI tts-1 and bills by characters", async () => {
 		await seedKeys(
 			"real-token-speech-openai",
@@ -501,6 +584,144 @@ describe("speech", () => {
 		expect(log?.finishReason).toBe("stop");
 		// eleven-multilingual-v2 bills $110 / 1M input characters.
 		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 110e-6, 12);
+		expect(getLastElevenLabsVoiceId()).toBe("EXAVITQu4vr4xnSDxMaL");
+	});
+
+	test("/v1/audio/speech forwards a raw ElevenLabs voice library id", async () => {
+		await seedKeys(
+			"real-token-speech-eleven-raw",
+			"token-id-speech-eleven-raw",
+			"elevenlabs",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-eleven-raw",
+			},
+			body: JSON.stringify({
+				model: "eleven-multilingual-v2",
+				input: "Hello from a library voice",
+				voice: "21m00Tcm4TlvDq8ikWAM",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(getLastElevenLabsVoiceId()).toBe("21m00Tcm4TlvDq8ikWAM");
+	});
+
+	test("/v1/audio/speech keeps the key healthy after an inaccessible voice", async () => {
+		await seedKeys(
+			"real-token-speech-eleven-denied",
+			"token-id-speech-eleven-denied",
+			"elevenlabs",
+		);
+		const speak = async (voice: string) =>
+			await app.request("/v1/audio/speech", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-speech-eleven-denied",
+				},
+				body: JSON.stringify({
+					model: "eleven-multilingual-v2",
+					input: "Hello",
+					voice,
+				}),
+			});
+
+		const denied = await speak("NoAccessVoiceId00000");
+		expect(denied.status).toBe(403);
+		expect(
+			isTrackedKeyHealthy(
+				"provider-key-elevenlabs-token-id-speech-eleven-denied",
+			),
+		).toBe(true);
+
+		const ok = await speak("Sarah");
+		expect(ok.status).toBe(200);
+	});
+
+	test("/v1/audio/speech rejects an unknown ElevenLabs voice name", async () => {
+		await seedKeys(
+			"real-token-speech-eleven-bad",
+			"token-id-speech-eleven-bad",
+			"elevenlabs",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-eleven-bad",
+			},
+			body: JSON.stringify({
+				model: "eleven-multilingual-v2",
+				input: "Hello",
+				voice: "not-a-voice",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		expect(JSON.stringify(await res.json())).toContain("Unsupported voice");
+	});
+
+	test("/v1/audio/speech proxies Groq Orpheus as WAV and bills by characters", async () => {
+		await seedKeys("real-token-speech-groq", "token-id-speech-groq", "groq");
+
+		const input = "مرحبا، كيف حالك؟";
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-groq",
+			},
+			body: JSON.stringify({
+				model: "groq/orpheus-arabic-saudi",
+				input,
+				voice: "noura",
+				speed: 1.5,
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		// Orpheus only emits WAV, so it is the default format.
+		expect(res.headers.get("Content-Type")).toBe("audio/wav");
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.length).toBeGreaterThan(0);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "groq/orpheus-arabic-saudi");
+		expect(log).toBeDefined();
+		expect(log?.hasError).toBe(false);
+		// Orpheus Arabic Saudi bills $40 / 1M input characters.
+		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 40e-6, 12);
+	});
+
+	test("/v1/audio/speech rejects non-WAV formats on Groq Orpheus", async () => {
+		await seedKeys(
+			"real-token-speech-groq-mp3",
+			"token-id-speech-groq-mp3",
+			"groq",
+		);
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-groq-mp3",
+			},
+			body: JSON.stringify({
+				model: "groq/orpheus-arabic-saudi",
+				input: "مرحبا",
+				response_format: "mp3",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(json.error.code).toBe("unsupported_response_format");
 	});
 
 	test("/v1/audio/speech proxies Qwen TTS via DashScope and bills by characters", async () => {
@@ -737,6 +958,35 @@ describe("speech", () => {
 		expect(log?.completionTokens).toBe("42");
 		// $0.60/1M input text tokens + $12/1M output audio tokens.
 		expect(Number(log?.inputCost)).toBeCloseTo(7 * 0.6e-6, 12);
+		expect(Number(log?.outputCost)).toBeCloseTo(42 * 12e-6, 12);
+	});
+
+	test("/v1/audio/speech serves gpt-4o-mini-tts on Azure's v1 API", async () => {
+		await seedKeys("real-token-speech-azure", "token-id-speech-azure", "azure");
+
+		const res = await app.request("/v1/audio/speech", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-speech-azure",
+			},
+			body: JSON.stringify({
+				model: "azure/gpt-4o-mini-tts",
+				input: "Hello there",
+				response_format: "wav",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("Content-Type")).toBe("audio/wav");
+		const bytes = Buffer.from(await res.arrayBuffer());
+		expect(bytes.toString("ascii")).toBe("MOCK_OPENAI_AUDIO");
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "azure/gpt-4o-mini-tts");
+		expect(log?.hasError).toBe(false);
+		expect(log?.promptTokens).toBe("7");
+		expect(log?.completionTokens).toBe("42");
 		expect(Number(log?.outputCost)).toBeCloseTo(42 * 12e-6, 12);
 	});
 

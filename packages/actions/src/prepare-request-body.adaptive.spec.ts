@@ -10,6 +10,7 @@ interface AdaptiveThinkingBody {
 	};
 	output_config?: {
 		effort?: "low" | "medium" | "high" | "xhigh" | "max";
+		format?: { type: string; schema: Record<string, unknown> };
 	};
 	temperature?: number;
 	top_p?: number;
@@ -28,6 +29,11 @@ async function buildAnthropicBody(
 		reasoning_max_tokens?: number;
 		temperature?: number;
 		top_p?: number;
+		effort?: "low" | "medium" | "high";
+		response_format?: {
+			type: "json_schema";
+			json_schema: { name: string; schema: Record<string, unknown> };
+		};
 	},
 ): Promise<AdaptiveThinkingBody> {
 	return (await prepareRequestBody(
@@ -47,7 +53,7 @@ async function buildAnthropicBody(
 		opts.top_p, // top_p
 		undefined, // frequency_penalty
 		undefined, // presence_penalty
-		undefined, // response_format
+		opts.response_format, // response_format
 		undefined, // tools
 		undefined, // tool_choice
 		opts.reasoning_effort, // reasoning_effort
@@ -57,7 +63,7 @@ async function buildAnthropicBody(
 		null, // userPlan
 		undefined, // sensitive_word_check
 		undefined, // image_config
-		undefined, // effort
+		opts.effort, // effort
 		undefined, // imageGenerations
 		undefined, // webSearchTool
 		opts.reasoning_max_tokens, // reasoning_max_tokens
@@ -81,6 +87,29 @@ describe("prepareRequestBody - adaptive thinking (Opus 4.6/4.7/4.8)", () => {
 			expect(body.output_config?.effort).toBe("high");
 		});
 	}
+
+	test("keeps output_config.effort when response_format is json_schema", async () => {
+		const response_format = {
+			type: "json_schema" as const,
+			json_schema: { name: "answer", schema: { type: "object" } },
+		};
+		const fromReasoningEffort = await buildAnthropicBody("claude-opus-4-7", {
+			reasoning_effort: "high",
+			response_format,
+		});
+		expect(fromReasoningEffort.output_config?.effort).toBe("high");
+		expect(fromReasoningEffort.output_config?.format).toEqual({
+			type: "json_schema",
+			schema: { type: "object", additionalProperties: false },
+		});
+
+		const fromEffort = await buildAnthropicBody("claude-opus-4-7", {
+			effort: "low",
+			response_format,
+		});
+		expect(fromEffort.output_config?.effort).toBe("low");
+		expect(fromEffort.output_config?.format?.type).toBe("json_schema");
+	});
 
 	test("Opus 4.6 routes reasoning.max_tokens to adaptive (drops budget_tokens)", async () => {
 		const body = await buildAnthropicBody("claude-opus-4-6", {
@@ -128,11 +157,11 @@ describe("prepareRequestBody - adaptive thinking (Opus 4.6/4.7/4.8)", () => {
 });
 
 interface BedrockAdaptiveBody {
-	additionalModelRequestFields?: {
-		thinking?: { type: "adaptive" | "enabled"; display?: string };
-		output_config?: { effort?: string };
-	};
-	inferenceConfig?: { temperature?: number; topP?: number; maxTokens?: number };
+	thinking?: { type: "adaptive" | "enabled"; display?: string };
+	output_config?: { effort?: string };
+	temperature?: number;
+	top_p?: number;
+	max_tokens?: number;
 }
 
 async function buildBedrockBody(opts: {
@@ -168,40 +197,38 @@ async function buildBedrockBody(opts: {
 }
 
 describe("prepareRequestBody - Bedrock Opus 4.8 deprecated params", () => {
-	test("top-level effort activates adaptive thinking without temperature", async () => {
+	test("top-level effort sets output_config.effort without temperature", async () => {
 		const body = await buildBedrockBody({ effort: "high" });
-		expect(body.additionalModelRequestFields?.thinking).toEqual({
-			type: "adaptive",
-			display: "summarized",
-		});
-		expect(body.additionalModelRequestFields?.output_config?.effort).toBe(
-			"high",
-		);
+		expect(body.output_config?.effort).toBe("high");
 		// temperature is deprecated for Opus 4.8 and must not be forced to 1.
-		expect(body.inferenceConfig?.temperature).toBeUndefined();
+		expect(body.temperature).toBeUndefined();
 	});
 
 	test("reasoning_effort does not force the deprecated temperature", async () => {
 		const body = await buildBedrockBody({ reasoning_effort: "high" });
-		expect(body.additionalModelRequestFields?.output_config?.effort).toBe(
-			"high",
-		);
-		expect(body.inferenceConfig?.temperature).toBeUndefined();
+		expect(body.thinking).toEqual({ type: "adaptive", display: "summarized" });
+		expect(body.output_config?.effort).toBe("high");
+		expect(body.temperature).toBeUndefined();
 	});
 
 	test("drops top_p below 0.95 when thinking is enabled", async () => {
-		const body = await buildBedrockBody({ effort: "high", top_p: 0.9 });
-		expect(body.inferenceConfig?.topP).toBeUndefined();
+		const body = await buildBedrockBody({
+			reasoning_effort: "high",
+			top_p: 0.9,
+		});
+		expect(body.top_p).toBeUndefined();
 	});
 
 	test("keeps top_p >= 0.95 when thinking is enabled", async () => {
-		const body = await buildBedrockBody({ effort: "high", top_p: 0.95 });
-		expect(body.inferenceConfig?.topP).toBe(0.95);
+		const body = await buildBedrockBody({
+			reasoning_effort: "high",
+			top_p: 0.95,
+		});
+		expect(body.top_p).toBe(0.95);
 	});
 
-	test("defaults maxTokens to the model maxOutput in adaptive mode", async () => {
-		// Converse otherwise caps output + thinking at 4096 tokens.
+	test("defaults max_tokens to the model maxOutput in adaptive mode", async () => {
 		const body = await buildBedrockBody({ effort: "high" });
-		expect(body.inferenceConfig?.maxTokens).toBe(128000);
+		expect(body.max_tokens).toBe(128000);
 	});
 });

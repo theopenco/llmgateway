@@ -1,0 +1,112 @@
+import type { ModelDefinition } from "@/models.js";
+
+export const blackForestLabsModels = [
+	{
+		id: "flux-3-max",
+		name: "FLUX 3 Max",
+		description:
+			"FLUX 3 Max text-to-video and image-to-video generation with optional audio.",
+		family: "black-forest-labs",
+		output: ["video"],
+		maxVideoDurationSeconds: 20,
+		releasedAt: new Date("2026-10-15"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "fal-ai",
+				externalId: "blackforestlabs/flux-3-max",
+				inputPrice: undefined,
+				outputPrice: undefined,
+				requestPrice: undefined,
+				perSecondPrice: {
+					default_audio: "0.17",
+					default_video: "0.17",
+					"720p_audio": "0.17",
+					"720p_video": "0.17",
+					"1080p_audio": "0.29",
+					"1080p_video": "0.29",
+				},
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				videoGenerations: true,
+				supportedVideoSizes: ["1280x720", "720x1280", "1920x1080", "1080x1920"],
+				supportedVideoDurationsSeconds: [
+					5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+				],
+				supportedVideoDurationsSecondsImageToVideo: [
+					5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+				],
+				supportsVideoAudio: true,
+				supportsVideoWithoutAudio: true,
+			},
+		],
+	},
+	{
+		id: "flux-2-klein-4b",
+		name: "FLUX.2 Klein 4B",
+		description:
+			"Black Forest Labs' fastest FLUX.2 text-to-image model, a 4B-parameter distilled model for sub-second generation.",
+		family: "black-forest-labs",
+		output: ["image"],
+		releasedAt: new Date("2026-01-15"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "fal-ai",
+				externalId: "fal-ai/flux-2/klein/4b",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				perImagePrice: {
+					default: "0.005",
+					"1024x1024": "0.005",
+					"1536x1024": "0.0075",
+					"1024x1536": "0.0075",
+					"1344x768": "0.004921875",
+					"768x1344": "0.004921875",
+					"2048x2048": "0.02",
+				},
+				streaming: false,
+				vision: false,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+	{
+		id: "flux-3-klein",
+		name: "FLUX 3 Klein",
+		description:
+			"Black Forest Labs' compact FLUX 3 text-to-image model with built-in prompt expansion.",
+		family: "black-forest-labs",
+		output: ["image"],
+		releasedAt: new Date("2026-10-14"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "fal-ai",
+				externalId: "blackforestlabs/flux-3/klein/text-to-image",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				perImagePrice: {
+					default: "0.009",
+					"1024x1024": "0.009",
+					"1536x1024": "0.011",
+					"1024x1536": "0.011",
+					"1344x768": "0.009",
+					"768x1344": "0.009",
+					"2048x2048": "0.014",
+				},
+				streaming: false,
+				vision: false,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+] as const satisfies ModelDefinition[];

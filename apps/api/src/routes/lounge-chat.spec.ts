@@ -16,6 +16,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import * as playgroundKey from "@/utils/playground-key.js";
 
 import { db, tables } from "@llmgateway/db";
+import { deferDownloadsToGateway } from "@llmgateway/shared/ai-sdk-download";
 import { getLoungeToolApprovalSecret } from "@llmgateway/shared/lounge-tool-approval";
 import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
 
@@ -396,6 +397,7 @@ describe("native Lounge chat proposals", () => {
 			},
 		];
 		const result = streamText({
+			experimental_download: deferDownloadsToGateway,
 			model: new MockLanguageModelV4({
 				doStream: async () => ({
 					stream: simulateReadableStream({

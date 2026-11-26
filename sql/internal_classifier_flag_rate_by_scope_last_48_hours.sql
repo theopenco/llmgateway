@@ -12,6 +12,7 @@
 --
 -- Notes:
 -- - Counts are exact and sum across hours and orgs.
+-- - Deciding and shadow runs both count: a verdict is the same either way.
 -- - sampled excludes checks whose moderation call failed.
 -- - Rows written before the scope was recorded have internal_scope = ''.
 -- - hour_timestamp is UTC without a time zone, hence the UTC cutoff.
@@ -33,7 +34,6 @@ select
 	max(hour_timestamp)                                                    as last_hour
 from content_filter_hourly_stats
 where classifier = 'internal'
-	and role = 'deciding'
 	and category = 'all'
 	and hour_timestamp >= (now() at time zone 'UTC') - interval '48 hours'
 group by internal_scope

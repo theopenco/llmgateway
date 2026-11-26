@@ -1,0 +1,2 @@
+-- migrate:allow-blocking-index transaction is a small table (builds in milliseconds); a read-only production preflight found no duplicate completed intents
+CREATE UNIQUE INDEX IF NOT EXISTS "transaction_credit_topup_payment_intent_unique" ON "transaction" ("stripe_payment_intent_id") WHERE "type" = 'credit_topup' AND "status" = 'completed';

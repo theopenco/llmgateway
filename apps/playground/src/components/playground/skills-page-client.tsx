@@ -1,10 +1,9 @@
 "use client";
 
 import { CodeIcon, EyeIcon, ScrollTextIcon, TrashIcon } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 
 import { CreateSkillDialog } from "@/components/playground/create-skill-dialog";
 import { GenerateSkillDialog } from "@/components/playground/generate-skill-dialog";
@@ -39,6 +38,12 @@ import { cn } from "@/lib/utils";
 
 import type { Skill } from "@/hooks/useSkills";
 import type { Organization } from "@/lib/types";
+
+// react-markdown and its remark pipeline load only when a skill's
+// instructions are viewed rendered, not with the page.
+const SkillMarkdown = dynamic(
+	() => import("@/components/playground/skill-markdown"),
+);
 
 interface SkillsPageClientProps {
 	selectedOrganization: Organization | null;
@@ -388,9 +393,7 @@ function SkillsPanel({
 					<div className="flex-1 overflow-y-auto">
 						{viewMode === "rendered" ? (
 							<div className="prose prose-sm dark:prose-invert max-w-none p-6">
-								<ReactMarkdown remarkPlugins={[remarkGfm]}>
-									{selectedSkill.instructions}
-								</ReactMarkdown>
+								<SkillMarkdown>{selectedSkill.instructions}</SkillMarkdown>
 							</div>
 						) : (
 							<pre className="h-full overflow-auto whitespace-pre-wrap break-words p-6 font-mono text-sm leading-relaxed">

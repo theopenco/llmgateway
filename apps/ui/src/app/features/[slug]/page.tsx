@@ -202,7 +202,16 @@ export default async function FeaturePage({ params }: PageProps) {
 											<ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
 										</Link>
 									</Button>
-									{docsHref ? (
+									{feature.cta ? (
+										<Button
+											asChild
+											variant="outline"
+											size="lg"
+											className="gap-2 active:scale-[0.97]"
+										>
+											<Link href={feature.cta.href}>{feature.cta.label}</Link>
+										</Button>
+									) : docsHref ? (
 										<Button
 											asChild
 											variant="outline"
@@ -426,8 +435,17 @@ export async function generateMetadata({
 		return {};
 	}
 
-	const title = feature.title;
-	const description = feature.description;
+	const withSubtitle = `${feature.title} — ${feature.subtitle}`;
+	const title =
+		withSubtitle.length + " | LLM Gateway".length <= 60
+			? withSubtitle
+			: feature.title;
+	const leadSentence = feature.longDescription.split(/(?<=[.!?])\s+/)[0];
+	const extended = `${feature.description} ${leadSentence}`;
+	const description =
+		feature.description.length < 110 && extended.length <= 160
+			? extended
+			: feature.description;
 
 	return {
 		title,

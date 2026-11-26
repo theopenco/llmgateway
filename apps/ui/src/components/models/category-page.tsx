@@ -11,8 +11,18 @@ import {
 	type ModelCategorySlug,
 } from "@/lib/model-category-content";
 import { applyCategoryFilter } from "@/lib/model-category-filters";
+import { pageTitle } from "@/lib/page-title";
+import { fetchServerData } from "@/lib/server-api";
 
+import type { CategoryRankingEntry } from "@/components/models/category-seo-content";
+import type { paths } from "@/lib/api/v1";
 import type { Metadata } from "next";
+
+type ModelStats =
+	paths["/public/models/stats"]["get"]["responses"][200]["content"]["application/json"];
+
+const RANKING_WINDOW = "30d";
+const RANKING_SIZE = 10;
 
 export function buildCategoryMetadata(slug: ModelCategorySlug): Metadata {
 	const content = modelCategoryContent[slug];
@@ -20,7 +30,7 @@ export function buildCategoryMetadata(slug: ModelCategorySlug): Metadata {
 		alternates: {
 			canonical: `https://llmgateway.io/models/${slug}`,
 		},
-		title: content.metaTitle,
+		title: pageTitle(content.metaTitle),
 		description: content.metaDescription,
 		openGraph: {
 			title: content.metaTitle,
@@ -45,6 +55,30 @@ export async function ModelCategoryPage({ slug }: { slug: ModelCategorySlug }) {
 	const categoryModels = models.filter((model) =>
 		applyCategoryFilter(slug, model, model.mappings),
 	);
+	const stats = await fetchServerData<ModelStats>(
+		"GET",
+		"/public/models/stats",
+		{ params: { query: { window: RANKING_WINDOW } } },
+	);
+	const tokensByModel = new Map(
+		(stats?.models ?? []).map((model) => [model.modelId, model.totalTokens]),
+	);
+	const ranking: CategoryRankingEntry[] = categoryModels
+		.map((model) => ({
+			id: model.id,
+			name: model.name ?? model.id,
+			totalTokens: tokensByModel.get(model.id) ?? 0,
+		}))
+		.filter((model) => model.totalTokens > 0)
+		.sort((a, b) => b.totalTokens - a.totalTokens)
+		.slice(0, RANKING_SIZE);
+	const rankedIds = new Set(ranking.map((model) => model.id));
+	const listedModels = [
+		...ranking,
+		...categoryModels
+			.filter((model) => !rankedIds.has(model.id))
+			.map((model) => ({ id: model.id, name: model.name ?? model.id })),
+	];
 	const url = `https://llmgateway.io/models/${slug}`;
 
 	const collectionSchema = {
@@ -55,12 +89,12 @@ export async function ModelCategoryPage({ slug }: { slug: ModelCategorySlug }) {
 		url,
 		mainEntity: {
 			"@type": "ItemList",
-			numberOfItems: categoryModels.length,
-			itemListElement: categoryModels.map((model, index) => ({
+			numberOfItems: listedModels.length,
+			itemListElement: listedModels.map((model, index) => ({
 				"@type": "ListItem",
 				position: index + 1,
 				url: `https://llmgateway.io/models/${encodeURIComponent(model.id)}`,
-				name: model.name ?? model.id,
+				name: model.name,
 			})),
 		},
 	};
@@ -115,7 +149,12 @@ export async function ModelCategoryPage({ slug }: { slug: ModelCategorySlug }) {
 					description={content.subheading}
 					categoryFilter={slug}
 					seoContent={
-						<CategorySeoContent intro={content.intro} faqs={content.faqs} />
+						<CategorySeoContent
+							heading={content.heading}
+							intro={content.intro}
+							faqs={content.faqs}
+							ranking={ranking}
+						/>
 					}
 				>
 					<HeroRSC sticky={false} />

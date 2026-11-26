@@ -136,6 +136,37 @@ export function reportedWebSearchCount(response: unknown): number {
 }
 
 /**
+ * Billable hosted-tool operations DeepSeek reports in
+ * `usage.server_tool_use.tool_search` / `tool_fetch` (Responses and Anthropic
+ * APIs): successful searches plus page fetches, both billed per call.
+ * Undefined when neither counter is present, so callers fall back to counting
+ * result items, which include failed and empty searches. With
+ * `alwaysReported` (the upstream omits the counters when nothing billable
+ * ran), a `usage` object without them counts zero.
+ */
+export function billedServerToolUseCount(
+	usage: unknown,
+	alwaysReported = false,
+): number | undefined {
+	if (!isRecord(usage)) {
+		return undefined;
+	}
+	const counters = isRecord(usage.server_tool_use)
+		? [usage.server_tool_use.tool_search, usage.server_tool_use.tool_fetch]
+		: [];
+	if (!counters.some((value) => typeof value === "number")) {
+		return alwaysReported ? 0 : undefined;
+	}
+	let count = 0;
+	for (const value of counters) {
+		if (typeof value === "number" && value > 0) {
+			count += value;
+		}
+	}
+	return count;
+}
+
+/**
  * Whether the upstream reported more prompt tokens than the text-only request
  * it was sent could encode to. No tokenizer emits more than one token per
  * UTF-8 byte, so the excess is content the upstream added to the prompt — on

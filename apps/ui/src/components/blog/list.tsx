@@ -1,28 +1,14 @@
-import Image from "next/image";
 import Link from "next/link";
 
+import { BlogGrid } from "@/components/blog/grid";
 import Footer from "@/components/landing/footer";
 import { slugify } from "@/lib/slugify";
 
 import { allBlogs } from "content-collections";
 
-interface BlogItemImage {
-	src: string;
-	alt: string;
-	width: number;
-	height: number;
-}
+import type { BlogGridItem } from "@/components/blog/grid";
 
-interface BlogItem {
-	id: string;
-	slug: string;
-	date: string;
-	title: string;
-	summary: string;
-	categories?: string[];
-	image?: BlogItemImage;
-	author?: { name: string; url?: string };
-}
+type BlogItem = BlogGridItem;
 
 interface BlogListProps {
 	entries?: BlogItem[];
@@ -87,70 +73,19 @@ export function BlogList({
 					</nav>
 				)}
 
-				<div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-					{blogEntries.map((entry: BlogItem) => (
-						<article
-							key={entry.id}
-							className="group border border-border rounded-xl overflow-hidden bg-card"
-						>
-							<div className="block">
-								<Link
-									href={`/blog/${entry.slug}`}
-									prefetch={true}
-									className="block"
-								>
-									{entry?.image ? (
-										<Image
-											src={entry.image.src}
-											alt={entry.image.alt}
-											width={entry.image.width}
-											height={entry.image.height}
-											className="h-48 w-full object-cover transition-opacity group-hover:opacity-90"
-										/>
-									) : (
-										<div className="h-48 w-full bg-muted" />
-									)}
-								</Link>
-								<div className="p-5 space-y-3">
-									<h2 className="text-xl font-semibold leading-tight">
-										<Link
-											href={`/blog/${entry.slug}`}
-											prefetch={true}
-											className="hover:underline"
-										>
-											{entry.title}
-										</Link>
-									</h2>
-									{entry?.categories && entry.categories.length > 0 && (
-										<div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-											{entry.categories.map((cat) => (
-												<Link
-													key={cat}
-													href={`/blog/category/${encodeURIComponent(slugify(cat))}`}
-													className="underline hover:text-foreground"
-													prefetch={true}
-												>
-													{cat}
-												</Link>
-											))}
-										</div>
-									)}
-									<p className="text-sm text-muted-foreground line-clamp-3">
-										{entry.summary}
-									</p>
-									<div className="text-xs text-muted-foreground">
-										{entry.author && <p>By {entry.author.name}</p>}
-										{new Date(entry.date).toLocaleDateString("en-US", {
-											year: "numeric",
-											month: "long",
-											day: "numeric",
-										})}
-									</div>
-								</div>
-							</div>
-						</article>
-					))}
-				</div>
+				<BlogGrid
+					entries={blogEntries.map((entry) => ({
+						id: entry.id,
+						slug: entry.slug,
+						date: entry.date,
+						title: entry.title,
+						summary: entry.summary,
+						categories: entry.categories,
+						image: entry.image,
+						author: entry.author && { name: entry.author.name },
+					}))}
+					searchLabel={`Search ${heading}`}
+				/>
 			</main>
 			<Footer />
 		</div>

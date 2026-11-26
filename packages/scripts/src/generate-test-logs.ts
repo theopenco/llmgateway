@@ -101,7 +101,7 @@ const MODELS = [
 		discount: 0.3,
 	},
 	{
-		id: "deepseek-chat",
+		id: "deepseek-v3.2",
 		provider: "deepseek",
 		weight: 2,
 		avgInputTokens: 400,

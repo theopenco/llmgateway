@@ -45,12 +45,17 @@ function history(issuer: string): BaseMessage[] {
 	];
 }
 
-async function prepare(provider: ProviderId, messages: BaseMessage[]) {
+// claude-sonnet-4-5 is still served through Bedrock's Converse API.
+async function prepare(
+	provider: ProviderId,
+	messages: BaseMessage[],
+	model = "claude-sonnet-4-6",
+) {
 	const body = await prepareRequestBody(
 		provider,
-		"claude-sonnet-4-6",
+		model,
 		null,
-		"claude-sonnet-4-6",
+		model,
 		messages,
 		false,
 		undefined,
@@ -91,9 +96,26 @@ describe("anthropic thinking replay", () => {
 		});
 	}
 
-	test("replays aws-bedrock's own thinking as Converse reasoningContent", async () => {
+	test("replays aws-bedrock's own thinking on its Messages API", async () => {
 		const content = assistantContent(
 			await prepare("aws-bedrock", history("aws-bedrock")),
+		);
+
+		expect(content.slice(0, 2)).toEqual([THINKING, REDACTED]);
+		expect(content.slice(2).map((block) => block.type)).toEqual([
+			"text",
+			"tool_use",
+		]);
+		expect(
+			assistantContent(await prepare("aws-bedrock", history("anthropic"))).map(
+				(block) => block.type,
+			),
+		).toEqual(["text", "tool_use"]);
+	});
+
+	test("replays aws-bedrock's own thinking as Converse reasoningContent", async () => {
+		const content = assistantContent(
+			await prepare("aws-bedrock", history("aws-bedrock"), "claude-sonnet-4-5"),
 		);
 
 		expect(content.slice(0, 2)).toEqual([
@@ -116,11 +138,15 @@ describe("anthropic thinking replay", () => {
 	test("replays aws-bedrock thinking on a text-only turn", async () => {
 		const [user, assistant] = history("aws-bedrock");
 		const content = assistantContent(
-			await prepare("aws-bedrock", [
-				user!,
-				{ ...assistant!, tool_calls: undefined },
-				{ role: "user", content: "Thanks." },
-			]),
+			await prepare(
+				"aws-bedrock",
+				[
+					user!,
+					{ ...assistant!, tool_calls: undefined },
+					{ role: "user", content: "Thanks." },
+				],
+				"claude-sonnet-4-5",
+			),
 		);
 
 		expect(content.map((block) => Object.keys(block)[0])).toEqual([
@@ -137,9 +163,9 @@ describe("anthropic thinking replay", () => {
 			),
 		).toEqual(["text", "tool_use"]);
 		expect(
-			assistantContent(await prepare("aws-bedrock", history("anthropic"))).map(
-				(block) => Object.keys(block)[0],
-			),
+			assistantContent(
+				await prepare("aws-bedrock", history("anthropic"), "claude-sonnet-4-5"),
+			).map((block) => Object.keys(block)[0]),
 		).toEqual(["text", "toolUse"]);
 	});
 

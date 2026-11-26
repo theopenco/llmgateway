@@ -14,7 +14,7 @@ export interface ModelCategoryContent {
 
 export const modelCategoryContent = {
 	roleplay: {
-		metaTitle: "Best AI Models for Roleplay — Compare Roleplay LLMs",
+		metaTitle: "Best AI Models for Roleplay, Ranked by Real Usage",
 		metaDescription:
 			"Compare the best LLMs for roleplay and character chat — DeepSeek, Kimi K2, GLM, Claude, and more. See context windows and per-token pricing, and use any of them with one API key.",
 		heading: "Best Models for Roleplay",
@@ -48,7 +48,7 @@ export const modelCategoryContent = {
 		],
 	},
 	coding: {
-		metaTitle: "Best LLMs for Coding — Compare AI Coding Models",
+		metaTitle: "Best LLMs for Coding, Ranked by Real Usage",
 		metaDescription:
 			"Compare the best AI models for coding — Claude Sonnet 5, GPT-5.3 Codex, Gemini 3.1 Pro, Qwen3 Coder, Kimi K2.7 Code, and DeepSeek V4 — by price, context window, and capabilities.",
 		heading: "Best Models for Coding",
@@ -83,7 +83,7 @@ export const modelCategoryContent = {
 		],
 	},
 	"creative-writing": {
-		metaTitle: "Best AI Models for Creative Writing — Compare LLMs",
+		metaTitle: "Best LLMs for Creative Writing, Ranked by Real Usage",
 		metaDescription:
 			"Compare the best LLMs for creative writing and fiction — Kimi K2, Claude Opus, GPT-5.5, Gemini Pro, and more — by prose quality, context window, and price.",
 		heading: "Best Models for Creative Writing",
@@ -117,7 +117,7 @@ export const modelCategoryContent = {
 		],
 	},
 	translation: {
-		metaTitle: "Best LLMs for Translation — Multilingual AI Models",
+		metaTitle: "Best LLMs for Translation, Ranked by Real Usage",
 		metaDescription:
 			"Compare the best AI models for translation — Gemini, GPT-5.4, Claude, Qwen, and DeepSeek — with strong multilingual coverage, long-document support, and per-token pricing.",
 		heading: "Best Models for Translation",
@@ -151,7 +151,7 @@ export const modelCategoryContent = {
 		],
 	},
 	math: {
-		metaTitle: "Best LLMs for Math — Compare AI Reasoning Models",
+		metaTitle: "Best LLMs for Math, Ranked by Real Usage",
 		metaDescription:
 			"Compare the best AI models for math and quantitative reasoning — GPT-5.5 Pro, Claude Opus, DeepSeek V4, Gemini Pro, and Qwen thinking models — by accuracy, price, and reasoning support.",
 		heading: "Best Models for Math",
@@ -185,7 +185,7 @@ export const modelCategoryContent = {
 		],
 	},
 	"cyber-security": {
-		metaTitle: "Best AI Models for Cyber Security — Compare Security LLMs",
+		metaTitle: "Best AI Models for Cyber Security, Ranked by Usage",
 		metaDescription:
 			"Compare the best LLMs for cyber security work — code audits, log triage, malware analysis in a sandbox, CTFs, and pentest reports — including Chinese-lab models that do not stop mid-task. Prices, context windows, one API key.",
 		heading: "Best Models for Cyber Security",
@@ -219,7 +219,7 @@ export const modelCategoryContent = {
 		],
 	},
 	"reverse-engineering": {
-		metaTitle: "Best AI Models for Reverse Engineering — Compare RE LLMs",
+		metaTitle: "Best LLMs for Reverse Engineering, Ranked by Usage",
 		metaDescription:
 			"Compare the best LLMs for reverse engineering — decompiling binaries, reading assembly, firmware and app analysis with REA, Ghidra, and Hopper. Chinese-lab models that finish the job, with prices and context windows.",
 		heading: "Best Models for Reverse Engineering",
@@ -321,7 +321,7 @@ export const modelCategoryContent = {
 		],
 	},
 	"open-source": {
-		metaTitle: "Best Open Source LLMs — Open-Weight Models via API",
+		metaTitle: "Best Open Source LLMs, Ranked by Real Usage",
 		metaDescription:
 			"Compare the best open-source and open-weight LLMs — Llama, DeepSeek, Qwen, GLM, Kimi K2, GPT-OSS, Gemma, and Mistral — served via API with per-token pricing.",
 		heading: "Open Source Models",
@@ -362,14 +362,14 @@ export const modelCategoryContent = {
 		subheading:
 			"Models priced at $5+ per million input tokens or $15+ per million output tokens — the exact list used for DevPass fair-use limits",
 		intro: [
-			"Premium is a pricing classification, not a curated list: a model lands on this page when any of its providers charges at least $5 per million input tokens or $15 per million output tokens. The classification is computed directly from catalogue prices, so this page always shows exactly which models are premium right now — every model not listed here is standard.",
+			"Premium is a pricing classification, not a curated list: a model lands on this page when any of its providers charges at least $5 per million input tokens or $15 per million output tokens. The classification is computed directly from catalogue prices after active public discounts, so this page always shows exactly which models are premium right now — every model not listed here is standard.",
 			"The distinction matters for DevPass coding plans, where premium models are subject to a weekly fair-use allowance (a percentage of the plan's monthly credits) on top of the normal credit balance. When you call the LLM Gateway API directly with pay-as-you-go credits, premium models have no extra cap and no markup — you pay the same per-token provider prices shown here.",
 		],
 		faqs: [
 			{
 				question: "What makes a model premium?",
 				answer:
-					"Pricing alone. A model is premium when at least one of its providers charges $5 or more per million input tokens, or $15 or more per million output tokens. There is no hand-picked list — the classification is recomputed from the live model catalogue, so it updates automatically when prices change.",
+					"Pricing alone. A model is premium when at least one of its providers charges $5 or more per million input tokens, or $15 or more per million output tokens. Prices are taken after any active public discount, so a promotion that brings a model below both thresholds makes it standard while it runs. There is no hand-picked list — the classification is recomputed from the live model catalogue, so it updates automatically when prices change.",
 			},
 			{
 				question: "Do premium models cost extra on LLM Gateway?",

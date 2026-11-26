@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	mergeApiModelDefinition,
 	publicModelDefinition,
+	resolvePublicModelDefinition,
 } from "./airside-model-fallback";
 
 import type { ModelDefinition } from "@llmgateway/models";
@@ -258,5 +259,41 @@ describe("mergeApiModelDefinition", () => {
 				staticModel,
 			)?.providers,
 		).toHaveLength(1);
+	});
+});
+describe("virtual public model pages", () => {
+	it.each(["deepseek-v4.1-flash-latest", "jev", "jev-latest", "jev-preview"])(
+		"renders %s as its own page",
+		(alias) => {
+			const model = resolvePublicModelDefinition(alias, []);
+			expect(model?.id).toBe(alias);
+			expect(model?.virtualModelTarget).toBe(
+				alias.startsWith("deepseek")
+					? "deepseek-v4.1-flash-1017"
+					: "jev-1.14.0",
+			);
+			expect(model?.providers.length).toBeGreaterThan(0);
+		},
+	);
+	it("uses the target's live pricing and hides unlisted mappings", () => {
+		const target = {
+			...apiModel([mapping({ providerId: "typesafe", inputPrice: "0.05e-6" })]),
+			id: "jev-1.14.0",
+		};
+		expect(
+			resolvePublicModelDefinition("jev-latest", [target])?.providers[0]
+				.inputPrice,
+		).toBe("0.05e-6");
+		expect(
+			resolvePublicModelDefinition("jev-latest", [
+				{ ...target, mappings: [], unlistedProviderIds: ["typesafe"] },
+			]),
+		).toBeNull();
+	});
+	it("leaves canonical pages unchanged and rejects unknown aliases", () => {
+		expect(
+			resolvePublicModelDefinition("jev-1.14.0", [])?.virtualModelTarget,
+		).toBeUndefined();
+		expect(resolvePublicModelDefinition("unknown-latest", [])).toBeNull();
 	});
 });

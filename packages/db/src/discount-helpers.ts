@@ -2,11 +2,14 @@ import { and, desc, eq, getTableName, isNull, or } from "drizzle-orm";
 
 import { swrWrap } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
+import { models } from "@llmgateway/models";
+import { isPremiumModel } from "@llmgateway/shared";
 
 import { cdb } from "./cdb.js";
 import {
 	discount as discountTable,
 	providerRoutingSettings,
+	type DiscountExcludableCostType,
 } from "./schema.js";
 
 type DiscountRow = Pick<
@@ -16,6 +19,7 @@ type DiscountRow = Pick<
 	| "provider"
 	| "model"
 	| "discountPercent"
+	| "excludedCostTypes"
 	| "expiresAt"
 >;
 type AirsideDiscountRow = Pick<
@@ -43,6 +47,11 @@ export interface EffectiveDiscount {
 		| "none";
 	/** The discount record ID if from database */
 	discountId?: string;
+	/**
+	 * Cost types billed at full price under this discount. Token costs are
+	 * always discounted. Absent (e.g. a pre-deploy SWR mirror entry) means none.
+	 */
+	excludedCostTypes?: DiscountExcludableCostType[];
 }
 
 /**
@@ -90,6 +99,90 @@ export async function getEffectiveDiscount(
 	}
 }
 
+/**
+ * Load the global discount rows, `organizationId`'s own rows, and the Airside
+ * carrier discounts in one query each, and resolve provider/model pairs in
+ * memory with {@link resolveEffectiveDiscount}. For catalogue-wide listings;
+ * per-request lookups use {@link getEffectiveDiscount}.
+ */
+export async function loadDiscountResolver(
+	organizationId: string | null,
+): Promise<(provider: string, model: string) => EffectiveDiscount> {
+	let loaded: {
+		rows: DiscountRow[];
+		airsideSettings: AirsideDiscountRow[];
+	};
+	try {
+		loaded = await swrWrap(
+			`discountResolver:${organizationId ?? "global"}`,
+			[getTableName(discountTable), getTableName(providerRoutingSettings)],
+			async () => ({
+				rows: await cdb
+					.select({
+						id: discountTable.id,
+						organizationId: discountTable.organizationId,
+						provider: discountTable.provider,
+						model: discountTable.model,
+						discountPercent: discountTable.discountPercent,
+						excludedCostTypes: discountTable.excludedCostTypes,
+						expiresAt: discountTable.expiresAt,
+					})
+					.from(discountTable)
+					.where(
+						organizationId
+							? or(
+									isNull(discountTable.organizationId),
+									eq(discountTable.organizationId, organizationId),
+								)
+							: isNull(discountTable.organizationId),
+					)
+					.orderBy(desc(discountTable.createdAt)),
+				airsideSettings: await cdb
+					.select({
+						id: providerRoutingSettings.id,
+						providerId: providerRoutingSettings.providerId,
+						modelId: providerRoutingSettings.modelId,
+						discountPercent: providerRoutingSettings.discountPercent,
+					})
+					.from(providerRoutingSettings),
+			}),
+		);
+	} catch (error) {
+		// Same fallback as getEffectiveDiscount: list undiscounted prices
+		// rather than failing the catalogue.
+		logger.error("Error loading discount resolver:", error as Error);
+		return () => ({ discount: "0", source: "none" });
+	}
+	// Index by provider so each lookup scans only that provider's rows plus the
+	// provider-agnostic ones, in their original precedence order.
+	const { rows, airsideSettings } = loaded;
+	const byProvider = new Map<
+		string,
+		{ rows: DiscountRow[]; airsideSettings: AirsideDiscountRow[] }
+	>();
+	return (provider, model) => {
+		let scoped = byProvider.get(provider);
+		if (!scoped) {
+			scoped = {
+				rows: rows.filter(
+					(d) => d.provider === null || d.provider === provider,
+				),
+				airsideSettings: airsideSettings.filter(
+					(row) => row.providerId === provider,
+				),
+			};
+			byProvider.set(provider, scoped);
+		}
+		return resolveEffectiveDiscount(
+			scoped.rows,
+			scoped.airsideSettings,
+			organizationId,
+			provider,
+			model,
+		);
+	};
+}
+
 async function queryEffectiveDiscount(
 	organizationId: string | null,
 	provider: string,
@@ -109,6 +202,7 @@ async function queryEffectiveDiscount(
 			provider: discountTable.provider,
 			model: discountTable.model,
 			discountPercent: discountTable.discountPercent,
+			excludedCostTypes: discountTable.excludedCostTypes,
 			expiresAt: discountTable.expiresAt,
 		})
 		.from(discountTable)
@@ -193,6 +287,7 @@ export function resolveEffectiveDiscount(
 				discount: orgProviderModel.discountPercent,
 				source: "org_provider_model",
 				discountId: orgProviderModel.id,
+				excludedCostTypes: orgProviderModel.excludedCostTypes,
 			};
 		}
 
@@ -208,6 +303,7 @@ export function resolveEffectiveDiscount(
 				discount: orgProvider.discountPercent,
 				source: "org_provider",
 				discountId: orgProvider.id,
+				excludedCostTypes: orgProvider.excludedCostTypes,
 			};
 		}
 
@@ -223,6 +319,7 @@ export function resolveEffectiveDiscount(
 				discount: orgModel.discountPercent,
 				source: "org_model",
 				discountId: orgModel.id,
+				excludedCostTypes: orgModel.excludedCostTypes,
 			};
 		}
 	}
@@ -239,6 +336,7 @@ export function resolveEffectiveDiscount(
 			discount: globalProviderModel.discountPercent,
 			source: "global_provider_model",
 			discountId: globalProviderModel.id,
+			excludedCostTypes: globalProviderModel.excludedCostTypes,
 		};
 	}
 
@@ -252,6 +350,7 @@ export function resolveEffectiveDiscount(
 			discount: globalProvider.discountPercent,
 			source: "global_provider",
 			discountId: globalProvider.id,
+			excludedCostTypes: globalProvider.excludedCostTypes,
 		};
 	}
 
@@ -265,6 +364,7 @@ export function resolveEffectiveDiscount(
 			discount: globalModel.discountPercent,
 			source: "global_model",
 			discountId: globalModel.id,
+			excludedCostTypes: globalModel.excludedCostTypes,
 		};
 	}
 	const global = discounts.find(
@@ -275,6 +375,7 @@ export function resolveEffectiveDiscount(
 			discount: global.discountPercent,
 			source: "global",
 			discountId: global.id,
+			excludedCostTypes: global.excludedCostTypes,
 		};
 	}
 
@@ -304,4 +405,36 @@ export function resolveEffectiveDiscount(
 		discount: "0",
 		source: "none",
 	};
+}
+
+/**
+ * {@link isPremiumModel} at public prices: each mapping's active global or
+ * Airside discount applies, never an org-specific one, so the DevPass premium
+ * gate and the worker's premium accrual match the public catalogue. A failed
+ * discount lookup resolves to 0%, falling back to list prices.
+ */
+export async function isPremiumModelAfterDiscounts(
+	modelId: string,
+): Promise<boolean> {
+	// Discounts only lower prices, so a model standard at list price stays so.
+	if (!isPremiumModel(modelId)) {
+		return false;
+	}
+	const model = models.find((m) => m.id === modelId);
+	if (!model) {
+		return false;
+	}
+	const providerIds = [...new Set(model.providers.map((p) => p.providerId))];
+	const discounts = new Map<string, string>(
+		await Promise.all(
+			providerIds.map(
+				async (providerId) =>
+					[
+						providerId,
+						(await getEffectiveDiscount(null, providerId, modelId)).discount,
+					] as const,
+			),
+		),
+	);
+	return isPremiumModel(modelId, (providerId) => discounts.get(providerId));
 }

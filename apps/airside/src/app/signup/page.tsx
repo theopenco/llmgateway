@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
-import * as z from "zod/v3";
+import * as z from "zod";
 
 import { Logo } from "@/components/Logo";
 import { TermsAgreement } from "@/components/TermsAgreement";

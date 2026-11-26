@@ -16,6 +16,7 @@ import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 import { checkSpendLimit } from "@/lib/spend-limit.js";
 
 import { logger } from "@llmgateway/logger";
+import { getRequestedModelAlias } from "@llmgateway/models";
 
 import { getUnsettledRealtimeOrganizationSpend } from "./billing.js";
 import { getAvailableCredits } from "./preflight.js";
@@ -135,6 +136,10 @@ export async function authorizeAccount(
 		providerAccessRestriction: freshOrg.providerAccessRestriction,
 		requestedModel: match.modelId,
 		requestedProvider: match.mapping.providerId,
+		requestedModelAlias: getRequestedModelAlias(
+			input.requestedModel,
+			match.modelId,
+		),
 		activeModelInfo: match.modelDef,
 		clientIp: preflight.clientIp,
 	});
@@ -147,12 +152,17 @@ export async function authorizeAccount(
 		};
 	}
 	try {
-		await assertProviderCompliant(freshOrg, match.mapping.providerId, {
-			organizationId: preflight.project.organizationId,
-			modelId: match.modelId,
-			apiKeyId: freshKey.id,
-			model: input.requestedModel,
-		});
+		await assertProviderCompliant(
+			freshOrg,
+			match.mapping.providerId,
+			{
+				organizationId: preflight.project.organizationId,
+				modelId: match.modelId,
+				apiKeyId: freshKey.id,
+				model: input.requestedModel,
+			},
+			freshKey,
+		);
 	} catch (error) {
 		return {
 			ok: false,

@@ -2,6 +2,7 @@
 id: github-copilot
 slug: github-copilot
 title: GitHub Copilot App Integration
+seoTitle: Use the GitHub Copilot App with LLM Gateway
 date: 2026-09-23
 description: Configure the GitHub Copilot app with LLM Gateway, review account prerequisites, and choose a compatible agent model.
 ---

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
+import { readJsonBody } from "@/lib/read-json-body";
 
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
@@ -41,6 +42,7 @@ function getSpeechErrorMessage(body: unknown, fallback: string): string {
 }
 
 export async function POST(req: Request) {
+	const bodyPromise = readJsonBody<AudioRequestBody>(req);
 	const user = await getUser();
 	if (!user) {
 		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -53,15 +55,14 @@ export async function POST(req: Request) {
 		return NextResponse.json({ error: "Missing API key" }, { status: 400 });
 	}
 
-	let body: AudioRequestBody;
-	try {
-		body = (await req.json()) as AudioRequestBody;
-	} catch {
+	const bodyResult = await bodyPromise;
+	if (!bodyResult.ok) {
 		return NextResponse.json(
 			{ error: "Invalid JSON payload" },
 			{ status: 400 },
 		);
 	}
+	const body = bodyResult.body;
 
 	if (!body.input?.trim()) {
 		return NextResponse.json(

@@ -138,6 +138,26 @@ describe("unsubscribe headers and footers", () => {
 		expect(html).toContain("Lewes, DE 19958");
 	});
 
+	test("adds a notification settings link next to the unsubscribe link", () => {
+		const token = signUnsubscribeToken({
+			email: "user@example.com",
+			category: "model_retirement",
+		});
+		const settingsUrl =
+			"https://app.example.com/dashboard/org/org/notifications";
+
+		const text = renderFooterText("model_retirement", token, settingsUrl);
+		expect(text).toContain(buildUnsubscribeUrl(token));
+		expect(text).toContain(`Manage your notification settings: ${settingsUrl}`);
+		expect(renderFooterText("model_retirement", token)).not.toContain(
+			"Manage your notification settings",
+		);
+
+		const html = renderFooterHtml("model_retirement", token, settingsUrl);
+		expect(html).toContain("Unsubscribe from model retirement notices");
+		expect(html).toContain(`href="${settingsUrl}"`);
+	});
+
 	test("transactional footer points at account closure instead", () => {
 		const text = renderFooterText("transactional");
 		expect(text).toContain("close your LLM Gateway account");

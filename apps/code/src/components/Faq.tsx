@@ -8,14 +8,17 @@ import {
 	AccordionContent,
 	AccordionItem,
 } from "@/components/ui/accordion";
+import { formatUsd } from "@/lib/utils";
 
 import {
 	DEV_PLAN_DAILY_PERCENT,
 	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
 	DEV_PLAN_PRICES,
+	DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
 	DEV_PLAN_RESET_PASS_PRICES,
 	getDevPlanCreditsLimit,
+	getDevPlanRenewalRolloverCap,
 	HIGH_COST_INPUT_PRICE,
 	HIGH_COST_OUTPUT_PRICE,
 	MARKETING_STATS,
@@ -50,6 +53,8 @@ const defaultCredits: FaqCredits = {
 
 function buildFaqData(credits: FaqCredits): FaqItem[] {
 	const usagePerDollar = credits.lite / DEV_PLAN_PRICES.lite;
+	const carryOverCap = (tier: DevPlanTier) =>
+		formatUsd(getDevPlanRenewalRolloverCap(credits[tier]));
 	return [
 		{
 			question: "How much usage do I get on each plan?",
@@ -123,7 +128,7 @@ function buildFaqData(credits: FaqCredits): FaqItem[] {
 		{
 			question: "What happens if I hit my monthly limit?",
 			answer:
-				"By default requests pause until your allowance resets at the start of the next billing cycle. You have two ways to keep coding: enable pay-as-you-go overflow in your dashboard — an opt-in that bills extra usage from a credits balance at the same provider rates once your allowance is gone — or upgrade to a higher tier at any time: an immediate upgrade charges the new tier's full price, restarts your billing cycle, and grants the new tier's full monthly allowance right away, plus anything left of your current allowance rolls over. Credits only roll over on an immediate upgrade, never at a regular renewal.",
+				"By default requests pause until your allowance resets at the start of the next billing cycle. You have two ways to keep coding: enable pay-as-you-go overflow in your dashboard — an opt-in that bills extra usage from a credits balance at the same provider rates once your allowance is gone — or upgrade to a higher tier at any time: an immediate upgrade charges the new tier's full price, restarts your billing cycle, and grants the new tier's full monthly allowance right away, plus anything left of your current allowance rolls over.",
 			content: (
 				<>
 					<p>
@@ -141,16 +146,19 @@ function buildFaqData(credits: FaqCredits): FaqItem[] {
 						immediate upgrade charges the new tier&apos;s full price, restarts
 						your billing cycle, and grants the new tier&apos;s full monthly
 						allowance right away — plus anything left of your current allowance
-						rolls over. Credits only roll over on an immediate upgrade, never at
-						a regular renewal.
+						rolls over.
 					</p>
 				</>
 			),
 		},
 		{
+			question: "Does unused allowance roll over?",
+			answer: `Yes, up to a cap. What is left when your plan renews carries into the next cycle, up to ${pct(DEV_PLAN_RENEWAL_ROLLOVER_PERCENT)}% of your plan's monthly allowance (${carryOverCap("lite")} on Lite, ${carryOverCap("pro")} on Pro, ${carryOverCap("max")} on Max), on top of that cycle's full allowance. The amount is worked out again at every renewal from what is left then, so it never builds up past that cap, and it ends when the plan does.`,
+		},
+		{
 			question: "Can I change plans anytime?",
 			answer:
-				"Yes. Upgrades can take effect immediately — you're charged the new tier's full price, your billing cycle restarts, and you get the new tier's full allowance right away, plus any unspent credits from the cycle being replaced roll over until your next renewal — or you can schedule the upgrade for your next renewal instead. Downgrades take effect at your next renewal. There's no lock-in and no cancellation fee.",
+				"Yes. Upgrades can take effect immediately — you're charged the new tier's full price, your billing cycle restarts, and you get the new tier's full allowance right away, plus any unspent credits from the cycle being replaced roll over — or you can schedule the upgrade for your next renewal instead. Downgrades take effect at your next renewal. There's no lock-in and no cancellation fee.",
 		},
 		{
 			question: "Do I need a subscription, or is there pay-as-you-go?",
@@ -224,14 +232,15 @@ function buildFaqData(credits: FaqCredits): FaqItem[] {
 		},
 		{
 			question: "Are there limits on premium models?",
-			answer: `Premium models — any model priced at $${premiumInputPerM}+ per million input tokens or $${premiumOutputPerM}+ per million output tokens — are subject to a weekly fair-use allowance in addition to your monthly allowance and its daily pacing: ${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.lite)}% of your monthly credits on Lite, ${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.pro)}% on Pro, and ${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.max)}% on Max. Every other model draws on your full monthly allowance. The exact numbers are published on the plan cards — no hidden throttling.`,
+			answer: `Premium models — any model priced at $${premiumInputPerM}+ per million input tokens or $${premiumOutputPerM}+ per million output tokens after any active public discount — are subject to a weekly fair-use allowance in addition to your monthly allowance and its daily pacing: ${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.lite)}% of your monthly credits on Lite, ${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.pro)}% on Pro, and ${pct(DEV_PLAN_PREMIUM_WEEKLY_PERCENT.max)}% on Max. Every other model draws on your full monthly allowance. The exact numbers are published on the plan cards — no hidden throttling.`,
 			content: (
 				<>
 					<p>
 						Premium models — any model priced at ${premiumInputPerM}+ per
 						million input tokens or ${premiumOutputPerM}+ per million output
-						tokens — are subject to a weekly fair-use allowance in addition to
-						your monthly allowance and its daily pacing:
+						tokens after any active public discount — are subject to a weekly
+						fair-use allowance in addition to your monthly allowance and its
+						daily pacing:
 					</p>
 					<ul className="list-disc pl-6 mt-2 space-y-1">
 						<li>
@@ -268,13 +277,14 @@ function buildFaqData(credits: FaqCredits): FaqItem[] {
 		{
 			question: "Does the weekly premium allowance reset when my plan renews?",
 			answer:
-				"Yes. Every monthly renewal resets everything at once: your monthly credits, your weekly premium allowance (a fresh 7-day window starts at renewal), and your included Reset Passes. Between renewals the window is rolling — when 7 days end, the next window starts with your next premium request, and redeeming a Reset Pass clears the window so the next request starts a fresh one. There's no reset schedule to manage — neither the weekly window nor unused included passes carry into the next cycle. Purchased Reset Passes are separate: they persist until redeemed.",
+				"Yes. Every monthly renewal starts all three fresh at once: your monthly usage, your weekly premium allowance (a fresh 7-day window starts at renewal), and your included Reset Passes. Unused monthly allowance is the one exception: it carries over, up to a cap. Between renewals the window is rolling — when 7 days end, the next window starts with your next premium request, and redeeming a Reset Pass clears the window so the next request starts a fresh one. There's no reset schedule to manage — neither the weekly window nor unused included passes carry into the next cycle. Purchased Reset Passes are separate: they persist until redeemed.",
 			content: (
 				<>
 					<p>
-						Yes. Every monthly renewal resets everything at once: your monthly
-						credits, your weekly premium allowance (a fresh 7-day window starts
-						at renewal), and your included Reset Passes.
+						Yes. Every monthly renewal starts all three fresh at once: your
+						monthly usage, your weekly premium allowance (a fresh 7-day window
+						starts at renewal), and your included Reset Passes. Unused monthly
+						allowance is the one exception: it carries over, up to a cap.
 					</p>
 					<p className="mt-3">
 						Between renewals the window is rolling — when 7 days end, the next

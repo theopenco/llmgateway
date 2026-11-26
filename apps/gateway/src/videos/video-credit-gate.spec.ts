@@ -134,6 +134,23 @@ describe("video credit estimate gate", () => {
 		expect(third.status).toBe(200);
 	});
 
+	test("reserves the maximum length for lip-sync video that follows its audio", async () => {
+		vi.stubEnv("LLM_ATLASCLOUD_API_KEY", "atlascloud-test-token");
+		vi.stubEnv("LLM_ATLASCLOUD_BASE_URL", harness.mockServerUrl);
+		await harness.setOrganizationCredits("20.00");
+
+		// 300s maximum × $0.088 at 480p, regardless of the requested 5s.
+		const res = await submit({
+			model: "atlascloud/veed-fabric-1-0",
+			size: "854x480",
+			seconds: 5,
+			input_reference: { image_url: "data:image/png;base64,aGVsbG8=" },
+			reference_audios: ["https://example.com/speech.mp3"],
+		});
+		expect(res.status).toBe(402);
+		expect((await res.json()).error.message).toContain("estimated $26.40");
+	});
+
 	test("counts submissions still between the gate and their job row", async () => {
 		await harness.setOrganizationCredits("5.00");
 		const inFlightKey = "video:submitting:org-id";

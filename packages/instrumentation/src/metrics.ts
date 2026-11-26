@@ -81,6 +81,25 @@ export const gatewayInflightRequests = new Gauge({
 });
 
 // Counter for requests shed by a concurrency limit. scope="pod" is the
+export const managedKeySelectionsTotal = new Counter({
+	name: "managed_key_selections_total",
+	help: "Managed credential selections by strategy and initial or retry attempt",
+	labelNames: ["strategy", "attempt"] as const,
+	registers: [metricsRegistry],
+});
+
+export const managedKeySelectionDegradedTotal = new Counter({
+	name: "managed_key_selection_degraded_total",
+	help: "Round-robin selections degraded to ordered keys after cursor errors",
+	registers: [metricsRegistry],
+});
+
+export const contentFilterModerationCacheTotal = new Counter({
+	name: "content_filter_moderation_cache_total",
+	help: "Moderation text chunks by cache result (hit, miss, error)",
+	labelNames: ["result"] as const,
+	registers: [metricsRegistry],
+});
 // pod-wide backpressure cap (HTTP 529); scope="org" is a per-organization
 // in-flight limit (HTTP 429). Lets us alert on dropped traffic and see how
 // often limits are hit, rather than inferring it from the gauge riding the cap.
@@ -107,7 +126,8 @@ export interface ChatCompletionMetrics {
 	provider: string;
 	finishReason: string | null;
 	streaming: boolean;
-	durationMs: number;
+	// Omitted for requests that never reached the provider.
+	durationMs?: number;
 	ttftMs?: number;
 	inputTokens?: number;
 	outputTokens?: number;
@@ -142,10 +162,11 @@ export function recordChatCompletionMetrics(metrics: ChatCompletionMetrics) {
 		.labels(model, provider, normalizedFinishReason, streamingLabel)
 		.inc();
 
-	// Record duration
-	chatCompletionDuration
-		.labels(model, provider, streamingLabel)
-		.observe(durationMs / 1000);
+	if (durationMs !== undefined) {
+		chatCompletionDuration
+			.labels(model, provider, streamingLabel)
+			.observe(durationMs / 1000);
+	}
 
 	// Record TTFT for streaming requests
 	if (streaming && ttftMs !== undefined && ttftMs > 0) {
@@ -273,6 +294,26 @@ export function registerDbPoolMetrics(getStats: () => DbPoolStats): void {
 	for (const gauge of gauges) {
 		metricsRegistry.registerMetric(gauge);
 	}
+}
+
+// Seconds from the gateway publishing a log row to LOG_QUEUE until the worker
+// committed it to Postgres. Registered on first observation so only services
+// that persist logs export it.
+export const logPersistLag = new Histogram({
+	name: "log_persist_lag_seconds",
+	help: "Seconds between a log row being queued by the gateway and persisted by the worker",
+	buckets: [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600],
+	registers: [],
+});
+
+let logPersistLagRegistered = false;
+
+export function recordLogPersistLag(seconds: number): void {
+	if (!logPersistLagRegistered) {
+		logPersistLagRegistered = true;
+		metricsRegistry.registerMetric(logPersistLag);
+	}
+	logPersistLag.observe(Math.max(0, seconds));
 }
 
 /**

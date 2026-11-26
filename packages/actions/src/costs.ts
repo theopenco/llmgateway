@@ -54,6 +54,41 @@ function getServiceTierMultiplier(
 	return tier?.multiplier ?? 1;
 }
 
+export interface SvgAuthorUsage {
+	/** Model OpenAI reports as the SVG author (`svg_usage.model`). */
+	model: string | null;
+	inputTokens: number;
+	/** Includes `reasoningTokens`, which are reported as a detail. */
+	outputTokens: number;
+	reasoningTokens: number;
+}
+
+/** Resolve the reported SVG author; never substitute image rates for text tokens. */
+function resolveSvgAuthorPrices(
+	authorModel: string | null,
+): { modelId: string; inputPrice: Decimal; outputPrice: Decimal } | null {
+	const candidates = authorModel
+		? [authorModel, authorModel.replace(/-\d{4}-\d{2}-\d{2}$/, "")]
+		: [];
+	for (const id of candidates) {
+		const providers = models.find((m) => m.id === id)?.providers as
+			ProviderModelMapping[] | undefined;
+		const mapping = providers?.find((p) => p.providerId === "openai");
+		if (mapping?.inputPrice && mapping.outputPrice) {
+			return {
+				modelId: id,
+				inputPrice: new Decimal(mapping.inputPrice),
+				outputPrice: new Decimal(mapping.outputPrice),
+			};
+		}
+	}
+	logger.error(
+		"Unknown SVG author model, authoring cost omitted for reconciliation",
+		{ authorModel },
+	);
+	return null;
+}
+
 interface ChatMessage {
 	role: "user" | "system" | "assistant" | undefined;
 	content: string;
@@ -311,9 +346,15 @@ export async function calculateCosts(
 		rejectionWithoutUsage?: boolean;
 		/**
 		 * An already-resolved `getEffectiveDiscount` result for this
-		 * organization, provider and model, so the call does no I/O.
+		 * organization, provider and primary model; skips that lookup.
 		 */
 		effectiveDiscount?: EffectiveDiscount;
+		/**
+		 * Token usage of the model that authored an SVG image (OpenAI
+		 * `svg_usage`), reported separately from the image model's usage and
+		 * billed at the authoring model's rates on top of it.
+		 */
+		svgAuthorUsage?: SvgAuthorUsage | null;
 	},
 	contentFilterTriggered = false,
 ) {
@@ -348,6 +389,7 @@ export async function calculateCosts(
 			cacheWriteInputCost: null,
 			requestCost: null,
 			webSearchCost: null,
+			webSearchCount: 0,
 			contentFilterCost: null,
 			imageInputTokens: null,
 			imageOutputTokens: null,
@@ -480,6 +522,7 @@ export async function calculateCosts(
 			cacheWriteInputCost: null,
 			requestCost: null,
 			webSearchCost: null,
+			webSearchCount: 0,
 			contentFilterCost: null,
 			imageInputTokens: null,
 			imageOutputTokens: null,
@@ -539,6 +582,7 @@ export async function calculateCosts(
 			cacheWriteInputCost: null,
 			requestCost: null,
 			webSearchCost: null,
+			webSearchCount: 0,
 			contentFilterCost: null,
 			imageInputTokens: null,
 			imageOutputTokens: null,
@@ -642,7 +686,25 @@ export async function calculateCosts(
 		}
 		const own = (key: string) =>
 			Object.hasOwn(byResolution, key) ? byResolution[key] : undefined;
-		return own(size ?? "default") ?? own("default");
+		// Tier keys are uppercase ("2K"); requests may send "2k".
+		return (
+			own(size ?? "default") ??
+			(size ? own(size.toUpperCase()) : undefined) ??
+			own("default")
+		);
+	}
+
+	// Prices a `WIDTHxHEIGHT` size by the first pixel-area band that fits it.
+	function resolvePerImagePriceByPixels(
+		bands: Array<{ upToPixels: number; price: string }> | undefined,
+		size: string | undefined,
+	): string | undefined {
+		const match = size ? /^(\d+)x(\d+)$/.exec(size) : null;
+		if (!bands || !match) {
+			return undefined;
+		}
+		const pixels = Number(match[1]) * Number(match[2]);
+		return bands.find((band) => pixels <= band.upToPixels)?.price;
 	}
 
 	// Track image input tokens separately. For image-output models (e.g.
@@ -653,7 +715,6 @@ export async function calculateCosts(
 	// 560/image legacy default) on top of the text estimate.
 	const isGoogleProvider =
 		provider === "google-ai-studio" ||
-		provider === "glacier" ||
 		provider === "google-vertex" ||
 		provider === "quartz";
 	const imageInputTokensPerImage = resolveByResolution(
@@ -707,7 +768,8 @@ export async function calculateCosts(
 		(provider === "openai" ||
 			provider === "azure" ||
 			provider === "xai" ||
-			(isGoogleProvider && imageInputTokensReported));
+			((provider === "minimax" || isGoogleProvider) &&
+				imageInputTokensReported));
 	let cachedImageTokens = 0;
 	if (
 		promptIncludesImageTokens &&
@@ -746,6 +808,13 @@ export async function calculateCosts(
 			.times(imageInputPricePerToken)
 			.times(tokenDiscountMultiplier);
 	}
+	if (providerInfo.perInputImagePrice && inputImageCount > 0) {
+		imageInputCost = (imageInputCost ?? new Decimal(0)).plus(
+			new Decimal(providerInfo.perInputImagePrice)
+				.times(inputImageCount)
+				.times(discountMultiplier),
+		);
+	}
 	// Audio input tokens are reported separately by Google and OpenAI but are
 	// included in the upstream prompt-token total, so we subtract them from the
 	// text-billable count and price them at inputAudioPrice (falling back to
@@ -768,12 +837,41 @@ export async function calculateCosts(
 			? uncachedPromptTokens - uncachedImageTokens
 			: uncachedPromptTokens) - billableAudioInputTokens,
 	);
-	// inputCost includes text, image, and audio input costs when applicable
+	const svgAuthorUsage = options?.svgAuthorUsage;
+	const svgAuthorPrices = svgAuthorUsage
+		? resolveSvgAuthorPrices(svgAuthorUsage.model)
+		: null;
+	const svgAuthorDiscount = svgAuthorPrices
+		? await getEffectiveDiscount(
+				organizationId,
+				"openai",
+				svgAuthorPrices.modelId,
+			)
+		: null;
+	const svgAuthorMultiplier = new Decimal(1).minus(
+		svgAuthorDiscount?.discount ?? "0",
+	);
+	const svgAuthorInputCost =
+		svgAuthorUsage && svgAuthorPrices
+			? new Decimal(svgAuthorUsage.inputTokens)
+					.times(svgAuthorPrices.inputPrice)
+					.times(svgAuthorMultiplier)
+			: new Decimal(0);
+	const svgAuthorOutputCost =
+		svgAuthorUsage && svgAuthorPrices
+			? new Decimal(svgAuthorUsage.outputTokens)
+					.times(svgAuthorPrices.outputPrice)
+					.times(svgAuthorMultiplier)
+			: new Decimal(0);
+
+	// inputCost includes text, image, audio, and SVG-author input costs when
+	// applicable
 	const inputCost = new Decimal(billableTextPromptTokens)
 		.times(inputPrice)
 		.times(tokenDiscountMultiplier)
 		.plus(imageInputCost ?? 0)
-		.plus(audioInputCost ?? 0);
+		.plus(audioInputCost ?? 0)
+		.plus(svgAuthorInputCost);
 
 	const totalOutputTokens = calculatedCompletionTokens;
 
@@ -810,6 +908,10 @@ export async function calculateCosts(
 		// a lookup miss can only overcharge, never bill a generated image at $0
 		// (same stance as the unknown-size → "default" fallback).
 		const perImagePrice =
+			resolvePerImagePriceByPixels(
+				providerInfo.perImagePriceByPixels,
+				perImageTier,
+			) ??
 			resolveByResolution(perImagePriceMap, perImageTier) ??
 			Object.values(perImagePriceMap).reduce(
 				(max, v) => (new Decimal(v).gt(max) ? v : max),
@@ -848,6 +950,7 @@ export async function calculateCosts(
 			.times(outputPrice)
 			.times(tokenDiscountMultiplier);
 	}
+	outputCost = outputCost.plus(svgAuthorOutputCost);
 	const cachedImageInputPriceDecimal =
 		cachedImageInputPricePerToken !== undefined
 			? new Decimal(cachedImageInputPricePerToken)
@@ -894,11 +997,16 @@ export async function calculateCosts(
 		: new Decimal(0);
 	const requestCost = requestPrice.times(discountMultiplier);
 
-	// Calculate web search cost
+	// Calculate web search cost. A discount can exclude it (e.g. a provider
+	// promo that cuts token prices but not grounding fees).
 	const webSearchPrice = new Decimal((providerInfo as any).webSearchPrice ?? 0);
+	const webSearchDiscountMultiplier =
+		effectiveDiscountResult.excludedCostTypes?.includes("web_search")
+			? new Decimal(1)
+			: discountMultiplier;
 	const webSearchCost =
 		webSearchCount && webSearchCount > 0
-			? webSearchPrice.times(webSearchCount).times(discountMultiplier)
+			? webSearchPrice.times(webSearchCount).times(webSearchDiscountMultiplier)
 			: new Decimal(0);
 
 	// Provider content filter fee, e.g. xAI's $0.05 per usage-policy rejection.
@@ -947,6 +1055,8 @@ export async function calculateCosts(
 		cacheWriteInputCost: cacheWriteInputCost.toNumber(),
 		requestCost: requestCost.toNumber(),
 		webSearchCost: webSearchCost.toNumber(),
+		// Searches billed above, for usage attribution (kept when costs are zeroed).
+		webSearchCount: webSearchCount && webSearchCount > 0 ? webSearchCount : 0,
 		contentFilterCost: contentFilterCost.toNumber(),
 		imageInputTokens,
 		imageOutputTokens,

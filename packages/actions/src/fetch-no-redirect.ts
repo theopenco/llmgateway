@@ -13,9 +13,10 @@ export class RedirectError extends RequestError {
 export async function fetchNoRedirect(
 	input: string | URL | Request,
 	init?: RequestInit,
+	fetcher: typeof fetch = fetch,
 ): Promise<Response> {
 	try {
-		return await fetch(input, { ...init, redirect: "error" });
+		return await fetcher(input, { ...init, redirect: "error" });
 	} catch (error) {
 		let cause: unknown = error;
 		for (let depth = 0; depth < 5 && cause instanceof Error; depth++) {

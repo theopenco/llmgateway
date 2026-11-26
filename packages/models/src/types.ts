@@ -68,6 +68,15 @@ export interface ImageContent {
 	};
 }
 
+/** Anthropic Messages API document block, lowered from a `file` part. */
+export interface DocumentContent {
+	type: "document";
+	source:
+		| { type: "base64"; media_type: string; data: string }
+		| { type: "text"; media_type: "text/plain"; data: string };
+	title?: string;
+}
+
 export interface InputAudioContent {
 	type: "input_audio";
 	input_audio: {
@@ -136,6 +145,7 @@ export type MessageContent =
 	| TextContent
 	| ImageUrlContent
 	| ImageContent
+	| DocumentContent
 	| InputAudioContent
 	| FileContent
 	| ToolUseContent
@@ -259,6 +269,11 @@ export interface OpenAIFunctionToolInput {
 	 */
 	allowed_callers?: string[];
 	/**
+	 * Anthropic-only: stream tool input as it is generated (fine-grained tool
+	 * streaming). Stripped for every other upstream.
+	 */
+	eager_input_streaming?: boolean;
+	/**
 	 * Anthropic-only: keep this tool out of the rendered tools section so it
 	 * never enters the cached prompt prefix, and load it on demand when the
 	 * tool search tool discovers it. Stripped for every other upstream.
@@ -329,6 +344,7 @@ export interface AnthropicTool {
 	cache_control?: CacheControl;
 	strict?: boolean;
 	allowed_callers?: string[];
+	eager_input_streaming?: boolean;
 }
 
 export interface GoogleTool {
@@ -544,6 +560,11 @@ export interface AnthropicSystemContent {
 	};
 }
 
+/** Sent only with the `thinking-binding-controls-2026-08-01` beta. */
+export interface AnthropicThinkingBinding {
+	prefix_mismatch_behavior: "drop_block";
+}
+
 export interface AnthropicRequestBody extends BaseRequestBody {
 	messages: AnthropicMessage[];
 	system?: string | AnthropicSystemContent[];
@@ -554,10 +575,12 @@ export interface AnthropicRequestBody extends BaseRequestBody {
 				type: "enabled";
 				budget_tokens: number;
 				display?: "summarized" | "omitted";
+				block_binding?: AnthropicThinkingBinding;
 		  }
 		| {
 				type: "adaptive";
 				display?: "summarized" | "omitted";
+				block_binding?: AnthropicThinkingBinding;
 		  };
 	output_config?: {
 		effort?: "low" | "medium" | "high" | "xhigh" | "max";
@@ -575,7 +598,7 @@ export interface GoogleRequestBody {
 	contents: GoogleMessage[];
 	tools?: GoogleTool[];
 	/**
-	 * Processing tier for the Gemini Developer API (google-ai-studio / glacier).
+	 * Processing tier for the Gemini Developer API (google-ai-studio).
 	 * "flex" / "priority" select Flex / Priority inference. The served tier is
 	 * returned in the `x-gemini-service-tier` response header.
 	 * Vertex AI uses the `X-Vertex-AI-LLM-Shared-Request-Type` header instead.
@@ -713,6 +736,10 @@ export type RequestBodyPreparer = (
 		image_size?: string;
 		image_quality?: string;
 		moderation?: string;
+		frame_count?: number;
+		frame_duration_ms?: number;
+		markup?: { image_url: string };
+		complexity?: "low" | "medium" | "high";
 		n?: number;
 		seed?: number;
 	},
@@ -827,6 +854,13 @@ export interface WebSearchTool {
 	 * with allowed_domains.
 	 */
 	blocked_domains?: string[];
+	/**
+	 * `false` asks for OpenAI's cache-only search, which never fetches live
+	 * pages. Only OpenAI's Responses API offers it; every other upstream drops
+	 * the tool rather than running a live search. Omitted or `true` is live
+	 * search.
+	 */
+	external_web_access?: boolean;
 	/**
 	 * Whether the caller demanded a search rather than offering one, i.e. sent
 	 * `tool_choice: {type: "web_search"}`. Not part of the tool the client

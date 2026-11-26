@@ -4,7 +4,7 @@
  */
 export type AdminRole = "admin" | "support" | "viewer";
 
-// Pages built on platform-wide revenue and profit, which staff roles cannot load.
+// Financial pages unavailable to support.
 const STAFF_HIDDEN_PAGES = ["/", "/global-stats", "/sdk"];
 
 export function isStaffHiddenPage(pathname: string): boolean {
@@ -21,4 +21,7 @@ export function canWrite(role: AdminRole | null): boolean {
 
 export function canRefund(role: AdminRole | null): boolean {
 	return role === "admin" || role === "support";
+}
+export function canReadFinancials(role: AdminRole | null): boolean {
+	return role === "admin" || role === "viewer";
 }

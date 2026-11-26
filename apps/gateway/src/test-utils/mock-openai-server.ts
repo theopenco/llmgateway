@@ -178,7 +178,7 @@ function getResponsesApiUserMessage(input: unknown): string {
 		.join(" ");
 }
 
-function buildAwsEventStreamMessage(
+export function buildAwsEventStreamMessage(
 	eventType: string,
 	payload: Record<string, unknown>,
 ): Uint8Array {
@@ -608,6 +608,8 @@ function stripAzureOpenaiPrefix(c: Context): Response | Promise<Response> {
 }
 mockOpenAIServer.post("/openai/v1/responses", stripAzureOpenaiPrefix);
 mockOpenAIServer.post("/openai/v1/chat/completions", stripAzureOpenaiPrefix);
+mockOpenAIServer.post("/openai/v1/embeddings", stripAzureOpenaiPrefix);
+mockOpenAIServer.post("/openai/v1/audio/speech", stripAzureOpenaiPrefix);
 
 // The legacy Azure deployment-based surface, where the model lives in the path
 // and the api-version in the query string. Rewrite it to the plain handler so
@@ -905,7 +907,7 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 	return c.json(response);
 });
 
-mockOpenAIServer.post("/v1/messages", async (c) => {
+const anthropicMessagesHandler = async (c: Context) => {
 	const body = await c.req.json();
 	return c.json({
 		id: "msg-123",
@@ -925,7 +927,10 @@ mockOpenAIServer.post("/v1/messages", async (c) => {
 			output_tokens: 20,
 		},
 	});
-});
+};
+mockOpenAIServer.post("/v1/messages", anthropicMessagesHandler);
+// Claude on AWS Bedrock's Messages API.
+mockOpenAIServer.post("/anthropic/v1/messages", anthropicMessagesHandler);
 
 // Handle chat completions endpoint
 mockOpenAIServer.post("/v1/chat/completions", async (c) => {
@@ -1492,6 +1497,16 @@ mockOpenAIServer.post("/v1/moderations", async (c) => {
 
 mockOpenAIServer.post("/v1/systemone", async (c) => {
 	const body = await c.req.json();
+	const hasBox = Object.values(
+		(body.questions ?? {}) as Record<string, { type: string }>,
+	).some((question) => question.type === "box");
+	if (
+		((body.assets && Object.keys(body.assets).length > 0) || hasBox) &&
+		c.req.header("TypeSafe-Danger-Zone-Images") !== "true"
+	) {
+		c.status(400);
+		return c.json({ error: { message: "Images are not turned on" } });
+	}
 	const stateText =
 		typeof body.state === "string" ? body.state : JSON.stringify(body.state);
 
@@ -1535,6 +1550,14 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 	)) {
 		if (question.type === "noul") {
 			answers[id] = { type: "noul", noul: harmful ? 0.97 : 0.01 };
+			continue;
+		}
+		if (question.type === "box") {
+			answers[id] = {
+				type: "box",
+				box: { top: 0.25, bottom: 0.75, left: 0.25, right: 0.75 },
+				confidence: 0.9,
+			};
 			continue;
 		}
 		if (question.type === "choice") {
@@ -1583,7 +1606,7 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 	}
 
 	return c.json({
-		model: body.model === "jev-latest" ? "jev-1.13.0" : body.model,
+		model: body.model === "jev-latest" ? "jev-1.14.0" : body.model,
 		answers,
 		usage: { input_tokens: 441, output_tokens: 69 },
 	});
@@ -1593,6 +1616,16 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 // shape on the resource host, so reuse the TypeSafe handler.
 mockOpenAIServer.post("/providers/microsoft/v1/systemone", async (c) => {
 	const forwarded = new Request(new URL("/v1/systemone", c.req.url), {
+		method: "POST",
+		headers: c.req.raw.headers,
+		body: await c.req.text(),
+	});
+	return await mockOpenAIServer.fetch(forwarded);
+});
+
+// Azure serves OpenAI Decisions under /openai on the resource host.
+mockOpenAIServer.post("/openai/v1/decisions", async (c) => {
+	const forwarded = new Request(new URL("/v1/decisions", c.req.url), {
 		method: "POST",
 		headers: c.req.raw.headers,
 		body: await c.req.text(),
@@ -1671,7 +1704,10 @@ mockOpenAIServer.post("/v1/decisions", async (c) => {
 		answers,
 		usage: {
 			input_tokens: 300,
-			input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+			// CACHE_HIT reports a partly cached prompt so specs can check cache billing.
+			input_tokens_details: JSON.stringify(body.input).includes("CACHE_HIT")
+				? { cached_tokens: 200, cache_write_tokens: 50 }
+				: { cached_tokens: 0, cache_write_tokens: 0 },
 			output_tokens: 0,
 			output_tokens_details: { reasoning_tokens: 0 },
 			total_tokens: 300,
@@ -1874,10 +1910,83 @@ mockOpenAIServer.post("/v1/stt", async (c) => {
 	});
 });
 
+// ElevenLabs speech-to-text: POST /v1/speech-to-text takes model_id plus a file
+// (or source_url) and returns Scribe's chunk shape. The response echoes the
+// option fields so specs can assert what the gateway forwarded.
+mockOpenAIServer.post("/v1/speech-to-text", async (c) => {
+	if (!c.req.header("xi-api-key")) {
+		c.status(401);
+		return c.json({ detail: { status: "invalid_api_key" } });
+	}
+	const form = await c.req.formData();
+	const file = form.get("file");
+	const sourceUrl = form.get("source_url");
+	const modelId = form.get("model_id");
+	if (
+		typeof modelId !== "string" ||
+		(!(file instanceof File) && typeof sourceUrl !== "string")
+	) {
+		c.status(422);
+		return c.json({
+			detail: [{ msg: "model_id and file or source_url are required" }],
+		});
+	}
+	const field = (name: string) => {
+		const value = form.get(name);
+		return typeof value === "string" ? value : null;
+	};
+	return c.json({
+		language_code: "eng",
+		language_probability: 0.99,
+		text: "Hello world.",
+		words: [
+			{
+				text: "Hello",
+				start: 0.1,
+				end: 0.5,
+				type: "word",
+				speaker_id: "speaker_0",
+				logprob: 0,
+			},
+			{
+				text: " ",
+				start: 0.5,
+				end: 0.6,
+				type: "spacing",
+				speaker_id: "speaker_0",
+				logprob: 0,
+			},
+			{
+				text: "world.",
+				start: 0.6,
+				end: 1.2,
+				type: "word",
+				speaker_id: "speaker_1",
+				logprob: 0,
+			},
+		],
+		audio_duration_secs: 7.2,
+		transcription_id: "mock-transcription-id",
+		mock_received: {
+			model_id: modelId,
+			language_code: field("language_code"),
+			diarize: field("diarize"),
+			no_verbatim: field("no_verbatim"),
+		},
+	});
+});
+
 // ElevenLabs text-to-speech: POST /v1/text-to-speech/{voice_id}?output_format=…
 // Returns the audio already encoded; the content type is derived from the
 // requested output_format query param.
+let lastElevenLabsVoiceId: string | undefined;
+
+export function getLastElevenLabsVoiceId(): string | undefined {
+	return lastElevenLabsVoiceId;
+}
+
 mockOpenAIServer.post("/v1/text-to-speech/:voiceId", async (c) => {
+	lastElevenLabsVoiceId = c.req.param("voiceId");
 	const body = await c.req.json();
 	const text = typeof body.text === "string" ? body.text : "";
 
@@ -1889,6 +1998,18 @@ mockOpenAIServer.post("/v1/text-to-speech/:voiceId", async (c) => {
 	if (text.includes("TRIGGER_ERROR")) {
 		c.status(500);
 		return c.json(sampleErrorResponse);
+	}
+	if (lastElevenLabsVoiceId === "NoAccessVoiceId00000") {
+		return c.json(
+			{
+				detail: {
+					status: "voice_access_denied",
+					code: "voice_access_denied",
+					message: "You do not have access to this voice.",
+				},
+			},
+			403,
+		);
 	}
 
 	const outputFormat = c.req.query("output_format") ?? "mp3_44100_128";
@@ -2144,6 +2265,31 @@ async function handleGoogleBatchEmbedContents(c: Context, modelName: string) {
 	return c.json(response);
 }
 
+let lastGoogleSpeechPart: Record<string, unknown> | undefined;
+
+export function getLastGoogleSpeechPart(): Record<string, unknown> | undefined {
+	return lastGoogleSpeechPart;
+}
+
+// 44-byte RIFF/WAVE header for mono 16-bit PCM at 24 kHz.
+function wavHeader(dataLength: number): Buffer {
+	const header = Buffer.alloc(44);
+	header.write("RIFF", 0);
+	header.writeUInt32LE(36 + dataLength, 4);
+	header.write("WAVE", 8);
+	header.write("fmt ", 12);
+	header.writeUInt32LE(16, 16);
+	header.writeUInt16LE(1, 20);
+	header.writeUInt16LE(1, 22);
+	header.writeUInt32LE(24000, 24);
+	header.writeUInt32LE(48000, 28);
+	header.writeUInt16LE(2, 32);
+	header.writeUInt16LE(16, 34);
+	header.write("data", 36);
+	header.writeUInt32LE(dataLength, 40);
+	return header;
+}
+
 async function handleGoogleGenerateContent(c: Context) {
 	const body = await c.req.json();
 	const shouldError = body.contents?.some?.((content: any) =>
@@ -2187,8 +2333,12 @@ async function handleGoogleGenerateContent(c: Context) {
 	const responseModalities: string[] =
 		body.generationConfig?.responseModalities ?? [];
 	if (responseModalities.includes("AUDIO")) {
+		lastGoogleSpeechPart = body.contents?.[0]?.parts?.[0];
 		// 8 samples of 16-bit silence as a deterministic PCM payload.
 		const pcm = Buffer.alloc(16);
+		// Gemini 3.8 TTS returns a complete WAV file for unary requests.
+		const isWav = c.req.path.includes("gemini-3.8-");
+		const audio = isWav ? Buffer.concat([wavHeader(pcm.length), pcm]) : pcm;
 		return c.json({
 			candidates: [
 				{
@@ -2196,8 +2346,10 @@ async function handleGoogleGenerateContent(c: Context) {
 						parts: [
 							{
 								inlineData: {
-									mimeType: "audio/L16;codec=pcm;rate=24000",
-									data: pcm.toString("base64"),
+									mimeType: isWav
+										? "audio/wav"
+										: "audio/L16;codec=pcm;rate=24000",
+									data: audio.toString("base64"),
 								},
 							},
 						],

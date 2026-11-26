@@ -1,6 +1,7 @@
 import { trace } from "@opentelemetry/api";
 
 import { normalizeLogSource } from "@/lib/normalize-log-source.js";
+import { getClientSafetyIdentifierParams } from "@/lib/safety-identifier.js";
 
 import type { GatewayApiKey } from "@/lib/cached-queries.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
@@ -71,6 +72,13 @@ export interface CreateLogEntryOptions {
 				image_size?: string;
 				image_quality?: string;
 				moderation?: string;
+				background?: string;
+				output_format?: string;
+				output_compression?: number;
+				complexity?: string;
+				frame_count?: number;
+				frame_duration_ms?: number;
+				markup?: { image_url: string };
 		  }
 		| undefined;
 	routingMetadata?: RoutingMetadata;
@@ -87,6 +95,28 @@ export interface CreateLogEntryOptions {
  * Creates a partial log entry with common fields to reduce duplication
  */
 function buildLogEntry(options: CreateLogEntryOptions) {
+	const clientSafetyParams = getClientSafetyIdentifierParams(
+		options.rawRequest,
+	);
+	const config = options.imageConfig;
+	const imageConfig = config
+		? Object.fromEntries(
+				Object.entries({
+					aspect_ratio: config.aspect_ratio,
+					image_size: config.image_size,
+					image_quality: config.image_quality,
+					moderation: config.moderation,
+					background: config.background,
+					output_format: config.output_format,
+					output_compression: config.output_compression,
+					complexity: config.complexity,
+					frame_count: config.frame_count,
+					frame_duration_ms: config.frame_duration_ms,
+					markup: config.markup ? true : undefined,
+				}).filter(([, value]) => value !== undefined),
+			)
+		: undefined;
+	const hasImageConfig = imageConfig && Object.keys(imageConfig).length > 0;
 	const activeSpan = trace.getActiveSpan();
 	const traceId = activeSpan?.spanContext().traceId ?? null;
 
@@ -130,11 +160,11 @@ function buildLogEntry(options: CreateLogEntryOptions) {
 				? options.customHeaders
 				: null,
 		params:
-			options.imageConfig?.aspect_ratio ||
-			options.imageConfig?.image_size ||
-			options.imageConfig?.image_quality ||
-			options.imageConfig?.moderation
-				? { image_config: options.imageConfig }
+			hasImageConfig || clientSafetyParams.safety_identifier !== undefined
+				? {
+						...(hasImageConfig && { image_config: imageConfig }),
+						...clientSafetyParams,
+					}
 				: null,
 		routingMetadata: options.routingMetadata ?? null,
 		traceId,

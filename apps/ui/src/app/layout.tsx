@@ -1,6 +1,5 @@
-import localFont from "next/font/local";
-
 import { Providers } from "@/components/providers";
+import { siteFontVariables } from "@/fonts/site";
 import { getConfig } from "@/lib/config-server";
 import { fetchSystemBanner } from "@/lib/system-banner";
 import { getTimeZonePreference } from "@/lib/timezone-server";
@@ -11,30 +10,6 @@ import "./globals.css";
 
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-
-const inter = localFont({
-	variable: "--font-inter",
-	src: "../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2",
-	weight: "100 900",
-	display: "swap",
-});
-
-const geistMono = localFont({
-	// globals.css maps the Tailwind token: --font-mono: var(--font-geist-mono).
-	// Registering the font under --font-mono directly would leave that theme
-	// mapping dangling and every `font-mono` element falls back to sans.
-	variable: "--font-geist-mono",
-	src: "../../node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2",
-	weight: "100 900",
-	display: "swap",
-});
-
-const plusJakarta = localFont({
-	variable: "--font-display",
-	src: "../../node_modules/@fontsource-variable/plus-jakarta-sans/files/plus-jakarta-sans-latin-wght-normal.woff2",
-	weight: "200 800",
-	display: "swap",
-});
 
 export const dynamic = "force-dynamic";
 
@@ -161,11 +136,7 @@ export default async function RootLayout({
 	]);
 
 	return (
-		<html
-			lang="en"
-			className={`${inter.variable} ${geistMono.variable} ${plusJakarta.variable}`}
-			suppressHydrationWarning
-		>
+		<html lang="en" style={siteFontVariables} suppressHydrationWarning>
 			<head>
 				<link
 					rel="service-desc"

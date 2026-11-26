@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { and, db, eq, tables } from "@llmgateway/db";
 
-const partsSchema = z.array(z.record(z.unknown()));
+const partsSchema = z.array(z.record(z.string(), z.unknown()));
 const approvalPartSchema = z
 	.object({
 		type: z.string(),

@@ -7,6 +7,7 @@ import {
 	generateInvoicePDF,
 	isInvoiceableTransaction,
 	isRefundTransaction,
+	manualPaymentLineDescription,
 	REFUND_ARRIVAL_NOTICE,
 } from "./invoice.js";
 
@@ -586,6 +587,40 @@ describe("buildInvoiceDataForTransaction", () => {
 			},
 		]);
 		expect(data.documentType).toBe("invoice");
+	});
+
+	it("bills a manual payment by channel and reference, not the admin description", async () => {
+		const data = buildInvoiceDataForTransaction(
+			{
+				id: "tx-manual",
+				type: "credit_manual_payment",
+				amount: "250",
+				currency: "USD",
+				description: "Manual payment (wire) credited by Administrator",
+				createdAt: new Date("2026-08-10"),
+				status: "completed",
+				paymentMethod: "wire",
+				externalReference: "REF-42",
+			},
+			org,
+		);
+
+		expect(data.documentType).toBe("invoice");
+		expect(data.lineItems).toEqual([
+			{
+				description: "Credit Top-up paid by wire transfer (Ref: REF-42)",
+				amount: 250,
+			},
+		]);
+	});
+
+	it("omits unknown channels and missing references from the manual payment line", () => {
+		expect(manualPaymentLineDescription({ paymentMethod: "other" })).toBe(
+			"Credit Top-up",
+		);
+		expect(manualPaymentLineDescription({ paymentMethod: "paypal" })).toBe(
+			"Credit Top-up paid by PayPal",
+		);
 	});
 
 	it("marks refunds as a credit note with a negative net total and original context", async () => {

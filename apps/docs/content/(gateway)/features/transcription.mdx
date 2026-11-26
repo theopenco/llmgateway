@@ -28,23 +28,24 @@ Authenticate with your LLMGateway API key:
 -H "Authorization: Bearer $LLM_GATEWAY_API_KEY"
 ```
 
-The current model is `grok-stt-1-0`, billed at **$0.10 per hour** of input
-audio (against the duration reported by the provider).
+Transcription models are billed per hour of input audio, against the duration
+reported by the provider. See the [models page](https://llmgateway.io/models)
+for available models and their rates.
 
 ## Parameters
 
 The request body is `multipart/form-data`. Either `file` or `url` must be
 provided.
 
-| Parameter      | Type   | Default  | Description                                                                                               |
-| -------------- | ------ | -------- | --------------------------------------------------------------------------------------------------------- |
-| `model`        | string | required | The transcription model to use                                                                            |
-| `file`         | file   | —        | The audio file to transcribe (WAV, MP3, OGG, Opus, FLAC, AAC, MP4, M4A, and more)                         |
-| `url`          | string | —        | URL of an audio file to download and transcribe instead of uploading one                                  |
-| `language`     | string | —        | Language code (e.g. `en`). When set, enables formatting of numbers and currencies into their written form |
-| `diarize`      | string | `false`  | When `"true"`, each word in the response includes a `speaker` field identifying the detected speaker      |
-| `filler_words` | string | `false`  | When `"true"`, filler words (e.g. "uh", "um") are kept in the transcript instead of being removed         |
-| `keyterm`      | string | —        | A key term to bias transcription toward (e.g. product names). Repeat the field for multiple terms         |
+| Parameter      | Type   | Default  | Description                                                                                                                           |
+| -------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`        | string | required | The transcription model to use                                                                                                        |
+| `file`         | file   | —        | The audio file to transcribe (WAV, MP3, OGG, Opus, FLAC, AAC, MP4, M4A, and more)                                                     |
+| `url`          | string | —        | URL of an audio file to download and transcribe instead of uploading one                                                              |
+| `language`     | string | —        | Language code (e.g. `en`). Improves accuracy; on xAI it also formats numbers and currencies                                           |
+| `diarize`      | string | `false`  | When `"true"`, each word in the response includes a `speaker` field identifying the detected speaker                                  |
+| `filler_words` | string | `false`  | When `"true"`, filler words (e.g. "uh", "um") are kept in the transcript instead of being removed                                     |
+| `keyterm`      | string | —        | A key term to bias transcription toward (e.g. product names). Repeat the field for multiple terms. Not supported by ElevenLabs models |
 
 ## Response
 
@@ -61,9 +62,21 @@ timestamps:
 		{ "text": "balance", "start": 0.48, "end": 0.96 },
 		{ "text": "is", "start": 0.96, "end": 1.12 },
 		{ "text": "$167,983.15.", "start": 1.12, "end": 3.2 }
-	]
+	],
+	"usage": {
+		"type": "duration",
+		"seconds": 3.45,
+		"cost": 0.0000958333,
+		"cost_details": {
+			"audio_input_cost": 0.0000958333,
+			"request_cost": 0,
+			"total_cost": 0.0000958333
+		}
+	}
 }
 ```
+
+`usage.cost` is what the request was billed in USD for `usage.seconds` of audio (see [Cost Breakdown](/features/cost-breakdown)).
 
 ## curl
 

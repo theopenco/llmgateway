@@ -10,7 +10,12 @@ import {
 	PopoverTrigger,
 } from "@/lib/components/popover";
 
-import { formatDayKey, shiftDayKey, UTC_TIME_ZONE } from "@llmgateway/shared";
+import {
+	formatDayKey,
+	shiftDayKey,
+	thisWeekDayKeyRange,
+	UTC_TIME_ZONE,
+} from "@llmgateway/shared";
 
 /**
  * Date window non-enterprise plans can see on the new analytics pages. Custom
@@ -39,10 +44,14 @@ export function getAnalyticsRange(
 		return { fromStr: defaultFrom, toStr: defaultTo };
 	}
 
-	return {
-		fromStr: searchFrom ?? defaultFrom,
-		toStr: searchTo ?? defaultTo,
-	};
+	// Half a range from the URL can end before the default starts, so only a
+	// complete pair overrides the default.
+	if (!searchFrom || !searchTo) {
+		const thisWeek = thisWeekDayKeyRange(new Date(), timeZone);
+		return { fromStr: thisWeek.from, toStr: thisWeek.to };
+	}
+
+	return { fromStr: searchFrom, toStr: searchTo };
 }
 
 interface AnalyticsDateRangeProps {

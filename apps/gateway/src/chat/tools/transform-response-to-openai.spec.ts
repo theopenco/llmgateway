@@ -654,7 +654,6 @@ describe("transformResponseToOpenai", () => {
 		"bytedance",
 		"xai",
 		"zai",
-		"embercloud",
 		"deepseek",
 	])(
 		"does not overwrite choice 0 content on multi-choice %s responses",
@@ -900,7 +899,7 @@ describe("transformResponseToOpenai", () => {
 		];
 		const response = transformResponseToOpenai(
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			{
 				id: "chatcmpl-test",
 				object: "chat.completion",
@@ -929,9 +928,9 @@ describe("transformResponseToOpenai", () => {
 			null,
 			toolCalls,
 			[],
-			"deepseek/deepseek-chat",
+			"deepseek/deepseek-v3.2",
 			"deepseek",
-			"deepseek-chat",
+			"deepseek-v3.2",
 			null,
 			false,
 			null,
@@ -1102,6 +1101,52 @@ describe("transformResponseToOpenai", () => {
 			],
 		});
 	});
+});
+
+describe("annotations on pass-through bodies", () => {
+	const citation = {
+		type: "url_citation" as const,
+		url_citation: { url: "https://example.com/a", title: "A" },
+	};
+
+	test.each(["groq", "together-ai", "xai", "bytedance"] as Provider[])(
+		"%s keeps parsed annotations",
+		(provider) => {
+			const response = transformResponseToOpenai(
+				provider,
+				"m",
+				{
+					id: "chatcmpl-1",
+					object: "chat.completion",
+					choices: [
+						{
+							index: 0,
+							message: { role: "assistant", content: "hi", annotations: [] },
+							finish_reason: "stop",
+						},
+					],
+					usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+				},
+				"hi",
+				null,
+				"stop",
+				1,
+				1,
+				2,
+				null,
+				null,
+				null,
+				[],
+				"m",
+				null,
+				"m",
+				null,
+				false,
+				[citation],
+			);
+			expect(response.choices[0].message.annotations).toEqual([citation]);
+		},
+	);
 });
 
 describe("perplexity agent api", () => {

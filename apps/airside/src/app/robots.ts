@@ -1,3 +1,5 @@
+import { AI_CRAWLER_USER_AGENTS } from "@llmgateway/shared/ai-crawlers";
+
 import type { MetadataRoute } from "next";
 
 // Console routes only. Auth pages (/login, /signup, /onboarding) are
@@ -13,15 +15,7 @@ export default function robots(): MetadataRoute.Robots {
 			// Named explicitly so a future blanket change cannot silently cut off
 			// the crawlers that cite us in AI answers.
 			{
-				userAgent: [
-					"GPTBot",
-					"ChatGPT-User",
-					"OAI-SearchBot",
-					"ClaudeBot",
-					"Claude-User",
-					"PerplexityBot",
-					"Google-Extended",
-				],
+				userAgent: AI_CRAWLER_USER_AGENTS,
 				allow: "/",
 				disallow,
 			},

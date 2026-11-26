@@ -3,6 +3,9 @@ import { EventEmitter } from "node:events";
 import { Decimal } from "decimal.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { findApiKeyByToken } from "@/lib/cached-queries.js";
+import { assertProviderCompliant } from "@/lib/compliance.js";
+import { validateRequestModelAccess } from "@/lib/iam.js";
 import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
 
 import {
@@ -1148,4 +1151,239 @@ describe("GeminiRealtimeProxySession pinned instructions", () => {
 
 		session.shutdown(1000, "test_done");
 	});
+});
+
+vi.mock("@/lib/spend-limit.js", () => ({
+	checkSpendLimit: vi.fn(async () => ({ allowed: true })),
+}));
+vi.mock("./turn-denial-log.js", () => ({ logRealtimeTurnDenial: vi.fn() }));
+
+const clientTurnMessages = [
+	{
+		clientContent: {
+			turns: [{ role: "user", parts: [{ text: "hello" }] }],
+			turnComplete: true,
+		},
+	},
+	{ realtimeInput: { text: "hello" } },
+	{
+		realtimeInput: {
+			audio: { data: "AAAA", mimeType: "audio/pcm;rate=16000" },
+		},
+	},
+	{ realtimeInput: { activityStart: {} } },
+	{
+		toolResponse: {
+			functionResponses: [
+				{ id: "call-1", name: "lookup", response: { result: "ok" } },
+			],
+		},
+	},
+];
+
+describe("Gemini realtime pre-dispatch authorization", () => {
+	it.each(clientTurnMessages)(
+		"blocks a newly compliance-revoked turn before upstream dispatch: %j",
+		async (message) => {
+			const { upstream, session, clientSends, gatewayErrors } =
+				await openSession();
+			vi.mocked(assertProviderCompliant).mockRejectedValueOnce(
+				new Error("provider policy revoked"),
+			);
+			clientSends(message);
+			await flush();
+			expect(upstream.sent).toHaveLength(0);
+			expect(gatewayErrors()).toContain("compliance_blocked");
+			session.shutdown(1000, "test_done");
+		},
+	);
+
+	it.each(clientTurnMessages)(
+		"blocks newly revoked IAM before upstream dispatch: %j",
+		async (message) => {
+			const { upstream, session, clientSends, gatewayErrors } =
+				await openSession();
+			vi.mocked(validateRequestModelAccess).mockResolvedValueOnce({
+				allowed: false,
+				reason: "provider ceiling revoked",
+			});
+			clientSends(message);
+			await flush();
+			expect(upstream.sent).toHaveLength(0);
+			expect(gatewayErrors()).toContain("model_access_denied");
+			session.shutdown(1000, "test_done");
+		},
+	);
+
+	it("does not forward a turn when fresh account state is unavailable", async () => {
+		const { upstream, session, clientSends, gatewayErrors } =
+			await openSession();
+		vi.mocked(findApiKeyByToken).mockRejectedValueOnce(
+			new Error("lookup unavailable"),
+		);
+		clientSends({ realtimeInput: { text: "hello" } });
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		expect(gatewayErrors()).toContain("gate_unavailable");
+		session.shutdown(1000, "test_done");
+	});
+});
+
+describe("Gemini realtime pre-dispatch ordering", () => {
+	it("holds queued PCM frames for one authorization without rechecking every chunk", async () => {
+		const { upstream, session, clientSends } = await openSession();
+		vi.mocked(findApiKeyByToken).mockClear();
+		let authorize: () => void = () => {
+			throw new Error("authorization not started");
+		};
+		const pending = new Promise<void>((resolve) => {
+			authorize = resolve;
+		});
+		vi.mocked(assertProviderCompliant).mockReturnValueOnce(pending);
+		const messages = [
+			{
+				realtimeInput: {
+					audio: { data: "AAAA", mimeType: "audio/pcm;rate=16000" },
+				},
+			},
+			{
+				realtimeInput: {
+					audio: { data: "BBBB", mimeType: "audio/pcm;rate=16000" },
+				},
+			},
+			{ realtimeInput: { audioStreamEnd: true } },
+		];
+		for (const message of messages) {
+			clientSends(message);
+		}
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		expect(findApiKeyByToken).toHaveBeenCalledTimes(1);
+		authorize();
+		await flush();
+		expect(upstream.sent.map((text) => JSON.parse(text) as unknown)).toEqual(
+			messages,
+		);
+		expect(findApiKeyByToken).toHaveBeenCalledTimes(1);
+		session.shutdown(1000, "test_done");
+	});
+
+	it("rechecks a new turn after the previous post-billing gate already passed", async () => {
+		const { upstream, session, clientSends, upstreamSends, gatewayErrors } =
+			await openSession();
+		clientSends({ realtimeInput: { text: "first turn" } });
+		await flush();
+		upstreamSends({
+			usageMetadata: validUsage,
+			serverContent: { turnComplete: true },
+		});
+		await flush();
+		expect(recordRealtimeResponse).toHaveBeenCalledTimes(1);
+		upstream.sent.length = 0;
+		vi.mocked(assertProviderCompliant).mockRejectedValueOnce(
+			new Error("compliance revoked while idle"),
+		);
+		clientSends({ realtimeInput: { text: "next turn" } });
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		expect(gatewayErrors()).toContain("compliance_blocked");
+		session.shutdown(1000, "test_done");
+	});
+
+	it("rechecks explicit activityStart instead of treating it as another PCM chunk", async () => {
+		const { upstream, session, clientSends, gatewayErrors } =
+			await openSession();
+		clientSends({
+			realtimeInput: {
+				audio: { data: "AAAA", mimeType: "audio/pcm;rate=16000" },
+			},
+		});
+		await flush();
+		upstream.sent.length = 0;
+		vi.mocked(assertProviderCompliant).mockRejectedValueOnce(
+			new Error("compliance revoked"),
+		);
+		clientSends({ realtimeInput: { activityStart: {} } });
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		expect(gatewayErrors()).toContain("compliance_blocked");
+		session.shutdown(1000, "test_done");
+	});
+
+	it("settles already incurred usage before closing a newly unauthorized turn", async () => {
+		const { upstream, client, session, clientSends, upstreamSends } =
+			await openSession();
+		clientSends({ realtimeInput: { text: "first turn" } });
+		await flush();
+		upstreamSends({
+			usageMetadata: validUsage,
+			serverContent: { modelTurn: { parts: [{ text: "partial" }] } },
+		});
+		await flush();
+		upstream.sent.length = 0;
+		vi.mocked(validateRequestModelAccess).mockResolvedValueOnce({
+			allowed: false,
+			reason: "provider access revoked",
+		});
+		clientSends({ realtimeInput: { text: "next turn" } });
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		expect(recordRealtimeResponse).toHaveBeenCalledTimes(1);
+		expect(client.closed).toContainEqual({
+			code: 1008,
+			reason: "model_access_denied",
+		});
+		session.shutdown(1000, "test_done");
+	});
+});
+
+describe("Gemini setup content authorization", () => {
+	it("rejects setup instructions if compliance was revoked after preflight", async () => {
+		const { upstream, session, clientSends, gatewayErrors } = createSession();
+		vi.mocked(assertProviderCompliant).mockRejectedValueOnce(
+			new Error("policy revoked before setup"),
+		);
+		clientSends({
+			setup: {
+				...validSetup.setup,
+				systemInstruction: { parts: [{ text: "private instructions" }] },
+			},
+		});
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+		expect(gatewayErrors()).toContain("compliance_blocked");
+		session.shutdown(1000, "test_done");
+	});
+});
+
+describe("Gemini explicit input stream boundaries", () => {
+	it.each([{ audioStreamEnd: true }, { activityEnd: {} }])(
+		"requires fresh audio authorization after %j before provider turnComplete",
+		async (end) => {
+			const { upstream, session, clientSends, gatewayErrors } =
+				await openSession();
+			clientSends({
+				realtimeInput: {
+					audio: { data: "AAAA", mimeType: "audio/pcm;rate=16000" },
+				},
+			});
+			await flush();
+			clientSends({ realtimeInput: end });
+			await flush();
+			upstream.sent.length = 0;
+			vi.mocked(assertProviderCompliant).mockRejectedValueOnce(
+				new Error("policy revoked after explicit input end"),
+			);
+			clientSends({
+				realtimeInput: {
+					audio: { data: "BBBB", mimeType: "audio/pcm;rate=16000" },
+				},
+			});
+			await flush();
+			expect(upstream.sent).toHaveLength(0);
+			expect(gatewayErrors()).toContain("compliance_blocked");
+			expect(recordRealtimeResponse).not.toHaveBeenCalled();
+			session.shutdown(1000, "test_done");
+		},
+	);
 });

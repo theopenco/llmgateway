@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
+import { readJsonBody } from "@/lib/read-json-body";
 
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
@@ -35,25 +36,21 @@ function jsonResponse(body: unknown, status: number): Response {
 }
 
 export async function POST(req: Request) {
+	const bodyPromise = readJsonBody(req);
 	const user = await getUser();
 	if (!user) {
 		return jsonResponse({ error: "Unauthorized" }, 401);
 	}
 
-	let body: OcrRequestBody;
-	try {
-		const parsed: unknown = await req.json();
-		if (
-			typeof parsed !== "object" ||
-			parsed === null ||
-			Array.isArray(parsed)
-		) {
-			return jsonResponse({ error: "Invalid request body" }, 400);
-		}
-		body = parsed as OcrRequestBody;
-	} catch {
+	const bodyResult = await bodyPromise;
+	if (!bodyResult.ok) {
 		return jsonResponse({ error: "Invalid JSON body" }, 400);
 	}
+	const parsed: unknown = bodyResult.body;
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+		return jsonResponse({ error: "Invalid request body" }, 400);
+	}
+	const body = parsed as OcrRequestBody;
 
 	const { model, document, pages, include_image_base64, apiKey } = body;
 

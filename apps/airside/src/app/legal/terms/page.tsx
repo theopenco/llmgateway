@@ -21,7 +21,7 @@ export default function TermsPage() {
 			<p>
 				<strong>Effective Date:</strong> August 27, 2026
 				<br />
-				<strong>Last Updated:</strong> August 27, 2026
+				<strong>Last Updated:</strong> November 11, 2026
 			</p>
 			<p>
 				<strong>Airside</strong> is the carrier console operated by{" "}
@@ -246,14 +246,19 @@ export default function TermsPage() {
 			</p>
 			<p>
 				<strong>
-					The console reports traffic, not amounts owed, and is neither a
+					Usage figures report traffic, not amounts owed, and are neither a
 					statement of account nor a promise to pay.
 				</strong>{" "}
-				Whether any amount is payable, on what schedule, in what currency,
-				subject to what minimum, and against what documentation is governed
-				solely by a separate written agreement between you and us. In the
-				absence of such an agreement, no payment obligation arises from these
-				Airside Terms or from any figure shown in the console.
+				For carriers on the Payout billing mode, the console also shows a
+				monthly payout statement: the previous month&rsquo;s billed traffic less
+				the gateway margin, calculated from our records. A statement is a
+				preview and remains subject to manual adjustment until we approve it; we
+				mark it paid once the payment is sent. Whether any amount is payable, on
+				what schedule, in what currency, subject to what minimum, and against
+				what documentation is governed solely by a separate written agreement
+				between you and us. In the absence of such an agreement, no payment
+				obligation arises from these Airside Terms or from any figure shown in
+				the console.
 			</p>
 			<p>
 				Usage figures are derived from our own metering and rollups and may lag

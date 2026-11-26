@@ -1,5 +1,6 @@
 "use client";
 
+import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import {
 	AlertCircle,
 	AlertTriangle,
@@ -13,6 +14,7 @@ import {
 	Eye,
 	Gift,
 	Globe,
+	Layers,
 	MessageSquare,
 	Wrench,
 	Zap,
@@ -43,6 +45,11 @@ import {
 	ListOrdered,
 	SlidersHorizontal,
 	Clock,
+	AudioLines,
+	FileText,
+	Radio,
+	ScanText,
+	Rows3,
 } from "lucide-react";
 import Link from "next/link.js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation.js";
@@ -52,6 +59,8 @@ import React, {
 	useCallback,
 	useEffect,
 	useDeferredValue,
+	useLayoutEffect,
+	useRef,
 } from "react";
 
 import { getProviderIcon } from "@/components/provider-icons";
@@ -90,6 +99,8 @@ import {
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
+import { expandVirtualModels } from "@llmgateway/models";
+
 import {
 	matchesCapability,
 	matchesOutputCapabilities,
@@ -100,6 +111,7 @@ import {
 	formatPerSecondPriceLabel,
 	formatPerUnitPrice,
 } from "./format";
+import { hasBatchSupport } from "./mapping-capabilities";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
 import {
@@ -186,6 +198,11 @@ interface AllModelsProps {
 	 * Embedding surfaces like the dashboard render their own header instead.
 	 */
 	hideHeader?: boolean;
+	/**
+	 * Offer the "All" list mode: every result on one window-virtualized page
+	 * instead of numbered pages. Only for surfaces that scroll the window.
+	 */
+	allowShowAll?: boolean;
 }
 
 type SortField =
@@ -298,6 +315,20 @@ function computeCapabilities(
 	if (provider.vision) {
 		capabilities.push({ icon: Eye, label: "Vision", color: "text-green-500" });
 	}
+	if (provider.audio) {
+		capabilities.push({
+			icon: AudioLines,
+			label: "Audio Input",
+			color: "text-rose-500",
+		});
+	}
+	if (provider.document) {
+		capabilities.push({
+			icon: FileText,
+			label: "Documents",
+			color: "text-slate-500",
+		});
+	}
 	if (provider.tools) {
 		capabilities.push({
 			icon: Wrench,
@@ -361,6 +392,20 @@ function computeCapabilities(
 			color: "text-sky-500",
 		});
 	}
+	if (provider.realtime || provider.realtimeTranscription) {
+		capabilities.push({
+			icon: Radio,
+			label: "Realtime",
+			color: "text-emerald-500",
+		});
+	}
+	if (model?.output?.includes("ocr")) {
+		capabilities.push({
+			icon: ScanText,
+			label: "OCR",
+			color: "text-lime-600",
+		});
+	}
 	if (model?.output?.includes("embedding")) {
 		capabilities.push({
 			icon: Boxes,
@@ -396,6 +441,13 @@ function computeCapabilities(
 			color: "text-sky-500",
 		});
 	}
+	if (hasBatchSupport(provider)) {
+		capabilities.push({
+			icon: Layers,
+			label: "Batch API",
+			color: "text-fuchsia-500",
+		});
+	}
 	return capabilities;
 }
 
@@ -405,6 +457,10 @@ function computeCapabilities(
 const CAPABILITY_LABEL_BY_FILTER_KEY: Record<string, string> = {
 	streaming: "Streaming",
 	vision: "Vision",
+	audioInput: "Audio Input",
+	document: "Documents",
+	realtime: "Realtime",
+	ocr: "OCR",
 	tools: "Tools",
 	reasoning: "Reasoning",
 	reasoningBudget: "Reasoning Budget",
@@ -419,6 +475,7 @@ const CAPABILITY_LABEL_BY_FILTER_KEY: Record<string, string> = {
 	decisions: "Decisions",
 	searchApi: "Search API",
 	webSearch: "Web Search",
+	batch: "Batch API",
 };
 
 function shouldShowStabilityWarning(
@@ -684,6 +741,25 @@ const ModelTableRow = React.memo(
 									{row.model.id}
 								</Link>
 							)}
+							{row.model.virtualModelTarget && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<Badge
+											variant="outline"
+											className="shrink-0 text-[10px]"
+											tabIndex={0}
+										>
+											Virtual
+										</Badge>
+									</TooltipTrigger>
+									<TooltipContent>
+										<p>
+											Currently {row.model.virtualModelTarget}. The served
+											version and pricing may change.
+										</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
 							{row.model.premium && (
 								<Tooltip>
 									<TooltipTrigger asChild>
@@ -693,8 +769,9 @@ const ModelTableRow = React.memo(
 									</TooltipTrigger>
 									<TooltipContent>
 										<p className="text-xs">
-											Premium tier / $5+/M input or $15+/M output. Subject to
-											the weekly fair-use allowance on DevPass plans.
+											Premium tier / $5+/M input or $15+/M output after public
+											discounts. Subject to the weekly fair-use allowance on
+											DevPass plans.
 										</p>
 									</TooltipContent>
 								</Tooltip>
@@ -1019,12 +1096,239 @@ const GridModelCard = React.memo(
 	),
 );
 
+// Distance from the top of the document to the list, which the window
+// virtualizer needs to map the page scroll offset onto list items. It moves
+// whenever content above the list changes height (filter panel, banners).
+function useDocumentOffset<T extends HTMLElement>() {
+	const ref = useRef<T>(null);
+	const [offset, setOffset] = useState(0);
+	useLayoutEffect(() => {
+		const update = () => {
+			if (ref.current) {
+				setOffset(
+					Math.round(ref.current.getBoundingClientRect().top + window.scrollY),
+				);
+			}
+		};
+		update();
+		const observer = new ResizeObserver(update);
+		observer.observe(document.body);
+		window.addEventListener("resize", update);
+		return () => {
+			observer.disconnect();
+			window.removeEventListener("resize", update);
+		};
+	}, []);
+	return [ref, offset] as const;
+}
+
+// Each item renders into its own <tbody> so a row plus its expanded detail
+// row is measured as one unit; spacer bodies stand in for off-screen rows.
+function VirtualTableBodies<T>({
+	items,
+	getKey,
+	colSpan,
+	renderItem,
+}: {
+	items: T[];
+	getKey: (item: T) => string;
+	colSpan: number;
+	renderItem: (item: T) => React.ReactNode;
+}) {
+	const [anchorRef, scrollMargin] =
+		useDocumentOffset<HTMLTableSectionElement>();
+	const virtualizer = useWindowVirtualizer({
+		count: items.length,
+		estimateSize: () => 57,
+		overscan: 12,
+		scrollMargin,
+		getItemKey: (index) => getKey(items[index]),
+	});
+	const virtualItems = virtualizer.getVirtualItems();
+	const first = virtualItems[0];
+	const last = virtualItems[virtualItems.length - 1];
+	const paddingTop = first ? first.start - scrollMargin : 0;
+	const paddingBottom = last
+		? virtualizer.getTotalSize() - (last.end - scrollMargin)
+		: 0;
+
+	return (
+		<>
+			<tbody ref={anchorRef} aria-hidden="true">
+				{paddingTop > 0 && (
+					<tr>
+						<td colSpan={colSpan} style={{ height: paddingTop, padding: 0 }} />
+					</tr>
+				)}
+			</tbody>
+			{virtualItems.map((virtualItem) => (
+				<tbody
+					key={virtualItem.key}
+					data-index={virtualItem.index}
+					ref={virtualizer.measureElement}
+				>
+					{renderItem(items[virtualItem.index])}
+				</tbody>
+			))}
+			{paddingBottom > 0 && (
+				<tbody aria-hidden="true">
+					<tr>
+						<td
+							colSpan={colSpan}
+							style={{ height: paddingBottom, padding: 0 }}
+						/>
+					</tr>
+				</tbody>
+			)}
+		</>
+	);
+}
+
+const GRID_COLUMN_QUERIES = [
+	{ query: "(min-width: 1024px)", columns: 3 },
+	{ query: "(min-width: 768px)", columns: 2 },
+];
+
+// Mirrors the grid's md:grid-cols-2 lg:grid-cols-3 breakpoints.
+function useGridColumns(): number {
+	const [columns, setColumns] = useState(1);
+	useEffect(() => {
+		const lists = GRID_COLUMN_QUERIES.map(({ query }) =>
+			window.matchMedia(query),
+		);
+		const update = () => {
+			const match = GRID_COLUMN_QUERIES.find((_, i) => lists[i].matches);
+			setColumns(match?.columns ?? 1);
+		};
+		update();
+		for (const list of lists) {
+			list.addEventListener("change", update);
+		}
+		return () => {
+			for (const list of lists) {
+				list.removeEventListener("change", update);
+			}
+		};
+	}, []);
+	return columns;
+}
+
+function VirtualGrid<T>({
+	items,
+	getKey,
+	renderItem,
+}: {
+	items: T[];
+	getKey: (item: T) => string;
+	renderItem: (item: T) => React.ReactNode;
+}) {
+	const columns = useGridColumns();
+	const [containerRef, scrollMargin] = useDocumentOffset<HTMLDivElement>();
+	const rowCount = Math.ceil(items.length / columns);
+	const virtualizer = useWindowVirtualizer({
+		count: rowCount,
+		estimateSize: () => 440,
+		overscan: 3,
+		scrollMargin,
+	});
+
+	useEffect(() => {
+		virtualizer.measure();
+	}, [columns, virtualizer]);
+
+	return (
+		<div
+			ref={containerRef}
+			className="relative"
+			style={{ height: virtualizer.getTotalSize() }}
+		>
+			{virtualizer.getVirtualItems().map((virtualRow) => (
+				<div
+					key={virtualRow.key}
+					data-index={virtualRow.index}
+					ref={virtualizer.measureElement}
+					className="absolute left-0 top-0 grid w-full gap-6 pb-6"
+					style={{
+						gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+						transform: `translateY(${virtualRow.start - scrollMargin}px)`,
+					}}
+				>
+					{items
+						.slice(virtualRow.index * columns, (virtualRow.index + 1) * columns)
+						.map((item) => (
+							<React.Fragment key={getKey(item)}>
+								{renderItem(item)}
+							</React.Fragment>
+						))}
+				</div>
+			))}
+		</div>
+	);
+}
+
+const CAPABILITY_TOGGLE_KEYS = [
+	"streaming",
+	"vision",
+	"audioInput",
+	"document",
+	"tools",
+	"reasoning",
+	"reasoningBudget",
+	"jsonOutput",
+	"jsonOutputSchema",
+	"imageGeneration",
+	"videoGeneration",
+	"audioGeneration",
+	"transcription",
+	"realtime",
+	"embedding",
+	"rerank",
+	"ocr",
+	"decisions",
+	"searchApi",
+	"webSearch",
+	"batch",
+	"free",
+	"discounted",
+] as const;
+
+type CapabilityToggles = Record<
+	(typeof CAPABILITY_TOGGLE_KEYS)[number],
+	boolean
+>;
+
+const SHOW_ALL_STORAGE_KEY = "llmgateway-models-show-all";
+
+// Storage access throws when the browser blocks site data; the list mode then
+// simply is not remembered.
+// Docs and gateway error messages link to `?features=tools,webSearch`.
+function parseFeaturesParam(value: string | null) {
+	const requested = (value ?? "").split(",");
+	return CAPABILITY_TOGGLE_KEYS.filter((key) => requested.includes(key));
+}
+
+function readShowAllPreference(): boolean {
+	try {
+		return window.localStorage.getItem(SHOW_ALL_STORAGE_KEY) === "1";
+	} catch {
+		return false;
+	}
+}
+
+function writeShowAllPreference(showAll: boolean): boolean {
+	try {
+		window.localStorage.setItem(SHOW_ALL_STORAGE_KEY, showAll ? "1" : "0");
+		return true;
+	} catch {
+		return false;
+	}
+}
 const TABLE_ROWS_PER_PAGE = 50;
 const GRID_MODELS_PER_PAGE = 12;
 
 export function AllModels({
 	children,
-	models,
+	models: catalogue,
 	providers,
 	title,
 	description,
@@ -1038,7 +1342,9 @@ export function AllModels({
 	defaultCategory = "all",
 	hideUseCaseFilter = false,
 	hideHeader = false,
+	allowShowAll = false,
 }: AllModelsProps) {
+	const models = useMemo(() => expandVirtualModels(catalogue), [catalogue]);
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
@@ -1062,6 +1368,9 @@ export function AllModels({
 		}
 	}, [isMobile, searchParams, viewMode]);
 
+	const [showAll, setShowAll] = useState(
+		allowShowAll && searchParams.get("all") === "1",
+	);
 	const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 	const [copiedModel, setCopiedModel] = useState<string | null>(null);
 
@@ -1113,26 +1422,13 @@ export function AllModels({
 			: isUseCaseCategory(urlCategory)
 				? urlCategory
 				: defaultCategory;
-		const capabilities = {
-			streaming: searchParams.get("streaming") === "true",
-			vision: searchParams.get("vision") === "true",
-			tools: searchParams.get("tools") === "true",
-			reasoning: searchParams.get("reasoning") === "true",
-			reasoningBudget: searchParams.get("reasoningBudget") === "true",
-			jsonOutput: searchParams.get("jsonOutput") === "true",
-			jsonOutputSchema: searchParams.get("jsonOutputSchema") === "true",
-			imageGeneration: searchParams.get("imageGeneration") === "true",
-			videoGeneration: searchParams.get("videoGeneration") === "true",
-			audioGeneration: searchParams.get("audioGeneration") === "true",
-			transcription: searchParams.get("transcription") === "true",
-			embedding: searchParams.get("embedding") === "true",
-			rerank: searchParams.get("rerank") === "true",
-			decisions: searchParams.get("decisions") === "true",
-			searchApi: searchParams.get("searchApi") === "true",
-			webSearch: searchParams.get("webSearch") === "true",
-			free: searchParams.get("free") === "true",
-			discounted: searchParams.get("discounted") === "true",
-		};
+		const linkedFeatures = parseFeaturesParam(searchParams.get("features"));
+		const capabilities = Object.fromEntries(
+			CAPABILITY_TOGGLE_KEYS.map((key) => [
+				key,
+				searchParams.get(key) === "true" || linkedFeatures.includes(key),
+			]),
+		) as CapabilityToggles;
 		// A deep link can pair the category with a capability it excludes; the
 		// toggle renders disabled, so drop the filter rather than emptying the
 		// directory through a control that cannot be cleared.
@@ -1245,6 +1541,41 @@ export function AllModels({
 		[],
 	);
 
+	// Paginated stays the server-rendered default; a returning visitor's
+	// stored choice is applied after hydration.
+	useEffect(() => {
+		if (allowShowAll && readShowAllPreference()) {
+			setShowAll(true);
+			updateUrlWithFilters({ all: "1", page: undefined });
+		}
+	}, [allowShowAll, updateUrlWithFilters]);
+
+	// Rewrite a `?features=` deep link into the per-capability params the
+	// toggles maintain, so turning one off also removes it from the URL.
+	useEffect(() => {
+		const params = new URLSearchParams(window.location.search);
+		if (params.has("features")) {
+			updateUrlWithFilters({
+				features: undefined,
+				...Object.fromEntries(
+					parseFeaturesParam(params.get("features")).map((key) => [
+						key,
+						"true",
+					]),
+				),
+			});
+		}
+	}, [updateUrlWithFilters]);
+
+	const changeShowAll = useCallback(
+		(next: boolean) => {
+			setShowAll(next);
+			writeShowAllPreference(next);
+			updateUrlWithFilters({ all: next ? "1" : undefined, page: undefined });
+		},
+		[updateUrlWithFilters],
+	);
+
 	const setStatusFilter = useCallback(
 		(status: ModelMappingStatus | null) => {
 			setFilters((prev) => ({ ...prev, status }));
@@ -1284,6 +1615,7 @@ export function AllModels({
 
 	const modelsWithProviders: ModelWithProviders[] = useMemo(() => {
 		const now = new Date();
+		const providerById = new Map(providers.map((p) => [p.id, p]));
 
 		const baseModels = models
 			.filter((model) => {
@@ -1315,7 +1647,7 @@ export function AllModels({
 					...model,
 					providerDetails: visibleMappings.map((mapping) => ({
 						provider: mapping,
-						providerInfo: providers.find((p) => p.id === mapping.providerId)!,
+						providerInfo: providerById.get(mapping.providerId)!,
 					})),
 				};
 			})
@@ -1333,23 +1665,24 @@ export function AllModels({
 				)
 			: baseModels;
 
+		// Fuzzy search: token-based, accent-insensitive, ignores punctuation.
+		// The query only needs tokenizing once, not once per model.
+		const normalize = (str: string) =>
+			str
+				.toLowerCase()
+				.normalize("NFD")
+				.replace(/[\u0300-\u036f]/g, "") // strip accents
+				.replace(/[^a-z0-9]/g, "");
+		const queryTokens = deferredSearchQuery
+			.trim()
+			.toLowerCase()
+			.split(/\s+/)
+			.map((t: string) => t.replace(/[^a-z0-9]/g, ""))
+			.filter(Boolean);
+		const normalizedQuery = normalize(deferredSearchQuery);
+
 		const filteredModels = preFilteredModels.filter((model) => {
-			// Improved fuzzy search: token-based, accent-insensitive, ignores punctuation
 			if (deferredSearchQuery) {
-				const normalize = (str: string) =>
-					str
-						.toLowerCase()
-						.normalize("NFD")
-						.replace(/[\u0300-\u036f]/g, "") // strip accents
-						.replace(/[^a-z0-9]/g, "");
-
-				const queryTokens = deferredSearchQuery
-					.trim()
-					.toLowerCase()
-					.split(/\s+/)
-					.map((t: string) => t.replace(/[^a-z0-9]/g, ""))
-					.filter(Boolean);
-
 				const providerStrings = (model.providerDetails ?? []).flatMap((p) => [
 					p.provider.providerId,
 					p.providerInfo?.name ?? "",
@@ -1362,7 +1695,6 @@ export function AllModels({
 					...providerStrings,
 				];
 				const haystack = normalize(haystackParts.join(" "));
-				const normalizedQuery = normalize(deferredSearchQuery);
 
 				const containsAllTokens = queryTokens.every((t: string) =>
 					haystack.includes(t),
@@ -1433,6 +1765,14 @@ export function AllModels({
 			) {
 				return false;
 			}
+			for (const key of ["audioInput", "document", "realtime"] as const) {
+				if (
+					filters.capabilities[key] &&
+					!model.providerDetails.some((p) => matchesCapability(key, p.provider))
+				) {
+					return false;
+				}
+			}
 			if (
 				filters.capabilities.reasoning &&
 				!model.providerDetails.some((p) =>
@@ -1472,6 +1812,14 @@ export function AllModels({
 				filters.capabilities.webSearch &&
 				!model.providerDetails.some((p) =>
 					matchesCapability("webSearch", p.provider),
+				)
+			) {
+				return false;
+			}
+			if (
+				filters.capabilities.batch &&
+				!model.providerDetails.some((p) =>
+					matchesCapability("batch", p.provider),
 				)
 			) {
 				return false;
@@ -1635,6 +1983,25 @@ export function AllModels({
 		return uniqueProviders.size;
 	}, [modelsWithProviders]);
 
+	// Stat card counts in one pass instead of three filters per render.
+	const statCounts = useMemo(() => {
+		let vision = 0;
+		let tools = 0;
+		let free = 0;
+		for (const model of modelsWithProviders) {
+			if (model.providerDetails.some((p) => p.provider.vision)) {
+				vision += 1;
+			}
+			if (model.providerDetails.some((p) => p.provider.tools)) {
+				tools += 1;
+			}
+			if (model.free) {
+				free += 1;
+			}
+		}
+		return { vision, tools, free };
+	}, [modelsWithProviders]);
+
 	// Flattened rows for table view (one row per provider-model combination)
 	// Pre-compute capabilities and provider icons for performance
 	const flattenedRows: FlattenedModelRow[] = useMemo(() => {
@@ -1756,7 +2123,11 @@ export function AllModels({
 	const totalGridPages = Math.ceil(
 		modelsWithProviders.length / GRID_MODELS_PER_PAGE,
 	);
-	const totalPages = viewMode === "table" ? totalTablePages : totalGridPages;
+	const totalPages = showAll
+		? 1
+		: viewMode === "table"
+			? totalTablePages
+			: totalGridPages;
 	const safePage = Math.min(currentPage, Math.max(1, totalPages));
 
 	useEffect(() => {
@@ -1766,6 +2137,22 @@ export function AllModels({
 			});
 		}
 	}, [currentPage, safePage, updateUrlWithFilters]);
+
+	const renderTableRow = (row: FlattenedModelRow) => (
+		<ModelTableRow
+			key={row.rowKey}
+			row={row}
+			isExpanded={expandedRows.has(row.rowKey)}
+			copiedModel={copiedModel}
+			onToggleExpand={toggleRowExpanded}
+			onCopy={copyToClipboard}
+			onNavigate={navigateToRow}
+			formatPrice={formatPrice}
+			modelHref={modelHref}
+			pinnedCapabilityKeys={pinnedCapabilityKeys}
+			showLoungePlan={showLoungePlanFilter}
+		/>
+	);
 
 	const paginatedFlattenedRows = flattenedRows.slice(
 		(safePage - 1) * TABLE_ROWS_PER_PAGE,
@@ -1888,26 +2275,9 @@ export function AllModels({
 			category: defaultCategory,
 			tier: "all",
 			loungePlan: "all",
-			capabilities: {
-				streaming: false,
-				vision: false,
-				tools: false,
-				reasoning: false,
-				reasoningBudget: false,
-				jsonOutput: false,
-				jsonOutputSchema: false,
-				imageGeneration: false,
-				videoGeneration: false,
-				audioGeneration: false,
-				transcription: false,
-				embedding: false,
-				rerank: false,
-				decisions: false,
-				searchApi: false,
-				webSearch: false,
-				free: false,
-				discounted: false,
-			},
+			capabilities: Object.fromEntries(
+				CAPABILITY_TOGGLE_KEYS.map((key) => [key, false]),
+			) as CapabilityToggles,
 			selectedProvider: "all",
 			status: null,
 			source: "all",
@@ -1925,24 +2295,9 @@ export function AllModels({
 			category: undefined,
 			tier: undefined,
 			lounge: undefined,
-			streaming: undefined,
-			vision: undefined,
-			tools: undefined,
-			reasoning: undefined,
-			reasoningBudget: undefined,
-			jsonOutput: undefined,
-			jsonOutputSchema: undefined,
-			imageGeneration: undefined,
-			videoGeneration: undefined,
-			audioGeneration: undefined,
-			transcription: undefined,
-			embedding: undefined,
-			rerank: undefined,
-			decisions: undefined,
-			searchApi: undefined,
-			webSearch: undefined,
-			free: undefined,
-			discounted: undefined,
+			...Object.fromEntries(
+				CAPABILITY_TOGGLE_KEYS.map((key) => [key, undefined]),
+			),
 			page: undefined,
 			provider: undefined,
 			status: undefined,
@@ -2167,6 +2522,18 @@ export function AllModels({
 									color: "text-green-500",
 								},
 								{
+									key: "audioInput",
+									label: "Audio Input",
+									icon: AudioLines,
+									color: "text-rose-500",
+								},
+								{
+									key: "document",
+									label: "Documents",
+									icon: FileText,
+									color: "text-slate-500",
+								},
+								{
 									key: "tools",
 									label: "Tools",
 									icon: Wrench,
@@ -2221,6 +2588,18 @@ export function AllModels({
 									color: "text-sky-500",
 								},
 								{
+									key: "realtime",
+									label: "Realtime",
+									icon: Radio,
+									color: "text-emerald-500",
+								},
+								{
+									key: "ocr",
+									label: "OCR",
+									icon: ScanText,
+									color: "text-lime-600",
+								},
+								{
 									key: "embedding",
 									label: "Embeddings",
 									icon: Boxes,
@@ -2249,6 +2628,12 @@ export function AllModels({
 									label: "Web Search",
 									icon: Globe,
 									color: "text-sky-500",
+								},
+								{
+									key: "batch",
+									label: "Batch API",
+									icon: Layers,
+									color: "text-fuchsia-500",
 								},
 								{
 									key: "free",
@@ -2690,10 +3075,17 @@ export function AllModels({
 		return (
 			<div className="rounded-md border">
 				<div className="relative w-full overflow-x-auto">
-					<Table>
+					{/* Virtualized rows come and go while scrolling, so the column
+					    widths are fixed instead of following the rendered rows. */}
+					<Table className={cn(showAll && "min-w-[1100px] table-fixed")}>
 						<TableHeader className="top-0 z-10 bg-background/95 backdrop-blur">
 							<TableRow>
-								<TableHead className="w-[180px] bg-background/95 backdrop-blur-sm border-b">
+								<TableHead
+									className={cn(
+										"bg-background/95 backdrop-blur-sm border-b",
+										showAll ? "w-[290px]" : "w-[180px]",
+									)}
+								>
 									<Button
 										variant="ghost"
 										onClick={() => handleSort("provider")}
@@ -2703,7 +3095,12 @@ export function AllModels({
 										{getSortIcon("provider")}
 									</Button>
 								</TableHead>
-								<TableHead className="w-[280px] bg-background/95 backdrop-blur-sm border-b">
+								<TableHead
+									className={cn(
+										"bg-background/95 backdrop-blur-sm border-b",
+										showAll ? "w-[340px]" : "w-[280px]",
+									)}
+								>
 									<Button
 										variant="ghost"
 										onClick={() => handleSort("name")}
@@ -2748,41 +3145,46 @@ export function AllModels({
 								</TableHead>
 							</TableRow>
 						</TableHeader>
-						<TableBody>
-							{paginatedFlattenedRows.map((row) => (
-								<ModelTableRow
-									key={row.rowKey}
-									row={row}
-									isExpanded={expandedRows.has(row.rowKey)}
-									copiedModel={copiedModel}
-									onToggleExpand={toggleRowExpanded}
-									onCopy={copyToClipboard}
-									onNavigate={navigateToRow}
-									formatPrice={formatPrice}
-									modelHref={modelHref}
-									pinnedCapabilityKeys={pinnedCapabilityKeys}
-									showLoungePlan={showLoungePlanFilter}
-								/>
-							))}
-						</TableBody>
+						{showAll ? (
+							<VirtualTableBodies
+								items={flattenedRows}
+								getKey={(row) => row.rowKey}
+								colSpan={6}
+								renderItem={renderTableRow}
+							/>
+						) : (
+							<TableBody>
+								{paginatedFlattenedRows.map(renderTableRow)}
+							</TableBody>
+						)}
 					</Table>
 				</div>
 			</div>
 		);
 	};
 
-	const renderGridView = () => (
-		<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-			{paginatedModels.map((model) => (
-				<GridModelCard
-					key={`${model.id}-${model.providerDetails[0].provider.providerId}-${model.providerDetails[0].provider.region ?? ""}`}
-					model={model}
-					onNavigate={navigateToModel}
-					renderCta={renderCta}
-				/>
-			))}
-		</div>
+	const gridModelKey = (model: ModelWithProviders) =>
+		`${model.id}-${model.providerDetails[0].provider.providerId}-${model.providerDetails[0].provider.region ?? ""}`;
+	const renderGridCard = (model: ModelWithProviders) => (
+		<GridModelCard
+			key={gridModelKey(model)}
+			model={model}
+			onNavigate={navigateToModel}
+			renderCta={renderCta}
+		/>
 	);
+	const renderGridView = () =>
+		showAll ? (
+			<VirtualGrid
+				items={modelsWithProviders}
+				getKey={gridModelKey}
+				renderItem={renderGridCard}
+			/>
+		) : (
+			<div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+				{paginatedModels.map(renderGridCard)}
+			</div>
+		);
 
 	return (
 		<div className="min-h-screen text-foreground bg-background">
@@ -2838,8 +3240,8 @@ export function AllModels({
 							)}
 
 							<div className="flex flex-col gap-4">
-								<div className="flex items-center gap-4">
-									<div className="relative flex-1 max-w-sm">
+								<div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+									<div className="relative min-w-48 flex-1 max-w-sm">
 										<Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
 										<Input
 											placeholder="Search models..."
@@ -2906,6 +3308,39 @@ export function AllModels({
 											</Badge>
 										)}
 									</Button>
+									{allowShowAll && (
+										<div
+											role="group"
+											aria-label="List length"
+											className="flex h-8 shrink-0 items-center gap-0.5 rounded-md border bg-muted/30 p-0.5"
+										>
+											{[
+												{ all: false, label: "Pages", Icon: ListOrdered },
+												{ all: true, label: "All", Icon: Rows3 },
+											].map(({ all, label, Icon }) => (
+												<button
+													key={label}
+													type="button"
+													aria-pressed={showAll === all}
+													title={
+														all
+															? "Show every result on one page"
+															: "Split results into pages"
+													}
+													onClick={() => changeShowAll(all)}
+													className={cn(
+														"inline-flex h-6.5 items-center gap-1 rounded-sm px-2 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+														showAll === all
+															? "border bg-background text-foreground shadow-sm"
+															: "text-muted-foreground hover:text-foreground",
+													)}
+												>
+													<Icon className="h-3.5 w-3.5" />
+													{label}
+												</button>
+											))}
+										</div>
+									)}
 									{hasActiveFilters && (
 										<Button variant="ghost" size="sm" onClick={clearFilters}>
 											<X className="h-4 w-4 mr-1" />
@@ -2943,11 +3378,7 @@ export function AllModels({
 								<Card>
 									<CardContent>
 										<div className="text-2xl font-bold">
-											{
-												modelsWithProviders.filter((m) =>
-													m.providerDetails.some((p) => p.provider.vision),
-												).length
-											}
+											{statCounts.vision}
 										</div>
 										<div className="text-sm text-muted-foreground">
 											Vision Models{hasActiveFilters ? " (filtered)" : ""}
@@ -2956,13 +3387,7 @@ export function AllModels({
 								</Card>
 								<Card>
 									<CardContent>
-										<div className="text-2xl font-bold">
-											{
-												modelsWithProviders.filter((m) =>
-													m.providerDetails.some((p) => p.provider.tools),
-												).length
-											}
-										</div>
+										<div className="text-2xl font-bold">{statCounts.tools}</div>
 										<div className="text-sm text-muted-foreground">
 											Tool-enabled{hasActiveFilters ? " (filtered)" : ""}
 										</div>
@@ -2970,9 +3395,7 @@ export function AllModels({
 								</Card>
 								<Card>
 									<CardContent>
-										<div className="text-2xl font-bold">
-											{modelsWithProviders.filter((m) => m.free).length}
-										</div>
+										<div className="text-2xl font-bold">{statCounts.free}</div>
 										<div className="text-sm text-muted-foreground">
 											Free Models{hasActiveFilters ? " (filtered)" : ""}
 										</div>
@@ -3002,6 +3425,12 @@ export function AllModels({
 									<Grid className="h-4 w-4 mr-1" />
 									Grid
 								</Button>
+								<span className="ml-auto text-sm text-muted-foreground tabular-nums">
+									{viewMode === "table"
+										? `${flattenedRows.length} provider offers`
+										: `${modelsWithProviders.length} models`}
+									{totalPages > 1 && ` · page ${safePage} of ${totalPages}`}
+								</span>
 							</div>
 
 							{viewMode === "table" ? renderTableView() : renderGridView()}

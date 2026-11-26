@@ -14,6 +14,7 @@ export const notificationCategories = [
 	"compliance_downgrade",
 	"org_limit",
 	"data_stream",
+	"model_price_change",
 ] as const;
 export type NotificationCategory = (typeof notificationCategories)[number];
 
@@ -43,11 +44,12 @@ const CATEGORY_LABELS: Record<EmailCategory, string> = {
 	compliance_downgrade: "compliance downgrade alerts",
 	org_limit: "organization limit alerts",
 	data_stream: "data stream delivery alerts",
+	model_price_change: "model price change alerts",
 	marketing: "product tips and offers",
 	credit_alerts: "credit balance reminders",
 };
 
-const POSTAL_ADDRESS =
+export const POSTAL_ADDRESS =
 	"Polar Lights LLC, 16192 Coastal Highway, Lewes, DE 19958, United States";
 
 interface UnsubscribeTokenPayload {
@@ -162,7 +164,7 @@ export function buildUnsubscribeHeaders(token: string): Record<string, string> {
 	};
 }
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
 	return value
 		.replace(/&/g, "&amp;")
 		.replace(/</g, "&lt;")
@@ -173,19 +175,30 @@ function escapeHtml(value: string): string {
 const TRANSACTIONAL_NOTE =
 	"This is a transactional email about your account and can't be unsubscribed from. To stop receiving it, close your LLM Gateway account";
 
+/**
+ * `settingsUrl` points at the recipient's notification settings; it replaces
+ * the generic dashboard link and, next to an unsubscribe link, adds a second one.
+ */
 export function renderFooterText(
 	kind: EmailFooterKind,
 	token?: string,
+	settingsUrl?: string,
 ): string {
 	if (kind === "transactional") {
 		return `\n\n---\n${TRANSACTIONAL_NOTE} at ${getUiUrl()}/dashboard.\n© ${new Date().getFullYear()} LLM Gateway. ${POSTAL_ADDRESS}`;
 	}
 
-	const unsubscribe = token
-		? `Unsubscribe from ${CATEGORY_LABELS[kind]}: ${buildUnsubscribeUrl(token)}`
+	const manage = settingsUrl
+		? `Manage your notification settings: ${settingsUrl}`
 		: `Manage which emails you receive: ${getUiUrl()}/dashboard`;
+	const links = token
+		? [
+				`Unsubscribe from ${CATEGORY_LABELS[kind]}: ${buildUnsubscribeUrl(token)}`,
+				...(settingsUrl ? [manage] : []),
+			]
+		: [manage];
 
-	return `\n\n---\nYou're receiving this because you have an LLM Gateway account.\n${unsubscribe}\n© ${new Date().getFullYear()} LLM Gateway. ${POSTAL_ADDRESS}`;
+	return `\n\n---\nYou're receiving this because you have an LLM Gateway account.\n${links.join("\n")}\n© ${new Date().getFullYear()} LLM Gateway. ${POSTAL_ADDRESS}`;
 }
 
 /**
@@ -196,13 +209,18 @@ export function renderFooterText(
 export function renderFooterNoticeHtml(
 	kind: EmailFooterKind,
 	token?: string,
+	settingsUrl?: string,
 ): string {
+	const manageHref = escapeHtml(settingsUrl ?? `${getUiUrl()}/dashboard`);
+	const manage = settingsUrl
+		? `<a href="${manageHref}" style="color: #666666;">Manage your notification settings</a>`
+		: `<a href="${manageHref}" style="color: #666666;">Manage which emails you receive</a>`;
 	const note =
 		kind === "transactional"
 			? `${escapeHtml(TRANSACTIONAL_NOTE)} at <a href="${getUiUrl()}/dashboard" style="color: #666666;">your dashboard</a>.`
 			: token
-				? `You're receiving this because you have an LLM Gateway account. <a href="${escapeHtml(buildUnsubscribeUrl(token))}" style="color: #666666;">Unsubscribe from ${escapeHtml(CATEGORY_LABELS[kind])}</a>.`
-				: `You're receiving this because you have an LLM Gateway account. <a href="${getUiUrl()}/dashboard" style="color: #666666;">Manage which emails you receive</a>.`;
+				? `You're receiving this because you have an LLM Gateway account. <a href="${escapeHtml(buildUnsubscribeUrl(token))}" style="color: #666666;">Unsubscribe from ${escapeHtml(CATEGORY_LABELS[kind])}</a>${settingsUrl ? ` or ${manage}` : ""}.`
+				: `You're receiving this because you have an LLM Gateway account. ${manage}.`;
 
 	return `<p style="margin: 0 0 8px; color: #999999; font-size: 12px; line-height: 1.6;">
 								${note}
@@ -215,6 +233,7 @@ export function renderFooterNoticeHtml(
 export function renderFooterHtml(
 	kind: EmailFooterKind,
 	token?: string,
+	settingsUrl?: string,
 ): string {
 	return `<!-- Footer -->
 					<tr>
@@ -224,7 +243,7 @@ export function renderFooterHtml(
 									href="https://docs.llmgateway.io" style="color: #000000; text-decoration: none;"
 								>documentation</a> or reply to this email for any questions.
 							</p>
-							${renderFooterNoticeHtml(kind, token)}
+							${renderFooterNoticeHtml(kind, token, settingsUrl)}
 						</td>
 					</tr>`;
 }

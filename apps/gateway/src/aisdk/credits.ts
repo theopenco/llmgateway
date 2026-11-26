@@ -1,10 +1,6 @@
 import { Hono } from "hono";
 
-import {
-	findApiKeyByToken,
-	findOrganizationById,
-	findProjectById,
-} from "@/lib/cached-queries.js";
+import { getAuthenticatedReadAccess } from "@/lib/gateway-read-access.js";
 
 import { swrWrap } from "@llmgateway/cache";
 import {
@@ -15,8 +11,6 @@ import {
 	projectHourlyStats,
 	sql,
 } from "@llmgateway/db";
-
-import { buildGatewayErrorBody } from "./errors.js";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -31,39 +25,10 @@ export const creditsRoute = new Hono<ServerTypes>();
 
 creditsRoute.get("/", async (c) => {
 	const [scheme, token] = (c.req.header("Authorization") ?? "").split(" ");
-
-	if (scheme?.toLowerCase() !== "bearer" || !token) {
-		return c.json(
-			buildGatewayErrorBody({ status: 401, message: "No API key provided" }),
-			401,
-		);
-	}
-
-	const apiKey = await findApiKeyByToken(token);
-	if (!apiKey || apiKey.status !== "active") {
-		return c.json(
-			buildGatewayErrorBody({
-				status: 401,
-				message: "API key not found or inactive",
-			}),
-			401,
-		);
-	}
-
-	const apiKeyProject = await findProjectById(apiKey.projectId);
-	const organization = apiKeyProject
-		? await findOrganizationById(apiKeyProject.organizationId)
-		: null;
-
-	if (!organization) {
-		return c.json(
-			buildGatewayErrorBody({
-				status: 500,
-				message: "Could not resolve the organization for this API key",
-			}),
-			500,
-		);
-	}
+	const { organization } = await getAuthenticatedReadAccess(
+		c,
+		scheme?.toLowerCase() === "bearer" ? token : undefined,
+	);
 
 	// Aggregation table, not `log`: the per-request table is pruned by data
 	// retention, so summing it under-reports for organizations with retention

@@ -16,6 +16,7 @@ import { HTTPException } from "hono/http-exception";
 import { isModelTrulyFree } from "@/chat/tools/is-model-truly-free.js";
 
 import {
+	getModelAliases,
 	models,
 	type ModelDefinition,
 	type ProviderId,
@@ -107,7 +108,7 @@ export function validateEndUserSessionModelAccess(
 	apiKey: GatewayApiKey,
 	requestedModel: string,
 	activeModelInfo?: ModelDefinition,
-	options: { smartRouting?: boolean } = {},
+	options: { smartRouting?: boolean; requestedModelAlias?: string } = {},
 ): {
 	allowed: boolean;
 	reason?: string;
@@ -127,8 +128,12 @@ export function validateEndUserSessionModelAccess(
 	// A session scoped to "auto" delegates model choice to the gateway's
 	// auto-router, so the concrete model it resolves to (e.g. a free model for a
 	// sandbox wallet) is allowed even though it isn't literally listed in scope.
+	// A scope naming an alias admits requests that use that alias only.
 	const scopeAllows =
 		scopeModels.includes(modelDef.id) ||
+		(options.requestedModelAlias !== undefined &&
+			scopeModels.includes(options.requestedModelAlias) &&
+			getModelAliases(modelDef.id).includes(options.requestedModelAlias)) ||
 		(options.smartRouting === true && scopeModels.includes("auto"));
 
 	if (!scopeAllows) {

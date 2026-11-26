@@ -26,6 +26,10 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import {
+	DedicatedOrganizationsField,
+	type DedicatedOrganization,
+} from "@/components/dedicated-organizations-field";
 import { ProviderCredentialsSpendOverview } from "@/components/provider-credentials-spend-overview";
 import { ProviderKeyErrorRateCell } from "@/components/provider-key-error-rate-cell";
 import { ProviderKeyInsightsLink } from "@/components/provider-key-insights-link";
@@ -71,7 +75,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { canWrite } from "@/lib/admin-role";
+import { canReadFinancials, canWrite } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
 import {
 	apiErrorMessage,
@@ -82,20 +86,29 @@ import { useAppConfig } from "@/lib/config";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 import {
 	DEFAULT_ERROR_WINDOW,
-	ERROR_WINDOW_OPTIONS,
 	errorWindowOption,
-	parseErrorWindow,
 } from "@/lib/provider-key-error-window";
+import {
+	providerKeySelectionPositions,
+	providerKeySelectionOrder,
+} from "@/lib/provider-key-selection";
 import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
+import {
+	resolveCredentialPeriod,
+	USAGE_WINDOW_OPTIONS,
+	usageWindowLabel,
+} from "@/lib/provider-key-usage-window";
 import { parseProviderModelList } from "@/lib/provider-model-list";
 import { cn } from "@/lib/utils";
 
+import { getEffectiveCredentialRegion } from "@llmgateway/models";
 import {
 	getProviderIcon,
 	MODEL_SYNC_PROVIDERS,
 	PROVIDER_MODEL_KINDS,
 } from "@llmgateway/shared";
 import {
+	formatProviderKeyModelRateLimits,
 	formatProviderKeyRateLimits,
 	MultiModelIdSelector,
 	parseProviderKeyRateLimitInputs,
@@ -115,6 +128,7 @@ import type {
 	ProviderCredentialSelfTestResult,
 } from "@/lib/admin-provider-credentials";
 import type { ErrorWindow } from "@/lib/provider-key-error-window";
+import type { UsageWindow } from "@/lib/provider-key-usage-window";
 import type { ProviderModelKind } from "@llmgateway/shared";
 
 type Variant = "default" | "enterprise" | "plans";
@@ -261,7 +275,9 @@ function EnvCredentialRow({
 			<TableCell className="text-sm">
 				{VARIANT_LABELS[entry.variant as Variant] ?? entry.variant}
 			</TableCell>
-			<TableCell className="text-sm">{entry.region || "Any"}</TableCell>
+			<TableCell className="text-sm">
+				{getEffectiveCredentialRegion(provider, entry.region) ?? "Any"}
+			</TableCell>
 			<TableCell>
 				<span
 					className="text-sm text-muted-foreground"
@@ -377,7 +393,7 @@ type CredentialSort = "order" | "usage" | "spend7d" | "requests24h";
 
 const SORT_OPTIONS: { value: CredentialSort; label: string }[] = [
 	{ value: "order", label: "Rotation order" },
-	{ value: "usage", label: "Lifetime spend" },
+	{ value: "usage", label: "Spend (selected window)" },
 	{ value: "spend7d", label: "Spend (7d)" },
 	{ value: "requests24h", label: "Requests (24h)" },
 ];
@@ -395,7 +411,7 @@ function usageMetric(
 ): number {
 	switch (sort) {
 		case "usage":
-			return Number(credential.usage);
+			return Number(credential.windowUsage);
 		case "spend7d":
 			return credential.last7dDaily.reduce((total, day) => total + day.cost, 0);
 		case "requests24h":
@@ -428,9 +444,10 @@ function RotationPosition({
 		return (
 			<span
 				className="text-xs tabular-nums text-muted-foreground"
-				title={`Position ${position} in this provider's rotation. The gateway tries credentials in this order and falls through to the next when one is unhealthy.`}
+				title={`Step ${position} within this provider, audience and region. Round-robin members share one pool; ordered keys keep individual positions before or after it.`}
 			>
 				{position}
+				{credential.selectionStrategy === "round_robin" ? " · Pool" : ""}
 			</span>
 		);
 	}
@@ -452,12 +469,14 @@ function RotationPosition({
 function ManagedCredentialCells({
 	credential,
 	errorWindow,
+	usageWindow,
 	isAdmin,
 	onEdit,
 	onDelete,
 }: {
 	credential: ProviderCredential;
 	errorWindow: ErrorWindow;
+	usageWindow: UsageWindow;
 	isAdmin: boolean;
 	onEdit: (credential: ProviderCredential) => void;
 	onDelete: (credential: ProviderCredential) => void;
@@ -472,6 +491,11 @@ function ManagedCredentialCells({
 			<TableCell className="font-mono text-xs">
 				<div className="flex items-center gap-1.5">
 					{credential.maskedToken}
+					<Badge variant="outline" className="font-sans text-[11px]">
+						{credential.selectionStrategy === "round_robin"
+							? "Round robin"
+							: "Ordered"}
+					</Badge>
 					{credential.carrierKey ? (
 						<Badge
 							variant="secondary"
@@ -481,6 +505,15 @@ function ManagedCredentialCells({
 							Carrier key
 						</Badge>
 					) : null}
+					{credential.forwardSafetyIdentifier ? null : (
+						<Badge
+							variant="outline"
+							className="font-sans text-[11px]"
+							title="Requests served by this credential send no safety identifier upstream."
+						>
+							No safety ID
+						</Badge>
+					)}
 				</div>
 				{credential.tokenHash ? (
 					<div
@@ -501,11 +534,42 @@ function ManagedCredentialCells({
 						{formatProviderKeyRateLimits(credential)}
 					</div>
 				) : null}
+				{formatProviderKeyModelRateLimits(credential.modelRateLimits)
+					?.split("; ")
+					.map((line) => (
+						<div
+							key={line}
+							className="whitespace-normal text-xs tabular-nums"
+							title="Per-model rate limit. While at a model's cap the credential is skipped for that model."
+						>
+							{line}
+						</div>
+					))}
 			</TableCell>
 			<TableCell className="text-sm">
-				{VARIANT_LABELS[credential.variant as Variant] ?? credential.variant}
+				{credential.dedicatedOrganizations.length > 0 ? (
+					<Badge
+						variant="outline"
+						className="max-w-full text-[11px]"
+						title={`Dedicated to: ${credential.dedicatedOrganizations
+							.map((org) => org.name ?? org.id)
+							.join(", ")}`}
+					>
+						<span className="truncate">
+							{credential.dedicatedOrganizations.length === 1
+								? (credential.dedicatedOrganizations[0].name ??
+									credential.dedicatedOrganizations[0].id)
+								: `${credential.dedicatedOrganizations.length} organizations`}
+						</span>
+					</Badge>
+				) : (
+					(VARIANT_LABELS[credential.variant as Variant] ?? credential.variant)
+				)}
 			</TableCell>
-			<TableCell className="text-sm">{credential.region || "Any"}</TableCell>
+			<TableCell className="text-sm">
+				{getEffectiveCredentialRegion(credential.provider, credential.region) ??
+					"Any"}
+			</TableCell>
 			<TableCell>
 				{credential.allowedModels && credential.allowedModels.length > 0 ? (
 					<Badge
@@ -547,6 +611,14 @@ function ManagedCredentialCells({
 				<ProviderKeySpendCell
 					keyRow={credential}
 					daily={credential.last7dDaily}
+					periodUsage={
+						usageWindow === "all"
+							? undefined
+							: {
+									usage: credential.windowUsage,
+									label: usageWindowLabel(usageWindow),
+								}
+					}
 				/>
 			</TableCell>
 			<TableCell>
@@ -625,23 +697,34 @@ export function ProviderCredentialsManager({
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const providerFilter = searchParams.get("provider") ?? ALL_PROVIDERS;
-	// Staff roles cannot load the spend overview or change credentials.
-	const isAdmin = canWrite(useAdminRole());
+	const role = useAdminRole();
+	const isAdmin = canWrite(role);
+	const showSpend = canReadFinancials(role);
 	const view =
-		isAdmin && searchParams.get("view") === "spend" ? "spend" : "credentials";
+		showSpend && searchParams.get("view") === "spend" ? "spend" : "credentials";
 	// The page reads `deleted` server-side to decide whether the API returns
 	// soft-deleted credentials at all.
 	const showDeleted = searchParams.get("deleted") === "1";
 	const sort = parseSort(searchParams.get("sort"));
 	// Read server-side too: the page asks the API for this window's series.
-	const errorWindow = parseErrorWindow(searchParams.get("errors"));
+	const usageWindow = resolveCredentialPeriod({
+		period: searchParams.get("period"),
+		usage: searchParams.get("usage"),
+		errors: searchParams.get("errors"),
+	});
+	const errorWindow = usageWindow;
 	const errorWindowLabel = errorWindowOption(errorWindow);
+	const usageLabel = usageWindowLabel(usageWindow);
 
 	// View state lives in the URL so a filtered or sorted view can be reloaded,
 	// shared and navigated back to, matching the other admin tables.
 	const setParam = useCallback(
 		(key: string, value: string | null) => {
 			const params = new URLSearchParams(searchParams.toString());
+			if (key === "period") {
+				params.delete("usage");
+				params.delete("errors");
+			}
 			if (value === null) {
 				params.delete(key);
 			} else {
@@ -761,6 +844,10 @@ export function ProviderCredentialsManager({
 	const credentialCounts = useMemo(() => {
 		const counts = new Map<string, VariantCounts>();
 		for (const credential of liveCredentials) {
+			// Dedicated credentials serve only their organizations, not an audience.
+			if (credential.dedicatedOrganizations.length > 0) {
+				continue;
+			}
 			const current = counts.get(credential.provider) ?? {
 				default: 0,
 				enterprise: 0,
@@ -779,22 +866,29 @@ export function ProviderCredentialsManager({
 		() =>
 			liveCredentials.map((credential) => ({
 				provider: credential.provider,
-				region: credential.region,
+				region: getEffectiveCredentialRegion(
+					credential.provider,
+					credential.region,
+				),
 			})),
 		[liveCredentials],
 	);
 
-	// Rows arrive grouped by provider (the API orders by provider, then position),
-	// so each run becomes its own reorderable tbody.
+	// Keep each pool together at its first member in the provider's reorderable list.
 	const serverOrder = useMemo(() => {
-		const groups = new Map<string, string[]>();
+		const groups = new Map<string, ProviderCredential[]>();
 		for (const credential of liveCredentials) {
 			groups.set(credential.provider, [
 				...(groups.get(credential.provider) ?? []),
-				credential.id,
+				credential,
 			]);
 		}
-		return groups;
+		return new Map(
+			Array.from(groups, ([provider, keys]) => [
+				provider,
+				providerKeySelectionOrder(keys, isInRotation).map(({ id }) => id),
+			]),
+		);
 	}, [liveCredentials]);
 
 	const credentialById = useMemo(
@@ -882,18 +976,13 @@ export function ProviderCredentialsManager({
 	 * rotation.
 	 */
 	const rotationPositions = useMemo(() => {
-		const positions = new Map<string, number>();
-		order.forEach((ids) => {
-			let position = 0;
-			for (const id of ids) {
+		const eligible = Array.from(order.values()).flatMap((ids) =>
+			ids.flatMap((id) => {
 				const credential = credentialById.get(id);
-				if (credential && isInRotation(credential)) {
-					position++;
-					positions.set(id, position);
-				}
-			}
-		});
-		return positions;
+				return credential && isInRotation(credential) ? [credential] : [];
+			}),
+		);
+		return providerKeySelectionPositions(eligible);
 	}, [order, credentialById]);
 
 	const envByProvider = useMemo(() => {
@@ -989,6 +1078,7 @@ export function ProviderCredentialsManager({
 				<ManagedCredentialCells
 					credential={credential}
 					errorWindow={errorWindow}
+					usageWindow={usageWindow}
 					isAdmin={isAdmin}
 					onEdit={editCredential}
 					onDelete={requestDelete}
@@ -1011,9 +1101,17 @@ export function ProviderCredentialsManager({
 			return;
 		}
 
+		const keys = ids.flatMap((id) => {
+			const credential = credentialById.get(id);
+			return credential ? [credential] : [];
+		});
+		const groupedIds = providerKeySelectionOrder(keys, isInRotation).map(
+			({ id }) => id,
+		);
+		setOrder((current) => new Map(current).set(provider, groupedIds));
 		setSavingProvider(provider);
 		reorderMutation.mutate(
-			{ body: { provider, credentialIds: ids } },
+			{ body: { provider, credentialIds: groupedIds } },
 			{
 				onSuccess: () => router.refresh(),
 				onError: () => setOrder(snapshot),
@@ -1034,7 +1132,7 @@ export function ProviderCredentialsManager({
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<TabsList>
 					<TabsTrigger value="credentials">Credentials</TabsTrigger>
-					{isAdmin && <TabsTrigger value="spend">Spend</TabsTrigger>}
+					{showSpend && <TabsTrigger value="spend">Spend</TabsTrigger>}
 				</TabsList>
 				<div className="flex flex-1 flex-wrap items-center justify-end gap-3">
 					<div className="w-full sm:w-72">
@@ -1065,7 +1163,7 @@ export function ProviderCredentialsManager({
 			{/* Inactive tab content is unmounted, so the charts and their query
 			    only exist once the Spend tab is opened — with dozens of providers
 			    the table view stays free of them entirely. */}
-			{isAdmin && (
+			{showSpend && (
 				<TabsContent value="spend">
 					<ProviderCredentialsSpendOverview
 						providerFilter={
@@ -1077,6 +1175,12 @@ export function ProviderCredentialsManager({
 			)}
 
 			<TabsContent value="credentials" className="flex flex-col gap-2">
+				<p className="text-xs text-muted-foreground">
+					Positions are per provider, audience and region. Eligible round-robin
+					keys share one pool at their earliest member’s position. Ordered keys
+					keep individual positions before or after the pool. Model access,
+					health and limits can change eligibility.
+				</p>
 				<div className="flex flex-wrap items-center justify-between gap-3">
 					<EnvSourceNote
 						source={envSource}
@@ -1097,18 +1201,21 @@ export function ProviderCredentialsManager({
 							</Label>
 						</div>
 						<Select
-							value={errorWindow}
+							value={usageWindow}
 							onValueChange={(next) =>
-								setParam("errors", next === DEFAULT_ERROR_WINDOW ? null : next)
+								setParam("period", next === DEFAULT_ERROR_WINDOW ? null : next)
 							}
 						>
-							<SelectTrigger className="w-48" aria-label="Error rate window">
+							<SelectTrigger
+								className="w-48"
+								aria-label="Usage and errors period"
+							>
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								{ERROR_WINDOW_OPTIONS.map((option) => (
+								{USAGE_WINDOW_OPTIONS.map((option) => (
 									<SelectItem key={option.value} value={option.value}>
-										Errors: {option.label}
+										Period: {option.label}
 									</SelectItem>
 								))}
 							</SelectContent>
@@ -1147,8 +1254,8 @@ export function ProviderCredentialsManager({
 								<TableHead>Models</TableHead>
 								<TableHead>Settings</TableHead>
 								<TableHead>
-									<span title="Lifetime attributed spend against the configured cap. The bars below it are daily spend over the last 7 UTC days; hover one for its total.">
-										Spend
+									<span title="Attributed spend in the selected usage period. Limits and their progress always use all-time spend. Bars show the last 7 UTC days, independently of the usage period.">
+										Spend ({usageLabel})
 									</span>
 								</TableHead>
 								<TableHead className="whitespace-nowrap">
@@ -1277,6 +1384,7 @@ export function ProviderCredentialsManager({
 																			<ManagedCredentialCells
 																				credential={credential}
 																				errorWindow={errorWindow}
+																				usageWindow={usageWindow}
 																				isAdmin={isAdmin}
 																				onEdit={editCredential}
 																				onDelete={requestDelete}
@@ -1340,15 +1448,20 @@ export function ProviderCredentialsManager({
 								token: values.token,
 								comment: values.comment || undefined,
 								variant: values.variant,
+								selectionStrategy: values.selectionStrategy,
 								region: values.region || undefined,
 								config: values.config,
 								usageLimit: values.usageLimit || undefined,
 								allowedModels:
 									values.allowedModels.length > 0 ? values.allowedModels : null,
 								modelSyncEnabled: values.modelSyncEnabled,
+								forwardSafetyIdentifier: values.forwardSafetyIdentifier,
 								...values.rateLimits,
 								skipValidation: values.skipValidation,
 								carrierKey: values.carrierKey,
+								dedicatedOrganizationIds: values.dedicatedOrganizations.map(
+									(org) => org.id,
+								),
 							},
 						})
 					}
@@ -1379,6 +1492,7 @@ export function ProviderCredentialsManager({
 								...(values.token ? { token: values.token } : {}),
 								comment: values.comment || null,
 								variant: values.variant,
+								selectionStrategy: values.selectionStrategy,
 								region: values.region || null,
 								// A deleted credential keeps its status; the API rejects any.
 								...(isDeletedCredential(editing)
@@ -1390,8 +1504,12 @@ export function ProviderCredentialsManager({
 									values.allowedModels.length > 0 ? values.allowedModels : null,
 								allowedModelsBase: editing.allowedModels,
 								modelSyncEnabled: values.modelSyncEnabled,
+								forwardSafetyIdentifier: values.forwardSafetyIdentifier,
 								...values.rateLimits,
 								skipValidation: values.skipValidation,
+								dedicatedOrganizationIds: values.dedicatedOrganizations.map(
+									(org) => org.id,
+								),
 							},
 						})
 					}
@@ -1449,6 +1567,7 @@ interface CredentialFormValues {
 	token: string;
 	comment: string;
 	variant: Variant;
+	selectionStrategy: "ordered" | "round_robin";
 	region: string;
 	status: "active" | "inactive";
 	config: Record<string, string>;
@@ -1458,10 +1577,14 @@ interface CredentialFormValues {
 	allowedModels: string[];
 	/** Let the daily model sync append models the account starts serving. */
 	modelSyncEnabled: boolean;
+	/** Send the API key's safety identifier upstream on requests this key serves. */
+	forwardSafetyIdentifier: boolean;
 	rateLimits: ProviderKeyRateLimits;
 	skipValidation: boolean;
 	/** Custom carriers, on create: serve the carrier with this key. */
 	carrierKey: boolean;
+	/** Organizations the credential is dedicated to; empty means shared. */
+	dedicatedOrganizations: DedicatedOrganization[];
 }
 
 const nonNegativeDecimalPattern = /^\d+(?:\.\d+)?$/;
@@ -1668,7 +1791,18 @@ function CredentialDialog({
 	const [variant, setVariant] = useState<Variant>(
 		(credential?.variant as Variant) ?? "default",
 	);
+	const [selectionStrategy, setSelectionStrategy] = useState<
+		"ordered" | "round_robin"
+	>(credential?.selectionStrategy ?? "ordered");
 	const [region, setRegion] = useState(credential?.region ?? "");
+	const selectedEntry =
+		catalogEntry ?? catalog.find((entry) => entry.id === provider);
+	// A provider with no global region (Alibaba) has no "any region" credential:
+	// an unpinned one would only ever run in the default region, so the form
+	// pins that region until another is picked.
+	const regionRequired = selectedEntry?.regionRequired ?? false;
+	const effectiveRegion =
+		region || (regionRequired ? (selectedEntry?.defaultRegion ?? "") : "");
 	const [status, setStatus] = useState<"active" | "inactive">(
 		credential?.status === "inactive" ? "inactive" : "active",
 	);
@@ -1682,6 +1816,9 @@ function CredentialDialog({
 	const [modelSyncEnabled, setModelSyncEnabled] = useState(
 		credential?.modelSyncEnabled ?? true,
 	);
+	const [forwardSafetyIdentifier, setForwardSafetyIdentifier] = useState(
+		credential?.forwardSafetyIdentifier ?? true,
+	);
 	const [rateLimits, setRateLimits] = useState(() =>
 		toProviderKeyRateLimitInputs(credential),
 	);
@@ -1691,6 +1828,10 @@ function CredentialDialog({
 	// worth it when the token, config or region changes.
 	const [skipValidation, setSkipValidation] = useState(isEdit);
 	const [carrierKey, setCarrierKey] = useState(true);
+	const [dedicatedOrganizations, setDedicatedOrganizations] = useState<
+		DedicatedOrganization[]
+	>(credential?.dedicatedOrganizations ?? []);
+	const isDedicated = dedicatedOrganizations.length > 0;
 	const [error, setError] = useState<string | null>(null);
 
 	// Self-test / verify-models probes run against the CURRENT form values (not
@@ -1736,9 +1877,9 @@ function CredentialDialog({
 			provider,
 			...(token ? { token } : {}),
 			config,
-			region: region || null,
+			region: effectiveRegion || null,
 		}),
-		[credential, provider, token, config, region],
+		[credential, provider, token, config, effectiveRegion],
 	);
 
 	async function handleSelfTest() {
@@ -1883,8 +2024,6 @@ function CredentialDialog({
 		}
 	}
 
-	const selectedEntry =
-		catalogEntry ?? catalog.find((entry) => entry.id === provider);
 	const isRegionScoped = (selectedEntry?.regions.length ?? 0) > 0;
 	const availableModels = selectedEntry?.models ?? NO_MODELS;
 	const modelsByKind = selectedEntry?.modelsByKind ?? NO_MODELS_BY_KIND;
@@ -1895,6 +2034,11 @@ function CredentialDialog({
 		const selected = new Set(allowedModels);
 		return availableModels.every((modelId) => selected.has(modelId));
 	}, [allowedModels, availableModels]);
+	const rateLimitModelOptions = useMemo(
+		() =>
+			availableModels.map((modelId) => ({ value: modelId, label: modelId })),
+		[availableModels],
+	);
 	const exactAvailableModelSelection =
 		allAvailableModelsSelected &&
 		allowedModels.length === availableModels.length;
@@ -1984,15 +2128,18 @@ function CredentialDialog({
 			token,
 			comment,
 			variant,
-			region,
+			selectionStrategy,
+			region: effectiveRegion,
 			status,
 			config,
 			usageLimit: trimmedLimit,
 			allowedModels,
 			modelSyncEnabled,
+			forwardSafetyIdentifier,
 			rateLimits: parsedRateLimits.limits,
 			skipValidation,
 			carrierKey,
+			dedicatedOrganizations,
 		});
 	}
 
@@ -2037,6 +2184,10 @@ function CredentialDialog({
 								// would be rejected by the server.
 								setRegion("");
 								setAllowedModels([]);
+								setRateLimits((current) => ({
+									...current,
+									modelRateLimits: [],
+								}));
 								clearProbeResults();
 							}}
 							options={providerOptions}
@@ -2195,7 +2346,7 @@ function CredentialDialog({
 												}));
 												clearProbeResults();
 											}}
-											placeholder={entry.envVar}
+											placeholder={entry.envVar || "Provider default"}
 										/>
 									</div>
 								);
@@ -2205,10 +2356,26 @@ function CredentialDialog({
 
 					<div className="grid grid-cols-2 gap-3">
 						<div className="flex flex-col gap-2">
+							<Label htmlFor="selection-strategy">Selection strategy</Label>
+							<Select
+								value={selectionStrategy}
+								onValueChange={(value) =>
+									setSelectionStrategy(value as "ordered" | "round_robin")
+								}
+							>
+								<SelectTrigger id="selection-strategy">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="ordered">Ordered</SelectItem>
+									<SelectItem value="round_robin">Round robin</SelectItem>
+								</SelectContent>
+							</Select>
 							<Label htmlFor="variant">Applies to</Label>
 							<Select
 								value={variant}
 								onValueChange={(value) => setVariant(value as Variant)}
+								disabled={isDedicated}
 							>
 								<SelectTrigger id="variant">
 									<SelectValue />
@@ -2225,19 +2392,21 @@ function CredentialDialog({
 								</SelectContent>
 							</Select>
 							<p className="text-xs text-muted-foreground">
-								{variant === "default"
-									? "Serves every organization that has no credential for its own audience."
-									: `Serves only these organizations, the way ${
-											selectedEntry?.apiKeyEnvVar
-												? `${selectedEntry.apiKeyEnvVar}${VARIANT_ENV_SUFFIXES[variant]}`
-												: `an ${VARIANT_ENV_SUFFIXES[variant]} env var`
-										} would. They fall back to an "All organizations" credential when none is set here.`}
+								{isDedicated
+									? "Serves only the dedicated organizations below, whatever their plan."
+									: variant === "default"
+										? "Serves every organization that has no credential for its own audience."
+										: `Serves only these organizations, the way ${
+												selectedEntry?.apiKeyEnvVar
+													? `${selectedEntry.apiKeyEnvVar}${VARIANT_ENV_SUFFIXES[variant]}`
+													: `an ${VARIANT_ENV_SUFFIXES[variant]} env var`
+											} would. They fall back to an "All organizations" credential when none is set here.`}
 							</p>
 						</div>
 						<div className="flex flex-col gap-2">
 							<Label htmlFor="region">Region</Label>
 							<Select
-								value={region || ANY_REGION}
+								value={effectiveRegion || ANY_REGION}
 								onValueChange={(value) => {
 									setRegion(value === ANY_REGION ? "" : value);
 									clearProbeResults();
@@ -2257,7 +2426,9 @@ function CredentialDialog({
 									)}
 								</SelectTrigger>
 								<SelectContent>
-									<SelectItem value={ANY_REGION}>Any region</SelectItem>
+									{regionRequired ? null : (
+										<SelectItem value={ANY_REGION}>Any region</SelectItem>
+									)}
 									{selectedEntry?.regions.map((entry) => {
 										const used = regionUsage.get(entry.id) ?? 0;
 										return (
@@ -2274,12 +2445,25 @@ function CredentialDialog({
 							<p className="text-xs text-muted-foreground">
 								{!isRegionScoped
 									? `${selectedEntry?.name ?? "This provider"} serves one endpoint for every request, so its credentials are not region-scoped.`
-									: region
-										? "Only requests routed to this region use this credential."
-										: "Serves every region the provider covers."}
+									: regionRequired
+										? `${selectedEntry?.name ?? "This provider"} has no global region: its keys belong to one region, and only requests routed there use this credential.`
+										: effectiveRegion
+											? "Only requests routed to this region use this credential."
+											: "Serves every region the provider covers."}
 							</p>
 						</div>
 					</div>
+
+					<DedicatedOrganizationsField
+						value={dedicatedOrganizations}
+						onChange={(next) => {
+							setDedicatedOrganizations(next);
+							// The API only accepts dedicated credentials for every plan.
+							if (next.length > 0) {
+								setVariant("default");
+							}
+						}}
+					/>
 
 					<div className="flex flex-col gap-3 rounded-md border border-border/60 p-3">
 						<div className="flex flex-wrap items-center justify-between gap-2">
@@ -2505,7 +2689,30 @@ function CredentialDialog({
 						idPrefix="credential-rate-limits"
 						values={rateLimits}
 						onChange={setRateLimits}
+						models={rateLimitModelOptions}
 					/>
+
+					<div className="flex items-start gap-2">
+						<Switch
+							id="forward-safety-identifier"
+							checked={forwardSafetyIdentifier}
+							onCheckedChange={setForwardSafetyIdentifier}
+						/>
+						<div className="flex flex-col gap-1">
+							<Label
+								htmlFor="forward-safety-identifier"
+								className="font-normal"
+							>
+								Forward safety identifier
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								Sends the calling API key's stable safety identifier upstream
+								(e.g. OpenAI <code>safety_identifier</code>, Anthropic{" "}
+								<code>metadata.user_id</code>) on requests this credential
+								serves. Turn off to send none.
+							</p>
+						</div>
+					</div>
 
 					{credential && isDeletedCredential(credential) ? (
 						<div className="flex flex-col gap-2">

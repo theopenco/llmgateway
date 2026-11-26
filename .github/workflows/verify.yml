@@ -1,0 +1,68 @@
+name: verify
+
+on:
+  workflow_call:
+    outputs:
+      generate:
+        description: Outcome of the generated-files check
+        value: ${{ jobs.run.outputs.generate }}
+      lint:
+        description: Outcome of the lint step
+        value: ${{ jobs.run.outputs.lint }}
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  # One full build feeds the generated-files check, lint and the smoke test.
+  # Three jobs used to run the same build side by side, all missing the remote
+  # cache together. Named `run` so the check stays `build / run`.
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      generate: ${{ steps.generate.outcome }}
+      lint: ${{ steps.lint.outcome }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      - name: Set up Turborepo Remote Cache
+        # Fork PRs get no OIDC token; they fall back to building cold.
+        if: vars.TURBO_TEAM != ''
+        continue-on-error: true
+        uses: vercel/setup-turborepo-remote-cache-action@v1.1.0
+        with:
+          team: ${{ vars.TURBO_TEAM }}
+
+      - name: pnpm build
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm build
+
+      # The next two steps report through the `generate / run` and `lint / run`
+      # gates, so one failing does not hide the other or the smoke test.
+      - name: git diff --exit-code
+        id: generate
+        continue-on-error: true
+        run: git diff --exit-code
+
+      - name: pnpm lint
+        id: lint
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm lint
+
+      - name: pnpm run setup && bash .github/start.sh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -eux
+          pnpm run setup
+          bash .github/start.sh

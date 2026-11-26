@@ -1,7 +1,13 @@
+import { getBlogAuthors } from "@/lib/blog-authors";
 import { changelogPath, changelogTags } from "@/lib/changelog";
 import { enterpriseFeatures } from "@/lib/enterprise-features";
 import { features } from "@/lib/features";
+import { GLOSSARY_UPDATED_AT, glossaryTerms } from "@/lib/glossary";
+import { comparisonPath, featuredComparisons } from "@/lib/model-comparisons";
+import { isRedirectedModelId } from "@/lib/model-redirects";
+import { listedProviders } from "@/lib/providers-catalog";
 import { slugify } from "@/lib/slugify";
+import { USAGE_REPORT_PATH, usageReportYears } from "@/lib/usage-report";
 
 import {
 	getProviderCountries,
@@ -149,6 +155,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.8,
 		},
 		{
+			url: `${baseUrl}/products/image-generation`,
+			changeFrequency: "daily",
+			priority: 0.8,
+		},
+		{
 			url: `${baseUrl}/open-source`,
 			changeFrequency: "monthly",
 			priority: 0.8,
@@ -208,6 +219,43 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			url: `${baseUrl}/copilot-cost-calculator`,
 			changeFrequency: "weekly",
 			priority: 0.9,
+		},
+		{
+			url: `${baseUrl}/token-counter`,
+			changeFrequency: "monthly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/context-window-checker`,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/glossary`,
+			lastModified: new Date(GLOSSARY_UPDATED_AT),
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		...glossaryTerms.map((term) => ({
+			url: `${baseUrl}/glossary/${term.slug}`,
+			lastModified: new Date(GLOSSARY_UPDATED_AT),
+			changeFrequency: "monthly" as const,
+			priority: 0.6,
+		})),
+		{
+			url: `${baseUrl}/savings-audit`,
+			changeFrequency: "monthly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/badges`,
+			changeFrequency: "monthly",
+			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}${USAGE_REPORT_PATH}/${usageReportYears()[0]}`,
+			changeFrequency: "weekly",
+			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/nano-banana-simulator/20`,
@@ -430,13 +478,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			continue;
 		}
 
-		// Main model page
+		// Main model page. `lastModified` is when the model entered the
+		// catalogue, which is what the IndexNow job reads to find new pages.
+		const addedAt = apiModel?.createdAt ?? model.releasedAt;
 		modelPages.push({
 			url: `${baseUrl}/models/${encodeURIComponent(model.id)}`,
+			...(addedAt ? { lastModified: new Date(addedAt) } : {}),
 			changeFrequency: "weekly",
 			priority: 0.8,
 		});
-		listedModelIds.add(model.id);
+		listedModelIds.add(model.id.toLowerCase());
 
 		// Model uptime pages and model+provider sub-pages are intentionally
 		// excluded from the sitemap: uptime pages are thin templates that
@@ -449,7 +500,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 	);
 	for (const model of apiModels) {
 		if (
-			listedModelIds.has(model.id) ||
+			listedModelIds.has(model.id.toLowerCase()) ||
+			isRedirectedModelId(model.id) ||
 			!model.mappings.some(
 				(mapping) =>
 					mapping.status === "active" && !isMappingDeactivated(mapping),
@@ -462,7 +514,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			changeFrequency: "weekly",
 			priority: 0.8,
 		});
-		listedModelIds.add(model.id);
+		listedModelIds.add(model.id.toLowerCase());
 	}
 
 	// Provider pages
@@ -491,6 +543,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.8,
 		});
 	}
+
+	const modelComparisonPages: MetadataRoute.Sitemap = featuredComparisons.map(
+		(pair) => ({
+			url: `${baseUrl}${comparisonPath(pair.slug)}`,
+			changeFrequency: "weekly",
+			priority: 0.7,
+		}),
+	);
+
+	const statusPages: MetadataRoute.Sitemap = [
+		{ url: `${baseUrl}/status`, changeFrequency: "hourly", priority: 0.7 },
+		...listedProviders.map((provider) => ({
+			url: `${baseUrl}/status/${provider.id}`,
+			changeFrequency: "hourly" as const,
+			priority: 0.6,
+		})),
+	];
 
 	// Per-country provider pages
 	const providerCountryPages: MetadataRoute.Sitemap =
@@ -532,6 +601,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			changeFrequency: "monthly" as const,
 			priority: 0.6,
 		}));
+
+	const blogAuthorPages: MetadataRoute.Sitemap = getBlogAuthors(allBlogs).map(
+		(author) => ({
+			url: `${baseUrl}/blog/author/${author.slug}`,
+			lastModified: new Date(author.posts[0].date),
+			changeFrequency: "monthly",
+			priority: 0.4,
+		}),
+	);
 
 	// Blog category pages
 	const blogCategorySlugs = new Set<string>();
@@ -636,11 +714,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		...staticPages,
 		...timelineYearPages,
 		...modelPages,
+		...modelComparisonPages,
 		...providerPages,
+		...statusPages,
 		...providerCountryPages,
 		...featurePages,
 		...enterpriseFeaturePages,
 		...blogPages,
+		...blogAuthorPages,
 		...blogCategoryPages,
 		...guidePages,
 		...changelogPages,

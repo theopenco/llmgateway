@@ -62,6 +62,43 @@ export const thinkingmachinesModels = [
 		],
 	},
 	{
+		id: "inkling-2-mini",
+		name: "Inkling 2 Mini",
+		description:
+			"Thinking Machines Lab's open-weight multimodal looped MoE model (26.4B total, 3.4B active) with a 1M-token context, for agentic tool use, coding, and chat.",
+		family: "thinkingmachines",
+		releasedAt: new Date("2026-11-20"),
+		providers: [
+			{
+				providerId: "deepinfra",
+				externalId: "thinkingmachines/Inkling-2-Mini",
+				inputPrice: "0.075e-6",
+				cachedInputPrice: "0.015e-6",
+				outputPrice: "0.3e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				quantization: "fp4",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
 		id: "inkling-small",
 		name: "Inkling Small",
 		description:

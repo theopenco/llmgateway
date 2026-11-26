@@ -1,6 +1,6 @@
 ---
 name: security-audit
-description: Security best practices, vulnerability review, and full security audits for LLM Gateway. Use when writing security-sensitive code (auth, sessions, API keys, provider keys, billing, webhooks, user-supplied URLs, admin routes, CORS, rendering user content), when asked for a security review, security report, vulnerability research, pen test, or security audit, and for the monthly audit routine that fixes confirmed findings in a PR.
+description: Security best practices, vulnerability review, and full security audits for LLM Gateway. Use when writing security-sensitive code (auth, sessions, API keys, provider keys, billing, webhooks, user-supplied URLs, admin routes, CORS, rendering user content), when asked for a security review, security report, vulnerability research, pen test, or security audit, and for the weekly audit routine.
 ---
 
 # Security audit
@@ -19,7 +19,7 @@ and Cloudflare's `security-audit` (evidence-first audit workflow). Licenses:
 | Working nearby and something looks wrong       | Passive           | Flag critical issues only; ask before fixing           |
 | Security question, focused review, triage      | Guidance          | Relevant companions from the table below               |
 | "Audit", "pen test", full/comprehensive review | Full audit        | [AUDIT-WORKFLOW.md](AUDIT-WORKFLOW.md), all six phases |
-| Monthly routine                                | Routine           | Full audit (`quick` profile), then [Fix](#fix)         |
+| Weekly routine                                 | Routine           | [Routine](#routine)                                    |
 
 If a request could mean guidance or full audit, ask one question first.
 
@@ -72,11 +72,29 @@ Seed reconnaissance from these; they are not the whole attack surface.
 - User-supplied URLs (SSRF): `packages/actions/src/process-image-url.ts`,
   `packages/shared/src/url-safety-node.ts`, `apps/api/src/routes/platform-webhooks.ts`.
   Rules live in the `gateway` skill.
+- Fetches a library makes for us (SSRF without a `fetch(` in our code): AI SDK
+  `streamText`/`generateText` download URL file parts from client messages
+  unless `experimental_download` is set (ESLint enforces it). The SDK's own
+  guard is skipped under Next.js's patched `fetch`. Check that a library's
+  guard runs in the deployed runtime before relying on it.
+- Every Next.js `app/api/**/route.ts`, including `apps/docs` and
+  `apps/playground`: these are public or user-facing servers inside the
+  cluster, not content-only apps.
 - Billing: `apps/api/src/stripe.ts` webhook signature handling, credit math (`billing` skill).
 - Client IP trust: `packages/shared/src/client-ip.ts` (`infrastructure` skill).
 - MCP: `apps/gateway/src/mcp/`.
 - Admin: `ee/admin`, `apps/api/src/routes/admin*.ts`.
 - Rendered user or model content: grep `dangerouslySetInnerHTML` in `apps/` and `ee/`.
+
+## All gateway paths
+
+Gateway IAM, authentication, authorization, compliance, retention, and other security changes must cover **every supported path**, not just chat completions or Responses.
+
+- Derive the inventory from `apps/gateway/src/app.ts`, `apps/gateway/src/serve.ts`, and mounted routers, including feature-flag/license variants and RPC tools. Include protocol aliases/adapters, native inference/media endpoints, model/key/credit reads, MCP/OAuth, realtime upgrades and later messages, async polling/downloads, and rejection logging.
+- Trace credentials, the original browser Origin and wallet/session scope, trusted client IP, tenant ownership, and organization/member/team/key restrictions through internal hops, final provider selection, fallback, streaming, caching, and follow-up reads.
+- For realtime, authorize new content, audio, and configuration before provider egress, including protocol aliases; post-billing checks are not authorization. Preserve control-only cancel/drain paths and reject unsupported data or mutating events.
+- Record enforcement or an explicit public/metadata/legacy exception for every entry. Preserve existing organization-policy behavior; an exception for a read must never bypass generation checks.
+- Add negative request-path tests across the inventory, including aliases and multipart/WebSocket transports. Keep route and RPC-tool inventory regression tests that fail when a new entry has not been classified. Helper-call counts, typechecks, and chat-only tests are not proof of all-path coverage.
 
 ## Running a full audit
 
@@ -91,6 +109,26 @@ node .agents/skills/security-audit/validate-coverage-ledger.cjs <run-dir>/covera
 
 Never commit `findings.json` or reports: they describe unfixed vulnerabilities.
 Share them only in private channels. `SECURITY.md` governs external disclosure.
+
+## Routine
+
+The weekly Claude Code routine runs this mode. Its prompt only points here, so
+change the procedure in this file, not in the routine.
+
+1. Run a full audit per `AUDIT-WORKFLOW.md` with the `quick` profile over the
+   whole repo. Put units touched since the last run
+   (`git log --since="8 days ago"`) first, without dropping the rest.
+2. Every hunter assignment carries the `ATTACK-CLASSES.md` blocks and
+   `AI-AND-LLM.md` (core discipline and every class), seeded from
+   [High-value surfaces](#high-value-surfaces-in-this-repo): library-made fetches
+   and every Next.js `app/api/**/route.ts` included.
+3. Keep the run directory under `.context/` and pass both validators.
+4. Report only: no commits, branches, or PRs, because findings are unfixed
+   vulnerabilities in a public repo. Send the owner one notification: confirmed
+   critical and high findings (class, `file:line`, who can exploit it, impact,
+   fix), then `needs_validation` records, then lower severities in one line,
+   then what was checked clean. Fixes happen later in an attended session via
+   [Fix](#fix).
 
 ## Fix
 

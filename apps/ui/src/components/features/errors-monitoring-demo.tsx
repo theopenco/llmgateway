@@ -1,5 +1,3 @@
-"use client";
-
 import { AlertCircle, CheckCircle2, Zap } from "lucide-react";
 
 import {

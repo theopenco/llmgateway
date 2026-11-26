@@ -8,6 +8,11 @@ fullnameOverride: ""
 # -- Use an existing Kubernetes Secret instead of creating one (must contain all required keys)
 existingSecret: ""
 
+# Operator project key for Airside inference; inject only into API and worker.
+airsideVerification:
+  existingSecret: ""
+  apiKeyKey: AIRSIDE_GATEWAY_API_KEY
+
 # =============================================================================
 # Global settings
 # =============================================================================
@@ -50,7 +55,7 @@ urls:
 # =============================================================================
 auth:
   # -- (required) Secret used for signing auth tokens (32+ characters)
-  authSecret: "change-me-to-a-random-32-char-secret"
+  authSecret: ""
   # -- (required) HMAC secret for hashing API keys and deriving the BYOK
   # encryption-at-rest data key
   gatewayApiKeyHashSecret: "change-me-to-a-random-secret"
@@ -144,10 +149,9 @@ gateway:
     gatewayTimeoutMs: 1500000
     aiStreamingTimeoutMs: 1200000
     aiTimeoutMs: 600000
+    imageFetchTimeoutMs: 15000
     keepAliveTimeoutS: 620
     shutdownGracePeriodMs: 480000
-    healthCheckSkipDatabase: ""
-    healthCheckTimeoutMs: 15000
     maxStreamingBufferMb: 50
     # Upstream dispatcher tuning for the gateway→provider hop. Both default in
     # code (300s DNS cache, 60s keep-alive); set here only to override.
@@ -510,8 +514,6 @@ llmProviders:
   # LLM_MISTRAL_API_KEY: ""
   # LLM_PERPLEXITY_API_KEY: ""
   # LLM_TOGETHER_AI_API_KEY: ""
-  # LLM_SCX_AI_API_KEY: ""
-  # LLM_RANOAI_API_KEY: ""
   # LLM_BAIDU_API_KEY: ""
   # LLM_ALIBABA_API_KEY: ""
   # LLM_NEBIUS_API_KEY: ""
@@ -522,7 +524,6 @@ llmProviders:
   # LLM_AWS_MANTLE_API_KEY: ""
   # LLM_AZURE_API_KEY: ""
   # LLM_INFERENCE_NET_API_KEY: ""
-  # LLM_NANO_GPT_API_KEY: ""
 
 # =============================================================================
 # Stripe / Billing (optional)
@@ -549,7 +550,6 @@ billing:
 # =============================================================================
 email:
   resendApiKey: ""
-  resendAudienceId: ""
 
 # =============================================================================
 # Notifications (optional)

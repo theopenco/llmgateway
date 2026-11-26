@@ -8,6 +8,7 @@ import { JsonLd } from "@/components/seo/json-ld";
 import { AuthLink } from "@/components/shared/auth-link";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
+import { pageTitle } from "@/lib/page-title";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
 
@@ -267,7 +268,7 @@ export async function generateMetadata() {
 	const description =
 		"Open-source, self-hostable LLM API gateway. Route 200+ models across 40+ providers via one OpenAI-compatible endpoint under AGPLv3.";
 	return {
-		title,
+		title: pageTitle(title),
 		description,
 		alternates: {
 			canonical: "/open-source",

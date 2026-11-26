@@ -12,6 +12,7 @@ export const baiduModels = [
 			{
 				providerId: "novita",
 				externalId: "baidu/ernie-4.5-vl-424b-a47b",
+				deactivatedAt: new Date("2026-10-28"),
 				inputPrice: "0.42e-6",
 				outputPrice: "1.25e-6",
 				requestPrice: "0",

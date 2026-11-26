@@ -17,6 +17,7 @@ import {
 	ProductScreenshot,
 	productJsonLd,
 } from "@/components/products/product-sections";
+import { pageTitle } from "@/lib/page-title";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
 
@@ -26,7 +27,7 @@ const title = "LLM API Gateway — Open-Source AI Gateway for 250+ Models";
 const description = `Route requests to ${MARKETING_STATS.models} models across ${MARKETING_STATS.providers} providers through one OpenAI-compatible endpoint — with smart routing, automatic fallback, caching, and guardrails.`;
 
 export const metadata: Metadata = {
-	title,
+	title: pageTitle(title),
 	description,
 	alternates: { canonical: "/products/ai-gateway" },
 	openGraph: {

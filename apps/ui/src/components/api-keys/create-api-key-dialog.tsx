@@ -1,6 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Copy } from "lucide-react";
-import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 
 import { useMyMemberBudget } from "@/hooks/useTeam";
@@ -31,6 +30,7 @@ import {
 } from "@/lib/components/tooltip";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
+import { usePostHog } from "@/lib/posthog";
 
 import {
 	ApiKeyLimitFields,

@@ -8,11 +8,14 @@ export interface BenchmarkMessageToolCall {
 	id: string;
 	type: "function";
 	function: { name: string; arguments: string };
+	extra_content?: Record<string, unknown>;
+	provider_extra?: Record<string, unknown>;
 }
 
-export interface BenchmarkMessage {
+export interface BenchmarkMessage extends BenchmarkAssistantReplay {
 	role: "assistant" | "system" | "tool" | "user";
 	content: string;
+	reasoning?: string;
 	name?: string;
 	toolCallId?: string;
 	toolCalls?: BenchmarkMessageToolCall[];
@@ -136,7 +139,7 @@ export interface BenchmarkError {
 	status?: number;
 }
 
-export interface BenchmarkResponse {
+export interface BenchmarkResponse extends BenchmarkAssistantReplay {
 	content: string;
 	reasoning: string;
 	toolCalls: BenchmarkMessageToolCall[];
@@ -451,4 +454,11 @@ export interface BenchmarkSuiteAdapter<TOptions = unknown> {
 	id: string;
 	name: string;
 	load: (options: TOptions) => BenchmarkCase[] | Promise<BenchmarkCase[]>;
+}
+export interface BenchmarkAssistantReplay {
+	reasoning_details?: unknown[];
+	anthropic_native_blocks?: unknown[];
+	extra_content?: Record<string, unknown>;
+	provider_extra?: Record<string, unknown>;
+	phase?: string;
 }

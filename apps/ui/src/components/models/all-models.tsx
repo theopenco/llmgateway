@@ -31,6 +31,7 @@ export function AllModels(
 			renderCta={(args) => <ModelCtaButton {...args} />}
 			showPricingTierFilter={showPricingTierFilter}
 			showLoungePlanFilter
+			allowShowAll
 		/>
 	);
 }

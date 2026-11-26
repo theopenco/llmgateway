@@ -5,12 +5,17 @@ import { z } from "zod";
 import { assertOrganizationNotHighRisk } from "@/lib/account-risk.js";
 import { readApiKeyMask } from "@/lib/api-key-mask.js";
 import { cancelPlanSubscription } from "@/lib/cancel-plan-subscription.js";
+import {
+	CLI_CODE_CHALLENGE_PATTERN,
+	issueCliAuthCode,
+} from "@/lib/cli-auth-code.js";
 import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import {
 	devPlanCancellationCommentsSchema,
 	devPlanCancellationReasonSchema,
 	refineCancellationComments,
 } from "@/lib/dev-plan-cancellation.js";
+import { devPlanInvoiceLine } from "@/lib/dev-plan-invoice-line.js";
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
 	renewalPaymentResultSchema,
@@ -90,10 +95,10 @@ import {
 	DEV_PLAN_RESET_PASS_PRICES,
 	DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE,
 	DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
-	getDevPlanCreditsLimit,
 	getDevPlanCycleUsageFraction,
 	getDevPlanDailyLimit,
 	getDevPlanPremiumWeeklyLimit,
+	getDevPlanRenewalCredits,
 	getDevPlanUpgradeCredits,
 	getIncludedResetPassesRemaining,
 	getRemainingPremiumWeeklyAllowance,
@@ -673,7 +678,7 @@ devPlans.openapi(finalize, async (c) => {
 
 	let result;
 	try {
-		result = await finalizeDevPlanSetupSession(sessionId);
+		result = await finalizeDevPlanSetupSession(sessionId, personalOrg.id);
 	} catch (error) {
 		logger.error(
 			`Failed to finalize dev plan session ${sessionId}`,
@@ -1531,9 +1536,9 @@ devPlans.openapi(changeTier, async (c) => {
 			const upgradeResult = await db.transaction(async (tx) => {
 				// The new allowance is the new tier's full allotment plus the unused
 				// remainder of the cycle being replaced — the user already paid for
-				// it, so it rolls over instead of being forfeited. The rollover lasts
-				// until the next renewal, which resets the limit to the tier's base
-				// allotment. Recompute from a fresh row read inside the transaction:
+				// it, so it rolls over instead of being forfeited. The next renewal
+				// recomputes the limit from the base allotment and the capped
+				// carry-over. Recompute from a fresh row read inside the transaction:
 				// usage may have advanced during the Stripe round-trips above, and the
 				// request-start snapshot would over-grant that spend as rollover.
 				const freshOrg = await tx.query.organization.findFirst({
@@ -1586,11 +1591,11 @@ devPlans.openapi(changeTier, async (c) => {
 						.where(eq(tables.organization.id, personalOrg.id));
 				}
 
-				return created ? { created, rolloverCredits, newCreditsLimit } : null;
+				return created ? { created, rolloverCredits } : null;
 			});
 
 			if (upgradeResult) {
-				const { created, rolloverCredits, newCreditsLimit } = upgradeResult;
+				const { created, rolloverCredits } = upgradeResult;
 				try {
 					const billingDetails =
 						await resolveDevPassBillingDetails(personalOrg);
@@ -1602,10 +1607,11 @@ devPlans.openapi(changeTier, async (c) => {
 						...billingDetails,
 						lineItems: [
 							{
-								description:
-									rolloverCredits > 0
-										? `Dev Plan upgrade to ${newTier.toUpperCase()} ($${getDevPlanCreditsLimit(newTier)} credits included + $${rolloverCredits} unused credits rolled over)`
-										: `Dev Plan upgrade to ${newTier.toUpperCase()} ($${newCreditsLimit} credits included)`,
+								description: devPlanInvoiceLine(
+									"upgrade",
+									newTier,
+									rolloverCredits,
+								),
 								amount: chargedAmount,
 							},
 						],
@@ -1914,6 +1920,9 @@ const getStatus = createRoute({
 						devPlanCreditsUsed: z.string(),
 						devPlanCreditsLimit: z.string(),
 						devPlanCreditsRemaining: z.string(),
+						// Unused allowance a renewal would carry into the next cycle
+						// if it happened now, on the tier that renews.
+						devPlanRenewalRollover: z.string(),
 						devPlanPremiumWeeklyLimit: z.string(),
 						devPlanPremiumCreditsUsed: z.string(),
 						devPlanPremiumWeekResetsAt: z.string().nullable(),
@@ -2003,6 +2012,7 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanCreditsUsed: "0",
 			devPlanCreditsLimit: "0",
 			devPlanCreditsRemaining: "0",
+			devPlanRenewalRollover: "0",
 			devPlanPremiumWeeklyLimit: "0",
 			devPlanPremiumCreditsUsed: "0",
 			devPlanPremiumWeekResetsAt: null,
@@ -2037,6 +2047,14 @@ devPlans.openapi(getStatus, async (c) => {
 	const creditsUsed = parseFloat(personalOrg.devPlanCreditsUsed);
 	const creditsLimit = parseFloat(personalOrg.devPlanCreditsLimit);
 	const creditsRemaining = Math.max(0, creditsLimit - creditsUsed);
+	const renewalRollover =
+		personalOrg.devPlan !== "none"
+			? getDevPlanRenewalCredits(
+					personalOrg.devPlanPendingTier ?? personalOrg.devPlan,
+					personalOrg.devPlanCreditsUsed,
+					personalOrg.devPlanCreditsLimit,
+				).rolloverCredits
+			: 0;
 
 	// Ending a dev plan clears every devPlan* column on the org, so the billing
 	// transactions are the only lasting record that the user was ever a
@@ -2136,6 +2154,7 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanCreditsUsed: personalOrg.devPlanCreditsUsed,
 		devPlanCreditsLimit: personalOrg.devPlanCreditsLimit,
 		devPlanCreditsRemaining: creditsRemaining.toFixed(2),
+		devPlanRenewalRollover: renewalRollover.toFixed(2),
 		devPlanPremiumWeeklyLimit: premiumWeeklyLimit.toFixed(2),
 		devPlanPremiumCreditsUsed: premiumCreditsUsed.toFixed(2),
 		devPlanPremiumWeekResetsAt: premiumWeekResetsAt,
@@ -3042,19 +3061,10 @@ const rotateApiKey = createRoute({
 	},
 });
 
-devPlans.openapi(rotateApiKey, async (c) => {
-	const user = c.get("user");
-
-	if (!user) {
-		throw new HTTPException(401, {
-			message: "Unauthorized",
-		});
-	}
-	const { apiKeyId } = c.req.valid("json");
-
+async function rotateDevPassApiKey(userId: string, apiKeyId: string) {
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: {
-			userId: user.id,
+			userId,
 		},
 		with: {
 			organization: true,
@@ -3124,7 +3134,7 @@ devPlans.openapi(rotateApiKey, async (c) => {
 				...hashApiKeyForStorage(newToken),
 				projectId: project.id,
 				description: "Dev Plan API Key",
-				createdBy: user.id,
+				createdBy: userId,
 			})
 			.returning({ id: tables.apiKey.id });
 
@@ -3133,16 +3143,81 @@ devPlans.openapi(rotateApiKey, async (c) => {
 
 	await logAuditEvent({
 		organizationId: personalOrg.id,
-		userId: user.id,
+		userId,
 		action: "dev_plan.rotate_api_key",
 		resourceType: "api_key",
 		resourceId: project.id,
 	});
 
-	return c.json({
-		apiKey: newToken,
-		apiKeyId: newApiKeyId,
+	return { token: newToken, apiKeyId: newApiKeyId };
+}
+
+devPlans.openapi(rotateApiKey, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+	const { token, apiKeyId } = await rotateDevPassApiKey(
+		user.id,
+		c.req.valid("json").apiKeyId,
+	);
+
+	return c.json({ apiKey: token, apiKeyId });
+});
+
+// Roll the dev-plan API key for a coding CLI's browser login. The response
+// carries a one-time code, not the key; the CLI redeems it at
+// /public/cli-auth/token.
+const rotateApiKeyCliCode = createRoute({
+	method: "post",
+	path: "/rotate-api-key/cli-code",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						apiKeyId: z.string(),
+						codeChallenge: z.string().regex(CLI_CODE_CHALLENGE_PATTERN),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						apiKeyId: z.string(),
+						code: z.string(),
+					}),
+				},
+			},
+			description: "API key rotated; redeem the code from the CLI.",
+		},
+	},
+});
+
+devPlans.openapi(rotateApiKeyCliCode, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+	const body = c.req.valid("json");
+	const { token, apiKeyId } = await rotateDevPassApiKey(user.id, body.apiKeyId);
+	const code = await issueCliAuthCode({
+		token,
+		codeChallenge: body.codeChallenge,
+		expiresAt: null,
 	});
+
+	return c.json({ apiKeyId, code });
 });
 
 const removableDevPlanSubscriptionStatuses =

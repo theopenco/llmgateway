@@ -1,8 +1,10 @@
+import { CompareAnswer } from "@/components/compare/compare-answer";
 import { CompareFaq } from "@/components/compare/compare-faq";
 import { ComparisonSources } from "@/components/compare/comparison-sources";
 import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonGitHubCopilot } from "@/components/landing/comparison-github-copilot";
 import Footer from "@/components/landing/footer";
+import { pageTitle } from "@/lib/page-title";
 
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
@@ -66,6 +68,30 @@ export default function CompareGitHubCopilotPage() {
 						},
 					}}
 				/>
+				<CompareAnswer
+					competitor="GitHub Copilot"
+					verdict="GitHub Copilot is a coding product: editor completions, chat, CLI and agents integrated with GitHub. LLM Gateway is model access: one API for compatible coding tools, billed by usage. The two are not exclusive, because supported Copilot clients can use your own model provider."
+					rows={[
+						{
+							label: "What it is",
+							llmGateway: "An API gateway for models from many providers",
+							competitor: "A coding assistant integrated with GitHub",
+						},
+						{
+							label: "Pricing",
+							llmGateway:
+								"Pay-as-you-go with no token markup; DevPass is a separate subscription",
+							competitor:
+								"Pro $10, Pro+ $39, Max $100, Business $19 per seat and Enterprise $39 per seat, per month",
+						},
+						{
+							label: "Code completions",
+							llmGateway: "Not included; use it with compatible coding tools",
+							competitor:
+								"Unlimited completions and next-edit suggestions on paid plans",
+						},
+					]}
+				/>
 				<ComparisonGitHubCopilot />
 				<ComparisonSources slug="github-copilot" />
 				<CompareFaq
@@ -81,7 +107,7 @@ export default function CompareGitHubCopilotPage() {
 
 export async function generateMetadata() {
 	return {
-		title: "LLM Gateway vs GitHub Copilot — Costs Compared (2026)",
+		title: pageTitle("LLM Gateway vs GitHub Copilot — Costs Compared (2026)"),
 		description:
 			"Copilot now bills chat and agents by usage-based AI Credits. Compare it with LLM Gateway: zero token markup, hard budget caps, prompt caching, and 200+ models for compatible coding tools.",
 		alternates: { canonical: "/compare/github-copilot" },

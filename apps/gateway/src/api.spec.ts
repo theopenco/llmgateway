@@ -19,7 +19,7 @@ import { GATEWAY_CONTENT_FILTER_MESSAGE } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { lowerMidConversationBlocks } from "./anthropic/content-blocks.js";
-import { app } from "./app.js";
+import { app, healthChecker } from "./app.js";
 import {
 	getTrackedKeyMetrics,
 	isTrackedKeyHealthy,
@@ -44,16 +44,25 @@ describe("api", () => {
 		mockServerUrl = harness.mockServerUrl;
 	});
 
-	test("/", async () => {
+	test("/ answers without touching dependencies", async () => {
 		const res = await app.request("/");
 		expect(res.status).toBe(200);
 		const data = await res.json();
 		expect(data).toHaveProperty("message", "OK");
 		expect(data).toHaveProperty("version");
-		expect(data).toHaveProperty("health");
-		expect(data.health).toHaveProperty("status");
-		expect(data.health).toHaveProperty("redis");
-		expect(data.health).toHaveProperty("database");
+		expect(data).not.toHaveProperty("health");
+	});
+
+	test("/ answers 503 until the startup check has passed", async () => {
+		const isReady = vi.spyOn(healthChecker, "isReady").mockReturnValue(false);
+		try {
+			const res = await app.request("/");
+			expect(res.status).toBe(503);
+			expect(await res.json()).not.toHaveProperty("version");
+		} finally {
+			isReady.mockRestore();
+		}
+		expect((await app.request("/")).status).toBe(200);
 	});
 
 	test("/livez answers without touching dependencies", async () => {
@@ -1975,7 +1984,7 @@ describe("api", () => {
 		};
 		expect(body.type).toBe("error");
 		expect(body.error.type).toBe("invalid_request_error");
-		expect(body.error.message).toContain("Invalid enum value");
+		expect(body.error.message).toContain("Invalid option");
 
 		const logs = await waitForLogs(1);
 		expect(logs[0].finishReason).toBe("client_error");
@@ -2506,7 +2515,7 @@ describe("api", () => {
 					Authorization: "Bearer real-token-devpass-no-training-route",
 				},
 				body: JSON.stringify({
-					model: "deepseek-v4-flash",
+					model: "deepseek-v4-flash-0731",
 					messages: [{ role: "user", content: "Use no-training routing" }],
 				}),
 			});
@@ -4516,6 +4525,62 @@ describe("api", () => {
 		expect(logs[0].usedServiceTier).toBe("priority");
 	});
 
+	test.each(["openai/gpt-4o-mini", "openai/gpt-5.5"])(
+		"/v1/responses streams an upstream 400 from %s as response.failed",
+		async (model) => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-responses-upstream-error-stream",
+				...hashApiKeyForStorage("real-token-responses-upstream-error-stream"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id-responses-upstream-error-stream",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id-responses-upstream-error-stream",
+					"org-id",
+				),
+				provider: "openai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+
+			const res = await app.request("/v1/responses", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-responses-upstream-error-stream",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model,
+					stream: true,
+					input: `TRIGGER_STATUS_400 ${model}`,
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			const events = (await res.text())
+				.split("\n")
+				.filter((line) => line.startsWith("data: "))
+				.map((line) => JSON.parse(line.slice(6)));
+			expect(events.map((event) => event.type)).toEqual([
+				"response.created",
+				"response.failed",
+			]);
+			expect(events[1].response).toMatchObject({
+				status: "failed",
+				error: { code: "invalid_prompt", message: expect.any(String) },
+			});
+
+			const logs = await waitForLogs(1);
+			expect(logs[0].finishReason).toBe("client_error");
+		},
+	);
+
 	test("/v1/chat/completions keeps the service tier when a retry rotates keys", async () => {
 		// The customer-visible failure this guards against: an upstream 429 on
 		// one key rotates the request onto another key for the same provider, and
@@ -5244,13 +5309,14 @@ describe("api", () => {
 		expect(Array.isArray(json.data)).toBe(true);
 		expect(json.data[0]).toHaveProperty("embedding");
 		expect(Array.isArray(json.data[0].embedding)).toBe(true);
-		expect(json.usage).toEqual({
+		expect(json.usage).toMatchObject({
 			prompt_tokens: inputText.length,
 			total_tokens: inputText.length,
 		});
 
 		const logs = await waitForLogs(1);
 		const embeddingLog = logs.find((log) => log.requestId === requestId);
+		expect(json.usage.cost).toBe(Number(embeddingLog?.cost));
 
 		expect(embeddingLog).toBeTruthy();
 		expect(embeddingLog?.usedModel).toBe("openai/text-embedding-3-small");
@@ -5423,7 +5489,7 @@ describe("api", () => {
 					Authorization: "Bearer real-token-spend-cap",
 				},
 				body: JSON.stringify({
-					model: "gpt-4o-mini",
+					model: "openai/gpt-4o-mini",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -6418,7 +6484,7 @@ describe("api", () => {
 		expect(res.status).toBe(400);
 
 		const json = await res.json();
-		expect(JSON.stringify(json)).not.toContain("Invalid enum value");
+		expect(JSON.stringify(json)).not.toContain("Invalid option");
 		expect(JSON.stringify(json)).not.toContain('"path":["size"]');
 	});
 
@@ -7089,8 +7155,9 @@ describe("api", () => {
 
 				const body = JSON.parse(String(init?.body ?? "{}"));
 				expect(body.model).toBe("omni-moderation-latest");
-				expect(typeof body.input).toBe("string");
-				expect(body.input).toContain("I want to attack someone.");
+				expect(body.input).toEqual([
+					expect.stringContaining("I want to attack someone."),
+				]);
 
 				return new Response(
 					JSON.stringify({
@@ -9324,7 +9391,7 @@ describe("api", () => {
 				Authorization: `Bearer real-token`,
 			},
 			body: JSON.stringify({
-				model: "gpt-4o-mini",
+				model: "openai/gpt-4o-mini",
 				messages: [
 					{
 						role: "user",
@@ -9594,7 +9661,7 @@ describe("api", () => {
 		expect(logs[0].sessionId).toBe("pi-session-42");
 	});
 
-	test("Deactivated provider falls back to active provider", async () => {
+	test("Pinned deactivated provider is rejected instead of rerouted", async () => {
 		// Use fake timers to set the date between the two deactivation dates:
 		// google-ai-studio deactivatedAt: 2026-01-17
 		// google-vertex deactivatedAt: 2026-01-27
@@ -9626,8 +9693,8 @@ describe("api", () => {
 				baseUrl: mockServerUrl,
 			});
 
-			// Request with google-ai-studio (deactivated at 2026-01-17)
-			// Should fall back to google-vertex (still active until 2026-01-27)
+			// google-ai-studio (deactivated 2026-01-17) must not reroute to
+			// google-vertex (still active until 2026-01-27).
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
 				headers: {
@@ -9645,13 +9712,11 @@ describe("api", () => {
 				}),
 			});
 
-			expect(res.status).toBe(200);
+			expect(res.status).toBe(410);
 			const json = await res.json();
-			expect(json).toHaveProperty("choices.[0].message.content");
-			// Verify it routed to google-vertex, not google-ai-studio
-			expect(json.metadata.used_provider).toBe("google-vertex");
-			// The requested provider should be cleared since it was deactivated
-			expect(json.metadata.requested_provider).toBeNull();
+			expect(json.error.message).toContain(
+				"Provider google-ai-studio no longer serves model gemini-2.5-flash-preview-09-2025",
+			);
 		} finally {
 			vi.useRealTimers();
 			if (originalGoogleCloudProject !== undefined) {
@@ -11391,7 +11456,8 @@ describe("api", () => {
 						"x-no-fallback": "true",
 					},
 					body: JSON.stringify({
-						model: "aws-bedrock/claude-opus-4-8",
+						// Still served through Converse.
+						model: "aws-bedrock/claude-sonnet-4-5",
 						messages: [{ role: "user", content: "Trigger a refusal" }],
 					}),
 				});
@@ -13375,29 +13441,31 @@ describe("api", () => {
 			expect(capturedBody?.reasoning_effort).toBeUndefined();
 		});
 
-		// With only one of the two Ling providers keyed, bare-id routing resolves
-		// to that single provider instead of failing.
-		test.each(lingProviders)(
-			"resolves a bare ling-3.0-flash id to the only keyed provider (%s) and applies enable_thinking false",
-			async (provider) => {
-				const { res, capturedBody } = await exerciseLingMessages(
-					provider,
-					{ thinking: { type: "disabled" } },
-					{ model: "ling-3.0-flash" },
-				);
+		test("applies thinking disabled when only a compatible Ling provider is keyed", async () => {
+			const { res, capturedBody } = await exerciseLingMessages(
+				"deepinfra",
+				{ thinking: { type: "disabled" } },
+				{ model: "ling-3.0-flash" },
+			);
 
-				expect(res.status).toBe(200);
-				expect(capturedBody?.model).toBe(upstreamModels[provider]);
-				if (provider === "deepinfra") {
-					expect(capturedBody?.chat_template_kwargs).toEqual({
-						enable_thinking: false,
-					});
-				} else {
-					expect(capturedBody?.chat_template_kwargs).toBeUndefined();
-				}
-				expect(capturedBody?.reasoning_effort).toBeUndefined();
-			},
-		);
+			expect(res.status).toBe(200);
+			expect(capturedBody?.model).toBe(upstreamModels.deepinfra);
+			expect(capturedBody?.chat_template_kwargs).toEqual({
+				enable_thinking: false,
+			});
+			expect(capturedBody?.reasoning_effort).toBeUndefined();
+		});
+
+		test("rejects thinking disabled when the only keyed Ling provider always thinks", async () => {
+			const { res, capturedBody } = await exerciseLingMessages(
+				"novita",
+				{ thinking: { type: "disabled" } },
+				{ model: "ling-3.0-flash" },
+			);
+
+			expect(res.status).toBe(400);
+			expect(capturedBody).toBeUndefined();
+		});
 
 		// With neither provider keyed, bare-id routing has no candidate provider
 		// and the request fails with the standard no-provider-key error.

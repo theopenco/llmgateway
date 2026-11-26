@@ -1,8 +1,10 @@
+import { CompareAnswer } from "@/components/compare/compare-answer";
 import { CompareFaq } from "@/components/compare/compare-faq";
 import { ComparisonSources } from "@/components/compare/comparison-sources";
 import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonBedrock } from "@/components/landing/comparison-bedrock";
 import Footer from "@/components/landing/footer";
+import { pageTitle } from "@/lib/page-title";
 
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
@@ -67,6 +69,34 @@ export default function CompareBedrockPage() {
 						},
 					}}
 				/>
+				<CompareAnswer
+					competitor="AWS Bedrock"
+					verdict="Amazon Bedrock is the stronger fit when model access, IAM, private networking and billing must stay inside AWS. LLM Gateway is the stronger fit when you need routing across independent providers and clouds, including supported Bedrock models, behind one OpenAI-compatible API."
+					rows={[
+						{
+							label: "Model access",
+							llmGateway: "Multiple labs and clouds, Bedrock included",
+							competitor: "Models hosted on AWS",
+						},
+						{
+							label: "Routing",
+							llmGateway: "Across independent providers",
+							competitor:
+								"Cross-region inference, and prompt routing within a model family",
+						},
+						{
+							label: "Pricing",
+							llmGateway:
+								"5% fee on credit purchases; no platform fee on your own provider keys",
+							competitor: "Depends on model, region and inference mode",
+						},
+						{
+							label: "Deployment",
+							llmGateway: "Hosted, or self-host the AGPLv3 core",
+							competitor: "AWS managed service",
+						},
+					]}
+				/>
 				<ComparisonBedrock />
 				<ComparisonSources slug="aws-bedrock" />
 				<CompareFaq
@@ -82,7 +112,9 @@ export default function CompareBedrockPage() {
 
 export async function generateMetadata() {
 	return {
-		title: "LLM Gateway vs AWS Bedrock — The Cloud-Neutral Alternative",
+		title: pageTitle(
+			"LLM Gateway vs AWS Bedrock — The Cloud-Neutral Alternative",
+		),
 		description:
 			"Compare multiple providers behind one OpenAI-compatible API vs Amazon Bedrock. Keep Bedrock with 0% markup plus failover, caching, and cost analytics.",
 		alternates: { canonical: "/compare/aws-bedrock" },

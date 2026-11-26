@@ -34,6 +34,7 @@ import { useApi } from "@/lib/fetch-client";
 
 import { isStealthProvider, providers } from "@llmgateway/models";
 import {
+	formatProviderKeyModelRateLimits,
 	formatProviderKeyRateLimits,
 	getProviderIcon,
 	ReorderableItem,
@@ -88,6 +89,7 @@ function formatOptionLabel(key: string, value: string): string {
 		azure_validation_model: "Validation Model",
 		alibaba_region: "Region",
 		alibaba_workspace_id: "Workspace ID",
+		cloudflare_account_id: "Account ID",
 	};
 
 	const label = labels[key] || key;
@@ -530,6 +532,27 @@ export function ProviderKeysList({
 																			{formatProviderKeyRateLimits(providerKey)}
 																		</Badge>
 																	)}
+																	{formatProviderKeyModelRateLimits(
+																		providerKey.modelRateLimits,
+																	) && (
+																		<Badge
+																			variant="outline"
+																			className="text-xs tabular-nums"
+																			title={`Per-model rate limits: ${formatProviderKeyModelRateLimits(providerKey.modelRateLimits)}`}
+																		>
+																			{
+																				Object.keys(
+																					providerKey.modelRateLimits ?? {},
+																				).length
+																			}{" "}
+																			model limit
+																			{Object.keys(
+																				providerKey.modelRateLimits ?? {},
+																			).length === 1
+																				? ""
+																				: "s"}
+																		</Badge>
+																	)}
 																	{providerKey.baseUrl && (
 																		<Badge
 																			variant="outline"
@@ -654,6 +677,7 @@ export function ProviderKeysList({
 																				currentLimit={providerKey.usageLimit}
 																				currentUsage={providerKey.usage}
 																				currentRateLimits={providerKey}
+																				provider={provider.id}
 																			>
 																				<DropdownMenuItem
 																					onSelect={(e) => e.preventDefault()}
@@ -661,7 +685,8 @@ export function ProviderKeysList({
 																					{providerKey.usageLimit !== null ||
 																					formatProviderKeyRateLimits(
 																						providerKey,
-																					)
+																					) ||
+																					providerKey.modelRateLimits
 																						? "Edit limits"
 																						: "Set limits"}
 																				</DropdownMenuItem>

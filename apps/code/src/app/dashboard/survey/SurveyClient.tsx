@@ -7,9 +7,9 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch, type Control } from "react-hook-form";
 import { toast } from "sonner";
-import { z } from "zod/v3";
+import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -52,7 +52,7 @@ const USE_CASES = [
 type UseCase = (typeof USE_CASES)[number]["value"];
 
 const scoreSchema = z
-	.number({ required_error: "Score it 1–5." })
+	.number({ error: "Score it 1–5." })
 	.int()
 	.min(1, "Score it 1–5.")
 	.max(5);
@@ -63,11 +63,11 @@ const formSchema = z.object({
 	qualityScore: scoreSchema,
 	speedScore: scoreSchema,
 	wouldRecommend: z.boolean({
-		required_error: "Approve or deny — customs insists.",
+		error: "Approve or deny — customs insists.",
 	}),
 	primaryUseCase: z.enum(
 		USE_CASES.map((u) => u.value) as [UseCase, ...UseCase[]],
-		{ errorMap: () => ({ message: "Pick your main use." }) },
+		{ error: "Pick your main use." },
 	),
 	comment: z
 		.string()
@@ -77,6 +77,17 @@ const formSchema = z.object({
 });
 
 type FormValues = z.infer<typeof formSchema>;
+
+// Subscribes to the comment field alone, so typing re-renders this counter
+// instead of the whole form tree.
+function CommentLength({ control }: { control: Control<FormValues> }) {
+	const comment = useWatch({ control, name: "comment" });
+	return (
+		<p className="ml-auto text-xs text-muted-foreground">
+			{comment.length}/2000
+		</p>
+	);
+}
 
 const SCORE_QUESTIONS: {
 	name: "valueScore" | "qualityScore" | "speedScore";
@@ -187,7 +198,6 @@ export default function SurveyClient({
 	});
 
 	const selectedModel = form.watch("modelId");
-	const comment = form.watch("comment");
 	const period = `Q${eligibility.quarter} ${eligibility.year}`;
 	const serial = `CS-${eligibility.year}Q${eligibility.quarter}-${(selectedModel || "X").slice(0, 6).toUpperCase()}`;
 
@@ -498,9 +508,7 @@ export default function SurveyClient({
 							</FormControl>
 							<div className="flex items-center justify-between">
 								<FormMessage />
-								<p className="ml-auto text-xs text-muted-foreground">
-									{comment.length}/2000
-								</p>
+								<CommentLength control={form.control} />
 							</div>
 						</FormItem>
 					)}

@@ -5,6 +5,11 @@ date: 2026-06-18
 title: "Building a Slack Q&A Bot with LLM Gateway and Chat SDK"
 summary: "A walkthrough of our new open-source template: a Slack bot that streams AI answers, keeps thread context, and searches the web — backed by LLM Gateway so you can switch between 200+ models with one API key."
 categories: ["Engineering"]
+faqs:
+  - question: "How do I build a Slack Q&A bot with an LLM?"
+    answer: "Use Chat SDK for the Slack integration and the AI SDK for the agent and streaming, with LLM Gateway as the model provider. Slack delivers mentions, direct messages, and other events to a single webhook route."
+  - question: "How much code does a Slack AI bot need?"
+    answer: "The example bot is about 200 lines of TypeScript across four files, and it can be scaffolded with one command."
 image:
   src: "/blog/slack-qa-bot-with-llm-gateway.png"
   alt: "Building a Slack Q&A Bot with LLM Gateway and Chat SDK"

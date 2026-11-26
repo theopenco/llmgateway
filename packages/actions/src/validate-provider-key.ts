@@ -12,17 +12,25 @@ import {
 } from "@llmgateway/models";
 import { getModelImageConfig, getProviderModelKind } from "@llmgateway/shared";
 
-import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
+import {
+	getGcpServiceAccountAccessToken,
+	GcpCredentialError,
+} from "./gcp-access-token.js";
 import {
 	getAzureFoundryBaseUrl,
+	resolveAzureBaseUrl,
 	getDecisionsUpstreamPath,
 	getGoogleVertexPublisherModelPath,
 	getProviderDefaultBaseUrl,
 	getProviderEndpoint,
+	ProviderConfigError,
 } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
-import { getUpstreamModelId } from "./provider-api-format.js";
+import {
+	getProviderApiTransport,
+	getUpstreamModelId,
+} from "./provider-api-format.js";
 import { hasFeatureAccessDeniedError } from "./provider-key/feature-access.js";
 import { describeNetworkFailure } from "./provider-key/network-error.js";
 import { redactToken } from "./provider-key/redact.js";
@@ -356,8 +364,10 @@ function getValidationBaseUrl(
 ): string {
 	const resolved =
 		baseUrl ??
-		providerKeyOptions?.env_config?.baseUrl ??
-		getProviderDefaultBaseUrl(provider);
+		(provider === "azure"
+			? resolveAzureBaseUrl({ providerKeyOptions, skipEnvVars: true })
+			: (providerKeyOptions?.env_config?.baseUrl ??
+				getProviderDefaultBaseUrl(provider)));
 	if (!resolved) {
 		throw new Error(`Provider ${provider} requires a base URL`);
 	}
@@ -495,6 +505,13 @@ export async function validateProviderKey(
 		const providerMapping = modelDef
 			? findRegionAwareMapping(modelDef, provider, validationRegion)
 			: undefined;
+		// Claude on AWS Bedrock speaks Anthropic's Messages API.
+		const requestProvider = getProviderApiTransport(
+			provider,
+			providerMapping?.apiFormat === "anthropic-messages"
+				? providerMapping.apiFormat
+				: undefined,
+		);
 		let payload: unknown;
 		let vertexTokenType: ReturnType<typeof resolveVertexTokenType> | undefined;
 
@@ -504,7 +521,15 @@ export async function validateProviderKey(
 				baseUrl,
 				providerKeyOptions,
 			);
-			if (provider === "google-ai-studio") {
+			if (provider === "azure") {
+				endpoint = appendPath(resolvedBaseUrl, "openai/v1/embeddings");
+				payload = {
+					input: "Hello",
+					model:
+						providerKeyOptions?.azure_deployment_name ||
+						validationModel.externalId,
+				};
+			} else if (provider === "google-ai-studio") {
 				endpoint = `${resolvedBaseUrl}/v1beta/models/${validationModel.externalId}:embedContent?key=${encodeURIComponent(token)}`;
 				payload = { content: { parts: [{ text: "Hello" }] } };
 			} else if (provider === "google-vertex") {
@@ -626,7 +651,6 @@ export async function validateProviderKey(
 				baseUrl,
 				effectiveModelId,
 				provider === "google-ai-studio" ||
-					provider === "glacier" ||
 					provider === "google-vertex" ||
 					provider === "quartz" ||
 					provider === "vertex-anthropic"
@@ -659,6 +683,7 @@ export async function validateProviderKey(
 					validationModel.modelId,
 					validationModel.externalId,
 					validationRegion,
+					{ providerKeyOptions, skipEnvVars: true },
 				),
 				messages,
 				false,
@@ -685,7 +710,7 @@ export async function validateProviderKey(
 			);
 		}
 
-		const headers = getProviderHeaders(provider, requestToken, {
+		const headers = getProviderHeaders(requestProvider, requestToken, {
 			providerKeyOptions,
 			skipEnvVars: true,
 			tokenType: vertexTokenType,
@@ -807,6 +832,38 @@ export async function validateProviderKey(
 				error: safeErrorMessage,
 				model: validationModel?.modelId,
 				unreachable: true,
+			};
+		}
+
+		if (error instanceof GcpCredentialError) {
+			// Revoked or malformed service-account keys are tenant input, not a
+			// gateway fault, so warn instead of paging.
+			logger.warn("Provider key validation rejected GCP credential", {
+				provider,
+				model: validationModel?.modelId,
+				statusCode: error.status,
+				error: safeErrorMessage,
+			});
+			return {
+				valid: false,
+				error: safeErrorMessage,
+				statusCode: error.status,
+				model: validationModel?.modelId,
+			};
+		}
+
+		if (error instanceof ProviderConfigError) {
+			// Malformed key settings (e.g. a bad Cloudflare account id) are tenant
+			// input; the caller surfaces the reason, so warn instead of paging.
+			logger.warn("Provider key validation rejected key settings", {
+				provider,
+				model: validationModel?.modelId,
+				error: safeErrorMessage,
+			});
+			return {
+				valid: false,
+				error: safeErrorMessage,
+				model: validationModel?.modelId,
 			};
 		}
 

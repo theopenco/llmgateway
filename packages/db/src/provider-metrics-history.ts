@@ -1,4 +1,12 @@
-import { and, eq, gte, getTableName, inArray, sql } from "drizzle-orm";
+import {
+	and,
+	eq,
+	gte,
+	getTableName,
+	inArray,
+	sql,
+	type SQL,
+} from "drizzle-orm";
 
 import { swrWrap } from "@llmgateway/cache";
 import { deriveStabilityMetrics } from "@llmgateway/shared";
@@ -10,49 +18,95 @@ import {
 import { cdb } from "./cdb.js";
 import { metricsKey, type ProviderMetrics } from "./provider-metrics.js";
 import { modelProviderMappingHistory } from "./schema.js";
+import {
+	ROUTED_SERVICE_TIERS,
+	TIER_ROUTING_METRIC_NAMES,
+	TIER_ROUTING_METRICS,
+	tierRoutingMetricColumn,
+	type RoutedServiceTier,
+	type TierRoutingMetric,
+} from "./service-tier-routing.js";
 import { effectiveTtftTotals } from "./ttft.js";
 
 const historyTableName = getTableName(modelProviderMappingHistory);
 
-interface HistoryRow {
+// "total" is every request; each tier slice is the share sent at that tier.
+type HistorySlice = "total" | RoutedServiceTier;
+
+const HISTORY_SLICES: readonly HistorySlice[] = [
+	"total",
+	...ROUTED_SERVICE_TIERS,
+];
+
+type HistoryRow = {
 	modelId: string;
 	providerId: string;
 	region: string | null;
-	totalLogs: string | number | null;
-	weightedLogs: string | number | null;
-	weightedClientErrors: string | number | null;
-	weightedGatewayErrors: string | number | null;
-	weightedUpstreamErrors: string | number | null;
-	weightedDuration: string | number | null;
-	weightedOutputTokens: string | number | null;
-	weightedTTFT: string | number | null;
-	weightedTTFRT: string | number | null;
-	weightedTTFTCount: string | number | null;
-	weightedTTFRTCount: string | number | null;
+} & Record<string, string | number | null>;
+
+interface SliceCounters {
+	/** Unweighted request count. */
+	requests: number;
+	/** Recency-weighted sums. */
+	weighted: Record<TierRoutingMetric, number>;
 }
 
-function rowToMetrics(row: HistoryRow): ProviderMetrics | undefined {
-	const totalLogs = Number(row.totalLogs ?? 0);
-	const weightedLogs = Number(row.weightedLogs ?? 0);
-	const weightedClientErrors = Number(row.weightedClientErrors ?? 0);
-	const weightedGatewayErrors = Number(row.weightedGatewayErrors ?? 0);
-	const weightedUpstreamErrors = Number(row.weightedUpstreamErrors ?? 0);
-	const weightedDuration = Number(row.weightedDuration ?? 0);
-	const weightedOutputTokens = Number(row.weightedOutputTokens ?? 0);
-	const weightedTTFT = Number(row.weightedTTFT ?? 0);
-	const weightedTTFRT = Number(row.weightedTTFRT ?? 0);
-	const weightedTTFTCount = Number(row.weightedTTFTCount ?? 0);
-	const weightedTTFRTCount = Number(row.weightedTTFRTCount ?? 0);
+function weightedAlias(slice: HistorySlice, metric: TierRoutingMetric) {
+	return `w_${slice}_${metric}`;
+}
 
-	if (totalLogs <= 0 || weightedLogs <= 0) {
+function requestsAlias(slice: HistorySlice) {
+	return `n_${slice}`;
+}
+
+function sliceColumn(slice: HistorySlice, metric: TierRoutingMetric) {
+	return modelProviderMappingHistory[
+		slice === "total"
+			? TIER_ROUTING_METRICS[metric]
+			: tierRoutingMetricColumn(slice, metric)
+	];
+}
+
+function readSlice(row: HistoryRow, slice: HistorySlice): SliceCounters {
+	const weighted = {} as Record<TierRoutingMetric, number>;
+	for (const metric of TIER_ROUTING_METRIC_NAMES) {
+		weighted[metric] = Number(row[weightedAlias(slice, metric)] ?? 0);
+	}
+	return { requests: Number(row[requestsAlias(slice)] ?? 0), weighted };
+}
+
+/**
+ * The standard tier is every request not sent at a tracked tier, so flex
+ * load-shedding and priority capacity never skew standard routing.
+ */
+function standardSlice(row: HistoryRow): SliceCounters {
+	const standard = readSlice(row, "total");
+	for (const tier of ROUTED_SERVICE_TIERS) {
+		const slice = readSlice(row, tier);
+		standard.requests = Math.max(0, standard.requests - slice.requests);
+		for (const metric of TIER_ROUTING_METRIC_NAMES) {
+			standard.weighted[metric] = Math.max(
+				0,
+				standard.weighted[metric] - slice.weighted[metric],
+			);
+		}
+	}
+	return standard;
+}
+
+function sliceToMetrics(
+	row: HistoryRow,
+	{ requests, weighted }: SliceCounters,
+): ProviderMetrics | undefined {
+	if (requests <= 0 || weighted.LogsCount <= 0) {
 		return undefined;
 	}
 
 	const { uptime } = deriveStabilityMetrics({
-		logsCount: weightedLogs,
-		clientErrorsCount: weightedClientErrors,
-		gatewayErrorsCount: weightedGatewayErrors,
-		upstreamErrorsCount: weightedUpstreamErrors,
+		logsCount: weighted.LogsCount,
+		clientErrorsCount: weighted.ClientErrorsCount,
+		gatewayErrorsCount: weighted.GatewayErrorsCount,
+		upstreamErrorsCount: weighted.UpstreamErrorsCount,
 	});
 	if (uptime === null) {
 		return undefined;
@@ -63,10 +117,10 @@ function rowToMetrics(row: HistoryRow): ProviderMetrics | undefined {
 	// would make providers look faster the more non-streaming traffic they see.
 	const { total: effectiveTTFT, count: effectiveTTFTCount } =
 		effectiveTtftTotals({
-			totalTimeToFirstToken: weightedTTFT,
-			timeToFirstTokenCount: weightedTTFTCount,
-			totalTimeToFirstReasoningToken: weightedTTFRT,
-			timeToFirstReasoningTokenCount: weightedTTFRTCount,
+			totalTimeToFirstToken: weighted.TotalTimeToFirstToken,
+			timeToFirstTokenCount: weighted.TimeToFirstTokenCount,
+			totalTimeToFirstReasoningToken: weighted.TotalTimeToFirstReasoningToken,
+			timeToFirstReasoningTokenCount: weighted.TimeToFirstReasoningTokenCount,
 		});
 	const averageLatency =
 		effectiveTTFT > 0 && effectiveTTFTCount > 0
@@ -74,8 +128,8 @@ function rowToMetrics(row: HistoryRow): ProviderMetrics | undefined {
 			: undefined;
 
 	const throughput =
-		weightedDuration > 0
-			? (weightedOutputTokens / weightedDuration) * 1000
+		weighted.TotalDuration > 0
+			? (weighted.TotalOutputTokens / weighted.TotalDuration) * 1000
 			: undefined;
 
 	return {
@@ -85,8 +139,23 @@ function rowToMetrics(row: HistoryRow): ProviderMetrics | undefined {
 		uptime,
 		averageLatency,
 		throughput,
-		totalRequests: totalLogs,
+		totalRequests: requests,
 	};
+}
+
+/**
+ * Metrics for requests at `serviceTier` (standard when undefined). A tier
+ * without usable history of its own falls back to the standard tier.
+ */
+function rowToMetrics(
+	row: HistoryRow,
+	serviceTier: RoutedServiceTier | undefined,
+): ProviderMetrics | undefined {
+	const standard = sliceToMetrics(row, standardSlice(row));
+	if (!serviceTier) {
+		return standard;
+	}
+	return sliceToMetrics(row, readSlice(row, serviceTier)) ?? standard;
 }
 
 const HISTORY_SWR_TTL_SECONDS = 30;
@@ -109,6 +178,7 @@ export async function getProviderMetricsFromHistory(
 		region?: string;
 	}>,
 	history: Required<RoutingHistoryConfig>,
+	serviceTier?: RoutedServiceTier,
 ): Promise<Map<string, ProviderMetrics>> {
 	if (combinations.length === 0) {
 		return new Map();
@@ -125,8 +195,9 @@ export async function getProviderMetricsFromHistory(
 	}
 
 	// The version segment is bumped whenever the selected columns change so a
-	// rolling deploy doesn't read rows cached in the previous shape.
-	const cacheKey = `providerMetrics:history:v5:${routingHistoryCacheKey(history)}:${modelIds.join(",")}`;
+	// rolling deploy doesn't read rows cached in the previous shape. Every
+	// service-tier slice is selected, so one cached result serves all tiers.
+	const cacheKey = `providerMetrics:history:v6:${routingHistoryCacheKey(history)}:${modelIds.join(",")}`;
 
 	const rows = await swrWrap<HistoryRow[]>(
 		cacheKey,
@@ -147,55 +218,28 @@ export async function getProviderMetricsFromHistory(
 			const tier3Weight = sql.raw(String(history.tier3Weight));
 			const weightExpr = sql<number>`case when ${ts} >= ${tier1Boundary} then ${tier1Weight} when ${ts} >= ${tier2Boundary} then ${tier2Weight} else ${tier3Weight} end`;
 
+			const sliceFields: Record<string, SQL.Aliased<string>> = {};
+			for (const slice of HISTORY_SLICES) {
+				const requestsColumn = sliceColumn(slice, "LogsCount");
+				sliceFields[requestsAlias(slice)] =
+					sql<string>`coalesce(sum(${requestsColumn}), 0)::bigint`.as(
+						requestsAlias(slice),
+					);
+				for (const metric of TIER_ROUTING_METRIC_NAMES) {
+					const alias = weightedAlias(slice, metric);
+					sliceFields[alias] =
+						sql<string>`coalesce(sum(${sliceColumn(slice, metric)} * ${weightExpr}), 0)::bigint`.as(
+							alias,
+						);
+				}
+			}
+
 			const result = await cdb
 				.select({
 					modelId: modelProviderMappingHistory.modelId,
 					providerId: modelProviderMappingHistory.providerId,
 					region: sql<string | null>`null`.as("region"),
-					totalLogs:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.logsCount}), 0)::bigint`.as(
-							"total_logs",
-						),
-					weightedLogs:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.logsCount} * ${weightExpr}), 0)::bigint`.as(
-							"weighted_logs",
-						),
-					weightedClientErrors:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.clientErrorsCount} * ${weightExpr}), 0)::bigint`.as(
-							"weighted_client_errors",
-						),
-					weightedGatewayErrors:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.gatewayErrorsCount} * ${weightExpr}), 0)::bigint`.as(
-							"weighted_gateway_errors",
-						),
-					weightedUpstreamErrors:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.upstreamErrorsCount} * ${weightExpr}), 0)::bigint`.as(
-							"weighted_upstream_errors",
-						),
-					weightedDuration:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.totalDuration} * ${weightExpr}), 0)::bigint`.as(
-							"weighted_duration",
-						),
-					weightedOutputTokens:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.totalOutputTokens} * ${weightExpr}), 0)::bigint`.as(
-							"weighted_output_tokens",
-						),
-					weightedTTFT:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.totalTimeToFirstToken} * ${weightExpr}), 0)::bigint`.as(
-							"weighted_ttft",
-						),
-					weightedTTFRT:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.totalTimeToFirstReasoningToken} * ${weightExpr}), 0)::bigint`.as(
-							"weighted_ttfrt",
-						),
-					weightedTTFTCount:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.timeToFirstTokenCount} * ${weightExpr}), 0)::bigint`.as(
-							"weighted_ttft_count",
-						),
-					weightedTTFRTCount:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.timeToFirstReasoningTokenCount} * ${weightExpr}), 0)::bigint`.as(
-							"weighted_ttfrt_count",
-						),
+					...sliceFields,
 				})
 				.from(modelProviderMappingHistory)
 				.where(
@@ -241,7 +285,7 @@ export async function getProviderMetricsFromHistory(
 			) {
 				continue;
 			}
-			const metrics = rowToMetrics(row);
+			const metrics = rowToMetrics(row, serviceTier);
 			if (!metrics) {
 				continue;
 			}

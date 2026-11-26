@@ -6,6 +6,7 @@ import {
 	DocsTitle,
 } from "fumadocs-ui/page";
 import { notFound } from "next/navigation";
+import { isValidElement } from "react";
 
 import { LLMCopyButton, ViewOptions } from "@/components/ai/page-actions";
 import { EnterpriseCTA } from "@/components/enterprise-cta";
@@ -15,6 +16,8 @@ import { docsBaseUrl } from "@/lib/base-url";
 import { marketingGuideCanonical } from "@/lib/guide-canonical";
 import { source } from "@/lib/source";
 import { getMDXComponents } from "@/mdx-components";
+
+import { fitTitle } from "@llmgateway/shared/seo-title";
 
 import type { Metadata } from "next";
 
@@ -40,13 +43,26 @@ export async function generateMetadata({
 	// the layout template, so it gets an absolute, keyword-carrying title
 	// instead. The visible page H1 (frontmatter title) is unchanged.
 	const isRoot = page.url === "/";
+	// API reference and dashboard knowledge-base pages reuse feature names
+	// ("OCR", "Guardrails"), so their titles get a section qualifier to stay
+	// unique against the matching /features page.
+	const sectionQualifier =
+		"_openapi" in page.data
+			? "API Reference"
+			: page.url.startsWith("/learn/")
+				? "Dashboard Guide"
+				: undefined;
 	const metaTitle = isRoot
 		? "LLM Gateway Documentation — OpenAI-Compatible AI Gateway"
-		: page.data.title;
+		: sectionQualifier
+			? `${page.data.title} — ${sectionQualifier}`
+			: page.data.title;
 
 	return {
 		metadataBase: new URL(docsBaseUrl),
-		title: isRoot ? { absolute: metaTitle } : metaTitle,
+		title: isRoot
+			? { absolute: metaTitle }
+			: fitTitle(metaTitle, " | LLM Gateway Docs", ["LLM Gateway"]),
 		description: page.data.description,
 		alternates: {
 			canonical: canonicalUrl,
@@ -66,6 +82,27 @@ export async function generateMetadata({
 			images: image,
 		},
 	};
+}
+
+const HOW_TO_EXCLUDED = new Set(["FAQ", "Next steps"]);
+
+interface HowToTocItem {
+	title: unknown;
+	url: string;
+}
+
+/** Flattens a table-of-contents title, which may be a React node, to text. */
+function nodeText(node: unknown): string {
+	if (typeof node === "string" || typeof node === "number") {
+		return String(node);
+	}
+	if (Array.isArray(node)) {
+		return node.map(nodeText).join("");
+	}
+	if (isValidElement<{ children?: unknown }>(node)) {
+		return nodeText(node.props.children);
+	}
+	return "";
 }
 
 export default async function Page(props: {
@@ -101,6 +138,36 @@ export default async function Page(props: {
 		},
 	};
 
+	// The quickstart is a numbered procedure ("1 · Get an API key"), so its
+	// steps are also published as HowTo structured data.
+	const howToSteps =
+		page.url === "/quick-start"
+			? (page.data.toc as HowToTocItem[]).flatMap((item) => {
+					const title = nodeText(item.title);
+					const step = title.match(/^\d+ · (.+)$/)?.[1];
+					return step && !HOW_TO_EXCLUDED.has(step)
+						? [{ name: step, url: `${docsBaseUrl}${path}${item.url}` }]
+						: [];
+				})
+			: [];
+	const howToSchema =
+		howToSteps.length > 1
+			? {
+					"@context": "https://schema.org",
+					"@type": "HowTo",
+					name: page.data.title,
+					description: page.data.description,
+					url: `${docsBaseUrl}${path}`,
+					step: howToSteps.map((step, index) => ({
+						"@type": "HowToStep",
+						position: index + 1,
+						name: step.name,
+						text: step.name,
+						url: step.url,
+					})),
+				}
+			: null;
+
 	return (
 		<DocsPage
 			toc={page.data.toc}
@@ -111,7 +178,11 @@ export default async function Page(props: {
 			}}
 			lastUpdate={lastUpdate}
 		>
-			<JsonLd data={techArticleSchema} />
+			<JsonLd
+				data={
+					howToSchema ? [techArticleSchema, howToSchema] : techArticleSchema
+				}
+			/>
 			<nav
 				aria-label="Page actions"
 				className="flex flex-row gap-2 items-center border-b pt-2 pb-6"

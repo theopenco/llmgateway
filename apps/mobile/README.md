@@ -37,6 +37,10 @@ appearance using the mock upstream and gateway described below. With the video
 worker also running, `e2e/video-microphone.yaml` checks video refresh and replay,
 dictation, live transcription, and a Gemini voice call without restarting the app.
 
+`e2e/decisions.yaml` (Decision Studio presets, answers, cURL, history) and
+`e2e/image-svg.yaml` (SVG output from GPT Image 2.6) use the same mock upstream
+and gateway.
+
 For chat and dictation flows, build the stack and start the local API, then run
 these in separate terminals with the same isolated environment loaded:
 

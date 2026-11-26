@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 
 import { discountFraction } from "@/lib/discount";
 
+import { models as catalogue, type ModelDefinition } from "@llmgateway/models";
+
 import {
 	matchesCapability,
 	matchesOutputCapabilities,
@@ -389,6 +391,11 @@ describe("row-leak: model-level filter vs table flatten", () => {
 			qualifying: { webSearch: true },
 			nonQualifying: { webSearch: false },
 		},
+		{
+			capability: "batch",
+			qualifying: { batchEndpoints: ["/v1/chat/completions", "/v1/responses"] },
+			nonQualifying: { batchEndpoints: [] },
+		},
 	];
 
 	for (const { capability, qualifying, nonQualifying } of cases) {
@@ -424,6 +431,24 @@ describe("row-leak: model-level filter vs table flatten", () => {
 			}
 		});
 	}
+});
+
+describe("batch capability filter", () => {
+	test("rejects mappings without batch endpoint data", () => {
+		expect(
+			matchesCapability("batch", makeMapping({ batchEndpoints: null })),
+		).toBe(false);
+		expect(matchesCapability("batch", makeMapping({}))).toBe(false);
+	});
+
+	test("accepts embeddings-only batch support", () => {
+		expect(
+			matchesCapability(
+				"batch",
+				makeMapping({ batchEndpoints: ["/v1/embeddings"] }),
+			),
+		).toBe(true);
+	});
 });
 
 describe("model-level output capability filters", () => {
@@ -484,5 +509,32 @@ describe("model-level output capability filters", () => {
 		expect(
 			matchesOutputCapabilities(enabled, ["transcription", "search"]),
 		).toBe(true);
+	});
+});
+
+describe("catalogue coverage", () => {
+	test("every non-text output kind in the catalogue has an output filter", () => {
+		const filterable = new Set<string>(
+			Object.values(OUTPUT_KIND_BY_CAPABILITY_FILTER),
+		);
+		const kinds = new Set(
+			(catalogue as readonly ModelDefinition[]).flatMap(
+				(model) => model.output ?? [],
+			),
+		);
+		kinds.delete("text");
+		expect(Array.from(kinds).filter((kind) => !filterable.has(kind))).toEqual(
+			[],
+		);
+	});
+
+	test.each([
+		["audioInput", { audio: true }],
+		["document", { document: true }],
+		["realtime", { realtime: true }],
+		["realtime", { realtimeTranscription: true }],
+	] as const)("%s matches a mapping with %o", (capability, flags) => {
+		expect(matchesCapability(capability, makeMapping(flags))).toBe(true);
+		expect(matchesCapability(capability, makeMapping({}))).toBe(false);
 	});
 });

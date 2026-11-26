@@ -3,7 +3,7 @@ import "dotenv/config";
 
 import { swaggerUI } from "@hono/swagger-ui";
 import { OpenAPIHono } from "@hono/zod-openapi";
-import { APICallError } from "ai";
+import { APICallError, ToolChoiceViolationError } from "ai";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -16,7 +16,7 @@ import {
 	createRequestLifecycleMiddleware,
 } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
-import { HealthChecker } from "@llmgateway/shared";
+import { getAppVersion, HealthChecker } from "@llmgateway/shared";
 import {
 	getClientIpFromContext,
 	getClientIpHeaderName,
@@ -39,9 +39,11 @@ import { platformSessions } from "./routes/platform-sessions.js";
 import { platformWallet } from "./routes/platform-wallet.js";
 import { platformWebhooks } from "./routes/platform-webhooks.js";
 import { publicApps } from "./routes/public-apps.js";
+import { publicBadges } from "./routes/public-badges.js";
 import { publicBanner } from "./routes/public-banner.js";
 import { publicChatShares } from "./routes/public-chat-shares.js";
 import { publicChatSupport } from "./routes/public-chat-support.js";
+import { publicCliAuth } from "./routes/public-cli-auth.js";
 import { publicConfig } from "./routes/public-config.js";
 import { publicContact } from "./routes/public-contact.js";
 import { publicDiscounts } from "./routes/public-discounts.js";
@@ -54,7 +56,9 @@ import { publicModelSurvey } from "./routes/public-model-survey.js";
 import { publicNewsletter } from "./routes/public-newsletter.js";
 import { publicProfile } from "./routes/public-profile.js";
 import { publicProvidersStats } from "./routes/public-providers-stats.js";
+import { publicProvidersStatus } from "./routes/public-providers-status.js";
 import { publicUnsubscribe } from "./routes/public-unsubscribe.js";
+import { publicUsageReport } from "./routes/public-usage-report.js";
 import { referral } from "./routes/referral.js";
 import { scim } from "./routes/scim.js";
 import { v1Master } from "./routes/v1-master.js";
@@ -194,6 +198,31 @@ app.onError((error, c) => {
 		);
 	}
 
+	// A gateway content-filter block on a `toolChoice: "required"` call (skill
+	// generation, memory extraction) is a user-content outcome, not a bug.
+	if (
+		ToolChoiceViolationError.isInstance(error) &&
+		error.finishReason === "content-filter"
+	) {
+		logger.warn("Upstream content filter blocked request", {
+			modelId: error.modelId,
+			path: c.req.path,
+			method: c.req.method,
+		});
+		const text = error.content
+			.flatMap((part) => (part.type === "text" ? [part.text] : []))
+			.join("")
+			.trim();
+		return c.json(
+			{
+				error: true,
+				status: 400,
+				message: text || "The request was blocked by the content filter",
+			},
+			400,
+		);
+	}
+
 	// Handle timeout errors - expected operational errors, not application bugs
 	if (error instanceof Error && error.name === "TimeoutError") {
 		logger.warn("Request timeout", {
@@ -244,8 +273,28 @@ app.onError((error, c) => {
 });
 
 // Liveness: the process serves HTTP. Never touches the database, so a slow or
-// locked database cannot get healthy pods restarted (use `/` for readiness).
+// locked database cannot get healthy pods restarted.
 app.get("/livez", (c) => c.json({ status: "ok" }));
+
+// This is an API, not a website: keep search engines from crawling its
+// endpoints (GSC reports internal.llmgateway.io URLs as 401 and 404).
+app.get("/robots.txt", (c) => {
+	return c.text("User-agent: *\nDisallow: /\n");
+});
+
+// Deep health for external monitoring: checks Postgres and Redis. Readiness
+// uses `/`, so a dependency outage or a schema the running release cannot
+// read never pulls every pod out of the load balancer.
+export const healthChecker = new HealthChecker(
+	{ redisClient, db, logger },
+	{ timeoutMs: Number(process.env.DEEP_HEALTH_CHECK_TIMEOUT_MS) || 5000 },
+);
+app.get("/health/deep", async (c) => {
+	const { response, statusCode } = healthChecker.createHealthResponse(
+		await healthChecker.performHealthChecks(),
+	);
+	return c.json(response, statusCode as 200 | 503);
+});
 
 const root = createRoute({
 	method: "get",
@@ -261,76 +310,38 @@ const root = createRoute({
 							version: z.string(),
 							clientIp: z.string().nullable(),
 							clientIpHeader: z.string(),
-							health: z.object({
-								status: z.string(),
-								database: z.object({
-									connected: z.boolean(),
-									error: z.string().optional(),
-								}),
-								redis: z.object({
-									connected: z.boolean(),
-									error: z.string().optional(),
-								}),
-							}),
 						})
 						.openapi({}),
 				},
 			},
-			description: "Health check response.",
+			description:
+				"Health check response. Once Postgres and Redis have answered after boot it touches no dependencies; `/health/deep` checks them on every call.",
 		},
 		503: {
 			content: {
 				"application/json": {
-					schema: z
-						.object({
-							message: z.string(),
-							version: z.string(),
-							clientIp: z.string().nullable(),
-							clientIpHeader: z.string(),
-							health: z.object({
-								status: z.string(),
-								database: z.object({
-									connected: z.boolean(),
-									error: z.string().optional(),
-								}),
-								redis: z.object({
-									connected: z.boolean(),
-									error: z.string().optional(),
-								}),
-							}),
-						})
-						.openapi({}),
+					schema: z.object({ message: z.string() }).openapi({}),
 				},
 			},
-			description: "Service unavailable - Redis or database connection failed.",
+			description: "Starting: Postgres and Redis have not answered since boot.",
 		},
 	},
 });
 
-app.openapi(root, async (c) => {
-	const TIMEOUT_MS = Number(process.env.TIMEOUT_MS) || 5000;
-
-	const healthChecker = new HealthChecker({
-		redisClient,
-		db,
-		logger,
-	});
-
-	const health = await healthChecker.performHealthChecks({
-		timeoutMs: TIMEOUT_MS,
-	});
-
-	const { response, statusCode } = healthChecker.createHealthResponse(health);
-
+app.openapi(root, (c) => {
+	if (!healthChecker.isReady()) {
+		return c.json({ message: "Starting: waiting for Postgres and Redis" }, 503);
+	}
 	// Echo the address this service resolves for the caller so a deployment can
 	// be checked against a known client IP before any per-IP limit is relied on.
 	return c.json(
 		{
-			...response,
+			message: "OK",
+			version: getAppVersion(),
 			clientIp: getClientIpFromContext(c),
 			clientIpHeader: getClientIpHeaderName(),
 		},
-		statusCode as 200 | 503,
+		200,
 	);
 });
 
@@ -349,13 +360,17 @@ app.route("/public/newsletter", publicNewsletter);
 app.route("/public/unsubscribe", publicUnsubscribe);
 app.route("/public/chat-support", publicChatSupport);
 app.route("/public/chats/share", publicChatShares);
+app.route("/public/cli-auth", publicCliAuth);
 app.route("/public/apps", publicApps);
 app.route("/public/profile", publicProfile);
 app.route("/public/leaderboard", publicLeaderboard);
 app.route("/public/escape", publicEscape);
 app.route("/public/lounge-leaderboard", publicLoungeLeaderboard);
 app.route("/public/providers/stats", publicProvidersStats);
+app.route("/public/providers/status", publicProvidersStatus);
 app.route("/public/models/stats", publicModelStats);
+app.route("/public/models/report", publicUsageReport);
+app.route("/public/badges", publicBadges);
 app.route("/public/model-ratings", publicModelRatings);
 app.route("/public/model-survey", publicModelSurvey);
 

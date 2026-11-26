@@ -5,6 +5,11 @@ date: 2026-02-05
 title: "The Hidden Cost of LLM Vendor Lock-in"
 summary: "Why building directly against a single LLM provider's API is riskier than you think, and how a gateway layer protects your AI investment."
 categories: ["Product"]
+faqs:
+  - question: "What is LLM vendor lock-in?"
+    answer: "LLM vendor lock-in is the cost of building directly against one provider's API. You are exposed to price changes you cannot control, model deprecations that force migrations, outages and rate limits, and SDK-specific features that make switching harder."
+  - question: "How do you avoid LLM vendor lock-in?"
+    answer: "Integrate through a provider-neutral API, such as an OpenAI-compatible gateway, so that switching models or providers is a configuration change. Requests can then fail over when one provider is down."
 image:
   src: "/blog/hidden-cost-of-llm-vendor-lock-in.png"
   alt: "The Hidden Cost of LLM Vendor Lock-in"

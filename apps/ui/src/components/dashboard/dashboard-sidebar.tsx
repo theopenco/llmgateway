@@ -22,7 +22,6 @@ import {
 	type ReadonlyURLSearchParams,
 } from "next/navigation";
 import { useTheme } from "next-themes";
-import { usePostHog } from "posthog-js/react";
 import { useMemo, useState, useEffect, useRef } from "react";
 
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
@@ -36,6 +35,7 @@ import {
 	AnimatedChartColumnBig,
 	AnimatedExternalLink,
 	AnimatedFileText,
+	AnimatedFolders,
 	AnimatedKey,
 	AnimatedKeyRound,
 	AnimatedKeySquare,
@@ -95,6 +95,7 @@ import {
 } from "@/lib/components/tooltip";
 import { useAppConfig } from "@/lib/config";
 import { buildUrlWithParams } from "@/lib/navigation-utils";
+import { usePostHog } from "@/lib/posthog";
 
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
@@ -107,7 +108,7 @@ import type { Route } from "next";
 type AnimatedIconComponent = React.ComponentType<AnimatedIconProps>;
 
 // Configuration
-const PROJECT_NAVIGATION: readonly {
+export const PROJECT_NAVIGATION: readonly {
 	href: string;
 	label: string;
 	icon: AnimatedIconComponent;
@@ -156,7 +157,7 @@ const PROJECT_NAVIGATION: readonly {
 
 // Navigation shown to project-scoped "developer" members instead of the full
 // Project section: they can only see their own usage and manage their own keys.
-const USER_NAVIGATION: readonly {
+export const USER_NAVIGATION: readonly {
 	href: string;
 	label: string;
 	icon: AnimatedIconComponent;
@@ -173,7 +174,7 @@ const USER_NAVIGATION: readonly {
 	},
 ];
 
-const PROJECT_SETTINGS = [
+export const PROJECT_SETTINGS = [
 	{
 		href: "settings/preferences",
 		label: "Preferences",
@@ -200,12 +201,17 @@ const PROJECT_SETTINGS = [
 
 // Org-level nav items. `enterpriseGated` items show the enterprise indicator
 // badge on non-enterprise plans.
-const ORGANIZATION_NAVIGATION: readonly {
+export const ORGANIZATION_NAVIGATION: readonly {
 	href: string;
 	label: string;
 	icon: AnimatedIconComponent;
 	enterpriseGated?: boolean;
 }[] = [
+	{
+		href: "org/projects",
+		label: "Projects",
+		icon: AnimatedFolders,
+	},
 	{
 		href: "org/team",
 		label: "Team",
@@ -281,7 +287,7 @@ const ORGANIZATION_NAVIGATION: readonly {
 	},
 ];
 
-const ORGANIZATION_SETTINGS = [
+export const ORGANIZATION_SETTINGS = [
 	{
 		href: "org/billing",
 		label: "Billing",
@@ -294,6 +300,10 @@ const ORGANIZATION_SETTINGS = [
 	{
 		href: "org/referrals",
 		label: "Referrals",
+	},
+	{
+		href: "org/wrapped",
+		label: "Wrapped",
 	},
 	{
 		href: "org/limits",

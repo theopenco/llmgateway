@@ -124,6 +124,9 @@ carried through all of it.
 - Provider routing is narrowed to mappings that support the requested tier
   **before** a provider is picked, so no fallback candidate can be one that
   would serve the request as standard.
+- Among those mappings, the provider is scored on its recent traffic at the
+  requested tier, so Flex capacity shortages only steer Flex requests away
+  (see [routing metrics](/features/routing#smart-routing-algorithm)).
 - Key selection — BYOK keys, platform-managed credentials, and env credentials
   alike — skips any credential that cannot carry the tier (a proxy base URL, or
   a Vertex credential pinned to a regional endpoint), on the first attempt and

@@ -2,6 +2,7 @@
 id: "blog-what-is-an-ai-coding-plan"
 slug: "what-is-an-ai-coding-plan"
 date: "2026-08-15"
+updatedAt: "2026-11-10"
 title: "What Is an AI Coding Plan? Limits and Costs Explained"
 summary: "An AI coding plan is a flat monthly fee that covers model usage inside your coding agent. This explains what a coding plan actually includes, how monthly allowances and weekly premium caps work, and how to size one against your real usage."
 categories: ["Guides"]
@@ -13,7 +14,7 @@ faqs:
   - question: "Can I use my own coding agent, or am I locked into theirs?"
     answer: "That depends on the vendor, and it is worth checking. A plan built on an OpenAI- or Anthropic-compatible endpoint works across the approved coding and agent tools — Claude Code, Cline, OpenCode, Cursor — rather than only inside one vendor's editor, which stops being useful the day you switch editors. What a flat-rate plan does not cover is wiring the key into your own application or batch job: that is general API traffic, and it belongs on pay-as-you-go credits. Check the [DevPass terms](https://devpass.llmgateway.io/legal/terms) for the current approved-tool list."
   - question: "What happens to unused allowance at the end of the month?"
-    answer: "On most plans it expires at renewal rather than rolling over. The exception worth knowing about is a mid-cycle upgrade, where the unused remainder carries onto the new tier because you already paid for it."
+    answer: "On most plans it expires at renewal rather than rolling over, so check before you subscribe. DevPass carries unused allowance into the next cycle, up to half of the plan's monthly allowance, and a mid-cycle upgrade carries the whole unused remainder onto the new tier because you already paid for it."
 image:
   src: "/blog/what-is-an-ai-coding-plan.png"
   alt: "Glossy 3D circuit board with a central meter dial surrounded by coin and terminal icons, representing a metered flat-rate coding plan"

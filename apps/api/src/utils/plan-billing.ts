@@ -70,3 +70,16 @@ export async function resolveChatPlanBillingDetails(
 ): Promise<PlanBillingDetails> {
 	return await resolveDefaultOrgBillingDetails(personalOrg);
 }
+
+// Billing details for any invoice of `organization`, by its kind.
+export async function resolveInvoiceBillingDetails(
+	organization: Organization,
+): Promise<PlanBillingDetails> {
+	if (organization.kind === "devpass") {
+		return await resolveDevPassBillingDetails(organization);
+	}
+	if (organization.kind === "chat") {
+		return await resolveChatPlanBillingDetails(organization);
+	}
+	return pickBillingDetails(organization);
+}

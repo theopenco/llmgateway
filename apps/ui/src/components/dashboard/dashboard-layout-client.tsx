@@ -1,8 +1,8 @@
 "use client";
 
-import { usePostHog } from "posthog-js/react";
 import { type ReactNode, useEffect } from "react";
 
+import { AssistantDock } from "@/components/assistant/assistant-dock";
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { EnterpriseLicenseBanner } from "@/components/dashboard/enterprise-license-banner";
 import { MobileHeader } from "@/components/dashboard/mobile-header";
@@ -12,6 +12,7 @@ import { TopBar } from "@/components/dashboard/top-bar";
 import { EmailVerificationBanner } from "@/components/email-verification-banner";
 import { DashboardProvider } from "@/lib/dashboard-context";
 import { useDashboardState } from "@/lib/dashboard-state";
+import { usePostHog } from "@/lib/posthog";
 import { useSystemBanner } from "@/lib/system-banner-context";
 
 import { SystemBannerBar } from "@llmgateway/shared/system-banner";
@@ -93,12 +94,13 @@ export function DashboardLayoutClient({
 						<EmailVerificationBanner />
 						<EnterpriseLicenseBanner />
 						<PlanExpiryBanner />
-						<main className="bg-background relative w-full flex-1 overflow-y-auto overflow-x-hidden pt-10 pb-4 px-4 md:p-6 lg:p-8">
+						<main className="bg-background relative w-full flex-1 overflow-y-auto overflow-x-hidden pt-10 pb-4 md:p-6 lg:p-8">
 							<OrganizationRouteGuard>{children}</OrganizationRouteGuard>
 						</main>
 					</div>
 				</div>
 			</div>
+			<AssistantDock />
 		</DashboardProvider>
 	);
 }

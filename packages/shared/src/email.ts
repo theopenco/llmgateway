@@ -5,7 +5,6 @@ const fromEmail =
 	process.env.RESEND_FROM_EMAIL ?? "LLMGateway <contact@mail.llmgateway.io>";
 const replyToEmail =
 	process.env.RESEND_REPLY_TO_EMAIL ?? "contact@llmgateway.io";
-const resendAudienceId = process.env.RESEND_AUDIENCE_ID ?? "";
 
 let resendClient: Resend | null = null;
 
@@ -17,4 +16,4 @@ function getResendClient(): Resend | null {
 	return resendClient;
 }
 
-export { fromEmail, replyToEmail, resendAudienceId, getResendClient };
+export { fromEmail, replyToEmail, getResendClient };

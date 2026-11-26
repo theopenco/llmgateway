@@ -7,6 +7,7 @@ import { getAdminUser } from "@/lib/getUser";
 import { getSessionCookieHeader } from "@/lib/session-cookie";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { deferDownloadsToGateway } from "@llmgateway/shared/ai-sdk-download";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 
@@ -145,6 +146,7 @@ export async function POST(req: Request) {
 
 	try {
 		const leadResearch = await generateText({
+			experimental_download: deferDownloadsToGateway,
 			model: llmgateway("auto"),
 			instructions: `You are a lead research agent. Given a person's name or email address, research them thoroughly using your built-in web search capabilities.
 
@@ -179,6 +181,7 @@ User details:
 - Plan: ${data.plan ?? "free"}`;
 
 		const emailDraft = await generateText({
+			experimental_download: deferDownloadsToGateway,
 			model: llmgateway("auto"),
 			output: Output.object({ schema: emailSchema }),
 			instructions: `You are an email drafting assistant for LLM Gateway, an AI/LLM API gateway service that provides access to 300+ AI models through a single OpenAI-compatible API.

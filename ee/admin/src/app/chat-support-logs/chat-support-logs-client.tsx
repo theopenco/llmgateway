@@ -6,11 +6,9 @@ import {
 	Archive,
 	ArchiveRestore,
 	ArrowLeft,
-	Building2,
 	Check,
 	CheckCircle2,
 	Clock,
-	ExternalLink,
 	Globe,
 	Mail,
 	MessageCircle,
@@ -25,7 +23,6 @@ import {
 	User,
 	X,
 } from "lucide-react";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -49,6 +46,8 @@ import { canWrite } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
+
+import { ChatSupportAccount } from "./chat-support-account";
 
 function timeAgo(dateString: string): string {
 	const now = Date.now();
@@ -943,25 +942,28 @@ export function ChatSupportLogsClient() {
 											{detail?.email ?? selectedConv?.email}
 										</p>
 									)}
-									{detail?.organizationId && (
-										<Link
-											href={`/organizations/${detail.organizationId}`}
-											className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-											title="View organization"
-										>
-											<Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-											<span className="truncate">
-												{detail.organizationName ?? "View organization"}
-											</span>
-											<ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
-										</Link>
-									)}
 								</div>
 							</div>
 
 							{/* Details sections */}
 							<ScrollArea className="flex-1">
 								<div className="flex flex-col gap-0.5 p-4">
+									{detail ? (
+										<ChatSupportAccount
+											account={detail.account}
+											email={detail.email}
+											canManage={canManage}
+											onActivated={() => {
+												void queryClient.invalidateQueries({
+													queryKey: $api.queryOptions(
+														"get",
+														"/admin/chat-support-logs/{id}",
+														{ params: { path: { id: detail.id } } },
+													).queryKey,
+												});
+											}}
+										/>
+									) : null}
 									{/* Escalation status */}
 									{(detail?.escalatedAt ?? selectedConv?.escalatedAt) && (
 										<div className="mb-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">

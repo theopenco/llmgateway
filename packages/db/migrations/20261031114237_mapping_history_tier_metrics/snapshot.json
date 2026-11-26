@@ -1,0 +1,693 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "b58b52cd-1dd0-440e-b07a-db3cc17f193c",
+  "prevIds": [
+    "f33e7835-5475-42f9-9294-71544a5a1654"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "flex_logs_count"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.flex_logs_count",
+        "n|col|public.model_provider_mapping_history.flex_logs_count",
+        "e|col|public.model_provider_mapping_history.flex_logs_count"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "flex_client_errors_count"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.flex_client_errors_count",
+        "n|col|public.model_provider_mapping_history.flex_client_errors_count",
+        "e|col|public.model_provider_mapping_history.flex_client_errors_count"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "flex_gateway_errors_count"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.flex_gateway_errors_count",
+        "n|col|public.model_provider_mapping_history.flex_gateway_errors_count",
+        "e|col|public.model_provider_mapping_history.flex_gateway_errors_count"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "flex_upstream_errors_count"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.flex_upstream_errors_count",
+        "n|col|public.model_provider_mapping_history.flex_upstream_errors_count",
+        "e|col|public.model_provider_mapping_history.flex_upstream_errors_count"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "flex_total_output_tokens"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.flex_total_output_tokens",
+        "n|col|public.model_provider_mapping_history.flex_total_output_tokens",
+        "e|col|public.model_provider_mapping_history.flex_total_output_tokens"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "flex_total_duration"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.flex_total_duration",
+        "n|col|public.model_provider_mapping_history.flex_total_duration",
+        "e|col|public.model_provider_mapping_history.flex_total_duration"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "flex_total_time_to_first_token"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.flex_total_time_to_first_token",
+        "n|col|public.model_provider_mapping_history.flex_total_time_to_first_token",
+        "e|col|public.model_provider_mapping_history.flex_total_time_to_first_token"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "flex_total_time_to_first_reasoning_token"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.flex_total_time_to_first_reasoning_token",
+        "n|col|public.model_provider_mapping_history.flex_total_time_to_first_reasoning_token",
+        "e|col|public.model_provider_mapping_history.flex_total_time_to_first_reasoning_token"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "flex_time_to_first_token_count"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.flex_time_to_first_token_count",
+        "n|col|public.model_provider_mapping_history.flex_time_to_first_token_count",
+        "e|col|public.model_provider_mapping_history.flex_time_to_first_token_count"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "flex_time_to_first_reasoning_token_count"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.flex_time_to_first_reasoning_token_count",
+        "n|col|public.model_provider_mapping_history.flex_time_to_first_reasoning_token_count",
+        "e|col|public.model_provider_mapping_history.flex_time_to_first_reasoning_token_count"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "priority_logs_count"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.priority_logs_count",
+        "n|col|public.model_provider_mapping_history.priority_logs_count",
+        "e|col|public.model_provider_mapping_history.priority_logs_count"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "priority_client_errors_count"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.priority_client_errors_count",
+        "n|col|public.model_provider_mapping_history.priority_client_errors_count",
+        "e|col|public.model_provider_mapping_history.priority_client_errors_count"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "priority_gateway_errors_count"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.priority_gateway_errors_count",
+        "n|col|public.model_provider_mapping_history.priority_gateway_errors_count",
+        "e|col|public.model_provider_mapping_history.priority_gateway_errors_count"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "priority_upstream_errors_count"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.priority_upstream_errors_count",
+        "n|col|public.model_provider_mapping_history.priority_upstream_errors_count",
+        "e|col|public.model_provider_mapping_history.priority_upstream_errors_count"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "priority_total_output_tokens"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.priority_total_output_tokens",
+        "n|col|public.model_provider_mapping_history.priority_total_output_tokens",
+        "e|col|public.model_provider_mapping_history.priority_total_output_tokens"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "priority_total_duration"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.priority_total_duration",
+        "n|col|public.model_provider_mapping_history.priority_total_duration",
+        "e|col|public.model_provider_mapping_history.priority_total_duration"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "priority_total_time_to_first_token"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.priority_total_time_to_first_token",
+        "n|col|public.model_provider_mapping_history.priority_total_time_to_first_token",
+        "e|col|public.model_provider_mapping_history.priority_total_time_to_first_token"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "priority_total_time_to_first_reasoning_token"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.priority_total_time_to_first_reasoning_token",
+        "n|col|public.model_provider_mapping_history.priority_total_time_to_first_reasoning_token",
+        "e|col|public.model_provider_mapping_history.priority_total_time_to_first_reasoning_token"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "priority_time_to_first_token_count"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.priority_time_to_first_token_count",
+        "n|col|public.model_provider_mapping_history.priority_time_to_first_token_count",
+        "e|col|public.model_provider_mapping_history.priority_time_to_first_token_count"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_provider_mapping_history",
+        "priority_time_to_first_reasoning_token_count"
+      ],
+      "writes": [
+        "s|col|public.model_provider_mapping_history.priority_time_to_first_reasoning_token_count",
+        "n|col|public.model_provider_mapping_history.priority_time_to_first_reasoning_token_count",
+        "e|col|public.model_provider_mapping_history.priority_time_to_first_reasoning_token_count"
+      ],
+      "reads": [
+        "n|tbl|public.model_provider_mapping_history",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "flex_logs_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "flex_client_errors_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "flex_gateway_errors_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "flex_upstream_errors_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "flex_total_output_tokens",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "flex_total_duration",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "flex_total_time_to_first_token",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "flex_total_time_to_first_reasoning_token",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "flex_time_to_first_token_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "flex_time_to_first_reasoning_token_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "priority_logs_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "priority_client_errors_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "priority_gateway_errors_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "priority_upstream_errors_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "priority_total_output_tokens",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "priority_total_duration",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "priority_total_time_to_first_token",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "priority_total_time_to_first_reasoning_token",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "priority_time_to_first_token_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_provider_mapping_history",
+        "name": "priority_time_to_first_reasoning_token_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

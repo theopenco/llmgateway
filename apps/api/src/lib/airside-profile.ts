@@ -19,7 +19,7 @@ export function effectiveClaimKind(row: {
 function httpUrl(label: string) {
 	return z
 		.string({
-			required_error: `Add your ${label} — it is required and shown on your public provider page.`,
+			error: `Add your ${label} — it is required and shown on your public provider page.`,
 		})
 		.trim()
 		.max(500)
@@ -134,7 +134,7 @@ export const carrierProfileRegistrationSchema = z.object(
 		termsUrl: carrierProfileFields.termsUrl,
 	},
 	{
-		required_error:
+		error:
 			"Add your website, privacy policy URL and terms of use URL — they are required and shown on your public provider page.",
 	},
 );

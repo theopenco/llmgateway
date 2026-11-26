@@ -1,4 +1,7 @@
-import { getOrganizationEnvVariant } from "@llmgateway/models";
+import {
+	getOrganizationEnvVariant,
+	type ModelDefinition,
+} from "@llmgateway/models";
 import {
 	effectivePlanWithoutEnterpriseAccess,
 	hasOrganizationEnterpriseAccess,
@@ -33,4 +36,23 @@ export function getLicensedOrganizationPlan(
 	plan: "free" | "pro" | "enterprise" | null | undefined,
 ): "free" | "pro" | "enterprise" {
 	return effectivePlanWithoutEnterpriseAccess(organizationId, plan);
+}
+
+/**
+ * Whether the organization may use a model. `enterpriseOnly` models require
+ * enterprise access, which is only granted after KYC.
+ */
+export function canUseModel(
+	model: Pick<ModelDefinition, "enterpriseOnly">,
+	organizationId: string | null | undefined,
+	plan: string | null | undefined,
+): boolean {
+	return (
+		!model.enterpriseOnly ||
+		hasOrganizationEnterpriseAccess(organizationId, plan)
+	);
+}
+
+export function enterpriseOnlyModelMessage(modelId: string): string {
+	return `Model ${modelId} is only available on the enterprise plan. Contact us at contact@llmgateway.io to upgrade to enterprise.`;
 }

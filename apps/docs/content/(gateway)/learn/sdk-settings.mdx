@@ -24,6 +24,11 @@ The **Payments SDK** settings page lets you embed end-user payments and sessions
 	darkHeight={900}
 />
 
+Preview approval unlocks setup; it does not enable end-user sessions for you.
+An organization owner, admin, or assigned project admin must still turn on
+**Enable end-user sessions** below. Locking preview access again makes setup
+read-only; it does not stop existing sessions or payments.
+
 ## End-user sessions
 
 Turn on **Enable end-user sessions** to allow this project to mint short-lived browser session tokens for your users.
@@ -35,6 +40,10 @@ Turn on **Enable end-user sessions** to allow this project to mint short-lived b
 | **Allowed origins**      | The browser origins permitted to use session tokens, one per line (e.g. `https://app.example.com`)  |
 
 Click **Save Settings** to apply changes.
+
+## Checkout fees
+
+End-user top-ups add a 5% platform fee and, for cards issued outside the United States, a separate 1.5% international card fee. Checkout shows the card-specific fees and final total before payment confirmation. See [Buying credits](/features/embeddable-payments#buying-credits) for the integration and upgrade requirements.
 
 ## Receipts & branding
 

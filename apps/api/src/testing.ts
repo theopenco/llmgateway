@@ -47,6 +47,7 @@ export async function deleteAll() {
 			await db.delete(tables.crmActivity);
 			await db.delete(tables.crmContact);
 			await db.delete(tables.crmAccount);
+			await db.delete(tables.crmIntegration);
 			await db.delete(tables.enterpriseContactSubmission);
 			await db.delete(tables.auditLog);
 			await db.delete(tables.platformAuditLog);
@@ -59,6 +60,7 @@ export async function deleteAll() {
 			await db.delete(projectHourlySourceStats);
 			await db.delete(tables.projectHourlySourceModelStats);
 			await db.delete(tables.projectHourlyRoutingStats);
+			await db.delete(tables.projectHourlyWebSearchStats);
 			await db.delete(apiKeyHourlyStats);
 			await db.delete(apiKeyHourlyModelStats);
 			await db.delete(apiKeyHourlySourceStats);
@@ -74,6 +76,7 @@ export async function deleteAll() {
 			await db.delete(tables.providerListingPayment);
 			await db.delete(tables.providerCompany);
 			await db.delete(tables.routingScoreMultiplier);
+			await db.delete(tables.discount);
 			await db.delete(tables.organizationInvite);
 			await db.delete(tables.userOrganization);
 			await db.delete(tables.project);
@@ -213,6 +216,10 @@ function getCommonAggregationFields() {
 		requestCost:
 			sql<number>`coalesce(sum(cast(${tables.log.requestCost} as double precision)), 0)`.as(
 				"requestCost",
+			),
+		webSearchCost:
+			sql<number>`coalesce(sum(cast(${tables.log.webSearchCost} as double precision)), 0)`.as(
+				"webSearchCost",
 			),
 		dataStorageCost:
 			sql<number>`coalesce(sum(cast(${tables.log.dataStorageCost} as double precision)), 0)`.as(

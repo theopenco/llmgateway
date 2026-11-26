@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { insertLog } from "./logs.js";
 
-import type { LogInsertData } from "@llmgateway/db";
+import type { LogInsertData, QueuedLogData } from "@llmgateway/db";
 
 const publishToQueue = vi.fn();
 const dbInsertValues = vi.fn();
@@ -95,6 +95,15 @@ describe("insertLog retention stripping", () => {
 			expect(published.messages).toBeNull();
 		},
 	);
+
+	it("stamps enqueuedAt on the queued message", async () => {
+		const before = Date.now();
+		await insertLog(baseLogData({}), { retentionLevel: "retain" });
+
+		const published = publishToQueue.mock.calls[0][1] as QueuedLogData;
+		expect(published.enqueuedAt).toBeGreaterThanOrEqual(before);
+		expect(published.enqueuedAt).toBeLessThanOrEqual(Date.now());
+	});
 
 	it("strips payload fields before publishing when retention is none", async () => {
 		await insertLog(baseLogData({}), { retentionLevel: "none" });

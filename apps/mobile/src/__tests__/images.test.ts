@@ -73,6 +73,45 @@ test("rejects excess input images before making a billable request", async () =>
 	expect(post).not.toHaveBeenCalled();
 });
 
+test("requests one SVG from models with SVG output", async () => {
+	const result = await generateImages(
+		"project",
+		"A cactus sticker",
+		{ ...defaultImageSettings("gpt-image-2.6-flare"), format: "svg" },
+		[],
+		3,
+	);
+	expect(post).toHaveBeenCalledWith("/v1/images/generations", {
+		body: expect.objectContaining({
+			model: "gpt-image-2.6-flare",
+			n: 1,
+			output_format: "svg",
+		}),
+	});
+	expect(result.images[0].mediaType).toBe("image/svg+xml");
+});
+
+test("ignores the SVG format for models without SVG output and for edits", async () => {
+	await generateImages(
+		"project",
+		"A tree",
+		{ ...defaultImageSettings("gpt-image-2"), format: "svg" },
+		[],
+		2,
+	);
+	expect(post.mock.calls[0][1].body).not.toHaveProperty("output_format");
+	expect(post.mock.calls[0][1].body.n).toBe(2);
+	await generateImages(
+		"project",
+		"Watercolor",
+		{ ...defaultImageSettings("gpt-image-2.6-flare"), format: "svg" },
+		[{ base64: "reference", mediaType: "image/png" }],
+		1,
+	);
+	expect(post.mock.calls[1][0]).toBe("/v1/images/edits");
+	expect(post.mock.calls[1][1].body).not.toHaveProperty("output_format");
+});
+
 test("rejects empty and filtered image responses", async () => {
 	post.mockResolvedValue({ data: { data: [] } });
 	await expect(

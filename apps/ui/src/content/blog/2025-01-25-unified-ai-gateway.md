@@ -5,6 +5,11 @@ date: 2026-01-25
 title: "Beyond Proxies: Why Enterprises Need a Unified AI Gateway"
 summary: Learn why simple LLM proxies aren't enough and how a unified AI gateway delivers centralized access control, cost visibility, compliance, and security.
 categories: ["Product"]
+faqs:
+  - question: "What is a unified AI gateway?"
+    answer: "A unified AI gateway is one platform through which every team reaches AI models. Beyond routing requests and tracking cost like a proxy, it adds centralized access control, cost visibility by team and project, audit trails, and automatic failover between providers."
+  - question: "How is a unified AI gateway different from an LLM proxy?"
+    answer: "A proxy handles cost tracking and provider routing. A unified AI gateway also manages who can use which models, records who prompted what for audits, and gives a spend breakdown by team, project, and individual."
 image:
   src: "/blog/blog-unified-ai-gateway.jpeg"
   alt: "Enterprise AI Gateway connecting data sources, applications, and users to AI models"

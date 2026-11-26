@@ -22,6 +22,7 @@ export const metadata: Metadata = {
 			"Routing, multimodal APIs, observability, governance and payments behind one OpenAI-compatible API.",
 		type: "website",
 		url: "https://llmgateway.io/features",
+		images: ["/opengraph.png"],
 	},
 };
 

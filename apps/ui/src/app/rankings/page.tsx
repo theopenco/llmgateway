@@ -3,6 +3,7 @@ import dynamic from "next/dynamic";
 import { CompareFaq } from "@/components/compare/compare-faq";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
+import { CiteThis } from "@/components/seo/cite-this";
 import { JsonLd } from "@/components/seo/json-ld";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -15,6 +16,7 @@ import {
 import type {
 	RankingsAppStat,
 	RankingsModelMeta,
+	RankingsStats,
 } from "@/components/rankings/rankings-content";
 import type { Metadata } from "next";
 
@@ -49,10 +51,6 @@ export const metadata: Metadata = {
 	},
 };
 
-interface PublicModelStats {
-	models: Array<{ modelId: string; totalTokens: number }>;
-}
-
 interface PublicApps {
 	apps: RankingsAppStat[];
 }
@@ -82,18 +80,28 @@ export default async function RankingsPage() {
 		};
 	}
 
-	// The model snapshot feeds structured data while the app snapshot renders in
-	// the rankings sidebar. Interactive model stats are fetched client-side.
+	// The 7d snapshot feeds structured data and seeds the client's default
+	// window, so the chart and leaderboard render without a loading swap.
 	const [stats, apps] = await Promise.all([
-		fetchServerData<PublicModelStats>("GET", "/public/models/stats", {
+		fetchServerData<RankingsStats>("GET", "/public/models/stats", {
 			params: { query: { window: "7d" } },
 		}),
 		fetchServerData<PublicApps>("GET", "/public/apps", {
 			params: { query: { limit: "5" } },
 		}),
 	]);
+	const statsFetchedAt = Date.now();
 	const topModels = (stats?.models ?? []).slice(0, 10);
 	const topApps = apps?.apps ?? [];
+	const asOf = new Date(statsFetchedAt).toLocaleDateString("en-US", {
+		year: "numeric",
+		month: "long",
+		day: "numeric",
+		timeZone: "UTC",
+	});
+	const leaders = topModels
+		.slice(0, 3)
+		.map((model) => modelMeta[model.modelId]?.name ?? model.modelId);
 	const faqs = [
 		{
 			question: "How are the LLM rankings calculated?",
@@ -180,6 +188,8 @@ export default async function RankingsPage() {
 						</p>
 					</div>
 					<RankingsContent
+						initialStats={stats}
+						initialStatsFetchedAt={statsFetchedAt}
 						modelMeta={modelMeta}
 						providerNames={providerNames}
 						topApps={topApps}
@@ -214,6 +224,18 @@ export default async function RankingsPage() {
 							window of the same length, so a new release climbing fast stands
 							out even before it reaches the top.
 						</p>
+						{leaders.length === 3 && (
+							<p className="mt-6 text-muted-foreground">
+								As of {asOf}, the three most-used models over the previous 7
+								days were {leaders[0]}, {leaders[1]} and {leaders[2]}, by tokens
+								routed through LLM Gateway.
+							</p>
+						)}
+						<div className="mt-6">
+							<CiteThis
+								citation={`LLM Gateway, "LLM Rankings: Top Models by Real Usage", data as of ${asOf}. https://llmgateway.io/rankings`}
+							/>
+						</div>
 					</section>
 				</div>
 				<CompareFaq heading="LLM rankings, answered" faqs={faqs} />

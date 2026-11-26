@@ -4,6 +4,41 @@ import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 
+/**
+ * Google rejected the service-account credential itself (revoked key, disabled
+ * account, bad signature) — tenant input, not a gateway fault.
+ */
+export class GcpCredentialError extends Error {
+	public constructor(
+		message: string,
+		public readonly status?: number,
+	) {
+		super(message);
+		this.name = "GcpCredentialError";
+	}
+}
+
+// RFC 6749 §5.2 error codes; anything else from the upstream body is dropped.
+const OAUTH_ERROR_CODES = new Set([
+	"invalid_request",
+	"invalid_client",
+	"invalid_grant",
+	"unauthorized_client",
+	"unsupported_grant_type",
+	"invalid_scope",
+]);
+
+async function readOAuthErrorCode(res: Response): Promise<string | undefined> {
+	try {
+		const body = (await res.json()) as { error?: unknown } | null;
+		return typeof body?.error === "string" && OAUTH_ERROR_CODES.has(body.error)
+			? body.error
+			: undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 interface ServiceAccountKey {
 	client_email: string;
 	private_key: string;
@@ -94,7 +129,7 @@ function parseServiceAccount(json: string): ServiceAccountKey | null {
 	try {
 		return JSON.parse(json) as ServiceAccountKey;
 	} catch (err) {
-		logger.error(
+		logger.warn(
 			"Failed to parse GCP service account JSON",
 			err instanceof Error ? err : new Error(String(err)),
 		);
@@ -127,7 +162,14 @@ async function exchangeJwtForAccessToken(
 	sa: ServiceAccountKey,
 	abortSignal?: AbortSignal,
 ): Promise<CachedToken> {
-	const jwt = signJwt(sa);
+	let jwt: string;
+	try {
+		jwt = signJwt(sa);
+	} catch {
+		throw new GcpCredentialError(
+			"Invalid GCP service account key: private_key could not sign a JWT",
+		);
+	}
 	// `redirect: "error"` keeps the signed assertion from being replayed to
 	// whatever host a redirect names.
 	const res = await fetch(GOOGLE_OAUTH_TOKEN_URI, {
@@ -143,7 +185,14 @@ async function exchangeJwtForAccessToken(
 
 	if (!res.ok) {
 		// The response body is upstream-controlled and ends up in logs and error
-		// paths, so only the status is reported.
+		// paths, so only the status and an allowlisted OAuth error code are kept.
+		if (res.status >= 400 && res.status < 500) {
+			const code = await readOAuthErrorCode(res);
+			throw new GcpCredentialError(
+				`GCP rejected the service account key${code ? ` (${code})` : ""}: check that the key and service account are still active`,
+				res.status,
+			);
+		}
 		throw new Error(
 			`Failed to exchange JWT for GCP access token: ${res.status}`,
 		);
@@ -190,7 +239,7 @@ export async function getGcpServiceAccountAccessToken(
 ): Promise<string> {
 	const sa = parseServiceAccount(serviceAccountJson);
 	if (!sa) {
-		throw new Error(
+		throw new GcpCredentialError(
 			"Invalid GCP service account key — must be valid service account JSON",
 		);
 	}

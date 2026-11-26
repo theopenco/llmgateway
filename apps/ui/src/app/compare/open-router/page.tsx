@@ -1,8 +1,10 @@
+import { CompareAnswer } from "@/components/compare/compare-answer";
 import { CompareFaq } from "@/components/compare/compare-faq";
 import { ComparisonSources } from "@/components/compare/comparison-sources";
 import { HeroCompare } from "@/components/compare/hero-compare";
 import { Comparison } from "@/components/landing/comparison";
 import Footer from "@/components/landing/footer";
+import { pageTitle } from "@/lib/page-title";
 
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
@@ -44,6 +46,28 @@ export default function CompareOpenRouterPage() {
 		<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white">
 			<main>
 				<HeroCompare />
+				<CompareAnswer
+					competitor="OpenRouter"
+					verdict="LLM Gateway and OpenRouter both give you one API for many model providers, with routing, fallback and usage analytics. They differ on licensing and fees: LLM Gateway has an AGPLv3 core you can self-host and charges no platform fee on your own provider keys, while OpenRouter is a hosted marketplace."
+					rows={[
+						{
+							label: "Deployment",
+							llmGateway: "Hosted, or self-host the AGPLv3 core",
+							competitor: "Hosted marketplace",
+						},
+						{
+							label: "Fee on credits",
+							llmGateway: "5% on credit purchases",
+							competitor: "5.5% platform fee on Standard, 8% on Business",
+						},
+						{
+							label: "Your own provider keys",
+							llmGateway: "No platform fee",
+							competitor:
+								"Monthly allowance, then 5% of the equivalent inference cost",
+						},
+					]}
+				/>
 				<Comparison />
 				<ComparisonSources slug="open-router" />
 				<CompareFaq
@@ -59,7 +83,7 @@ export default function CompareOpenRouterPage() {
 
 export async function generateMetadata() {
 	return {
-		title: "LLM Gateway vs OpenRouter — Feature Comparison",
+		title: pageTitle("LLM Gateway vs OpenRouter — Feature Comparison"),
 		description:
 			"Compare routing, analytics, and cost optimization vs OpenRouter. See why teams choose a unified API gateway for production LLMs.",
 		alternates: { canonical: "/compare/open-router" },

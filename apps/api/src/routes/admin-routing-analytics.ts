@@ -58,9 +58,13 @@ export const adminRoutingAnalytics = new OpenAPIHono<ServerTypes>();
 
 adminRoutingAnalytics.use("/*", adminMiddleware);
 
-const routingWindowSchema = z.enum(["24h", "3d", "7d"]);
+const routingWindowSchema = z.enum(["1h", "2h", "4h", "8h", "24h", "3d", "7d"]);
 
 const WINDOW_HOURS: Record<z.infer<typeof routingWindowSchema>, number> = {
+	"1h": 1,
+	"2h": 2,
+	"4h": 4,
+	"8h": 8,
 	"24h": 24,
 	"3d": 72,
 	"7d": 168,
@@ -649,6 +653,7 @@ async function buildMappingInfos(model: {
 	const activeCarrierIds = new Set(
 		activeCarriers.map((carrier) => carrier.providerId),
 	);
+	const defaultPriorities = getDefaultRoutingConfig().providerPriorities;
 	return await Promise.all(
 		mappings.map(async (mapping) => {
 			const providerDef = getProviderDefinition(mapping.providerId);
@@ -657,7 +662,7 @@ async function buildMappingInfos(model: {
 					? (model.stability as string | undefined)
 					: undefined;
 			const stability = mapping.stability ?? modelStability ?? "stable";
-			const priority = providerDef?.priority ?? 1;
+			const priority = defaultPriorities[mapping.providerId] ?? 1;
 			const excludedReasons: string[] = [];
 			if (mapping.status && mapping.status !== "active") {
 				excludedReasons.push("listing inactive");

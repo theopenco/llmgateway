@@ -1,6 +1,7 @@
 import { WebSocketServer } from "ws";
 
 import { customHeadersFrom } from "@/chat/tools/extract-custom-headers.js";
+import { normalizeSource } from "@/chat/tools/validate-source.js";
 import {
 	reportKeyError,
 	reportKeySuccess,
@@ -8,6 +9,7 @@ import {
 	reportTrackedKeySuccess,
 } from "@/lib/api-key-health.js";
 import { logRealtimeClientError } from "@/lib/client-error-log.js";
+import { getClientSafetyIdentifierParams } from "@/lib/safety-identifier.js";
 
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -27,6 +29,8 @@ import {
 	getClientSecretRecord,
 } from "./client-secrets.js";
 import { connectUpstream, discardUpstream } from "./connect-upstream.js";
+import { ElevenLabsRealtimeProxySession } from "./elevenlabs-session.js";
+import { buildElevenLabsRealtimeQuery } from "./elevenlabs.js";
 import { RealtimeConnectError } from "./errors.js";
 import { GeminiRealtimeProxySession } from "./gemini-session.js";
 import { acquireRealtimeLease, releaseRealtimeLease } from "./leases.js";
@@ -203,8 +207,7 @@ function extractSource(req: IncomingMessage): string | null {
 	if (!value) {
 		return null;
 	}
-	const normalized = value.replace(/^https?:\/\//, "").replace(/^www\./, "");
-	return /^[a-zA-Z0-9./-]+$/.test(normalized) ? normalized : null;
+	return normalizeSource(value) ?? null;
 }
 
 /**
@@ -274,6 +277,13 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 			let token = headerToken;
 			let requestedModel = url.searchParams.get("model") ?? undefined;
 			let source = extractSource(req);
+			// Only logged as params.safety_identifier, never sent upstream. A
+			// client secret's minted value replaces it below.
+			let clientSafetyIdentifier = getClientSafetyIdentifierParams({
+				safety_identifier:
+					url.searchParams.get("safety_identifier") ?? undefined,
+				user: url.searchParams.get("user") ?? undefined,
+			}).safety_identifier;
 			// Client errors are logged against the caller's key once it is known,
 			// like HTTP rejections; 5xx responses are gateway faults.
 			const reject = async (status: number, code: string, message: string) => {
@@ -285,6 +295,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 						requestedModel,
 						source,
 						userAgent: req.headers["user-agent"],
+						clientSafetyIdentifier,
 						customHeaders: customHeadersFrom(Object.entries(req.headers)),
 						message,
 						cause: code,
@@ -402,6 +413,8 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				secretTranscriptionModel = record.transcriptionModel;
 				pinnedInstructions = record.instructions;
 				pinnedVoice = record.voice;
+				clientSafetyIdentifier =
+					record.safetyIdentifier ?? clientSafetyIdentifier;
 			}
 
 			// Full preflight runs against the WebSocket request's actual client IP:
@@ -414,6 +427,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 					requestedModel,
 					intent,
 					clientIp: extractClientIp(req),
+					clientSafetyIdentifier,
 				});
 			} catch (error) {
 				if (error instanceof RealtimeConnectError) {
@@ -459,6 +473,54 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 					return;
 				}
 			}
+
+			// ElevenLabs sessions speak the OpenAI protocol to the client and open
+			// their upstream lazily, once session.update has configured it. Their
+			// extra URL parameters are validated here so a bad one is an HTTP 400.
+			let elevenLabsQuery: URLSearchParams | undefined;
+			if (preflight.match.mapping.providerId === "elevenlabs") {
+				const result = buildElevenLabsRealtimeQuery(url.searchParams);
+				if (!result.ok) {
+					await reject(400, result.code, result.message);
+					return;
+				}
+				elevenLabsQuery = result.query;
+			}
+
+			const reportUpstreamFailure = () => {
+				if (preflight.envVarName !== undefined) {
+					reportKeyError(
+						preflight.envVarName,
+						preflight.configIndex,
+						0,
+						undefined,
+						preflight.match.modelId,
+					);
+				}
+				if (preflight.trackedKeyHealthId) {
+					reportTrackedKeyError(
+						preflight.trackedKeyHealthId,
+						0,
+						undefined,
+						preflight.match.modelId,
+					);
+				}
+			};
+			const reportUpstreamSuccess = () => {
+				if (preflight.envVarName !== undefined) {
+					reportKeySuccess(
+						preflight.envVarName,
+						preflight.configIndex,
+						preflight.match.modelId,
+					);
+				}
+				if (preflight.trackedKeyHealthId) {
+					reportTrackedKeySuccess(
+						preflight.trackedKeyHealthId,
+						preflight.match.modelId,
+					);
+				}
+			};
 
 			const sessionRecord = await createRealtimeSessionRecord(
 				preflight,
@@ -518,54 +580,27 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				throw error;
 			}
 
-			let upstream: WebSocket;
-			try {
-				upstream = await connectUpstream(preflight);
-			} catch (error) {
-				await releaseRealtimeLease(lease);
-				await abortSession("upstream_connect_failed");
-				if (preflight.envVarName !== undefined) {
-					reportKeyError(
-						preflight.envVarName,
-						preflight.configIndex,
-						0,
-						undefined,
-						preflight.match.modelId,
-					);
+			let upstream: WebSocket | undefined;
+			if (!elevenLabsQuery) {
+				try {
+					upstream = await connectUpstream(preflight);
+				} catch (error) {
+					await releaseRealtimeLease(lease);
+					await abortSession("upstream_connect_failed");
+					reportUpstreamFailure();
+					logger.error("Realtime upstream connect failed", error as Error);
+					if (error instanceof RealtimeConnectError) {
+						await reject(error.status, error.code, error.message);
+					} else {
+						await reject(
+							502,
+							"upstream_connect_failed",
+							"Failed to connect to the upstream realtime provider.",
+						);
+					}
+					return;
 				}
-				if (preflight.trackedKeyHealthId) {
-					reportTrackedKeyError(
-						preflight.trackedKeyHealthId,
-						0,
-						undefined,
-						preflight.match.modelId,
-					);
-				}
-				logger.error("Realtime upstream connect failed", error as Error);
-				if (error instanceof RealtimeConnectError) {
-					await reject(error.status, error.code, error.message);
-				} else {
-					await reject(
-						502,
-						"upstream_connect_failed",
-						"Failed to connect to the upstream realtime provider.",
-					);
-				}
-				return;
-			}
-
-			if (preflight.envVarName !== undefined) {
-				reportKeySuccess(
-					preflight.envVarName,
-					preflight.configIndex,
-					preflight.match.modelId,
-				);
-			}
-			if (preflight.trackedKeyHealthId) {
-				reportTrackedKeySuccess(
-					preflight.trackedKeyHealthId,
-					preflight.match.modelId,
-				);
+				reportUpstreamSuccess();
 			}
 
 			// The accepting check at the top of this handler ran before the
@@ -576,7 +611,9 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 			// sessions.add() below, so a session either registers before the
 			// drain loop's next count or is rejected here.
 			if (!accepting) {
-				discardUpstream(upstream);
+				if (upstream) {
+					discardUpstream(upstream);
+				}
 				await releaseRealtimeLease(lease);
 				await abortSession("server_shutdown");
 				await reject(
@@ -587,52 +624,83 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				return;
 			}
 
+			const createSession = (clientSocket: WebSocket): ShutdownableSession => {
+				const onClosed = (closed: ShutdownableSession) => {
+					sessions.delete(closed);
+				};
+				// ElevenLabs Scribe Live is translated to the OpenAI transcription
+				// protocol and connects its upstream itself, once configured.
+				if (elevenLabsQuery) {
+					return new ElevenLabsRealtimeProxySession({
+						clientSocket,
+						connectUpstream: async (query) => {
+							try {
+								const connected = await connectUpstream(preflight, { query });
+								reportUpstreamSuccess();
+								return connected;
+							} catch (error) {
+								reportUpstreamFailure();
+								throw error;
+							}
+						},
+						extensionQuery: elevenLabsQuery,
+						preflight,
+						gatewayToken: token!,
+						requestedModel: requestedModel!,
+						sessionRecordId: sessionRecord.id,
+						lease,
+						source,
+						userAgent: req.headers["user-agent"],
+						onClosed,
+					});
+				}
+				if (!upstream) {
+					throw new Error("Realtime upstream is not connected");
+				}
+				// Gemini Live speaks its own wire protocol end to end.
+				const session =
+					preflight.match.mapping.providerId === "google-ai-studio"
+						? new GeminiRealtimeProxySession({
+								clientSocket,
+								upstreamSocket: upstream,
+								preflight,
+								gatewayToken: token!,
+								requestedModel: requestedModel!,
+								sessionRecordId: sessionRecord.id,
+								lease,
+								source,
+								pinnedInstructions,
+								pinnedVoice,
+								userAgent: req.headers["user-agent"],
+								onClosed,
+							})
+						: new RealtimeProxySession({
+								clientSocket,
+								upstreamSocket: upstream,
+								preflight,
+								gatewayToken: token!,
+								requestedModel: requestedModel!,
+								sessionRecordId: sessionRecord.id,
+								lease,
+								source,
+								allowedTranscription,
+								pinnedInstructions,
+								pinnedVoice,
+								userAgent: req.headers["user-agent"],
+								onClosed,
+							});
+				// Release the buffered upstream events (session.created etc.) now
+				// that the proxy listeners are attached.
+				upstream.resume();
+				return session;
+			};
+
 			// From here on, an unexpected failure must not orphan the upstream
 			// socket, the lease, or the session record.
 			try {
 				wss.handleUpgrade(req, socket, head, (clientSocket) => {
 					upgraded = true;
-					// Gemini Live speaks its own wire protocol end to end, so it gets a
-					// sibling session implementation rather than protocol translation.
-					const session: ShutdownableSession =
-						preflight.match.mapping.providerId === "google-ai-studio"
-							? new GeminiRealtimeProxySession({
-									clientSocket,
-									upstreamSocket: upstream,
-									preflight,
-									gatewayToken: token!,
-									requestedModel: requestedModel!,
-									sessionRecordId: sessionRecord.id,
-									lease,
-									source,
-									pinnedInstructions,
-									pinnedVoice,
-									userAgent: req.headers["user-agent"],
-									onClosed: (closed) => {
-										sessions.delete(closed);
-									},
-								})
-							: new RealtimeProxySession({
-									clientSocket,
-									upstreamSocket: upstream,
-									preflight,
-									gatewayToken: token!,
-									requestedModel: requestedModel!,
-									sessionRecordId: sessionRecord.id,
-									lease,
-									source,
-									allowedTranscription,
-									pinnedInstructions,
-									pinnedVoice,
-									userAgent: req.headers["user-agent"],
-									onClosed: (closed) => {
-										sessions.delete(closed);
-									},
-								});
-					sessions.add(session);
-					// Release the buffered upstream events (session.created etc.) now
-					// that the proxy listeners are attached.
-					upstream.resume();
+					sessions.add(createSession(clientSocket));
 					logger.info("Realtime session opened", {
 						sessionId: sessionRecord.id,
 						organizationId: preflight.project.organizationId,
@@ -642,7 +710,9 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 					});
 				});
 			} catch (error) {
-				discardUpstream(upstream);
+				if (upstream) {
+					discardUpstream(upstream);
+				}
 				await releaseRealtimeLease(lease);
 				await abortSession("upgrade_failed");
 				throw error;
@@ -658,7 +728,9 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				logger.warn("Realtime upgrade aborted before completion", {
 					sessionId: sessionRecord.id,
 				});
-				discardUpstream(upstream);
+				if (upstream) {
+					discardUpstream(upstream);
+				}
 				await releaseRealtimeLease(lease);
 				await abortSession("upgrade_aborted");
 			}

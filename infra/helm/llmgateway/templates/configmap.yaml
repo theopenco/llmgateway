@@ -93,17 +93,14 @@ data:
   {{- if .aiTimeoutMs }}
   AI_TIMEOUT_MS: {{ .aiTimeoutMs | quote }}
   {{- end }}
+  {{- if .imageFetchTimeoutMs }}
+  IMAGE_FETCH_TIMEOUT_MS: {{ .imageFetchTimeoutMs | quote }}
+  {{- end }}
   {{- if .keepAliveTimeoutS }}
   KEEP_ALIVE_TIMEOUT_S: {{ .keepAliveTimeoutS | quote }}
   {{- end }}
   {{- if .shutdownGracePeriodMs }}
   SHUTDOWN_GRACE_PERIOD_MS: {{ .shutdownGracePeriodMs | quote }}
-  {{- end }}
-  {{- if .healthCheckSkipDatabase }}
-  HEALTH_CHECK_SKIP_DATABASE: {{ .healthCheckSkipDatabase | quote }}
-  {{- end }}
-  {{- if .healthCheckTimeoutMs }}
-  HEALTH_CHECK_TIMEOUT_MS: {{ .healthCheckTimeoutMs | quote }}
   {{- end }}
   {{- if .maxStreamingBufferMb }}
   MAX_STREAMING_BUFFER_MB: {{ .maxStreamingBufferMb | quote }}

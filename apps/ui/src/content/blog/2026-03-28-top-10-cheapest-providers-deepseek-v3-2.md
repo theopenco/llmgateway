@@ -5,6 +5,11 @@ date: 2026-03-28
 title: "Top 10 Cheapest Providers for DeepSeek V3.2 in 2026"
 summary: "We compared DeepSeek V3.2 pricing across every major API provider. Here's the definitive ranking — and how our Token Cost Calculator can help you estimate exact savings."
 categories: ["Guides"]
+faqs:
+  - question: "What is DeepSeek V3.2?"
+    answer: "DeepSeek V3.2 is an open-weight model that replaced V3 and R1 with one model for chat and reasoning, with a 163K context window."
+  - question: "Is the DeepSeek V3.2 provider ranking current?"
+    answer: "Pricing in the ranking is as of March 2026. Check the model page for current provider prices."
 image:
   src: "/blog/top-10-cheapest-providers-deepseek-v3-2.png"
   alt: "Top 10 Cheapest Providers for DeepSeek V3.2 in 2026"

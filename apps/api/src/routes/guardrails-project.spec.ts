@@ -140,6 +140,30 @@ describe("project guardrails API", () => {
 		expect(projectConfig.inheritOrganization).toBe(false);
 	});
 
+	test("classifier model defaults to Jev and accepts only decision models", async () => {
+		const created = await (
+			await authed("/guardrails/config/test-org-id", {
+				method: "PUT",
+				body: JSON.stringify({ enabled: true }),
+			})
+		).json();
+		expect(created.classifierModel).toBe("jev-1.14.0");
+
+		const rejected = await authed("/guardrails/config/test-org-id", {
+			method: "PUT",
+			body: JSON.stringify({ classifierModel: "gpt-4o-mini" }),
+		});
+		expect(rejected.status).toBe(400);
+
+		const updated = await (
+			await authed("/guardrails/config/test-org-id", {
+				method: "PUT",
+				body: JSON.stringify({ classifierModel: "typesafe/jev-1.13.0" }),
+			})
+		).json();
+		expect(updated.classifierModel).toBe("typesafe/jev-1.13.0");
+	});
+
 	test("rules are scoped to the level they were created on", async () => {
 		const orgRule = await (
 			await authed("/guardrails/rules/test-org-id", {

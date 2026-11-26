@@ -217,6 +217,15 @@ export function ProviderModelsTable({
 								>
 									{m.status}
 								</Badge>
+								{m.airsidePausedAt ? (
+									<div
+										className="text-xs text-amber-600 dark:text-amber-400"
+										title="The carrier paused this listing in Airside. It routes again once they resume it."
+									>
+										paused by carrier{" "}
+										{new Date(m.airsidePausedAt).toLocaleDateString()}
+									</div>
+								) : null}
 							</TableCell>
 							<TableCell className="tabular-nums">
 								{formatNumber(m.logsCount)}

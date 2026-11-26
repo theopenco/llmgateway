@@ -10,18 +10,20 @@ export function Choice<T extends string>({
 	options,
 	onChange,
 	disabled,
+	format = (option) => option,
 }: {
 	label: string;
 	value: T;
 	options: readonly T[];
 	onChange: (value: T) => void;
 	disabled?: boolean;
+	format?: (value: T) => string;
 }) {
 	const [open, setOpen] = useState(false);
 	return (
 		<>
 			<Button
-				title={`${label}: ${value}`}
+				title={`${label}: ${format(value)}`}
 				secondary
 				disabled={disabled}
 				onPress={() => setOpen(true)}
@@ -43,7 +45,7 @@ export function Choice<T extends string>({
 						contentContainerStyle={{ padding: 22, gap: 12 }}
 						renderItem={({ item }) => (
 							<Button
-								title={item}
+								title={format(item)}
 								secondary={item !== value}
 								onPress={() => {
 									onChange(item);

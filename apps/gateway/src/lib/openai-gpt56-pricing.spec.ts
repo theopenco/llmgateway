@@ -165,6 +165,7 @@ describe("GPT-5.6 and GPT-6 on Azure", () => {
 			"gpt-5.6-terra",
 			"gpt-6-astra",
 			"gpt-6-luna",
+			"gpt-6-luna-decisions",
 			"gpt-6-sol",
 		]);
 	});
@@ -188,7 +189,26 @@ describe("GPT-5.6 and GPT-6 on Azure", () => {
 		},
 	);
 
-	it.each(azureEntries)(
+	// Decisions run on a Data Zone deployment: East US 2, our only Global
+	// Standard resource, has decisions disabled for gpt-6-luna.
+	it("gpt-6-luna-decisions bills the Data Zone rate on azure", () => {
+		const entry = azureEntries.find(
+			(e) => e.modelId === "gpt-6-luna-decisions",
+		);
+		expect(entry?.provider.inputPrice).toBe("0.11e-6");
+		expect(
+			entry?.provider.pricingTiers?.map((t) => [
+				t.inputPrice,
+				t.cachedInputPrice,
+				t.cacheWriteInputPrice,
+			]),
+		).toEqual([
+			["0.11e-6", "0.011e-6", "0.1375e-6"],
+			["0.22e-6", "0.022e-6", "0.275e-6"],
+		]);
+	});
+
+	it.each(azureEntries.filter((e) => e.modelId !== "gpt-6-luna-decisions"))(
 		"$modelId bills Standard Global at the first-party rate",
 		({ modelId, provider, firstParty }) => {
 			expect(

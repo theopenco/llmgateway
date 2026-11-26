@@ -154,7 +154,7 @@ function ModelSearch() {
 					<span className="truncate">
 						Search models by provider, name, ID, or alias…
 					</span>
-					<span className="ml-auto hidden rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:inline-flex">
+					<span className="ml-auto hidden rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground/70 sm:inline-flex">
 						⌘K
 					</span>
 				</button>

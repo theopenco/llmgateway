@@ -15,6 +15,7 @@ import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { getConfig } from "@/lib/config-server";
+import { pageTitle } from "@/lib/page-title";
 
 import { countryCodeToFlag } from "@llmgateway/models";
 import {
@@ -32,10 +33,10 @@ const INSPECTION_MAILTO =
 
 const TITLE = "Airworthy: the certificate for LLM inference providers";
 const DESCRIPTION =
-	"Airworthy (standard AW-1) certifies that an inference provider's claims on AI training, prompt logging, data retention, headquarters and audits were checked against evidence by LLM Gateway.";
+	"Airworthy (AW-1) certifies an inference provider's claims on AI training, prompt logging, data retention, headquarters and audits against evidence.";
 
 export const metadata: Metadata = {
-	title: TITLE,
+	title: pageTitle(TITLE),
 	description: DESCRIPTION,
 	alternates: { canonical: "/airworthy" },
 	openGraph: { title: TITLE, url: "/airworthy", description: DESCRIPTION },

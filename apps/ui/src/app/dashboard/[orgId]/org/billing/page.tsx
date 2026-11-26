@@ -1,5 +1,6 @@
 import { AutoTopUpSettings } from "@/components/billing/auto-topup-settings";
 import { PlanManagement } from "@/components/billing/plan-management";
+import { SelfHostedEnterprisePanel } from "@/components/billing/self-hosted-enterprise-panel";
 import { PaymentMethodsManagement } from "@/components/credits/payment-methods-management";
 import { TopUpCreditsButton } from "@/components/credits/top-up-credits-dialog";
 import { UnauthorizedView } from "@/components/dashboard/unauthorized-view";
@@ -83,6 +84,8 @@ export default async function BillingPage({
 							<PlanManagement />
 						</CardContent>
 					</Card>
+
+					<SelfHostedEnterprisePanel />
 
 					<Card>
 						<CardHeader>

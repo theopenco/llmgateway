@@ -9,6 +9,7 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
+import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -54,6 +55,7 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { clientSafetyIdentifierFields } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
@@ -61,6 +63,7 @@ import {
 	shouldRedactProviderError,
 } from "@/lib/stealth-provider-errors.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
 import {
@@ -83,6 +86,7 @@ import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemet
 import type { Context } from "hono";
 
 const rerankRequestSchema = z.object({
+	...clientSafetyIdentifierFields,
 	model: z.string().openapi({
 		description: "ID of the rerank model to use.",
 		example: "deepinfra/qwen3-reranker-8b",
@@ -151,6 +155,7 @@ const rerankResponseSchema = z
 		model: z.string(),
 		results: z.array(rerankResultSchema),
 		meta: rerankMetaSchema.optional(),
+		usage: usageWithCostSchema.optional(),
 	})
 	.passthrough()
 	.openapi({
@@ -396,7 +401,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 		baseOrganization,
 	);
 
-	const retentionLevel = getEffectiveRetentionLevel(organization);
+	const retentionLevel = getEffectiveRetentionLevel(organization, apiKey);
 
 	// 2. Resolve model → provider mapping
 	const result = findRerankMapping(requestedModel);
@@ -456,12 +461,17 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 	}
 
 	// 5. Enterprise provider compliance
-	await assertProviderCompliant(organization, providerId, {
-		organizationId: project.organizationId,
-		modelId: modelDefId,
-		apiKeyId: apiKey.id,
-		model: requestedModel,
-	});
+	await assertProviderCompliant(
+		organization,
+		providerId,
+		{
+			organizationId: project.organizationId,
+			modelId: modelDefId,
+			apiKeyId: apiKey.id,
+			model: requestedModel,
+		},
+		apiKey,
+	);
 
 	const failedKeys = createFailedKeyTracker();
 	const routingAttempts: RoutingAttempt[] = [];
@@ -535,7 +545,9 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				providerId as Provider,
 				{
 					selectionScope: upstreamModel,
+					model: modelDefId,
 					variant: envVariant,
+					organizationId: project.organizationId,
 					region: undefined,
 					requiresServiceTier: false,
 					excludedEnvIndices: excludedEnvKeyIndices,
@@ -554,6 +566,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (!providerKeyInner) {
 				throw new HTTPException(400, {
@@ -578,6 +591,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (providerKeyInner) {
 				usedToken = readProviderKey(providerKeyInner);
@@ -1238,7 +1252,16 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 				{ retentionLevel },
 			);
 
-			return c.json(normalizedResponse);
+			return c.json(
+				withUsageCost(
+					normalizedResponse,
+					cost,
+					{ input_cost: inputCost, request_cost: requestCostNum },
+					promptTokens !== null
+						? { input_tokens: promptTokens, total_tokens: totalTokens }
+						: {},
+				),
+			);
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

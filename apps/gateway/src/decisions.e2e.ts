@@ -1,3 +1,5 @@
+import { deflateSync } from "node:zlib";
+
 import "dotenv/config";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
 
@@ -13,6 +15,83 @@ import {
 } from "@/chat-helpers.e2e.js";
 
 import { app } from "./app.js";
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+	let c = n;
+	for (let k = 0; k < 8; k++) {
+		c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+	}
+	return c >>> 0;
+});
+
+function crc32(data: Buffer): number {
+	let crc = 0xffffffff;
+	for (const byte of data) {
+		crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+	}
+	return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+	const length = Buffer.alloc(4);
+	length.writeUInt32BE(data.length);
+	const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+	const crc = Buffer.alloc(4);
+	crc.writeUInt32BE(crc32(body));
+	return Buffer.concat([length, body, crc]);
+}
+
+type Rgb = [number, number, number];
+
+/**
+ * A square RGB PNG; Jev rejects images under 280 pixels per side. `paint`
+ * gives each pixel's colour.
+ */
+function pngDataUrl(
+	size: number,
+	paint: (x: number, y: number) => Rgb,
+): string {
+	const header = Buffer.alloc(13);
+	header.writeUInt32BE(size, 0);
+	header.writeUInt32BE(size, 4);
+	header[8] = 8; // bit depth
+	header[9] = 2; // truecolor
+	const rows = Array.from({ length: size }, (_, y) =>
+		Buffer.from([
+			0,
+			...Array.from({ length: size }, (_, x) => paint(x, y)).flat(),
+		]),
+	);
+	const png = Buffer.concat([
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+		pngChunk("IHDR", header),
+		pngChunk("IDAT", deflateSync(Buffer.concat(rows))),
+		pngChunk("IEND", Buffer.alloc(0)),
+	]);
+	return `data:image/png;base64,${png.toString("base64")}`;
+}
+
+const RED: Rgb = [220, 20, 20];
+const WHITE: Rgb = [255, 255, 255];
+const RED_PNG_DATA_URL = pngDataUrl(400, () => RED);
+
+/** Where the red rectangle sits in BOX_PNG_DATA_URL, as fractions of its size. */
+const RED_RECT = { left: 0.5, right: 0.9, top: 0.25, bottom: 0.75 };
+const BOX_PNG_DATA_URL = pngDataUrl(400, (x, y) =>
+	x >= RED_RECT.left * 400 &&
+	x < RED_RECT.right * 400 &&
+	y >= RED_RECT.top * 400 &&
+	y < RED_RECT.bottom * 400
+		? RED
+		: WHITE,
+);
+
+/** Asserts a box answer lands near RED_RECT. */
+function expectRedRectBox(box: Record<string, number>) {
+	for (const edge of ["left", "right", "top", "bottom"] as const) {
+		expect(Math.abs(box[edge] - RED_RECT[edge]), edge).toBeLessThan(0.15);
+	}
+}
 
 describe("e2e decisions", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
@@ -101,6 +180,119 @@ describe("e2e decisions", getConcurrentTestOptions(), () => {
 
 			const log = await validateLogByRequestId(requestId);
 			expect(log.apiOrigin).toBe("decisions");
+			expect(Number(log.cost)).toBeGreaterThan(0);
+		},
+	);
+
+	test.each(decisionModels.filter(({ provider }) => provider.vision))(
+		"decisions image $model",
+		getTestOptions(),
+		async ({ model }) => {
+			const res = await app.request("/v1/decisions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-no-fallback": "true",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model,
+					input: [
+						{
+							role: "user",
+							content: [{ type: "input_image", image_url: RED_PNG_DATA_URL }],
+						},
+					],
+					questions: [
+						{
+							type: "predicate",
+							name: "is_red",
+							instructions: "Is the image a solid red square?",
+						},
+					],
+				}),
+			});
+
+			const json = await res.json();
+			expect(res.status, JSON.stringify(json)).toBe(200);
+			expect(json.answers[0].probability).toBeGreaterThan(0.5);
+		},
+	);
+
+	// OpenRouter's System One shape: image parts inline in `state`, which
+	// TypeSafe only reads once the gateway moves them into `assets`.
+	test.each(
+		decisionModels.filter(
+			({ provider }) => provider.vision && provider.providerId === "typesafe",
+		),
+	)("systemone inline image $model", getTestOptions(), async ({ model }) => {
+		const res = await app.request("/v1/systemone", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-no-fallback": "true",
+				Authorization: `Bearer real-token`,
+			},
+			body: JSON.stringify({
+				model,
+				state: [
+					"Photo:",
+					{ type: "image_url", image_url: { url: RED_PNG_DATA_URL } },
+				],
+				questions: {
+					is_red: {
+						type: "noul",
+						instructions: "Is the photo a solid red square?",
+					},
+				},
+			}),
+		});
+
+		const json = await res.json();
+		expect(res.status, JSON.stringify(json)).toBe(200);
+		expect(json.answers.is_red.noul).toBeGreaterThan(0.5);
+		// A 400x400 image costs a few hundred tokens; as base64 text it would
+		// cost thousands.
+		expect(json.usage.input_tokens).toBeLessThan(1500);
+	});
+
+	const boxModels = decisionModels.filter(
+		({ provider }) => provider.decisionBoxQuestions,
+	);
+
+	test.each(boxModels)(
+		"systemone box $model",
+		getTestOptions(),
+		async ({ model }) => {
+			const requestId = generateTestRequestId();
+			const res = await app.request("/v1/systemone", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": requestId,
+					"x-no-fallback": "true",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model,
+					state: {
+						photo: { type: "image_url", image_url: { url: BOX_PNG_DATA_URL } },
+					},
+					questions: {
+						rect: { type: "box", instructions: "the red rectangle in `photo`" },
+					},
+				}),
+			});
+
+			const json = await res.json();
+			if (logMode) {
+				console.log("systemone box response:", JSON.stringify(json, null, 2));
+			}
+			expect(res.status, JSON.stringify(json)).toBe(200);
+			expect(json.answers.rect.type).toBe("box");
+			expectRedRectBox(json.answers.rect.box);
+
+			const log = await validateLogByRequestId(requestId);
 			expect(Number(log.cost)).toBeGreaterThan(0);
 		},
 	);

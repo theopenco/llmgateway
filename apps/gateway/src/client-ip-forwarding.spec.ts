@@ -133,11 +133,19 @@ describe("client IP across internal gateway requests", () => {
 					body: JSON.stringify(body),
 				});
 
-				expect(response.status).toBe(mcpProxy ? 200 : 403);
+				expect(response.status).toBe(403);
 				const responseBody = await response.text();
 				if (mcpProxy) {
-					expect(JSON.parse(responseBody).result.isError).toBe(true);
-					expect(gatewayResponseBody).toBeDefined();
+					// Private MCP reads now apply IP authorization before any internal hop.
+					expect(globalThis.fetch).not.toHaveBeenCalled();
+					expect(responseBody).toContain("Access denied by an IP restriction");
+					const missing = (await missingIpCount()) - before;
+					if (value) {
+						expect(missing).toBe(0);
+					} else {
+						expect(missing).toBeGreaterThan(0);
+					}
+					return;
 				}
 				expect(gatewayResponseBody ?? responseBody).toContain(
 					value

@@ -149,7 +149,10 @@ describe("end-user top-up receipt", () => {
 	test("skips the receipt for a sandbox wallet", async () => {
 		await seedWallet({ mode: "test", email: "ada@acme.test" });
 
-		await handleEndUserTopUpSucceeded(makeTopUpIntent("pi_receipt_3", 1050));
+		await handleEndUserTopUpSucceeded(
+			makeTopUpIntent("pi_receipt_3", 1050),
+			"test",
+		);
 
 		expect(sendEmailMock).not.toHaveBeenCalled();
 	});

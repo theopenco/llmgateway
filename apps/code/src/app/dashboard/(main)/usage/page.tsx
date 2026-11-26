@@ -34,6 +34,9 @@ export default function UsagePage() {
 				organizationId={devPlanStatus.organizationId ?? null}
 				creditsUsed={creditsUsed}
 				creditsLimit={creditsLimit}
+				renewalRollover={parseFloat(
+					devPlanStatus.devPlanRenewalRollover ?? "0",
+				)}
 				premiumCreditsUsed={premiumCreditsUsed}
 				premiumWeeklyLimit={premiumWeeklyLimit}
 				premiumWeekResetsAt={devPlanStatus.devPlanPremiumWeekResetsAt ?? null}

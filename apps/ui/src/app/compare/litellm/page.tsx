@@ -1,8 +1,10 @@
+import { CompareAnswer } from "@/components/compare/compare-answer";
 import { CompareFaq } from "@/components/compare/compare-faq";
 import { ComparisonSources } from "@/components/compare/comparison-sources";
 import { HeroCompare } from "@/components/compare/hero-compare";
 import { ComparisonLiteLLM } from "@/components/landing/comparison-litellm";
 import Footer from "@/components/landing/footer";
+import { pageTitle } from "@/lib/page-title";
 
 import type { CompareFaqItem } from "@/components/compare/compare-faq";
 
@@ -72,6 +74,30 @@ export default function CompareLiteLLMPage() {
 						},
 					}}
 				/>
+				<CompareAnswer
+					competitor="LiteLLM"
+					verdict="LiteLLM is a Python SDK and self-hosted gateway that your team operates. LLM Gateway offers managed hosting as well as a self-hostable core. The main choice is how much infrastructure and configuration you want to run yourself."
+					rows={[
+						{
+							label: "Deployment",
+							llmGateway: "Managed hosting, or self-host the AGPLv3 core",
+							competitor: "Self-hosted",
+						},
+						{
+							label: "Pricing",
+							llmGateway:
+								"5% fee on credit purchases; no platform fee on your own provider keys",
+							competitor:
+								"No license fee for the open-source edition; Enterprise is quoted annually",
+						},
+						{
+							label: "Enterprise controls",
+							llmGateway: "Commercial enterprise license",
+							competitor:
+								"SSO, SCIM, audit logs and advanced access controls in Enterprise",
+						},
+					]}
+				/>
 				<ComparisonLiteLLM />
 				<ComparisonSources slug="litellm" />
 				<CompareFaq
@@ -87,7 +113,7 @@ export default function CompareLiteLLMPage() {
 
 export async function generateMetadata() {
 	return {
-		title: "LLM Gateway vs LiteLLM — Feature Comparison",
+		title: pageTitle("LLM Gateway vs LiteLLM — Feature Comparison"),
 		description:
 			"Compare managed hosting, supply-chain security and billing vs LiteLLM's self-hosted proxy, compromised twice in 2026. See why teams pick LLM Gateway.",
 		alternates: { canonical: "/compare/litellm" },

@@ -132,7 +132,8 @@ Each key in the list shows:
 
 The period selector next to the search box switches the **Usage** column
 between **All time** (the default), **Last 24 hours**, **Last 7 days**, **Last
-30 days**, and **Last 90 days**. The choice is kept in the page URL. Limits and
+30 days**, **Last 90 days**, and a **Custom range** of calendar days picked in
+your display timezone. The choice is kept in the page URL. Limits and
 their gauges always measure against all-time and current-window spend,
 whatever period is selected. Period usage comes from hourly rollups, so the
 latest requests can take a few minutes to appear.
@@ -300,12 +301,17 @@ The page also shows how many API keys you are using relative to your plan
 allowance. The cap counts **active** keys across every project in the
 organization, so deactivated and deleted keys do not count against it.
 
-- **Free**: Standard API key count limit
-- **Pro**: A larger allowance
-- **Enterprise**: Custom limits
+- **Free**: 5 active keys
+- **Pro (legacy)**: 20 active keys
+- **Enterprise**: 500 active keys
+
+A custom per-organization limit set by LLM Gateway overrides these defaults —
+except for an Enterprise-plan organization whose Enterprise access has lapsed,
+which stays at 5 active keys.
 
 Owners and admins can also set a per-member key cap on the [Team
 page](/learn/team), which applies on top of the organization-wide allowance.
 
 If you reach the limit, the **Create API Key** button is disabled until you
-delete or deactivate unused keys, or upgrade.
+delete or deactivate unused keys. Contact
+[contact@llmgateway.io](mailto:contact@llmgateway.io) to raise the limit.

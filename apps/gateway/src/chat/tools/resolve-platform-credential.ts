@@ -12,7 +12,11 @@ import {
 	type ProviderKeyRateLimitExemption,
 } from "@/lib/provider-key-rate-limit.js";
 
-import { readProviderKey } from "@llmgateway/actions";
+import {
+	managedCredentialOptions,
+	readProviderKey,
+	resolveAzureBaseUrl,
+} from "@llmgateway/actions";
 import { providerKeyAllowsModel } from "@llmgateway/db";
 import { getProviderEnvValue, providers } from "@llmgateway/models";
 
@@ -61,8 +65,9 @@ function combineFilters(
 export async function hasServiceTierEligiblePlatformCredential(
 	provider: Provider,
 	variant: EnvVarVariant | undefined,
+	organizationId: string | undefined,
 ): Promise<boolean> {
-	const managedKeys = await listManagedProviderKeys(provider);
+	const managedKeys = await listManagedProviderKeys(provider, organizationId);
 	if (managedKeys.length === 0) {
 		return hasServiceTierEligibleEnvCredential(provider, variant);
 	}
@@ -81,16 +86,18 @@ export interface ResolvePlatformCredentialOptions {
 	/**
 	 * Canonical model id the credential will serve. Managed credentials
 	 * restricted via `allowedModels` are skipped when they exclude it, falling
-	 * through to the next credential or the env vars.
-	 *
-	 * Optional because several endpoints (embeddings, speech, OCR, …) only hold
-	 * the upstream model id here — comparing that against the canonical ids in
-	 * `allowedModels` would silently never match, which is worse than not
-	 * filtering. Every chat-path caller passes it; a caller that omits it
-	 * bypasses the restriction.
+	 * through to the next credential or the env vars, and applies their
+	 * per-model caps. Never pass the upstream id: `allowedModels` holds
+	 * canonical ids. A caller that omits it bypasses both.
 	 */
 	model?: string;
 	variant: EnvVarVariant | undefined;
+	/**
+	 * Organization the request bills. Its dedicated managed credentials, when it
+	 * has any for the provider, are the only ones it may use; undefined (an
+	 * internal call) selects from the shared fleet only.
+	 */
+	organizationId: string | undefined;
 	region: string | undefined;
 	/** True when the request asked for a premium (flex/priority) service tier. */
 	requiresServiceTier: boolean;
@@ -105,6 +112,8 @@ export interface ResolvePlatformCredentialOptions {
 	filter?: (key: ProviderKeyRow) => boolean;
 	/** Lets a soft/lax-capped managed credential serve this request. */
 	rateLimitExemption?: ProviderKeyRateLimitExemption;
+	/** False for credential availability checks without an upstream attempt. */
+	advanceRoundRobin?: boolean;
 }
 
 /**
@@ -140,12 +149,15 @@ export async function resolvePlatformCredential(
 			: undefined,
 	);
 	const managedKey = await findManagedProviderKey(provider, {
+		organizationId: options.organizationId,
 		variant: options.variant,
 		region: options.region,
 		selectionScope: options.selectionScope,
 		excludedKeyIds: options.excludedProviderKeyIds,
 		filter,
 		rateLimitExemption: options.rateLimitExemption,
+		model: restrictedToModel,
+		advanceRoundRobin: options.advanceRoundRobin,
 	});
 
 	if (managedKey) {
@@ -157,7 +169,7 @@ export async function resolvePlatformCredential(
 		};
 	}
 
-	if (await hasManagedProviderCredential(provider)) {
+	if (await hasManagedProviderCredential(provider, options.organizationId)) {
 		// The scope is what makes this actionable: the fleet is never empty here,
 		// so the operator needs to know which axis excluded every credential.
 		const scope = [
@@ -174,6 +186,7 @@ export async function resolvePlatformCredential(
 		// Only a 429 when caps alone emptied the pool this request selects from.
 		const candidates = (
 			await listManagedProviderKeyCandidates(provider, {
+				organizationId: options.organizationId,
 				variant: options.variant,
 				region: options.region,
 				filter,
@@ -182,6 +195,7 @@ export async function resolvePlatformCredential(
 		const rateLimited = await getRateLimitedProviderKeys(
 			candidates,
 			options.rateLimitExemption,
+			restrictedToModel,
 		);
 		if (candidates.length > 0 && rateLimited.size === candidates.length) {
 			throw new ProviderKeyRateLimitError(
@@ -267,4 +281,60 @@ export function getCredentialSetting(
 		options.defaultValue,
 		options.variant,
 	);
+}
+
+/**
+ * Base URL of the Azure credential serving the request, for endpoints that
+ * build their own URL: its explicit base URL, else its resource's OpenAI host
+ * (a BYOK key's `azure_resource` option, the managed config, or the env var).
+ */
+/**
+ * Base URL of the Azure credential serving the request, for endpoints that
+ * build their own URL. Same precedence as chat: a BYOK key's own base URL,
+ * then the credential's base URL, then its resource's OpenAI host. Env vars
+ * apply only on the env path.
+ */
+export function getAzureCredentialBaseUrl(
+	credential: {
+		providerKey?: ProviderKeyRow;
+		managedKey?: ProviderKeyRow;
+	},
+	options: {
+		configIndex?: number;
+		variant?: EnvVarVariant;
+	} = {},
+): string | undefined {
+	if (credential.providerKey?.baseUrl) {
+		return resolveAzureBaseUrl({
+			providerKeyOptions: {
+				env_config: { baseUrl: credential.providerKey.baseUrl },
+			},
+			skipEnvVars: true,
+		});
+	}
+	return resolveAzureBaseUrl({
+		providerKeyOptions: credential.providerKey
+			? (credential.providerKey.options ?? undefined)
+			: managedCredentialOptions(credential.managedKey),
+		skipEnvVars: Boolean(credential.providerKey ?? credential.managedKey),
+		configIndex: options.configIndex,
+		variant: options.variant,
+	});
+}
+
+/**
+ * Upstream model for an Azure request: the credential's
+ * `azure_deployment_name` override when set, else the mapping's external id.
+ */
+export function getAzureUpstreamModel(
+	credential: {
+		providerKey?: ProviderKeyRow;
+		managedKey?: ProviderKeyRow;
+	},
+	externalId: string,
+): string {
+	const options = credential.providerKey
+		? credential.providerKey.options
+		: managedCredentialOptions(credential.managedKey);
+	return options?.azure_deployment_name || externalId;
 }

@@ -4,6 +4,7 @@ import {
 	estimateChatMessageTokens,
 	estimateTokensFromText,
 	type TokenEstimateFallback,
+	estimateTokensFromTextLength,
 } from "./token-estimate.js";
 
 describe("estimateTokensFromText", () => {
@@ -209,4 +210,13 @@ describe("estimateChatMessageTokens (fallback reporting)", () => {
 		estimateChatMessageTokens(messages, undefined, (f) => calls.push(f));
 		expect(calls).toHaveLength(0);
 	});
+});
+
+it("estimates streamed character counts without retaining text", () => {
+	for (let length = 0; length < 100; length++) {
+		expect(estimateTokensFromTextLength(length)).toBe(
+			estimateTokensFromText("x".repeat(length)),
+		);
+	}
+	expect(estimateTokensFromTextLength(1_000_000_000)).toBe(250_000_000);
 });

@@ -7,7 +7,7 @@ import { ChatPricingPlans } from "@/components/pricing/chat-pricing-plans";
 
 import { SELF_REFUND_WINDOW_DAYS } from "@llmgateway/shared";
 
-type StudioNoun = "images" | "videos" | "audio";
+type StudioNoun = "images" | "videos" | "audio" | "decisions";
 
 interface ChatPlanUpsellProps {
 	noun: StudioNoun;
@@ -20,6 +20,7 @@ const HEADLINE: Record<StudioNoun, string> = {
 	images: "Become a member to keep generating images",
 	videos: "Become a member to keep generating videos",
 	audio: "Become a member to keep generating audio",
+	decisions: "Become a member to keep running decisions",
 };
 
 export function ChatPlanUpsell({

@@ -133,13 +133,26 @@ describe("anthropic tool search", () => {
 		expect(body.tools?.[1]).toMatchObject({ defer_loading: true });
 	});
 
-	// Anthropic offers tool search on Bedrock only through InvokeModel, and the
-	// gateway drives Bedrock through Converse — so it degrades to eager loading
-	// here even though Bedrock serves the same Claude models.
-	test("strips both for aws-bedrock, which the gateway drives via Converse", async () => {
-		const body = await prepare(
+	test("keeps both on AWS Bedrock's Messages API", async () => {
+		const body = (await prepare(
 			"aws-bedrock",
 			"claude-sonnet-4-6",
+			[{ role: "user", content: "What is the weather in Paris?" }],
+			[TOOL_SEARCH_TOOL, DEFERRED_TOOL],
+		)) as AnthropicRequestBody;
+
+		expect(body.tools?.[0]).toEqual({
+			type: "tool_search_tool_regex_20251119",
+			name: "tool_search_tool_regex",
+		});
+		expect(body.tools?.[1]).toMatchObject({ defer_loading: true });
+	});
+
+	// Bedrock's Converse API has no tool search, so it degrades to eager loading.
+	test("strips both for a Claude model still on Bedrock Converse", async () => {
+		const body = await prepare(
+			"aws-bedrock",
+			"claude-sonnet-4-5",
 			[{ role: "user", content: "What is the weather in Paris?" }],
 			[TOOL_SEARCH_TOOL, DEFERRED_TOOL],
 		);

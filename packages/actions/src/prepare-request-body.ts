@@ -13,6 +13,7 @@ import {
 	type BaseMessage,
 	type CacheControl,
 	type FunctionParameter,
+	isInputAudioContent,
 	isTextContent,
 	type OpenAIFunctionToolInput,
 	type OpenAIRequestBody,
@@ -35,10 +36,13 @@ import {
 	type WebSearchTool,
 } from "@llmgateway/models";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
-import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
+import { FAL_IMAGE_SIZES } from "@llmgateway/shared/image-generation-config";
 
 import {
 	anthropicThinkingBlocksFor,
+	DROP_MISMATCHED_THINKING,
+	THINKING_BINDING_BETA,
+	thinkingAcceptsBinding,
 	toConverseReasoningContent,
 } from "./anthropic-thinking.js";
 import {
@@ -50,11 +54,12 @@ import {
 	toAnthropicWebFetchTool,
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
-import { fetchNoRedirect } from "./fetch-no-redirect.js";
+import { liftToolResultImages } from "./lift-tool-result-images.js";
 import { orderToolResultReminders } from "./order-tool-result-reminders.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { processImageUrl } from "./process-image-url.js";
+import { usesAwsBedrockConverse } from "./provider-api-format.js";
 import { RequestError } from "./request-error.js";
 import { mappingSupportsToolChoice } from "./tool-choice-support.js";
 import {
@@ -243,8 +248,15 @@ interface OpenAIImageRequest {
 	size?: string;
 	quality?: OpenAIImageQuality;
 	moderation?: OpenAIImageModeration;
+	complexity?: "low" | "medium" | "high";
+	background?: string;
+	output_format?: string;
+	output_compression?: number;
+	frame_count?: number;
+	frame_duration_ms?: number;
 	n?: number;
 	image?: string | string[];
+	svg?: SvgImageOptions | null;
 }
 
 /**
@@ -295,6 +307,9 @@ function normalizeImageModeration(
 async function fetchImageAsBlob(
 	url: string,
 	index: number,
+	isProd: boolean,
+	maxSizeMB: number,
+	userPlan: "free" | "pro" | "enterprise" | null,
 ): Promise<{ blob: Blob; filename: string }> {
 	const parsed = parseDataUrl(url);
 	if (parsed) {
@@ -313,23 +328,56 @@ async function fetchImageAsBlob(
 		};
 	}
 
-	// SSRF: the URL comes from the request body, so validate it does not resolve
-	// to an internal host and refuse redirects before fetching.
-	await assertSafeUserContentUrl(url);
-	const response = await fetchNoRedirect(url);
-	if (!response.ok) {
-		throw new Error(
-			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,
-		);
-	}
-	const mimeType =
-		response.headers.get("content-type")?.split(";")[0]?.trim() || "image/png";
-	const buffer = await response.arrayBuffer();
+	// Reuse SSRF validation and the streaming byte cap before building multipart.
+	const { data, mimeType } = await processImageUrl(
+		url,
+		isProd,
+		maxSizeMB,
+		userPlan,
+	);
+
+	const raw = Buffer.from(data, "base64");
+	const buffer = new ArrayBuffer(raw.byteLength);
+	new Uint8Array(buffer).set(raw);
 	const ext = mimeType.split("/")[1]?.split("+")[0] ?? "png";
 	return {
 		blob: new Blob([buffer], { type: mimeType }),
 		filename: `image-${index}.${ext}`,
 	};
+}
+
+async function fetchMarkupAsBlob(
+	url: string,
+	isProd: boolean,
+	maxSizeMB: number,
+	userPlan: "free" | "pro" | "enterprise" | null,
+): Promise<Blob> {
+	try {
+		const { data, mimeType } = await processImageUrl(
+			url,
+			isProd,
+			maxSizeMB,
+			userPlan,
+		);
+		if (mimeType !== "image/png") {
+			throw new RequestError("markup must be a PNG image.");
+		}
+		const { blob } = await fetchImageAsBlob(
+			`data:${mimeType};base64,${data}`,
+			0,
+			isProd,
+			maxSizeMB,
+			userPlan,
+		);
+		return blob;
+	} catch (error) {
+		if (error instanceof RequestError) {
+			throw error;
+		}
+		throw new RequestError(
+			"Invalid markup image. Use a publicly accessible HTTPS PNG or a PNG data URL.",
+		);
+	}
 }
 
 /**
@@ -401,7 +449,6 @@ const OPENAI_CHAT_BODY_PROVIDERS: ReadonlySet<string> = new Set([
 	"cerebras",
 	"xiaomi",
 	"deepseek",
-	"gonka24",
 ]);
 
 /**
@@ -607,6 +654,56 @@ function convertOpenAISchemaToGoogle(
 	// We skip it here as it's not part of Google's schema format
 
 	return converted;
+}
+
+interface CacheMarked {
+	cache_control?: { ttl?: string };
+	content?: unknown;
+	type?: unknown;
+}
+
+function asCacheMarkedList(value: unknown): CacheMarked[] {
+	return Array.isArray(value)
+		? value.filter(
+				(item): item is CacheMarked => !!item && typeof item === "object",
+			)
+		: [];
+}
+
+/**
+ * Anthropic processes breakpoints in order (tools, system, messages) and
+ * rejects a ttl="1h" one after a shorter one. Drops the shorter markers that
+ * precede the last 1h marker, keeping the breakpoint the caller paid the 1h
+ * write premium for.
+ */
+function dropCacheMarkersBeforeLongerTtl(body: {
+	tools?: unknown;
+	system?: unknown;
+	messages?: unknown;
+}): void {
+	const blocks = [
+		...asCacheMarkedList(body.tools),
+		...asCacheMarkedList(body.system),
+		...asCacheMarkedList(body.messages).flatMap((message) =>
+			asCacheMarkedList(message.content).flatMap((block) => [
+				block,
+				...(block.type === "tool_result"
+					? asCacheMarkedList(block.content)
+					: []),
+			]),
+		),
+	].filter((block) => block.cache_control);
+	let lastOneHour = -1;
+	blocks.forEach((block, index) => {
+		if (block.cache_control?.ttl === "1h") {
+			lastOneHour = index;
+		}
+	});
+	for (const block of blocks.slice(0, Math.max(lastOneHour, 0))) {
+		if (block.cache_control?.ttl !== "1h") {
+			delete block.cache_control;
+		}
+	}
 }
 
 /**
@@ -1033,26 +1130,35 @@ function stripUnsupportedSchemaProperties(
 	return cleaned;
 }
 
-const GOOGLE_THINKING_LEVELS = ["minimal", "low", "medium", "high"] as const;
+const GOOGLE_THINKING_LEVELS = [
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+] as const;
 
 /**
- * Maps a reasoning effort to a Gemini 3+ `thinkingLevel`. Google has no tier
- * above high, and models reject levels they do not support (e.g. `minimal` on
- * Gemini 3.7+ Flash and Pro), so an undeclared level rises to the next
- * declared one, as the budget fallback used to resolve it upstream.
+ * Maps a reasoning effort to a Gemini 3+ `thinkingLevel`. Models reject levels
+ * they do not support (e.g. `minimal` on Gemini 3.7+ Flash and Pro, `xhigh`
+ * before Gemini 4 Hydrogen), so an undeclared level rises to the next declared
+ * one, capped at the highest declared level. `xhigh` is sent only when the
+ * mapping declares it.
  */
 function getGoogleThinkingLevel(
 	effort: string,
 	declared: ReasoningEffort[] | undefined,
 ): string {
-	// xhigh and max share the top level.
+	// max shares the top level.
 	const level =
-		GOOGLE_THINKING_LEVELS.find((l) => l === effort) ?? ("high" as const);
+		effort === "max"
+			? ("xhigh" as const)
+			: (GOOGLE_THINKING_LEVELS.find((l) => l === effort) ?? ("high" as const));
 	const supported = GOOGLE_THINKING_LEVELS.filter((l) =>
-		declared?.length ? declared.includes(l) : true,
+		declared?.length ? declared.includes(l) : l !== "xhigh",
 	);
 	if (supported.length === 0) {
-		return level;
+		return level === "xhigh" ? "high" : level;
 	}
 	const index = GOOGLE_THINKING_LEVELS.indexOf(level);
 	return (
@@ -1323,6 +1429,11 @@ function transformContentForResponsesApi(content: any, role: string): any {
 					...breakpoint,
 				};
 			}
+			if (role === "tool") {
+				return part.type === "file"
+					? { type: "input_file", ...part.file, ...breakpoint }
+					: { type: "input_text", text: JSON.stringify(part), ...breakpoint };
+			}
 			// Return other content types as-is (they may need additional handling)
 			return part;
 		});
@@ -1410,7 +1521,10 @@ function extractEncryptedReasoningItems(
 	return items;
 }
 
-function transformMessagesForResponsesApi(messages: any[]): any[] {
+function transformMessagesForResponsesApi(
+	messages: any[],
+	replayReasoningText = false,
+): any[] {
 	const items: any[] = [];
 
 	// FIFO of function calls emitted from assistant tool_calls that have not yet
@@ -1458,12 +1572,17 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 					"tool message could not be matched to a preceding tool call; the Responses API requires every function_call_output to reference a function_call (supply tool_call_id)",
 				);
 			}
+			// The output takes input_text/input_image parts, so a screenshot
+			// stays an image; text-only arrays keep the stringified form.
 			const output =
 				typeof msg.content === "string"
 					? msg.content
-					: msg.content !== null && msg.content !== undefined
-						? JSON.stringify(msg.content)
-						: "";
+					: Array.isArray(msg.content) &&
+						  msg.content.some((part: any) => part?.type === "image_url")
+						? transformContentForResponsesApi(msg.content, "tool")
+						: msg.content !== null && msg.content !== undefined
+							? JSON.stringify(msg.content)
+							: "";
 			items.push({
 				type: "function_call_output",
 				call_id: callId,
@@ -1477,6 +1596,20 @@ function transformMessagesForResponsesApi(messages: any[]): any[] {
 		if (msg.role === "assistant") {
 			const reasoningItems = extractEncryptedReasoningItems(msg);
 			items.push(...reasoningItems);
+			// DeepSeek V4 400s a thinking-mode tool continuation unless the
+			// turn's plain reasoning comes back as a `reasoning_text` item.
+			if (
+				replayReasoningText &&
+				reasoningItems.length === 0 &&
+				typeof msg.reasoning_content === "string" &&
+				msg.tool_calls?.length > 0
+			) {
+				items.push({
+					type: "reasoning",
+					summary: [],
+					content: [{ type: "reasoning_text", text: msg.reasoning_content }],
+				});
+			}
 			// A reasoning-only carrier (a prior turn that ended before emitting a
 			// message, e.g. on max_output_tokens) has no message to emit — the
 			// reasoning items above are the whole turn.
@@ -1695,6 +1828,18 @@ function attachToolResultCacheControl(message: BaseMessage): BaseMessage {
  *   `auto` forwards caller markers and injects more on long prompts,
  *   `passthrough` only forwards, `off` strips everything.
  */
+const WAN_EDIT_MAX_PIXELS = 2048 * 2048;
+
+function exceedsWanEditPixelLimit(imageSize: string): boolean {
+	if (imageSize.toUpperCase() === "4K") {
+		return true;
+	}
+	const match = /^(\d+)[x*](\d+)$/.exec(imageSize);
+	return (
+		match !== null && Number(match[1]) * Number(match[2]) > WAN_EDIT_MAX_PIXELS
+	);
+}
+
 export async function prepareRequestBody(
 	usedProvider: ProviderId,
 	usedInternalModel: string,
@@ -1722,6 +1867,14 @@ export async function prepareRequestBody(
 		image_size?: string;
 		image_quality?: string;
 		moderation?: string;
+		complexity?: "low" | "medium" | "high";
+		background?: string;
+		output_format?: string;
+		svg?: SvgImageOptions | null;
+		output_compression?: number;
+		frame_count?: number;
+		frame_duration_ms?: number;
+		markup?: { image_url: string };
 		n?: number;
 		seed?: number;
 	},
@@ -1775,11 +1928,34 @@ export async function prepareRequestBody(
 					message.anthropic_native_blocks?.some(hasCacheMarker),
 			));
 	tools = normalizeToolParameters(tools);
+	// Claude on AWS Bedrock's Messages API is shaped as Anthropic from its
+	// Bedrock mapping. The gateway passes the `anthropic` transport; callers
+	// that pass `aws-bedrock` itself (key validation) land here the same way.
+	if (usedProvider === "aws-bedrock") {
+		const bedrockMapping = getProviderMapping(
+			resolvedProviderMapping
+				? [resolvedProviderMapping]
+				: models.find((m) => m.id === usedInternalModel)?.providers,
+			usedProvider,
+			usedRegion,
+		);
+		if (bedrockMapping?.apiFormat === "anthropic-messages") {
+			usedProvider = "anthropic";
+			resolvedProviderMapping = bedrockMapping;
+		}
+	}
 	// Anthropic's server-side tool search (`defer_loading` plus the tool search
 	// tool) only exists on the Anthropic Messages API. Anywhere else the tools
 	// are still sent, just without deferral, so the request degrades to ordinary
 	// eager tool loading instead of failing on an unknown property.
 	const anthropicMessagesApi = usesAnthropicMessagesApi(usedProvider);
+	// Read before the strip below: Bedrock Converse has no per-tool field and
+	// takes fine-grained tool streaming as a request-wide beta instead, so it
+	// only applies when every tool opted in to unvalidated partial input.
+	const functionToolsForEager = tools?.filter(isFunctionTool) ?? [];
+	const eagerToolInputStreaming =
+		functionToolsForEager.length > 0 &&
+		functionToolsForEager.every((tool) => tool.eager_input_streaming === true);
 	if (!anthropicMessagesApi) {
 		if (tools?.some(isToolSearchTool)) {
 			logger.warn(
@@ -1799,13 +1975,39 @@ export async function prepareRequestBody(
 	const modelDef = models.find((m) => m.id === usedInternalModel);
 	// Org custom models keep the static lookup: their DB mapping was never
 	// used for request shaping.
+	// A web search request rerouted by `webSearchApiFormat` arrives under the
+	// generic transport, but is still shaped by its own provider's mapping, as
+	// is Claude on AWS Bedrock's Messages API under the Anthropic transport.
+	const awsBedrockMessages =
+		usedProvider === "anthropic" &&
+		resolvedProviderMapping?.providerId === "aws-bedrock";
+	const optionsProvider =
+		resolvedProviderMapping &&
+		((webSearchTool && resolvedProviderMapping.webSearchApiFormat) ||
+			awsBedrockMessages)
+			? (resolvedProviderMapping.providerId as ProviderId)
+			: usedProvider;
 	const providerMappingForOptions = getProviderMapping(
 		resolvedProviderMapping && usedProvider !== "custom"
 			? [resolvedProviderMapping]
 			: modelDef?.providers,
-		usedProvider,
+		optionsProvider,
 		usedRegion,
 	);
+	// Cache-only search (`external_web_access: false`) exists only on OpenAI's
+	// Responses API. Anywhere else the tool would run a live, billed search the
+	// caller did not ask for, so it is dropped.
+	if (
+		webSearchTool?.external_web_access === false &&
+		!(
+			usedProvider === "openai" &&
+			providerMappingForOptions?.webSearch === true &&
+			(useResponsesApi ??
+				providerMappingForOptions.supportsResponsesApi === true)
+		)
+	) {
+		webSearchTool = undefined;
+	}
 	// A forced search maps to `tool_choice: "required"` in the tool shape,
 	// unless the mapping declares it does not take that mode.
 	const formatToolChoices = (
@@ -1847,9 +2049,10 @@ export async function prepareRequestBody(
 	// it documents that the provider accepts the value, so forward it even
 	// when the provider is not in the allowlist above (#3423).
 	const usesBedrockClaudeConverse =
-		usedProvider === "aws-bedrock" &&
-		providerMappingForOptions?.apiFormat !== "openai-chat-completions" &&
-		modelDef?.family === "anthropic";
+		usesAwsBedrockConverse(
+			usedProvider,
+			providerMappingForOptions?.apiFormat,
+		) && modelDef?.family === "anthropic";
 	// Some adaptive-only Claude models (Fable 5, Sonnet 5.5, Opus 5.5) reject
 	// `thinking: { type: "disabled" }`; adaptive mappings that accept it declare
 	// `none` in `reasoningEfforts`. Budget-era Claude models all accept it.
@@ -1861,7 +2064,6 @@ export async function prepareRequestBody(
 		usedProvider === "azure" ||
 		usedProvider === "aws-mantle" ||
 		usedProvider === "google-ai-studio" ||
-		usedProvider === "glacier" ||
 		usedProvider === "google-vertex" ||
 		usedProvider === "quartz" ||
 		usedProvider === "moonshot" ||
@@ -1944,6 +2146,21 @@ export async function prepareRequestBody(
 			...(openaiSize && { size: openaiSize }),
 			...(openaiQuality && { quality: openaiQuality }),
 			...(openaiModeration && { moderation: openaiModeration }),
+			...(image_config?.complexity && { complexity: image_config.complexity }),
+			...(image_config?.frame_count !== undefined && {
+				frame_count: image_config.frame_count,
+			}),
+			...(image_config?.frame_duration_ms !== undefined && {
+				frame_duration_ms: image_config.frame_duration_ms,
+			}),
+			...(image_config?.background && { background: image_config.background }),
+			...(image_config?.output_format && {
+				output_format: image_config.output_format,
+				...(image_config.svg && { svg: image_config.svg }),
+			}),
+			...(image_config?.output_compression !== undefined && {
+				output_compression: image_config.output_compression,
+			}),
 			...(image_config?.n && { n: image_config.n }),
 		};
 
@@ -1965,12 +2182,50 @@ export async function prepareRequestBody(
 			if (openaiImageRequest.moderation) {
 				formData.append("moderation", openaiImageRequest.moderation);
 			}
+			if (openaiImageRequest.complexity) {
+				formData.append("complexity", openaiImageRequest.complexity);
+			}
+			if (openaiImageRequest.background) {
+				formData.append("background", openaiImageRequest.background);
+			}
+			if (openaiImageRequest.output_format) {
+				formData.append("output_format", openaiImageRequest.output_format);
+			}
+			if (openaiImageRequest.svg) {
+				formData.append("svg[model]", openaiImageRequest.svg.model);
+				const effort = openaiImageRequest.svg.reasoning?.effort;
+				if (effort) {
+					formData.append("svg[reasoning][effort]", effort);
+				}
+			}
+			if (openaiImageRequest.output_compression !== undefined) {
+				formData.append(
+					"output_compression",
+					String(openaiImageRequest.output_compression),
+				);
+			}
 			if (openaiImageRequest.n !== undefined) {
 				formData.append("n", String(openaiImageRequest.n));
 			}
 
+			for (const field of ["frame_count", "frame_duration_ms"] as const) {
+				if (openaiImageRequest[field] !== undefined) {
+					formData.append(field, String(openaiImageRequest[field]));
+				}
+			}
+			if (image_config?.markup) {
+				const blob = await fetchMarkupAsBlob(
+					image_config.markup.image_url,
+					isProd,
+					maxImageSizeMB,
+					userPlan,
+				);
+				formData.append("markup", blob, "markup.png");
+			}
 			const decoded = await Promise.all(
-				imageUrls.map((url, index) => fetchImageAsBlob(url, index)),
+				imageUrls.map((url, index) =>
+					fetchImageAsBlob(url, index, isProd, maxImageSizeMB, userPlan),
+				),
 			);
 			const fieldName = decoded.length === 1 ? "image" : "image[]";
 			for (const { blob, filename } of decoded) {
@@ -2074,6 +2329,68 @@ export async function prepareRequestBody(
 		return zaiImageRequest;
 	}
 
+	// Handle MiniMax H3 Image. Reference images switch chat.ts to the JSON
+	// /v1/images/edits endpoint, which takes them as images[].image_url.
+	if (imageGenerations && usedProvider === "minimax") {
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		let prompt = "";
+		const imageUrls: string[] = [];
+		if (typeof lastUserMessage?.content === "string") {
+			prompt = lastUserMessage.content;
+		} else if (Array.isArray(lastUserMessage?.content)) {
+			for (const part of lastUserMessage.content) {
+				if (part.type === "text" && part.text) {
+					prompt += (prompt ? "\n" : "") + part.text;
+				} else if (part.type === "image_url" && part.image_url) {
+					const url =
+						typeof part.image_url === "string"
+							? part.image_url
+							: part.image_url.url;
+					if (url) {
+						imageUrls.push(url);
+					}
+				}
+			}
+		}
+
+		// `size` takes WxH; 1K/2K/4K are area tiers combined with aspect_ratio.
+		// MiniMax 400s when aspect_ratio or area accompanies a WxH size.
+		const imageSize = image_config?.image_size;
+		const pixelSize =
+			imageSize && /^\d+x\d+$/i.test(imageSize)
+				? imageSize.toLowerCase()
+				: undefined;
+		const area =
+			imageSize && ["1K", "2K", "4K"].includes(imageSize.toUpperCase())
+				? imageSize.toUpperCase()
+				: undefined;
+		const outputFormat = image_config?.output_format;
+
+		return {
+			model: usedExternalId,
+			prompt,
+			...(imageUrls.length > 0 && {
+				images: imageUrls.map((url) => ({ image_url: url })),
+			}),
+			...(pixelSize && { size: pixelSize }),
+			...(!pixelSize && area && { area }),
+			...(!pixelSize &&
+				image_config?.aspect_ratio && {
+					aspect_ratio: image_config.aspect_ratio,
+				}),
+			...(image_config?.n && { n: image_config.n }),
+			...(outputFormat &&
+				["png", "jpeg", "jpg", "webp"].includes(outputFormat) && {
+					output_format: outputFormat,
+				}),
+			...(image_config?.output_compression !== undefined && {
+				output_compression: image_config.output_compression,
+			}),
+		} as unknown as ProviderRequestBody;
+	}
+
 	// Handle Alibaba image generation models
 	if (imageGenerations && usedProvider === "alibaba") {
 		// Extract prompt and images from last user message
@@ -2127,6 +2444,18 @@ export async function prepareRequestBody(
 			},
 		};
 
+		// Wan 2.7 caps edits at 2K (2048*2048 pixels); 4K is text-to-image only.
+		if (
+			imageUrls.length > 0 &&
+			image_config?.image_size &&
+			usedExternalId.startsWith("wan2.7-image") &&
+			exceedsWanEditPixelLimit(image_config.image_size)
+		) {
+			throw new RequestError(
+				'Wan 2.7 image edits support at most 2K (2048x2048 pixels); use "1K", "2K" or a smaller size with input images',
+			);
+		}
+
 		// Map image_size to Alibaba format (uses * instead of x)
 		if (image_config?.image_size) {
 			alibabaImageRequest.parameters.size = image_config.image_size.replace(
@@ -2136,71 +2465,6 @@ export async function prepareRequestBody(
 		}
 
 		return alibabaImageRequest;
-	}
-
-	// Handle Reve image generation
-	if (imageGenerations && usedProvider === "reve") {
-		const lastUserMessage = [...messages]
-			.reverse()
-			.find((m) => m.role === "user");
-		let prompt = "";
-		const imageUrls: string[] = [];
-		if (lastUserMessage) {
-			if (typeof lastUserMessage.content === "string") {
-				prompt = lastUserMessage.content;
-			} else if (Array.isArray(lastUserMessage.content)) {
-				for (const part of lastUserMessage.content) {
-					if (part.type === "text" && part.text) {
-						prompt += (prompt ? "\n" : "") + part.text;
-					} else if (part.type === "image_url" && part.image_url) {
-						const url =
-							typeof part.image_url === "string"
-								? part.image_url
-								: part.image_url.url;
-						if (url) {
-							imageUrls.push(url);
-						}
-					}
-				}
-			}
-		}
-
-		const allowedReveAspectRatios = [
-			"16:9",
-			"3:2",
-			"4:3",
-			"1:1",
-			"2:3",
-			"9:16",
-			"auto",
-		];
-
-		if (
-			image_config?.aspect_ratio &&
-			!allowedReveAspectRatios.includes(image_config.aspect_ratio)
-		) {
-			throw new Error(
-				`Invalid aspect_ratio for Reve: "${image_config.aspect_ratio}". Allowed values: ${allowedReveAspectRatios.join(
-					", ",
-				)}`,
-			);
-		}
-
-		const reveRequest: any = {
-			prompt,
-			version: "latest",
-			...(image_config?.aspect_ratio && {
-				aspect_ratio: image_config.aspect_ratio,
-			}),
-		};
-
-		if (imageUrls.length === 1) {
-			reveRequest.reference_image = imageUrls[0];
-		} else if (imageUrls.length > 1) {
-			reveRequest.reference_images = imageUrls;
-		}
-
-		return reveRequest;
 	}
 
 	// Handle ByteDance Seedream image generation
@@ -2230,12 +2494,33 @@ export async function prepareRequestBody(
 			}
 		}
 
+		// Seedream 5.5 adds native background (transparent needs png) and
+		// png/jpeg output format controls.
+		const supportsOutputOptions = usedInternalModel === "seedream-5-5";
+		const background =
+			supportsOutputOptions &&
+			(image_config?.background === "auto" ||
+				image_config?.background === "opaque" ||
+				image_config?.background === "transparent")
+				? image_config.background
+				: undefined;
+		const outputFormat =
+			supportsOutputOptions &&
+			(image_config?.output_format === "png" ||
+				image_config?.output_format === "jpeg")
+				? image_config.output_format
+				: undefined;
+
 		const bytedanceImageRequest: any = {
 			model: usedExternalId,
 			prompt,
 			...(image_config?.image_size && { size: image_config.image_size }),
 			...(imageUrls.length === 1 && { image: imageUrls[0] }),
 			...(imageUrls.length > 1 && { image: imageUrls }),
+			...(background && { background }),
+			...(outputFormat && { output_format: outputFormat }),
+			...(supportsOutputOptions &&
+				image_config?.seed !== undefined && { seed: image_config.seed }),
 		};
 
 		return bytedanceImageRequest;
@@ -2274,6 +2559,46 @@ export async function prepareRequestBody(
 			...(image_config?.image_size && { size: image_config.image_size }),
 			...(image_config?.seed !== undefined && { seed: image_config.seed }),
 		} as ProviderRequestBody;
+	}
+
+	// Handle fal text-to-image models (synchronous fal.run API)
+	if (imageGenerations && usedProvider === "fal-ai") {
+		const lastUserMessage = [...messages]
+			.reverse()
+			.find((m) => m.role === "user");
+		const prompt =
+			typeof lastUserMessage?.content === "string"
+				? lastUserMessage.content
+				: (lastUserMessage?.content ?? [])
+						.filter(
+							(p): p is { type: "text"; text: string } => p.type === "text",
+						)
+						.map((p) => p.text)
+						.join("\n");
+		// Always send a size: fal's defaults differ per model, and billing keys
+		// on the requested size, so only priced presets are accepted.
+		const imageSize = image_config?.image_size ?? "1024x1024";
+		if (!(FAL_IMAGE_SIZES as readonly string[]).includes(imageSize)) {
+			throw new RequestError(
+				`Unsupported image_size "${imageSize}". Supported sizes: ${FAL_IMAGE_SIZES.join(", ")}`,
+			);
+		}
+		const [width, height] = imageSize.split("x").map(Number);
+		// Recraft accepts neither num_images nor output_format.
+		const isRecraft = usedInternalModel === "recraft-v4.1-flash";
+		const outputFormat = image_config?.output_format;
+		return {
+			prompt,
+			image_size: { width, height },
+			...(!isRecraft &&
+				image_config?.n !== undefined && { num_images: image_config.n }),
+			...(!isRecraft &&
+				(outputFormat === "png" ||
+					outputFormat === "jpeg" ||
+					outputFormat === "webp") && { output_format: outputFormat }),
+			...(!isRecraft &&
+				image_config?.seed !== undefined && { seed: image_config.seed }),
+		} as unknown as ProviderRequestBody;
 	}
 
 	// Check if the model supports system role. Look up by canonical model id.
@@ -2328,9 +2653,10 @@ export async function prepareRequestBody(
 	if (forwardCustomCacheControl) {
 		processedMessages = processedMessages.map(attachToolResultCacheControl);
 	}
-	const bedrockConverseApi =
-		usedProvider === "aws-bedrock" &&
-		providerMappingForOptions?.apiFormat !== "openai-chat-completions";
+	const bedrockConverseApi = usesAwsBedrockConverse(
+		usedProvider,
+		providerMappingForOptions?.apiFormat,
+	);
 	if (
 		!(anthropicMessagesApi || bedrockConverseApi) ||
 		!allowProviderCacheWrites
@@ -2477,11 +2803,16 @@ export async function prepareRequestBody(
 	// every other host gets a single space. Any host of DeepSeek V4 can enforce
 	// the constraint, including Airside carriers (e.g. Luminal) that reach this
 	// function as the "openai" transport, so match V4 by the canonical model id.
+	// Reflection's Beam chat template is stricter still: it rejects every
+	// earlier assistant turn without non-empty `reasoning_content`, tool call
+	// or not, so it gets the backfill on all assistant turns.
 	const isDeepseekV4 = usedInternalModel.startsWith("deepseek-v4");
+	const isReflectionBeam = usedInternalModel.startsWith("beam-");
 	if (
 		usedProvider === "deepseek" ||
 		usedProvider === "moonshot" ||
-		isDeepseekV4
+		isDeepseekV4 ||
+		isReflectionBeam
 	) {
 		const fallback = usedProvider === "deepseek" ? "" : " ";
 		processedMessages = processedMessages.map((m) => {
@@ -2491,13 +2822,17 @@ export async function prepareRequestBody(
 			// Never send both fields: Runware treats `reasoning` as an alias of
 			// `reasoning_content` and rejects a message carrying both.
 			const { reasoning, ...rest } = m;
-			if (m.reasoning_content !== undefined) {
+			if (
+				m.reasoning_content !== undefined &&
+				!(isReflectionBeam && !m.reasoning_content)
+			) {
 				return reasoning === undefined ? m : rest;
 			}
 			if (
-				!m.tool_calls ||
-				!Array.isArray(m.tool_calls) ||
-				m.tool_calls.length === 0
+				!isReflectionBeam &&
+				(!m.tool_calls ||
+					!Array.isArray(m.tool_calls) ||
+					m.tool_calls.length === 0)
 			) {
 				return m;
 			}
@@ -2507,7 +2842,13 @@ export async function prepareRequestBody(
 
 	if (
 		(usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") ||
-		usedProvider === "runpod"
+		(usedProvider === "baidu" && usedInternalModel === "kimi-k3") ||
+		(usedProvider === "sakana" && usedInternalModel === "sakana-namazu") ||
+		usedProvider === "runpod" ||
+		(usedProvider === "tencent" &&
+			["kimi-k2.8-preview", "glm-5.3-flash", "glm-5.3-flashx"].includes(
+				usedInternalModel,
+			))
 	) {
 		// These deployments reject empty text blocks in otherwise valid messages.
 		processedMessages = processedMessages.map((message) => {
@@ -2571,6 +2912,34 @@ export async function prepareRequestBody(
 		);
 	}
 
+	// DashScope reads `input_audio.data` as a URL and 400s on the bare base64
+	// OpenAI sends, so inline audio goes up as a data URL.
+	if (usedProvider === "alibaba") {
+		processedMessages = processedMessages.map((m) => {
+			if (!Array.isArray(m.content)) {
+				return m;
+			}
+			let mutated = false;
+			const content = m.content.map((part) => {
+				if (
+					!isInputAudioContent(part) ||
+					/^(data:|https?:\/\/)/i.test(part.input_audio.data)
+				) {
+					return part;
+				}
+				mutated = true;
+				return {
+					...part,
+					input_audio: {
+						...part.input_audio,
+						data: `data:;base64,${part.input_audio.data}`,
+					},
+				};
+			});
+			return mutated ? { ...m, content } : m;
+		});
+	}
+
 	const messagesWithGoogleSignatures = processedMessages;
 	processedMessages = processedMessages.map((message: BaseMessage) => {
 		if (
@@ -2616,10 +2985,13 @@ export async function prepareRequestBody(
 	// incomplete prior turn replayed for the Responses API) becomes empty here,
 	// so drop it.
 	const replaysAnthropicThinking =
-		modelDef?.family === "anthropic" &&
+		(modelDef?.family === "anthropic" ||
+			resolvedProviderMapping?.reasoning === true) &&
 		(usesAnthropicMessagesApi(usedProvider) ||
-			(usedProvider === "aws-bedrock" &&
-				providerMappingForOptions?.apiFormat !== "openai-chat-completions"));
+			usesAwsBedrockConverse(
+				usedProvider,
+				providerMappingForOptions?.apiFormat,
+			));
 	processedMessages = processedMessages.flatMap((m) => {
 		if (
 			m.reasoning_details === undefined &&
@@ -2728,8 +3100,9 @@ export async function prepareRequestBody(
 	// instead of hard-coding per-provider downgrades here.
 	// `tool_choice: {type: "web_search"}` is a gateway-level directive, consumed
 	// via `webSearchTool.forced` and translated into whatever each upstream
-	// understands (DashScope's `search_options.forced_search`, or `"required"`
-	// for a mapping declaring the tool `webSearchFormat`). No provider
+	// understands (DashScope's `search_options.forced_search`, Anthropic's
+	// forced server tool, or `"required"` for a mapping declaring the tool
+	// `webSearchFormat`). No provider
 	// accepts it under this name in a chat-completions body, so it is never
 	// forwarded verbatim.
 	const isWebSearchToolChoice =
@@ -2777,9 +3150,11 @@ export async function prepareRequestBody(
 		temperature = 1;
 	}
 
-	// OpenAI family models require max_tokens >= 16
+	// OpenAI family models and Meta's Model API require max_tokens >= 16
 	if (
-		modelDef?.family === "openai" &&
+		(modelDef?.family === "openai" ||
+			usedProvider === "meta" ||
+			usedProvider === "meta-contributor") &&
 		max_tokens !== undefined &&
 		max_tokens < 16
 	) {
@@ -2816,6 +3191,7 @@ export async function prepareRequestBody(
 				// - Convert tool role messages to function_call_output items
 				const transformedMessages = transformMessagesForResponsesApi(
 					messagesWithReasoningDetails,
+					isDeepseekV4,
 				);
 
 				// Bedrock Mantle only accepts `data:` (or `s3://`) image URLs and
@@ -2823,10 +3199,13 @@ export async function prepareRequestBody(
 				// image URLs (SSRF-guarded) and inline them as data URLs upstream.
 				if (usedProvider === "aws-mantle") {
 					for (const item of transformedMessages) {
-						if (!Array.isArray(item?.content)) {
-							continue;
-						}
-						for (const part of item.content) {
+						// Tool-result images ride on a function_call_output's `output`.
+						const parts = Array.isArray(item?.content)
+							? item.content
+							: Array.isArray(item?.output)
+								? item.output
+								: [];
+						for (const part of parts) {
 							if (
 								part?.type === "input_image" &&
 								typeof part.image_url === "string" &&
@@ -2883,7 +3262,8 @@ export async function prepareRequestBody(
 									// Responses API surface; other providers reject
 									// unknown reasoning fields.
 									...(reasoning_context !== undefined &&
-										(usedProvider === "openai" || usedProvider === "azure") && {
+										(optionsProvider === "openai" ||
+											optionsProvider === "azure") && {
 											context: reasoning_context,
 										}),
 									// Capability validation already rejected requests no
@@ -3032,12 +3412,16 @@ export async function prepareRequestBody(
 						type: "web_search";
 						user_location?: unknown;
 						search_context_size?: string;
+						external_web_access?: false;
 					} = { type: "web_search" };
 					if (webSearchTool.user_location) {
 						webSearch.user_location = webSearchTool.user_location;
 					}
 					if (webSearchTool.search_context_size) {
 						webSearch.search_context_size = webSearchTool.search_context_size;
+					}
+					if (webSearchTool.external_web_access === false) {
+						webSearch.external_web_access = false;
 					}
 					responsesBody.tools.push(webSearch);
 					// The Responses API takes the same directive the gateway accepts,
@@ -3637,9 +4021,8 @@ export async function prepareRequestBody(
 
 			// Anthropic's equivalent of OpenAI's `safety_identifier`. Accepted on
 			// both the direct API and Vertex `rawPredict` (verified live). AWS
-			// Bedrock is not covered: it speaks the Converse API, which has no
-			// equivalent field.
-			if (safety_identifier !== undefined) {
+			// Bedrock does not forward it (`forwardsSafetyIdentifier: false`).
+			if (safety_identifier !== undefined && !awsBedrockMessages) {
 				requestBody.metadata = { user_id: safety_identifier };
 			}
 
@@ -3917,7 +4300,8 @@ export async function prepareRequestBody(
 					tool_calls: m.tool_calls, // Include tool_calls for transformation
 				})),
 				isProd,
-				usedProvider,
+				// Bedrock's thinking signatures replay only on Bedrock.
+				awsBedrockMessages ? "aws-bedrock" : usedProvider,
 				usedInternalModel,
 				maxImageSizeMB,
 				userPlan,
@@ -3925,6 +4309,7 @@ export async function prepareRequestBody(
 				minCacheableChars, // Model-specific minimum cacheable characters
 				autoCacheControlEnabled,
 				automaticCacheTtl,
+				optionsProvider === "deepseek",
 			);
 
 			// Transform tools from OpenAI format to Anthropic format
@@ -3941,8 +4326,13 @@ export async function prepareRequestBody(
 						// is what keeps a large tool catalogue out of the cached prefix.
 						...(tool.defer_loading === true && { defer_loading: true }),
 						...(tool.function.strict === true && { strict: true }),
-						...(tool.allowed_callers && {
-							allowed_callers: tool.allowed_callers,
+						// Bedrock rejects programmatic tool calling.
+						...(tool.allowed_callers &&
+							!awsBedrockMessages && {
+								allowed_callers: tool.allowed_callers,
+							}),
+						...(tool.eager_input_streaming !== undefined && {
+							eager_input_streaming: tool.eager_input_streaming,
 						}),
 						// Budget and TTL ordering were both settled above, where the
 						// system pass needed the resulting count.
@@ -3960,10 +4350,14 @@ export async function prepareRequestBody(
 						...((requestBody.tools as unknown[]) ?? []),
 					];
 				}
-				// Anthropic does not offer web fetch on Google Cloud.
+				// Anthropic does not offer web fetch on Google Cloud or AWS Bedrock.
 				const webFetchTools = tools.filter(isWebFetchTool);
-				if (webFetchTools.length > 0 && usedProvider === "vertex-anthropic") {
-					logger.warn("Dropping Anthropic web fetch on Google Cloud", {
+				if (
+					webFetchTools.length > 0 &&
+					(usedProvider === "vertex-anthropic" || awsBedrockMessages)
+				) {
+					logger.warn("Dropping Anthropic web fetch", {
+						usedProvider: optionsProvider,
 						usedInternalModel,
 					});
 				} else if (webFetchTools.length > 0) {
@@ -4132,7 +4526,9 @@ export async function prepareRequestBody(
 						...response_format.json_schema.schema,
 						additionalProperties: false,
 					} as Record<string, unknown>;
+					// Keep the effort set above: output_config holds both effort and format.
 					requestBody.output_config = {
+						...requestBody.output_config,
 						format: {
 							type: "json_schema",
 							schema,
@@ -4143,6 +4539,44 @@ export async function prepareRequestBody(
 					// as Anthropic requires a specific schema. Instead, we skip output_config
 					// and rely on system prompt instructions for JSON output.
 				}
+			}
+
+			// `tool_choice: {type: "web_search"}` forces the server tool. Budgeted
+			// thinking and models without forced tool choice reject that, so there
+			// the search stays an offer.
+			if (
+				webSearchTool?.forced &&
+				requestBody.thinking?.type !== "enabled" &&
+				(!providerMappingForOptions ||
+					mappingSupportsToolChoice(providerMappingForOptions, "required"))
+			) {
+				requestBody.tool_choice = {
+					...requestBody.tool_choice,
+					type: "tool",
+					name: "web_search",
+				};
+			}
+
+			dropCacheMarkersBeforeLongerTtl(requestBody);
+
+			// Claude hosts verified to take the binding beta; Vertex is not yet.
+			// Bedrock's Messages API arrives here as `anthropic`.
+			const claudeHost = resolvedProviderMapping?.providerId ?? usedProvider;
+			if (
+				(claudeHost === "anthropic" ||
+					claudeHost === "azure-anthropic" ||
+					claudeHost === "aws-bedrock") &&
+				thinkingAcceptsBinding(requestBody.thinking) &&
+				requestBody.messages.some(
+					(message: { content: unknown }) =>
+						Array.isArray(message.content) &&
+						message.content.some(
+							(block: { type?: unknown }) =>
+								block.type === "thinking" || block.type === "redacted_thinking",
+						),
+				)
+			) {
+				requestBody.thinking.block_binding = DROP_MISMATCHED_THINKING;
 			}
 
 			if (usedProvider === "vertex-anthropic") {
@@ -4192,7 +4626,15 @@ export async function prepareRequestBody(
 
 			// Track cache point usage (Bedrock enforces the same per-request limit)
 			let bedrockCacheControlCount = 0;
-			const bedrockMaxCacheControlBlocks = MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS;
+			// Models without prompt caching (Llama, Pixtral) 400 on any
+			// cachePoint; a priced cache rate marks the ones that have it.
+			const bedrockSupportsCachePoints =
+				providerMappingForOptions?.cachedInputPrice !== undefined ||
+				providerMappingForOptions?.cacheReadInputPrice !== undefined ||
+				providerMappingForOptions?.cacheWriteInputPrice !== undefined;
+			const bedrockMaxCacheControlBlocks = bedrockSupportsCachePoints
+				? MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS
+				: 0;
 			interface BedrockCachePoint {
 				cachePoint: { type: "default"; ttl?: "5m" | "1h" };
 			}
@@ -4407,11 +4849,22 @@ export async function prepareRequestBody(
 
 				// Handle assistant messages with tool calls
 				if (msg.role === "assistant" && msg.tool_calls?.length) {
-					// Add text content if present
-					if (msg.content) {
-						bedrockMessage.content.push({
-							text: msg.content,
-						});
+					// Add text content if present. The OpenAI schema also allows an array
+					// of text parts here, which Converse takes as one text block per part.
+					if (typeof msg.content === "string") {
+						if (msg.content) {
+							bedrockMessage.content.push({
+								text: msg.content,
+							});
+						}
+					} else if (Array.isArray(msg.content)) {
+						for (const part of msg.content as any[]) {
+							if (part.type === "text" && part.text?.trim()) {
+								bedrockMessage.content.push({
+									text: part.text,
+								});
+							}
+						}
 					}
 
 					// Add tool use blocks
@@ -4716,85 +5169,44 @@ export async function prepareRequestBody(
 				supportsReasoning &&
 				(effort || bedrockThinkingEffort || reasoning_max_tokens)
 			) {
-				if (providerMappingForOptions?.reasoningMode === "adaptive") {
-					// Opus 4.7+ uses adaptive thinking: `thinking: { type: "adaptive" }` with
-					// `output_config.effort` controlling depth. `budget_tokens` is rejected.
-					requestBody.additionalModelRequestFields ??= {};
-					// `display: "summarized"` is required on Opus 4.7/4.8 to receive
-					// readable thinking text — their default flipped to "omitted"
-					// (empty thinking, signature only), unlike Opus 4.6.
-					requestBody.additionalModelRequestFields.thinking = {
-						type: "adaptive",
-						display: "summarized",
-					};
-					const mapEffort = (
-						e: typeof reasoning_effort,
-					): "low" | "medium" | "high" | "xhigh" | "max" => {
-						switch (e) {
-							case "minimal":
-							case "low":
-								return "low";
-							case "medium":
-								return "medium";
-							case "high":
-								return "high";
-							case "xhigh":
-								return "xhigh";
-							case "max":
-								return "max";
-							default:
-								return "high";
-						}
-					};
-					const adaptiveEffort =
-						effort ??
-						(bedrockThinkingEffort
-							? mapEffort(bedrockThinkingEffort)
-							: undefined);
-					if (adaptiveEffort !== undefined) {
-						requestBody.additionalModelRequestFields.output_config = {
-							effort: adaptiveEffort,
-						};
+				// Claude models on Converse all use budget thinking; adaptive ones are
+				// on the Messages API.
+				const getThinkingBudget = (effort?: string) => {
+					if (reasoning_max_tokens !== undefined) {
+						return Math.max(Math.min(reasoning_max_tokens, 128000), 1024);
 					}
-				} else {
-					const getThinkingBudget = (effort?: string) => {
-						if (reasoning_max_tokens !== undefined) {
-							return Math.max(Math.min(reasoning_max_tokens, 128000), 1024);
-						}
-						if (!effort) {
+					if (!effort) {
+						return 2000;
+					}
+					switch (effort) {
+						case "low":
+							return 1024;
+						case "high":
+							return 4000;
+						case "xhigh":
+							return 16000;
+						case "max":
+							return 32000;
+						default:
 							return 2000;
-						}
-						switch (effort) {
-							case "low":
-								return 1024;
-							case "high":
-								return 4000;
-							case "xhigh":
-								return 16000;
-							case "max":
-								return 32000;
-							default:
-								return 2000;
-						}
-					};
-					const thinkingBudget = getThinkingBudget(bedrockThinkingEffort);
-					requestBody.additionalModelRequestFields ??= {};
-					requestBody.additionalModelRequestFields.thinking = {
-						type: "enabled",
-						budget_tokens: thinkingBudget,
-					};
-					// Ensure maxTokens leaves room for the thinking budget plus a
-					// minimum response.
-					const reasoningFloor = thinkingBudget + 1000;
-					inferenceConfig.maxTokens ??= reasoningFloor;
-					if (inferenceConfig.maxTokens < reasoningFloor) {
-						inferenceConfig.maxTokens = reasoningFloor;
 					}
+				};
+				const thinkingBudget = getThinkingBudget(bedrockThinkingEffort);
+				requestBody.additionalModelRequestFields ??= {};
+				requestBody.additionalModelRequestFields.thinking = {
+					type: "enabled",
+					budget_tokens: thinkingBudget,
+				};
+				// Ensure maxTokens leaves room for the thinking budget plus a
+				// minimum response.
+				const reasoningFloor = thinkingBudget + 1000;
+				inferenceConfig.maxTokens ??= reasoningFloor;
+				if (inferenceConfig.maxTokens < reasoningFloor) {
+					inferenceConfig.maxTokens = reasoningFloor;
 				}
 				// Anthropic requires temperature to be exactly 1 when thinking is
-				// enabled — but only for models that still accept temperature. Opus
-				// 4.8 deprecated temperature/top_p and returns a 400 for any value,
-				// so honor the mapping's supportedParameters and omit it there.
+				// enabled — but only for models that still accept temperature, so
+				// honor the mapping's supportedParameters.
 				const bedrockSupportedParams =
 					providerMappingForOptions?.supportedParameters;
 				if (
@@ -4858,10 +5270,41 @@ export async function prepareRequestBody(
 				requestBody.additionalModelResponseFieldPaths = ["/output_format"];
 			}
 
+			if (
+				usesBedrockClaudeConverse &&
+				stream &&
+				eagerToolInputStreaming &&
+				requestBody.toolConfig
+			) {
+				requestBody.additionalModelRequestFields ??= {};
+				requestBody.additionalModelRequestFields.anthropic_beta = [
+					...(requestBody.additionalModelRequestFields.anthropic_beta ?? []),
+					"fine-grained-tool-streaming-2025-05-14",
+				];
+			}
+
+			if (
+				usesBedrockClaudeConverse &&
+				thinkingAcceptsBinding(
+					requestBody.additionalModelRequestFields?.thinking,
+				) &&
+				bedrockMessages.some((message) =>
+					message.content.some(
+						(block: { reasoningContent?: unknown }) => block.reasoningContent,
+					),
+				)
+			) {
+				requestBody.additionalModelRequestFields.thinking.block_binding =
+					DROP_MISMATCHED_THINKING;
+				requestBody.additionalModelRequestFields.anthropic_beta = [
+					...(requestBody.additionalModelRequestFields.anthropic_beta ?? []),
+					THINKING_BINDING_BETA,
+				];
+			}
+
 			break;
 		}
 		case "google-ai-studio":
-		case "glacier":
 		case "google-vertex":
 		case "quartz": {
 			delete requestBody.model; // Not used in body
@@ -5144,11 +5587,7 @@ export async function prepareRequestBody(
 				} else if (
 					providerMappingForOptions?.reasoningEfforts?.includes("none")
 				) {
-					if (providerMappingForOptions.requiresDisableThinkingParam) {
-						requestBody.thinking = { type: "disabled" };
-					} else {
-						requestBody.reasoning_effort = "none";
-					}
+					requestBody.reasoning_effort = "none";
 				}
 			}
 			break;
@@ -5348,19 +5787,20 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "xiaomi": {
-			// Xiaomi expects tool message content as a plain string — flatten
-			// array content blocks to text, dropping image blocks.
-			requestBody.messages = requestBody.messages.map((m: BaseMessage) =>
-				m.role === "tool" && Array.isArray(m.content)
-					? {
-							...m,
-							content: m.content
-								.filter(isTextContent)
-								.map((c) => c.text)
-								.filter(Boolean)
-								.join("\n"),
-						}
-					: m,
+			// Xiaomi expects tool message content as a plain string, so images move
+			// to the user turn first and the remaining text parts are flattened.
+			requestBody.messages = liftToolResultImages(requestBody.messages).map(
+				(m: BaseMessage) =>
+					m.role === "tool" && Array.isArray(m.content)
+						? {
+								...m,
+								content: m.content
+									.filter(isTextContent)
+									.map((c) => c.text)
+									.filter(Boolean)
+									.join("\n"),
+							}
+						: m,
 			);
 
 			if (stream) {
@@ -5455,52 +5895,6 @@ export async function prepareRequestBody(
 			break;
 		}
 
-		case "gonka24": {
-			if (stream) {
-				requestBody.stream_options = {
-					include_usage: true,
-				};
-			}
-			if (response_format) {
-				requestBody.response_format = response_format;
-			}
-
-			// Add optional parameters if they are provided
-			if (temperature !== undefined) {
-				requestBody.temperature = temperature;
-			}
-			if (max_tokens !== undefined) {
-				requestBody.max_tokens = max_tokens;
-			}
-			if (top_p !== undefined) {
-				requestBody.top_p = top_p;
-			}
-			if (frequency_penalty !== undefined) {
-				requestBody.frequency_penalty = frequency_penalty;
-			}
-			if (presence_penalty !== undefined) {
-				requestBody.presence_penalty = presence_penalty;
-			}
-
-			// Gonka24 keeps thinking off by default, and only the binary `thinking`
-			// switch turns it on — `reasoning_effort` alone never does, and the
-			// chat-template flag is ignored. So the effort decides the switch:
-			// "none" disables, any other tier enables. The effort is forwarded
-			// alongside it because the deployment validates it against its enum and
-			// grades the tiers by intent; today they measure the same (low/medium/
-			// high differ by ~6% in reasoning length over 40 samples each, well
-			// inside noise), but forwarding means real grading works the moment the
-			// provider implements it, with no gateway change.
-			if (supportsReasoning && reasoning_effort !== undefined) {
-				requestBody.thinking =
-					reasoning_effort === "none"
-						? { type: "disabled" }
-						: { type: "enabled" };
-				requestBody.reasoning_effort = reasoning_effort;
-			}
-			break;
-		}
-
 		default: {
 			if (stream) {
 				requestBody.stream_options = {
@@ -5519,16 +5913,6 @@ export async function prepareRequestBody(
 				requestBody.service_tier = supportedServiceTier;
 			}
 
-			// SCX resells Alibaba's Qwen models and passes DashScope's search
-			// parameters straight through, so its Qwen mappings take the same shape
-			// as the `alibaba` case above.
-			if (
-				usedProvider === "scx-ai-gp" &&
-				webSearchTool?.forced &&
-				!webSearchFormat
-			) {
-				applyDashScopeWebSearch(requestBody);
-			}
 			applyDeclaredWebSearch(requestBody);
 
 			// Vertex's OpenAI-compatible chat completions endpoint requires the
@@ -5572,25 +5956,21 @@ export async function prepareRequestBody(
 					supported.length === 0 ||
 					supported.includes("reasoning_effort")
 				) {
-					if (usedProvider === "embercloud") {
-						// embercloud's documented request body uses a nested
-						// `reasoning` object (`reasoning.enabled` +
-						// `reasoning.effort`) instead of the flat OpenAI-style
-						// `reasoning_effort` field, which it silently ignores
-						// (https://embercloud.ai/docs/request-body). "none"
-						// maps to enabled: false; any other tier enables
-						// reasoning at the requested effort.
-						requestBody.reasoning =
-							reasoning_effort === "none"
-								? { enabled: false }
-								: { enabled: true, effort: reasoning_effort };
-					} else {
-						requestBody.reasoning_effort = reasoning_effort;
-					}
+					requestBody.reasoning_effort = reasoning_effort;
 				}
 			}
 			break;
 		}
+	}
+
+	if (
+		supportsReasoning &&
+		reasoning_effort === "none" &&
+		providerMappingForOptions?.requiresDisableThinkingParam &&
+		providerMappingForOptions.reasoningEfforts?.includes("none")
+	) {
+		delete requestBody.reasoning_effort;
+		requestBody.thinking = { type: "disabled" };
 	}
 
 	// A declared format replaces the provider's own search translation on every
@@ -5638,6 +6018,12 @@ export async function prepareRequestBody(
 		}
 	}
 
+	// Only a Chat Completions body still has `tool` messages here; the native
+	// formats (Anthropic, Bedrock, Gemini, Responses) carry the images themselves.
+	if (Array.isArray(requestBody.messages)) {
+		requestBody.messages = liftToolResultImages(requestBody.messages);
+	}
+
 	return requestBody;
 }
 /**
@@ -5668,4 +6054,11 @@ function foldSingleMemberAllOf(schema: any): any {
 		return { ...member, ...result };
 	}
 	return result;
+}
+export interface SvgImageOptions {
+	model: string;
+	reasoning?: {
+		effort?:
+			"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | null;
+	} | null;
 }

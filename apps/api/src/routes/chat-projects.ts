@@ -16,6 +16,7 @@ import {
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { db, tables, eq, and, count, desc, asc } from "@llmgateway/db";
+import { deferDownloadsToGateway } from "@llmgateway/shared/ai-sdk-download";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
@@ -1043,6 +1044,7 @@ chatProjects.openapi(extractMemories, async (c) => {
 		: "(none)";
 
 	const result = await generateText({
+		experimental_download: deferDownloadsToGateway,
 		model: llmgateway.chat(MEMORY_EXTRACTION_MODEL),
 		instructions: MEMORY_EXTRACTOR_SYSTEM,
 		prompt: `Existing memories:\n${existingList}\n\nUser message:\n${body.userMessage}\n\nAssistant response:\n${body.assistantMessage}`,

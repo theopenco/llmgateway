@@ -1,11 +1,17 @@
 "use client";
 
+import { LazyMotion, m } from "framer-motion";
 import React from "react";
 
-import { motion, type Variants } from "@/components/motion-wrapper";
 import { cn } from "@/lib/utils";
 
+import type { Variants } from "framer-motion";
 import type { ReactNode } from "react";
+
+// LazyMotion + m keep framer-motion's animation runtime out of the initial
+// bundle of every marketing page that renders an AnimatedGroup.
+const loadMotionFeatures = () =>
+	import("@/components/motion-features").then((mod) => mod.default);
 
 type PresetType =
 	| "fade"
@@ -153,19 +159,21 @@ function AnimatedGroup({
 	const itemVariants = variants?.item ?? selectedVariants.item;
 
 	return (
-		<motion.div
-			initial="hidden"
-			whileInView="visible"
-			viewport={{ once: true, amount: 0.1 }}
-			variants={containerVariants}
-			className={cn(className)}
-		>
-			{React.Children.map(children, (child, index) => (
-				<motion.div key={index} variants={itemVariants}>
-					{child}
-				</motion.div>
-			))}
-		</motion.div>
+		<LazyMotion features={loadMotionFeatures} strict>
+			<m.div
+				initial="hidden"
+				whileInView="visible"
+				viewport={{ once: true, amount: 0.1 }}
+				variants={containerVariants}
+				className={cn(className)}
+			>
+				{React.Children.map(children, (child, index) => (
+					<m.div key={index} variants={itemVariants}>
+						{child}
+					</m.div>
+				))}
+			</m.div>
+		</LazyMotion>
 	);
 }
 

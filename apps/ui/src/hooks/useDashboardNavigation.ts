@@ -29,6 +29,14 @@ export function useDashboardNavigation() {
 	const currentOrgId = orgId ?? selectedOrganization?.id;
 	const currentProjectId = projectId ?? selectedProject?.id;
 
+	// The route's project. The context project lags the URL until the
+	// last-used-project cookie refreshes, so project pages scope to this one.
+	const currentProject = useMemo(
+		() =>
+			projects.find((project) => project.id === projectId) ?? selectedProject,
+		[projects, projectId, selectedProject],
+	);
+
 	// Helper function to build dashboard URLs
 	const buildUrl = (subPath?: string): Route => {
 		return buildDashboardUrl(currentOrgId, currentProjectId, subPath);
@@ -47,5 +55,6 @@ export function useDashboardNavigation() {
 		projects,
 		selectedOrganization,
 		selectedProject,
+		currentProject,
 	};
 }

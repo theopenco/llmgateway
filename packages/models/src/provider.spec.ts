@@ -13,7 +13,10 @@ import {
 	getVariantEnvVarNameFor,
 	validateProviderEnv,
 } from "./provider.js";
-import { getRegionScopedDefaultRegion } from "./providers.js";
+import {
+	getEffectiveCredentialRegion,
+	getRegionScopedDefaultRegion,
+} from "./providers.js";
 
 const BASE = "LLM_ALIBABA_API_KEY";
 const ENTERPRISE = `${BASE}__ENTERPRISE`;
@@ -374,5 +377,19 @@ describe("getProviderEnvVar fallback key", () => {
 		vi.stubEnv("LLM_AWS_BEDROCK_API_KEY", "");
 		expect(getProviderEnvVar("aws-bedrock")).toBe("LLM_AWS_BEDROCK_API_KEY");
 		expect(hasProviderEnvironmentToken("aws-bedrock")).toBe(false);
+	});
+});
+
+describe("getEffectiveCredentialRegion", () => {
+	it("pins an unpinned credential of a provider with no global region to its default", () => {
+		expect(getEffectiveCredentialRegion("alibaba", null)).toBe("singapore");
+		expect(getEffectiveCredentialRegion("alibaba", "us-virginia")).toBe(
+			"us-virginia",
+		);
+	});
+
+	it("keeps other unpinned credentials region-agnostic", () => {
+		expect(getEffectiveCredentialRegion("aws-bedrock", null)).toBeNull();
+		expect(getEffectiveCredentialRegion("openai", undefined)).toBeNull();
 	});
 });

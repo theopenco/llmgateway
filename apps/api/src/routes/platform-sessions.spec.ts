@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import {
 	getApiKeyFingerprint,
 	hashApiKeyForStorage,
@@ -187,6 +187,23 @@ describe("platform sessions", () => {
 		expect(newToken.status).toBe(200);
 	});
 
+	test("disabling end-user sessions revokes outstanding tokens", async () => {
+		const session = await mintSession("disabled-customer");
+		await db
+			.update(tables.project)
+			.set({ endUserEnabled: false })
+			.where(eq(tables.project.id, "test-project-id"));
+		const headers = { Authorization: `Bearer ${session.sessionToken}` };
+
+		const refresh = await app.request("/v1/sessions/refresh", {
+			method: "POST",
+			headers,
+		});
+		expect(refresh.status).toBe(401);
+		const balance = await app.request("/v1/wallet/balance", { headers });
+		expect(balance.status).toBe(401);
+	});
+
 	test("returns the intentionally public publishable key", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "test-platform-publishable-key-id",
@@ -323,6 +340,94 @@ describe("platform sessions", () => {
 			where: { id: { eq: liveSession.walletId } },
 		});
 		expect(liveWallet?.balance).toBe("0");
+	});
+
+	test("live wallet grants are funded from organization credits", async () => {
+		await createLiveKey();
+		const res = await app.request("/v1/sessions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer sk_live_platform",
+			},
+			body: JSON.stringify({ customer: "live-grant-customer" }),
+		});
+		expect(res.status).toBe(201);
+		const { walletId } = (await res.json()) as SessionResponse;
+
+		function grant(amount: number) {
+			return app.request(`/v1/wallets/${walletId}/credit`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer sk_live_platform",
+				},
+				body: JSON.stringify({ amount }),
+			});
+		}
+		async function balances() {
+			const org = await db.query.organization.findFirst({
+				where: { id: { eq: "test-org-id" } },
+			});
+			const wallet = await db.query.wallet.findFirst({
+				where: { id: { eq: walletId } },
+			});
+			return { org: Number(org?.credits), wallet: Number(wallet?.balance) };
+		}
+
+		expect((await grant(5)).status).toBe(402);
+		expect(await balances()).toEqual({ org: 0, wallet: 0 });
+
+		await db
+			.update(tables.organization)
+			.set({ credits: "10" })
+			.where(eq(tables.organization.id, "test-org-id"));
+		expect((await grant(5)).status).toBe(200);
+		expect(await balances()).toEqual({ org: 5, wallet: 5 });
+	});
+
+	test("Connect routes reject live keys created by a project admin", async () => {
+		await db.insert(tables.user).values({
+			id: "project-admin-user-id",
+			name: "Project Admin",
+			email: "project-admin@example.com",
+			emailVerified: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "project-admin-user-id",
+			organizationId: "test-org-id",
+			role: "project_admin",
+		});
+		await db.insert(tables.apiKey).values({
+			id: "project-admin-live-key-id",
+			...hashApiKeyForStorage("sk_live_project_admin"),
+			projectId: "test-project-id",
+			description: "Live platform secret",
+			keyType: "platform_secret",
+			createdBy: "project-admin-user-id",
+		});
+
+		const onboard = await app.request("/v1/connect/onboard", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer sk_live_project_admin",
+			},
+			body: JSON.stringify({
+				refreshUrl: "https://example.com/refresh",
+				returnUrl: "https://example.com/return",
+			}),
+		});
+		expect(onboard.status).toBe(403);
+		const payouts = await app.request("/v1/connect/payouts", {
+			method: "POST",
+			headers: { Authorization: "Bearer sk_live_project_admin" },
+		});
+		expect(payouts.status).toBe(403);
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: "test-org-id" } },
+		});
+		expect(org?.stripeConnectAccountId).toBeNull();
 	});
 
 	test("test keys are rejected from Connect routes", async () => {

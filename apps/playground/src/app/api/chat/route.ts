@@ -27,9 +27,11 @@ import {
 	readString,
 	type PlaygroundMessageMetadata,
 } from "@/lib/message-metadata";
+import { readJsonBody } from "@/lib/read-json-body";
 import { createServerApiClient, fetchServerData } from "@/lib/server-api";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { deferDownloadsToGateway } from "@llmgateway/shared/ai-sdk-download";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import {
@@ -291,6 +293,7 @@ interface ProjectRetrievalResponse {
 const KEEPALIVE_INTERVAL_MS = 15_000;
 
 export async function POST(req: Request) {
+	const bodyPromise = readJsonBody<ChatRequestBody>(req);
 	const user = await getUser();
 
 	if (!user) {
@@ -299,7 +302,11 @@ export async function POST(req: Request) {
 		});
 	}
 
-	const body = await req.json();
+	const bodyResult = await bodyPromise;
+	if (!bodyResult.ok) {
+		throw bodyResult.error;
+	}
+	const body = bodyResult.body;
 	const {
 		messages,
 		model,
@@ -741,6 +748,7 @@ export async function POST(req: Request) {
 				.filter(Boolean)
 				.join("\n\n") || undefined;
 		const result = streamText({
+			experimental_download: deferDownloadsToGateway,
 			model: llmgateway.chat(selectedModel, { usage: { include: true } }),
 			messages: modelMessages,
 			...(resolvedSystem ? { instructions: resolvedSystem } : {}),

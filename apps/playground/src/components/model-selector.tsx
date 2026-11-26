@@ -77,7 +77,7 @@ interface ModelSelectorProps {
 	placeholder?: string;
 	// "realtime" only affects presentation; capability filtering is the
 	// caller's responsibility (pass a pre-restricted models array).
-	mode?: "chat" | "video" | "image" | "audio" | "realtime";
+	mode?: "chat" | "video" | "image" | "audio" | "realtime" | "decisions";
 	isOptionDisabled?: (value: string) => boolean;
 	getOptionDisabledReason?: (value: string) => string | undefined;
 	/**
@@ -2190,6 +2190,15 @@ export function ModelSelector({
 																			field="outputAudio"
 																		/>
 																	</>
+																)}
+																{mode === "decisions" && (
+																	<div className="col-span-2 flex items-start gap-1.5 rounded-md bg-muted/50 px-2.5 py-2 text-xs text-muted-foreground">
+																		<Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+																		<span>
+																			Billed on input tokens only: the input
+																			plus every question. No output charge.
+																		</span>
+																	</div>
 																)}
 																<div className="space-y-1">
 																	<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">

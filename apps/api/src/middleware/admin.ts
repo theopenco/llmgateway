@@ -9,10 +9,8 @@ import type { Context } from "hono";
 /**
  * Admin panel roles, each keyed on an email allowlist:
  * - `admin` (`ADMIN_FULL_ACCESS_EMAILS`): full access.
- * - `support` (`ADMIN_SUPPORT_EMAILS`): `viewer` plus {@link SUPPORT_WRITE_ROUTES}.
- * - `viewer` (`ADMIN_VIEWER_EMAILS`): read-only, without platform-wide
- *   financials ({@link STAFF_HIDDEN_ROUTES}) or the gateway's own margin and
- *   profit fields.
+ * - `support` (`ADMIN_SUPPORT_EMAILS`): restricted reads plus {@link SUPPORT_WRITE_ROUTES}, without platform financials or gateway margin and profit fields.
+ * - `viewer` (`ADMIN_VIEWER_EMAILS`): read-only access, including financials.
  */
 export type AdminRole = "admin" | "support" | "viewer";
 
@@ -70,9 +68,10 @@ const STAFF_HIDDEN_ROUTES: RegExp[] = [
 	/^\/chat-plans\/(timeseries|usage)$/,
 	/^\/sdk$/,
 	/^\/provider-credentials\/spend$/,
+	/^\/airside\/payouts(\/.*)?$/,
 ];
 
-// Response keys stripped for non-admin roles. `routingAdjustment` is derived
+// Response keys stripped for support. `routingAdjustment` is derived
 // from the Airside margin, so it goes with it.
 const STAFF_REDACTED_KEY =
 	/margin|profit|platformFee|^kpis$|^routingAdjustment$/i;
@@ -111,7 +110,10 @@ export function isAdminRequestAllowed(
 	}
 	const upperMethod = method.toUpperCase();
 	if (READ_METHODS.has(upperMethod)) {
-		return !STAFF_HIDDEN_ROUTES.some((pattern) => pattern.test(path));
+		return (
+			role === "viewer" ||
+			!STAFF_HIDDEN_ROUTES.some((pattern) => pattern.test(path))
+		);
 	}
 	return (
 		role === "support" &&
@@ -180,7 +182,7 @@ function createAdminMiddleware(requireWhiteLabel: boolean) {
 
 		await next();
 
-		if (role !== "admin") {
+		if (role === "support") {
 			await redactResponse(c);
 		}
 	});

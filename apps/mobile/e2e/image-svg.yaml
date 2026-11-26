@@ -1,0 +1,35 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Images"
+- runFlow: helpers/close-chat-options.yaml
+- tapOn: "Model: Auto"
+- tapOn:
+    id: "field-search-models"
+- inputText: "flare"
+- tapOn: "Done typing"
+- tapOn: "Choose .*Flare.*"
+- tapOn: "Format: Image"
+- tapOn: "SVG"
+- assertVisible: "SVG returns one vector image and does not use reference images."
+- tapOn:
+    id: "field-image-prompt"
+- inputText: "A two-color cactus sticker"
+- tapOn: "Done typing"
+- scrollUntilVisible:
+    element: "Generate image"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Generate image"
+- scrollUntilVisible:
+    element: "Generated image 1.1, SVG"
+    direction: DOWN
+    centerElement: true
+    timeout: 20000
+- assertVisible: "Generated image 1.1, SVG"
+- assertNotVisible: "Edit image 1.1"
+- assertVisible: "Save image 1.1"

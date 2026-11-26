@@ -17,6 +17,20 @@ import { and, db, inArray, tables, eq, sql } from "@llmgateway/db";
  * carry their own TTL and are namespaced per response id, so leaving them
  * behind cannot leak into another test.
  */
+/** The organization's provider-facing safety identifier, as stored. */
+export async function getOrganizationSafetyIdentifier(
+	organizationId: string,
+): Promise<string> {
+	const [row] = await db
+		.select({ safetyIdentifier: tables.organization.safetyIdentifier })
+		.from(tables.organization)
+		.where(eq(tables.organization.id, organizationId));
+	if (!row) {
+		throw new Error(`organization ${organizationId} not found`);
+	}
+	return row.safetyIdentifier;
+}
+
 export async function clearCache() {
 	let cursor = "0";
 	do {
@@ -212,6 +226,49 @@ export async function waitForLogByRequestId(
  * @param stream The ReadableStream to read from
  * @returns Promise that resolves with parsed stream data including SSE validation
  */
+/**
+ * The log row that billed a gateway-run web search. Each model call of the
+ * search loop logs under `<requestId>-ws<n>`, and the searches are billed on
+ * the call that read their results.
+ */
+export async function waitForBilledWebSearchLog(
+	requestId: string,
+	maxWaitMs = 20000,
+	intervalMs = 100,
+) {
+	const startTime = Date.now();
+	for (;;) {
+		const deadlineReached = Date.now() - startTime >= maxWaitMs;
+		try {
+			await processLogQueue();
+		} catch (error) {
+			console.warn("processLogQueue failed, retrying:", error);
+		}
+		const logs = await db
+			.select()
+			.from(tables.log)
+			.where(
+				and(
+					sql`(${tables.log.requestId} = ${requestId} OR ${tables.log.requestId} LIKE ${`${requestId}-ws%`})`,
+					sql`${tables.log.retried} IS NOT TRUE`,
+					sql`${tables.log.webSearchCost} > 0`,
+				),
+			)
+			.limit(1);
+		if (logs[0]) {
+			return logs[0];
+		}
+		if (deadlineReached) {
+			throw new Error(
+				`Timed out waiting for a billed web search log for ${requestId}`,
+			);
+		}
+		await new Promise((resolve) => {
+			setTimeout(resolve, intervalMs);
+		});
+	}
+}
+
 export async function readAll(
 	stream: ReadableStream<Uint8Array> | null,
 ): Promise<{

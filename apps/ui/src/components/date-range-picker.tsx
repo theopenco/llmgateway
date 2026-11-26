@@ -34,11 +34,13 @@ import { cn } from "@/lib/utils";
 
 import {
 	formatDayKey,
-	shiftDayKey,
+	thisWeekDayKeyRange,
 	useDisplayTimeZone,
 } from "@llmgateway/shared";
 
 import type { DateRange } from "react-day-picker";
+
+const DEFAULT_PRESET = "this_week";
 
 interface DatePreset {
 	label: string;
@@ -66,7 +68,10 @@ function buildPresets(timeZone: string): DatePreset[] {
 		{
 			label: "Custom",
 			value: "custom",
-			getRange: () => ({ from: subDays(today, 6), to: today }),
+			getRange: () => ({
+				from: startOfWeek(today, { weekStartsOn: 1 }),
+				to: today,
+			}),
 		},
 		{
 			label: "Today",
@@ -175,7 +180,13 @@ function findMatchingPreset(
 	to: Date,
 	presets: DatePreset[],
 ): string {
-	for (const preset of presets) {
+	// "This week" is the default window and goes first: on a Monday it covers
+	// the same single day as "Today", and the default must keep its own name.
+	const ordered = [...presets].sort(
+		(a, b) =>
+			Number(b.value === DEFAULT_PRESET) - Number(a.value === DEFAULT_PRESET),
+	);
+	for (const preset of ordered) {
 		if (preset.value === "custom") {
 			continue;
 		}
@@ -209,10 +220,10 @@ function getDateRangeFromParams(
 		};
 	}
 
-	const todayKey = formatDayKey(new Date(), timeZone);
+	const defaults = thisWeekDayKeyRange(new Date(), timeZone);
 	return {
-		from: new Date(shiftDayKey(todayKey, -6) + "T00:00:00"),
-		to: new Date(todayKey + "T00:00:00"),
+		from: new Date(defaults.from + "T00:00:00"),
+		to: new Date(defaults.to + "T00:00:00"),
 	};
 }
 

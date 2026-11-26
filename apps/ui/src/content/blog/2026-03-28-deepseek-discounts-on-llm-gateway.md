@@ -5,6 +5,11 @@ date: 2026-03-28
 title: "Up to 30% Off DeepSeek Models on LLM Gateway"
 summary: "LLM Gateway offers exclusive discounts on DeepSeek V3.2, V3.1, and R1 through partner providers — up to 30% off base pricing, applied automatically to every request."
 categories: ["Announcements"]
+faqs:
+  - question: "Are the DeepSeek discounts in this post still current?"
+    answer: "No. The post carries an update saying the providers, prices, and discounts were current on March 28, 2026 and have since changed."
+  - question: "How do provider discounts work on LLM Gateway?"
+    answer: "LLM Gateway negotiates volume-based pricing with infrastructure providers and passes the savings on. Routing identifies the providers for a model and applies any negotiated discount."
 image:
   src: "/blog/deepseek-discounts-on-llm-gateway.png"
   alt: "Up to 30% Off DeepSeek Models on LLM Gateway"

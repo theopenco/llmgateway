@@ -20,6 +20,7 @@ import {
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AccountRiskAlert } from "@/components/account-risk-alert";
 import { BlockOrgButton } from "@/components/block-org-button";
 import { EnterpriseDealDialog } from "@/components/enterprise-deal-dialog";
 import { GiftCreditsDialog } from "@/components/gift-credits-dialog";
@@ -334,7 +335,15 @@ export default async function OrganizationPage({
 	const providerKeys = providerKeysData?.providerKeys ?? [];
 	const pkCounts = providerKeysData?.counts ?? emptyKeyCounts;
 	const membersTotal = membersData?.total ?? 0;
-	const seatOptions = (membersData?.members ?? [])
+	const members = membersData?.members ?? [];
+	// Members whose abuse-IP flag restricts this organization. A flagged org
+	// whose member was cleared some other way still offers every member.
+	const flaggedMembers = members.filter(
+		(member) => member.user.risk.status === "flagged",
+	);
+	const riskReviewMembers =
+		flaggedMembers.length || !org.riskFlagged ? flaggedMembers : members;
+	const seatOptions = members
 		.map((member) => ({ email: member.user.email, name: member.user.name }))
 		.toSorted((a, b) => a.email.localeCompare(b.email));
 
@@ -424,6 +433,31 @@ export default async function OrganizationPage({
 							</CollapsibleTrigger>
 						</div>
 					</div>
+
+					{riskReviewMembers.length ? (
+						<div className="mt-4 grid gap-2 lg:grid-cols-2">
+							{riskReviewMembers.map((member) => (
+								<AccountRiskAlert
+									key={member.id}
+									userId={member.user.id}
+									email={member.user.email}
+									risk={member.user.risk}
+									title={
+										org.riskFlagged
+											? "Restricted — flagged as high risk"
+											: "Member flagged as high risk"
+									}
+									canApprove={isAdmin}
+								>
+									<p className="mt-1 text-xs text-muted-foreground">
+										{org.riskFlagged
+											? "No inference or credit purchases until the account is approved."
+											: "This shared organization is not restricted; the member's own organizations are."}
+									</p>
+								</AccountRiskAlert>
+							))}
+						</div>
+					) : null}
 
 					<div className="mt-5 grid overflow-hidden rounded-xl border border-border/60 bg-background/70 sm:grid-cols-2 xl:grid-cols-4">
 						<div className="border-b border-border/60 p-4 sm:border-r xl:border-b-0">

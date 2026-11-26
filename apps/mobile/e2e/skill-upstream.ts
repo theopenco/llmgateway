@@ -13,7 +13,7 @@ const schema = z.object({
 		)
 		.optional(),
 	messages: z
-		.array(z.object({ role: z.string(), content: z.unknown() }))
+		.array(z.object({ role: z.string(), content: z.unknown().optional() }))
 		.optional(),
 });
 const stats = { generated: 0, probes: 0 };

@@ -7,6 +7,9 @@ export {
 } from "./engine.js";
 
 export type {
+	ClassifierOutcome,
+	ClassifierRequest,
+	GuardrailClassifier,
 	GuardrailConfigData,
 	GuardrailScope,
 	RuleViolation,
@@ -15,20 +18,23 @@ export type {
 	GuardrailInput,
 	Message,
 	MessageContent,
-	FileInfo,
 	SystemRule,
 	SystemRuleId,
 } from "./types.js";
 
-export { systemRules } from "./rules/index.js";
+export { systemRules, presetTopics } from "./rules/index.js";
+export { systemRuleCatalog } from "./catalog.js";
 
 // Re-export db types for convenience
 export type {
 	GuardrailAction,
+	PiiEntity,
 	SystemRuleConfig,
 	SystemRulesConfig,
 	BlockedTermsRuleConfig,
+	ClassifierRuleConfig,
 	CustomRegexRuleConfig,
+	SensitiveDataRuleConfig,
 	TopicRestrictionRuleConfig,
 	CustomRuleConfig,
 	GuardrailActionTaken,
@@ -41,4 +47,5 @@ export {
 	guardrailViolation,
 	defaultSystemRulesConfig,
 	defaultAllowedFileTypes,
+	piiEntities,
 } from "@llmgateway/db";

@@ -1,0 +1,30 @@
+name: gate
+
+on:
+  workflow_call:
+    inputs:
+      outcome:
+        required: true
+        type: string
+      step:
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  # Publishes one step of `build / run` as its own required check.
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: ${{ inputs.step }}
+        env:
+          OUTCOME: ${{ inputs.outcome }}
+          STEP: ${{ inputs.step }}
+        run: |
+          if [ "$OUTCOME" = "success" ]; then
+            exit 0
+          fi
+          echo "::error::'$STEP' in 'build / run' ended with '${OUTCOME:-not run}'. See that step's log."
+          exit 1

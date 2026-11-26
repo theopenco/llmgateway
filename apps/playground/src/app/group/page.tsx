@@ -5,6 +5,7 @@ import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import GroupChatClient from "@/components/playground/group-chat-client";
 import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
+import { isGroupChatModel } from "@/lib/model-studio";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Project, Organization } from "@/lib/types";
@@ -186,12 +187,7 @@ export default async function GroupPage({
 				key={selectedProject?.id}
 				// Matches the client's text-only filter so image models don't
 				// inflate the serialized RSC props.
-				models={models.filter(
-					(m) =>
-						!m.output?.includes("image") &&
-						!m.output?.includes("video") &&
-						!m.output?.includes("embedding"),
-				)}
+				models={models.filter(isGroupChatModel)}
 				providers={providers}
 				organizations={organizations}
 				selectedOrganization={selectedOrganization}
