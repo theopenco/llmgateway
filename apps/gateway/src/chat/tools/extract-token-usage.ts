@@ -114,6 +114,7 @@ export function extractTokenUsage(
 	let promptTokens = null;
 	let completionTokens = null;
 	let totalTokens = null;
+	let toolUsePromptTokens = 0;
 	let reasoningTokens = null;
 	let cachedTokens = null;
 	let cacheCreationTokens = null;
@@ -188,8 +189,11 @@ export function extractTokenUsage(
 				// completionTokens includes reasoning for correct totals
 				completionTokens = (rawCandidates ?? 0) + (reasoningTokens ?? 0);
 
-				// Calculate total
-				totalTokens = (promptTokens ?? 0) + (completionTokens ?? 0);
+				// Calculate total; tokens the model read from tool results (e.g. Google
+				// Search grounding) are billed on top of the prompt and candidates
+				toolUsePromptTokens = data.usageMetadata.toolUsePromptTokenCount ?? 0;
+				totalTokens =
+					(promptTokens ?? 0) + (completionTokens ?? 0) + toolUsePromptTokens;
 			}
 			break;
 		case "aws-bedrock":
@@ -353,11 +357,14 @@ export function extractTokenUsage(
 			break;
 	}
 
+	// Tool-use prompt tokens sit outside prompt + completion + reasoning, so keep
+	// them out of the reasoning-consistency check (otherwise toolUse == reasoning
+	// would double-count reasoning into completionTokens)
 	completionTokens = normalizeCompletionTokens(
 		promptTokens,
 		completionTokens,
 		reasoningTokens,
-		totalTokens,
+		totalTokens === null ? null : totalTokens - toolUsePromptTokens,
 	);
 
 	return {

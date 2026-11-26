@@ -823,6 +823,44 @@ describe("extractTokenUsage", () => {
 			expect(result.promptTokens).toBe(526);
 			expect(result.imageInputTokens).toBe(516);
 		});
+
+		it("adds toolUsePromptTokenCount to the total", () => {
+			const result = extractTokenUsage(
+				{
+					usageMetadata: {
+						promptTokenCount: 100,
+						candidatesTokenCount: 40,
+						toolUsePromptTokenCount: 25,
+						totalTokenCount: 165,
+					},
+				},
+				"google-ai-studio",
+			);
+
+			expect(result.promptTokens).toBe(100);
+			expect(result.completionTokens).toBe(40);
+			expect(result.totalTokens).toBe(165);
+		});
+
+		it("does not double-count reasoning when toolUse equals thoughts", () => {
+			const result = extractTokenUsage(
+				{
+					usageMetadata: {
+						promptTokenCount: 100,
+						candidatesTokenCount: 40,
+						thoughtsTokenCount: 25,
+						toolUsePromptTokenCount: 25,
+						totalTokenCount: 190,
+					},
+				},
+				"google-ai-studio",
+			);
+
+			expect(result.promptTokens).toBe(100);
+			expect(result.completionTokens).toBe(65);
+			expect(result.reasoningTokens).toBe(25);
+			expect(result.totalTokens).toBe(190);
+		});
 	});
 });
 

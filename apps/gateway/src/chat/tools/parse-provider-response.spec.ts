@@ -587,6 +587,57 @@ describe("parseProviderResponse", () => {
 			expect(result.promptTokens).toBe(268);
 			expect(result.imageInputTokens).toBe(258);
 		});
+
+		it("adds toolUsePromptTokenCount to the total", () => {
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-2.5-flash",
+				{
+					candidates: [
+						{
+							content: { role: "model", parts: [{ text: "Answer" }] },
+							finishReason: "STOP",
+						},
+					],
+					usageMetadata: {
+						promptTokenCount: 100,
+						candidatesTokenCount: 40,
+						toolUsePromptTokenCount: 25,
+						totalTokenCount: 165,
+					},
+				},
+			);
+
+			expect(result.promptTokens).toBe(100);
+			expect(result.completionTokens).toBe(40);
+			expect(result.totalTokens).toBe(165);
+		});
+
+		it("does not double-count reasoning when toolUse equals thoughts", () => {
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-2.5-flash",
+				{
+					candidates: [
+						{
+							content: { role: "model", parts: [{ text: "Answer" }] },
+							finishReason: "STOP",
+						},
+					],
+					usageMetadata: {
+						promptTokenCount: 100,
+						candidatesTokenCount: 40,
+						thoughtsTokenCount: 25,
+						toolUsePromptTokenCount: 25,
+						totalTokenCount: 190,
+					},
+				},
+			);
+
+			expect(result.promptTokens).toBe(100);
+			expect(result.completionTokens).toBe(65);
+			expect(result.totalTokens).toBe(190);
+		});
 	});
 
 	describe("google thought images", () => {
