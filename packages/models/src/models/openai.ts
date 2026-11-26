@@ -54,7 +54,6 @@ const OPENAI_REALTIME_VOICES = [
 	"shimmer",
 	"verse",
 ];
-
 export const openaiModels = [
 	{
 		id: "gpt-4o-mini",

@@ -275,7 +275,16 @@ const EXPECTED_REGIONS: Record<string, string[]> = {
 	"gpt-6-sol": ["global", "us", "us-east-1"],
 	"gpt-6-luna": ["global", "us", "us-east-1"],
 	"gpt-6.1-sol": ["global", "us", "us-east-1"],
+	"gpt-6.1-terra": ["global", "us", "us-east-1"],
+	"gpt-6.2-astra": ["global", "us", "us-east-1"],
 };
+
+const PRICE_FIELDS = [
+	"inputPrice",
+	"outputPrice",
+	"cachedInputPrice",
+	"cacheWriteInputPrice",
+] as const;
 
 describe("OpenAI models on AWS Bedrock", () => {
 	// gpt-oss runs on Mantle's chat completions route at its own per-region
@@ -287,16 +296,20 @@ describe("OpenAI models on AWS Bedrock", () => {
 					provider.providerId === "aws-mantle" &&
 					(provider as ProviderModelMapping).apiFormat === undefined,
 			)
-			.map((provider) => ({
-				modelId: model.id,
-				provider: provider as ProviderModelMapping,
-				firstParty: model.providers.find(
-					(candidate) => candidate.providerId === "openai",
-				) as ProviderModelMapping | undefined,
-				global: (provider as ProviderModelMapping).regions?.find(
-					(region) => region.id === "global",
-				),
-			})),
+			.map((provider) => {
+				const routes = expandProviderRegions(
+					provider as ProviderModelMapping,
+				).filter((entry) => entry.region !== undefined);
+				return {
+					modelId: model.id,
+					provider: provider as ProviderModelMapping,
+					firstParty: model.providers.find(
+						(candidate) => candidate.providerId === "openai",
+					) as ProviderModelMapping | undefined,
+					routes,
+					global: routes.find((entry) => entry.region === "global"),
+				};
+			}),
 	);
 	const crossRegionEntries = mantleEntries.filter((e) => e.global);
 	const inRegionOnlyEntries = mantleEntries.filter((e) => !e.global);
@@ -314,12 +327,7 @@ describe("OpenAI models on AWS Bedrock", () => {
 	it.each(crossRegionEntries)(
 		"$modelId bills global cross-region at the first-party rate",
 		({ modelId, firstParty, global }) => {
-			for (const field of [
-				"inputPrice",
-				"outputPrice",
-				"cachedInputPrice",
-				"cacheWriteInputPrice",
-			] as const) {
+			for (const field of PRICE_FIELDS) {
 				expect(global?.[field], `${modelId} global ${field}`).toBe(
 					firstParty?.[field],
 				);
@@ -328,30 +336,27 @@ describe("OpenAI models on AWS Bedrock", () => {
 	);
 
 	it.each(crossRegionEntries)(
-		"$modelId bills in-region at a 10% premium over global cross-region",
-		({ modelId, provider, global }) => {
-			for (const field of [
-				"inputPrice",
-				"outputPrice",
-				"cachedInputPrice",
-				"cacheWriteInputPrice",
-			] as const) {
-				expectRatio(
-					`${modelId} aws-mantle in-region ${field}`,
-					provider[field],
-					global?.[field],
-					BEDROCK_PREMIUM,
-				);
+		"$modelId bills US and in-region routes at a 10% premium over global",
+		({ modelId, routes, global }) => {
+			for (const route of routes) {
+				if (route.region === "global") {
+					continue;
+				}
+				for (const field of PRICE_FIELDS) {
+					expectRatio(
+						`${modelId} ${route.region} ${field}`,
+						route[field],
+						global?.[field],
+						BEDROCK_PREMIUM,
+					);
+				}
 			}
 			// The 1.25x cache-write relationship survives the premium.
-			for (const [label, mapping] of [
-				["in-region", provider],
-				["global", global],
-			] as const) {
+			for (const route of routes) {
 				expectRatio(
-					`${modelId} aws-mantle ${label} cacheWriteInputPrice vs inputPrice`,
-					mapping?.cacheWriteInputPrice,
-					mapping?.inputPrice,
+					`${modelId} ${route.region} cacheWriteInputPrice vs inputPrice`,
+					route.cacheWriteInputPrice,
+					route.inputPrice,
 					CACHE_WRITE_MULTIPLIER,
 				);
 			}
@@ -360,50 +365,46 @@ describe("OpenAI models on AWS Bedrock", () => {
 
 	it.each(inRegionOnlyEntries)(
 		"$modelId bills in-region at a 10% premium over the first-party rate",
-		({ modelId, provider, firstParty }) => {
-			for (const field of [
-				"inputPrice",
-				"outputPrice",
-				"cachedInputPrice",
-			] as const) {
-				expectRatio(
-					`${modelId} aws-mantle in-region ${field}`,
-					provider[field],
-					firstParty?.[field],
-					BEDROCK_PREMIUM,
-				);
+		({ modelId, routes, firstParty }) => {
+			for (const route of routes) {
+				for (const field of [
+					"inputPrice",
+					"outputPrice",
+					"cachedInputPrice",
+				] as const) {
+					expectRatio(
+						`${modelId} ${route.region} ${field}`,
+						route[field],
+						firstParty?.[field],
+						BEDROCK_PREMIUM,
+					);
+				}
+				// AWS charges nothing for cache writes on these models.
+				expect(route.cacheWriteInputPrice).toBeUndefined();
 			}
-			// AWS charges nothing for cache writes on these models.
-			expect(provider.cacheWriteInputPrice).toBeUndefined();
 		},
 	);
 
 	it.each(mantleEntries)(
 		"$modelId prices the 272K long-context tier on every route",
-		({ modelId, provider, global }) => {
-			const routes = global
-				? ([
-						["in-region", provider],
-						["global", global],
-					] as const)
-				: ([["in-region", provider]] as const);
-			for (const [label, mapping] of routes) {
-				const tiers = mapping?.pricingTiers ?? [];
-				expect(tiers, `${modelId} ${label}: pricingTiers`).toHaveLength(2);
+		({ modelId, routes }) => {
+			for (const route of routes) {
+				const label = `${modelId} ${route.region}`;
+				const tiers = route.pricingTiers ?? [];
+				expect(tiers, `${label}: pricingTiers`).toHaveLength(2);
 				const [shortTier, longTier] = tiers;
 
 				expect(shortTier.upToTokens).toBe(LONG_CONTEXT_THRESHOLD);
 				expect(longTier.upToTokens).toBe(Infinity);
-				expect(shortTier.inputPrice).toBe(mapping?.inputPrice);
-				expect(shortTier.outputPrice).toBe(mapping?.outputPrice);
-				expect(shortTier.cachedInputPrice).toBe(mapping?.cachedInputPrice);
-				expect(shortTier.cacheWriteInputPrice).toBe(
-					mapping?.cacheWriteInputPrice,
-				);
+				for (const field of PRICE_FIELDS) {
+					expect(shortTier[field], `${label} short-tier ${field}`).toBe(
+						route[field],
+					);
+				}
 
 				for (const field of ["inputPrice", "cachedInputPrice"] as const) {
 					expectRatio(
-						`${modelId} ${label} long-context ${field}`,
+						`${label} long-context ${field}`,
 						longTier[field],
 						shortTier[field],
 						LONG_INPUT_MULTIPLIER,
@@ -411,14 +412,14 @@ describe("OpenAI models on AWS Bedrock", () => {
 				}
 				if (shortTier.cacheWriteInputPrice !== undefined) {
 					expectRatio(
-						`${modelId} ${label} long-context cacheWriteInputPrice`,
+						`${label} long-context cacheWriteInputPrice`,
 						longTier.cacheWriteInputPrice,
 						shortTier.cacheWriteInputPrice,
 						LONG_INPUT_MULTIPLIER,
 					);
 				}
 				expectRatio(
-					`${modelId} ${label} long-context outputPrice`,
+					`${label} long-context outputPrice`,
 					longTier.outputPrice,
 					shortTier.outputPrice,
 					LONG_OUTPUT_MULTIPLIER,
@@ -429,15 +430,15 @@ describe("OpenAI models on AWS Bedrock", () => {
 
 	it.each(mantleEntries)(
 		"$modelId caps every route at the measured prompt window",
-		({ modelId, provider }) => {
+		({ modelId, provider, routes }) => {
 			expect(provider.contextSize, `${modelId}: aws-mantle context size`).toBe(
 				BEDROCK_CONTEXT_SIZE,
 			);
-			for (const region of provider.regions ?? []) {
+			for (const route of routes) {
 				expect(
-					region.contextSize,
-					`${modelId} ${region.id}: context size`,
-				).toBeUndefined();
+					route.contextSize,
+					`${modelId} ${route.region}: context size`,
+				).toBe(BEDROCK_CONTEXT_SIZE);
 			}
 		},
 	);
@@ -484,28 +485,14 @@ describe("OpenAI models on AWS Bedrock", () => {
 		}
 	});
 
-	it("expands each region, overriding pricing only for global", () => {
-		for (const { modelId, provider, global } of mantleEntries) {
-			const expanded = expandProviderRegions(provider);
-			// The synthetic root carries no region and must come first, followed by
-			// exactly the declared regions — a count check alone would pass if a
-			// region were duplicated or mislabelled.
-			expect(expanded.map((entry) => entry.region)).toEqual([
+	it("expands exactly the declared regions after the root", () => {
+		for (const { modelId, provider } of mantleEntries) {
+			// A count check alone would pass if a region were duplicated or
+			// mislabelled.
+			expect(expandProviderRegions(provider).map((e) => e.region)).toEqual([
 				undefined,
 				...EXPECTED_REGIONS[modelId],
 			]);
-			for (const entry of expanded) {
-				const expected = entry.region === "global" ? global : provider;
-				expect(entry.inputPrice, `${modelId} ${entry.region}`).toBe(
-					expected?.inputPrice,
-				);
-				expect(entry.outputPrice, `${modelId} ${entry.region}`).toBe(
-					expected?.outputPrice,
-				);
-				expect(entry.contextSize, `${modelId} ${entry.region}`).toBe(
-					provider.contextSize,
-				);
-			}
 		}
 	});
 
@@ -514,20 +501,23 @@ describe("OpenAI models on AWS Bedrock", () => {
 	it("offers web search only on in-region US Mantle routes", () => {
 		// Web search requests hang on these, though plain requests complete.
 		const hangs = new Set(["gpt-5.4:us-east-1", "gpt-5.5:us-east-1"]);
-		for (const { modelId, provider } of mantleEntries) {
-			for (const entry of expandProviderRegions(provider)) {
-				if (entry.region === undefined) {
+		// Not yet verified against Bedrock Web Search; gateway-run search serves them.
+		const unverified = new Set(["gpt-6.1-terra", "gpt-6.2-astra"]);
+		for (const { modelId, routes } of mantleEntries) {
+			for (const route of routes) {
+				const region = route.region ?? "";
+				const inRegionUs = ["us-east-1", "us-east-2", "us-west-2"].includes(
+					region,
+				);
+				const label = `${modelId} ${region}`;
+				if (unverified.has(modelId)) {
+					expect(route.webSearch, label).toBeUndefined();
 					continue;
 				}
-				const inRegionUs = ["us-east-1", "us-east-2", "us-west-2"].includes(
-					entry.region,
+				expect(route.webSearch, label).toBe(
+					inRegionUs && !hangs.has(`${modelId}:${region}`),
 				);
-				expect(entry.webSearch, `${modelId} ${entry.region}`).toBe(
-					inRegionUs && !hangs.has(`${modelId}:${entry.region}`),
-				);
-				expect(entry.webSearchPrice, `${modelId} ${entry.region}`).toBe(
-					"0.012",
-				);
+				expect(route.webSearchPrice, label).toBe("0.012");
 			}
 		}
 	});
