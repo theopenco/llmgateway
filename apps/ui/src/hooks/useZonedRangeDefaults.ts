@@ -2,11 +2,7 @@
 
 import { useCallback } from "react";
 
-import {
-	formatDayKey,
-	shiftDayKey,
-	useDisplayTimeZone,
-} from "@llmgateway/shared";
+import { thisWeekDayKeyRange, useDisplayTimeZone } from "@llmgateway/shared";
 
 /** Marks a `from`/`to` pair in the URL as one we generated rather than one the
  *  user chose. Provenance has to live in the URL: a ref is empty after a
@@ -15,8 +11,8 @@ import {
 export const GENERATED_RANGE_PARAM = "autorange";
 
 /**
- * Default `from`/`to` day keys for the analytics range pickers, derived in the
- * zone those endpoints bucket by.
+ * Default `from`/`to` day keys for the analytics range pickers: this week
+ * (Monday through today), derived in the zone those endpoints bucket by.
  *
  * Two things this solves that a bare `new Date()` doesn't:
  *
@@ -27,11 +23,10 @@ export const GENERATED_RANGE_PARAM = "autorange";
  *   range generated under the old zone would survive a toggle. Anything the
  *   user picked clears the marker, so only our own defaults get refreshed.
  */
-export function useZonedRangeDefaults(days = 6) {
+export function useZonedRangeDefaults() {
 	const { timeZone } = useDisplayTimeZone();
 
-	const to = formatDayKey(new Date(), timeZone);
-	const from = shiftDayKey(to, -days);
+	const { from, to } = thisWeekDayKeyRange(new Date(), timeZone);
 
 	/** Stamp the marker onto params the caller is about to write. */
 	const markGenerated = useCallback((params: URLSearchParams) => {

@@ -1,4 +1,5 @@
 import {
+	Activity,
 	ExternalLink,
 	Play,
 	ShieldCheck,
@@ -9,11 +10,13 @@ import {
 	Clock,
 	Fingerprint,
 } from "lucide-react";
+import Link from "next/link";
 
 import { AuthLink } from "@/components/shared/auth-link";
 import { Button } from "@/lib/components/button";
 import { getConfig } from "@/lib/config-server";
 import Logo from "@/lib/icons/Logo";
+import { listedProviders } from "@/lib/providers-catalog";
 import { cn } from "@/lib/utils";
 
 import {
@@ -153,6 +156,9 @@ export function Hero({
 			? { label: "Privacy Policy", href: provider.privacyPolicyUrl }
 			: null,
 	].filter((link): link is { label: string; href: string } => link !== null);
+	const hasStatusPage = listedProviders.some(
+		(listed) => listed.id === providerId,
+	);
 
 	const getProviderIcon = (providerId: ProviderId) => {
 		if (uploadedLogo) {
@@ -364,11 +370,20 @@ export function Hero({
 						) : null}
 					</div>
 
-					{referenceLinks.length > 0 && (
-						<div className="mt-4 flex items-center gap-x-4 text-sm text-muted-foreground">
+					{(referenceLinks.length > 0 || hasStatusPage) && (
+						<div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
+							{hasStatusPage ? (
+								<Link
+									href={`/status/${providerId}`}
+									className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+								>
+									<Activity className="h-3 w-3" />
+									Live status
+								</Link>
+							) : null}
 							{referenceLinks.map((link, index) => (
 								<div key={link.href} className="flex items-center gap-x-4">
-									{index > 0 && (
+									{(index > 0 || hasStatusPage) && (
 										<span className="text-muted-foreground/50">|</span>
 									)}
 									<a

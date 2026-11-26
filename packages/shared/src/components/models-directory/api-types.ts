@@ -6,6 +6,8 @@ import {
 
 import { expandVirtualModels } from "@llmgateway/models";
 
+import type { BatchEndpoint } from "@llmgateway/models";
+
 export interface TimeBasedTokenPrices {
 	inputPrice: string;
 	outputPrice: string;
@@ -127,6 +129,7 @@ export interface ApiModelProviderMapping {
 	realtimeTranscription?: boolean | null;
 	realtimeTranscriptionTurnDetection?: boolean | null;
 	supportedVoices?: string[] | null;
+	batchEndpoints?: BatchEndpoint[] | null;
 	supportedVideoSizes: string[] | null;
 	supportedVideoDurationsSeconds: number[] | null;
 	supportedVideoDurationsSecondsImageToVideo?: number[] | null;
@@ -156,6 +159,8 @@ export interface ApiModelProviderMapping {
 	} | null;
 	serviceTiers?: string[] | null;
 	discount: string | null;
+	/** Cost types the discount leaves at full price, e.g. "web_search". */
+	discountExcludedCostTypes?: string[];
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	supportedParameters: string[] | null;
 	deprecatedAt: string | null;

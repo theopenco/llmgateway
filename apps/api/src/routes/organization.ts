@@ -32,6 +32,7 @@ import {
 	isInvoiceableTransaction,
 	isRefundTransaction,
 } from "@/utils/invoice.js";
+import { resolveInvoiceBillingDetails } from "@/utils/plan-billing.js";
 import {
 	providerCacheAutoTtlSchema,
 	providerCacheControlModeSchema,
@@ -68,7 +69,10 @@ import {
 	projectHourlyStats,
 	getEffectiveProviders,
 } from "@llmgateway/db";
-import { getProviderCountries } from "@llmgateway/models";
+import {
+	GATEWAY_WEB_SEARCH_ENGINE_IDS,
+	getProviderCountries,
+} from "@llmgateway/models";
 import {
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	getBaseLimit,
@@ -129,6 +133,9 @@ const organizationSchema = z
 		providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 		smartRoutingConfig: smartRoutingConfigInputSchema.nullable(),
 		ssoAutoJoinDomain: z.string().nullable(),
+		// Engine for web search on providers without native search; null = the
+		// default engine.
+		webSearchEngine: z.string().nullable(),
 		status: z.enum(["active", "inactive", "deleted"]).nullable(),
 		blockReason: z.string().nullable(),
 		autoTopUpEnabled: z.boolean(),
@@ -239,6 +246,7 @@ const updateOrganizationSchema = z.object({
 		.optional(),
 	smartRoutingConfig: smartRoutingConfigInputSchema.nullable().optional(),
 	ssoAutoJoinDomain: z.string().max(253).nullable().optional(),
+	webSearchEngine: z.enum(GATEWAY_WEB_SEARCH_ENGINE_IDS).nullable().optional(),
 	autoTopUpEnabled: z.boolean().optional(),
 	autoTopUpThreshold: z.number().min(5).optional(),
 	autoTopUpAmount: z
@@ -318,6 +326,10 @@ const transactionSchema = z.object({
 	description: z.string().nullable(),
 	relatedTransactionId: z.string().nullable(),
 	refundReason: z.string().nullable(),
+	// Off-Stripe channel and its reference, set on manual payments and
+	// enterprise license fees.
+	paymentMethod: z.enum(["wire", "crypto", "paypal", "other"]).nullable(),
+	externalReference: z.string().nullable(),
 	// Self-refund eligibility, present only on refund-candidate purchase types.
 	refund: refundEligibilitySchema.optional(),
 });
@@ -642,6 +654,7 @@ organization.openapi(updateOrganization, async (c) => {
 		providerCompliancePolicy,
 		smartRoutingConfig,
 		ssoAutoJoinDomain,
+		webSearchEngine,
 		autoTopUpEnabled,
 		autoTopUpThreshold,
 		autoTopUpAmount,
@@ -686,7 +699,9 @@ organization.openapi(updateOrganization, async (c) => {
 		retentionLevel !== undefined ||
 		autoTopUpEnabled !== undefined ||
 		autoTopUpThreshold !== undefined ||
-		autoTopUpAmount !== undefined;
+		autoTopUpAmount !== undefined ||
+		// The engine sets the per-search price.
+		webSearchEngine !== undefined;
 
 	// Only owners can update billing and policy settings
 	if (isBillingOrPolicyUpdate && userOrganization.role !== "owner") {
@@ -916,6 +931,9 @@ organization.openapi(updateOrganization, async (c) => {
 	if (normalizedSsoDomain !== undefined) {
 		updateData.ssoAutoJoinDomain = normalizedSsoDomain;
 	}
+	if (webSearchEngine !== undefined) {
+		updateData.webSearchEngine = webSearchEngine;
+	}
 	if (autoTopUpEnabled !== undefined) {
 		updateData.autoTopUpEnabled = autoTopUpEnabled;
 		if (autoTopUpEnabled && !userOrganization.organization?.autoTopUpEnabled) {
@@ -1058,6 +1076,15 @@ organization.openapi(updateOrganization, async (c) => {
 		changes.smartRoutingConfig = {
 			old: oldOrg.smartRoutingConfig,
 			new: normalizedSmartRoutingConfig,
+		};
+	}
+	if (
+		webSearchEngine !== undefined &&
+		webSearchEngine !== oldOrg.webSearchEngine
+	) {
+		changes.webSearchEngine = {
+			old: oldOrg.webSearchEngine,
+			new: webSearchEngine,
 		};
 	}
 	if (
@@ -1722,8 +1749,13 @@ organization.openapi(downloadTransactionInvoice, async (c) => {
 				})
 			: null;
 
+	const billingDetails = await resolveInvoiceBillingDetails(org);
 	const pdf = await generateInvoicePDF(
-		buildInvoiceDataForTransaction(transaction, org, originalTransaction),
+		buildInvoiceDataForTransaction(
+			transaction,
+			{ id: org.id, name: org.name, ...billingDetails },
+			originalTransaction,
+		),
 	);
 
 	const prefix = isRefundTransaction(transaction.type)
@@ -2109,7 +2141,11 @@ organization.openapi(getOrganizationLimits, async (c) => {
 		// Only regular orgs get the spend-tier multiplier; dev/chat stay flat.
 		const rpm =
 			planClass === "regular" ? Math.floor(base * tier.rpmMultiplier) : base;
-		return { key: cfg.key, path: cfg.prefix, rpm };
+		return {
+			key: cfg.key,
+			path: cfg.method ? `${cfg.method} ${cfg.prefix}` : cfg.prefix,
+			rpm,
+		};
 	});
 
 	// Rolling-24h top-up allowance (windowed transaction sum + in-flight

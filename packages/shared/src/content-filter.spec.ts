@@ -13,10 +13,18 @@ describe("parseContentFilterSettings", () => {
 			providerIds: [],
 			sampleRatePercent: 100,
 			enforce: false,
+			enforceProviderIds: [],
+			devPassEnforceProviderIds: [],
+			enforceSampleRatePercent: 100,
 			enforceEnterprise: false,
 			classifier: "openai",
+			shadowClassifiers: [],
 			internalScope: "full",
+			openaiScope: "latest_turn",
 			moderateImages: true,
+			moderateEmbeddings: false,
+			blockGroups: null,
+			csamScoreThreshold: 0.01,
 		});
 		expect(parseContentFilterSettings(null)).toEqual(
 			DEFAULT_CONTENT_FILTER_SETTINGS,
@@ -36,10 +44,18 @@ describe("parseContentFilterSettings", () => {
 			providerIds: ["openai"],
 			sampleRatePercent: 10,
 			enforce: false,
+			enforceProviderIds: [],
+			devPassEnforceProviderIds: [],
+			enforceSampleRatePercent: 100,
 			enforceEnterprise: false,
 			classifier: "openai",
+			shadowClassifiers: [],
 			internalScope: "full",
+			openaiScope: "latest_turn",
 			moderateImages: true,
+			moderateEmbeddings: false,
+			blockGroups: null,
+			csamScoreThreshold: 0.01,
 		});
 	});
 
@@ -54,12 +70,26 @@ describe("parseContentFilterSettings", () => {
 		).toMatchObject({ classifier: "internal", internalScope: "latest_turn" });
 	});
 
+	test("reads the OpenAI scope", () => {
+		expect(
+			parseContentFilterSettings(JSON.stringify({ openaiScope: "full" })),
+		).toMatchObject({ openaiScope: "full" });
+	});
+
 	test("ignores the removed shadowClassifier field on stored settings", () => {
 		expect(
 			parseContentFilterSettings(
 				JSON.stringify({ classifier: "jev", shadowClassifier: "openai" }),
 			),
 		).toEqual({ ...DEFAULT_CONTENT_FILTER_SETTINGS, classifier: "jev" });
+	});
+
+	test("reads the shadow classifiers", () => {
+		expect(
+			parseContentFilterSettings(
+				JSON.stringify({ shadowClassifiers: ["internal", "jev"] }),
+			),
+		).toMatchObject({ shadowClassifiers: ["internal", "jev"] });
 	});
 
 	test("falls back to defaults on out-of-range values", () => {

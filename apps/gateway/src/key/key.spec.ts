@@ -57,10 +57,29 @@ describe("/v1/key", () => {
 		expect(res.status).toBe(401);
 	});
 
-	test("403 for non-user key types", async () => {
+	test("401 for platform_publishable keys, which never authenticate", async () => {
 		await insertApiKey({ keyType: "platform_publishable" });
 		const res = await getKey("real-token");
-		expect(res.status).toBe(403);
+		expect(res.status).toBe(401);
+	});
+
+	test.each([
+		[
+			"/v1/chat/completions",
+			{ model: "gpt-4o-mini", messages: [{ role: "user", content: "hi" }] },
+		],
+		["/v1/embeddings", { model: "text-embedding-3-small", input: "hi" }],
+	])("401 for platform_publishable keys on %s", async (path, body) => {
+		await insertApiKey({ keyType: "platform_publishable" });
+		const res = await app.request(path, {
+			method: "POST",
+			headers: {
+				Authorization: "Bearer real-token",
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(body),
+		});
+		expect(res.status).toBe(401);
 	});
 
 	test("401 for platform_secret keys, which the gateway treats as nonexistent", async () => {

@@ -1,8 +1,10 @@
 import { HTTPException } from "hono/http-exception";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { parseModelInput } from "./parse-model-input.js";
 import { resolveModelInfo } from "./resolve-model-info.js";
+
+import type { Model } from "@llmgateway/models";
 
 describe("parseModelInput / resolveModelInfo catalog-id-only routing", () => {
 	// Routing must carry the canonical catalog id, never the upstream externalId.
@@ -42,6 +44,48 @@ describe("parseModelInput / resolveModelInfo catalog-id-only routing", () => {
 		const result = parseModelInput("together-ai/glm-5.1");
 		expect(result.requestedModel).toBe("glm-5.1");
 		expect(result.requestedProvider).toBe("together-ai");
+	});
+});
+
+describe("resolveModelInfo deactivated provider pins", () => {
+	// google-ai-studio is deactivated on 2026-01-17, google-vertex on 2026-01-27.
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("rejects a pin to a deactivated mapping with 410 instead of rerouting", () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-01-20T12:00:00Z"));
+		let error: unknown;
+		try {
+			resolveModelInfo(
+				"gemini-2.5-flash-preview-09-2025" as Model,
+				"google-ai-studio",
+			);
+		} catch (caught) {
+			error = caught;
+		}
+		expect(error).toBeInstanceOf(HTTPException);
+		expect((error as HTTPException).status).toBe(410);
+		expect((error as HTTPException).message).toContain(
+			"Provider google-ai-studio no longer serves model gemini-2.5-flash-preview-09-2025",
+		);
+	});
+
+	it("keeps routing an unpinned request to the active mappings", () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-01-20T12:00:00Z"));
+		const { modelInfo, requestedProvider } = resolveModelInfo(
+			"gemini-2.5-flash-preview-09-2025" as Model,
+			undefined,
+		);
+		expect(requestedProvider).toBeUndefined();
+		expect(modelInfo.providers.map((p) => p.providerId)).not.toContain(
+			"google-ai-studio",
+		);
+		expect(modelInfo.providers.map((p) => p.providerId)).toContain(
+			"google-vertex",
+		);
 	});
 });
 

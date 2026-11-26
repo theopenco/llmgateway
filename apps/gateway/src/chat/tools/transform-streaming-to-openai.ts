@@ -12,8 +12,9 @@ import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getProviderDefinition } from "@llmgateway/models";
 
+import { extractBedrockSafeguardResults } from "./anthropic-safeguards.js";
 import { calculatePromptTokensFromMessages } from "./calculate-prompt-tokens.js";
-import { extractImages } from "./extract-images.js";
+import { extractImages, isGoogleOutputImagePart } from "./extract-images.js";
 import {
 	adjustGoogleCandidateTokens,
 	extractBedrockCacheCreationDetails,
@@ -158,9 +159,15 @@ export function transformStreamingToOpenai(
 		googleThoughtSignatureState?: Map<number, GoogleThoughtSignatureState>;
 		googleToolCallIndices?: Map<number, number>;
 		anthropicThinkingText?: AnthropicThinkingTextState;
+		/**
+		 * Provider whose replay the thinking signatures are sealed for, when it
+		 * differs from the response format (Claude on AWS Bedrock).
+		 */
+		thinkingProvider?: Provider;
 	},
 ): any {
 	const thinkingText = options?.anthropicThinkingText;
+	const thinkingProvider = options?.thinkingProvider ?? usedProvider;
 	let transformedData = data;
 
 	const isKnownNonRenderableAwsBedrockDelta = (delta: any): boolean => {
@@ -257,7 +264,7 @@ export function transformStreamingToOpenai(
 				typeof data.delta.signature === "string"
 			) {
 				transformedData = signedThinkingChunk(
-					usedProvider,
+					thinkingProvider,
 					data.model ?? usedModel,
 					{
 						type: "thinking",
@@ -272,7 +279,7 @@ export function transformStreamingToOpenai(
 				typeof data.content_block.data === "string"
 			) {
 				transformedData = signedThinkingChunk(
-					usedProvider,
+					thinkingProvider,
 					data.model ?? usedModel,
 					{ type: "redacted_thinking", data: data.content_block.data },
 					data.index,
@@ -768,7 +775,7 @@ export function transformStreamingToOpenai(
 				const thoughtParts = parts.filter(
 					(part) => part.thought && typeof part.text === "string",
 				);
-				const hasImages = parts.some((part) => part.inlineData);
+				const hasImages = parts.some(isGoogleOutputImagePart);
 				const hasFunctionCalls = parts.some((part) => part.functionCall);
 
 				const hasThoughtSignature = parts.some(
@@ -1718,6 +1725,10 @@ export function transformStreamingToOpenai(
 				) {
 					finishReason = "content_filter";
 				}
+				// Safeguard verdicts (Claude Code auto mode) arrive on messageStop.
+				const safeguardResults = extractBedrockSafeguardResults(
+					data.additionalModelResponseFields,
+				);
 
 				transformedData = {
 					id: `chatcmpl-${Date.now()}`,
@@ -1727,7 +1738,9 @@ export function transformStreamingToOpenai(
 					choices: [
 						{
 							index: 0,
-							delta: {},
+							delta: safeguardResults
+								? { anthropic_safeguard_results: safeguardResults }
+								: {},
 							finish_reason: finishReason,
 						},
 					],
@@ -1821,29 +1834,12 @@ export function transformStreamingToOpenai(
 		case "custom":
 		case "bytedance":
 		case "minimax":
-		case "ranoai":
 		case "baidu":
 		case "atria":
 		case "cloudflare":
 		case "xiaomi":
-		case "azure-ai-foundry":
 		case "vertex-openai":
 		case "llmgateway": {
-			// Azure AI Foundry mirrors Azure OpenAI's prompt-filter-only leading
-			// chunk on some models — empty id/object/choices, no usage. Drop it
-			// for the same reason: it breaks downstream hasOpenAIFormat checks.
-			// Skip the guard for Responses API events (identified by `data.type`).
-			if (
-				usedProvider === "azure-ai-foundry" &&
-				!data.type &&
-				!data.id &&
-				!data.object &&
-				(!data.choices || data.choices.length === 0) &&
-				!data.usage
-			) {
-				transformedData = null;
-				break;
-			}
 			// Mistral streams thinking models' content as typed chunks; flatten
 			// them back to `content` / `reasoning_content` before the shared
 			// OpenAI transform sees the delta.

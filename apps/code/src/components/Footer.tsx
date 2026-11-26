@@ -39,10 +39,10 @@ function Newsletter() {
 							</svg>
 						</div>
 						<div className="space-y-1">
-							<h3 className="text-xl font-bold">You&apos;re in!</h3>
+							<h3 className="text-xl font-bold">One more step</h3>
 							<p className="text-sm text-muted-foreground max-w-sm mx-auto">
 								{subscribe.data?.message ??
-									"Check your inbox — we'll send you the good stuff, no filler."}
+									"Check your inbox to confirm your subscription."}
 							</p>
 						</div>
 					</div>
@@ -105,13 +105,13 @@ function Newsletter() {
 	);
 }
 
-export function Footer() {
+export function Footer({ newsletter = true }: { newsletter?: boolean }) {
 	const config = useAppConfig();
 
 	return (
 		<footer className="relative border-t py-12 px-4">
 			<div className="container mx-auto max-w-5xl">
-				<Newsletter />
+				{newsletter && <Newsletter />}
 
 				<div className="flex flex-col md:flex-row md:justify-between md:items-start gap-8">
 					<div>
@@ -343,9 +343,25 @@ export function Footer() {
 
 				<div className="border-t border-border/50 pt-8 mt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
 					<p className="text-muted-foreground text-sm">
-						&copy; {new Date().getFullYear()} LLM Gateway. All rights reserved.
+						&copy; {new Date().getUTCFullYear()} LLM Gateway. All rights
+						reserved.
 					</p>
-					<div className="flex items-center gap-6">
+					<div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+						<Link
+							href="/"
+							hrefLang="en"
+							className="text-sm text-muted-foreground hover:underline underline-offset-4 hover:text-foreground"
+						>
+							English
+						</Link>
+						<Link
+							href="/ko"
+							hrefLang="ko"
+							lang="ko"
+							className="text-sm text-muted-foreground hover:underline underline-offset-4 hover:text-foreground"
+						>
+							한국어
+						</Link>
 						<Link
 							href="/legal/privacy"
 							className="text-sm text-muted-foreground hover:underline underline-offset-4 hover:text-foreground"

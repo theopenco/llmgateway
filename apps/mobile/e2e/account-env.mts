@@ -23,7 +23,6 @@ mock.module("@llmgateway/shared/email", {
 	namedExports: {
 		fromEmail: "Lounge fixture <fixture@example.test>",
 		replyToEmail: "fixture@example.test",
-		resendAudienceId: "",
 		getResendClient: () => null,
 	},
 });

@@ -5,6 +5,11 @@ date: 2026-04-26
 title: "LLM Gateway vs Direct API: When the Provider SDK Stops Scaling"
 summary: "Calling OpenAI or Anthropic directly is the right first call. Here's the honest case for when a gateway starts paying for itself — and when you don't need one yet."
 categories: ["Guides"]
+faqs:
+  - question: "When should I call an LLM provider directly instead of using a gateway?"
+    answer: "The direct API is the better choice when you only call one provider and have no plans to add another. A gateway is infrastructure, and infrastructure you do not need is overhead."
+  - question: "When is an LLM gateway worth adding?"
+    answer: "A common signal is integrating a second provider, which brings a different SDK, authentication, and request format. At that point one gateway integration replaces several provider integrations."
 image:
   src: "/blog/llm-gateway-vs-direct-api.png"
   alt: "LLM Gateway vs Direct API: When the Provider SDK Stops Scaling"

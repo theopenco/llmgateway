@@ -16,7 +16,7 @@ interface Entry {
 	modelName: string;
 	region: string | null;
 	initiatedBy: "carrier" | "admin";
-	credentialSource: "supplied" | "carrier" | "managed" | "environment";
+	credentialSource: "carrier" | "managed" | "environment";
 	verification: {
 		id: string;
 		status: "queued" | "running" | "passed" | "failed";
@@ -121,6 +121,7 @@ describe("admin model verifications", () => {
 		});
 		expect(row?.providerCompanyId).toBeNull();
 		expect(row?.credentialCiphertext).toBeNull();
+		expect(row?.target).not.toHaveProperty("gatewayExecutionVersion");
 	});
 
 	test("rejects a body without exactly one anchor", async () => {
@@ -139,22 +140,17 @@ describe("admin model verifications", () => {
 		expect((await queue({ mappingId: "mv-mapping" })).status).toBe(409);
 	});
 
-	test("encrypts a supplied key against the admin scope", async () => {
-		const res = await queue({ mappingId: "mv-mapping", apiKey: "sk-pasted" });
-		expect(res.status).toBe(202);
-		const { entry } = (await res.json()) as { entry: Entry };
-		expect(entry.credentialSource).toBe("supplied");
-		const row = await db.query.providerModelVerification.findFirst({
-			where: { id: { eq: entry.verification.id } },
-		});
-		expect(row?.credentialCiphertext).toBeTruthy();
-		expect(row?.credentialCiphertext).not.toContain("sk-pasted");
+	test("rejects a supplied verification key", async () => {
+		expect(
+			(await queue({ mappingId: "mv-mapping", apiKey: "sk-pasted" })).status,
+		).toBe(400);
+		expect(await db.query.providerModelVerification.findMany()).toHaveLength(0);
 	});
 
-	test("runs a claimed provider on the carrier's saved key", async () => {
+	test("uses only the linked carrier provider key and ignores legacy credentials", async () => {
 		const [company] = await db
 			.insert(tables.providerCompany)
-			.values({ name: "OpenAI Ops" })
+			.values({ name: "Test Carrier" })
 			.returning();
 		const [claim] = await db
 			.insert(tables.providerClaim)
@@ -163,28 +159,27 @@ describe("admin model verifications", () => {
 				providerId: "openai",
 				matchedDomain: "openai.com",
 				status: "active",
+				kind: "custom",
+				customBaseUrl: "https://carrier.example.com",
+				verificationKeyCiphertext: encryptClaimVerificationKey(
+					"obsolete-key",
+					"legacy-claim",
+					company.id,
+				),
+				verificationKeyMasked: "obsolete-mask",
 			})
 			.returning();
-
-		// A carrier owns this provider but has saved no key yet, so the run must
-		// not silently fall back to our managed credential.
 		const unkeyed = await queue({ mappingId: "mv-mapping" });
 		expect(unkeyed.status).toBe(400);
 		expect((await unkeyed.json()).message).toContain("provider API key");
-
 		await db
 			.update(tables.providerClaim)
 			.set({
-				verificationKeyCiphertext: encryptClaimVerificationKey(
-					"carrier-owned-key",
-					claim.id,
-					company.id,
-				),
-				verificationKeyMasked: "sk-car••••key",
-				verificationKeyUpdatedAt: new Date(),
+				providerKeyId: "mv-managed-key",
+				verificationKeyCiphertext: null,
+				verificationKeyMasked: null,
 			})
 			.where(eq(tables.providerClaim.id, claim.id));
-
 		const res = await queue({ mappingId: "mv-mapping" });
 		expect(res.status).toBe(202);
 		const { entry } = (await res.json()) as { entry: Entry };
@@ -192,11 +187,9 @@ describe("admin model verifications", () => {
 		const row = await db.query.providerModelVerification.findFirst({
 			where: { id: { eq: entry.verification.id } },
 		});
-		expect(row?.credentialCiphertext).toMatch(/^llmgw:v2:/);
-		expect(row?.credentialCiphertext).not.toContain("carrier-owned-key");
-		// The worker finds the claim (and a custom carrier's base URL) through
-		// the run's company.
+		expect(row?.credentialCiphertext).toBeNull();
 		expect(row?.providerCompanyId).toBe(company.id);
+		expect(JSON.stringify(entry)).not.toContain("obsolete-");
 	});
 
 	test("lists the latest run per mapping for a provider", async () => {
@@ -206,7 +199,11 @@ describe("admin model verifications", () => {
 		// Settle the first run so a second one can be queued.
 		await db
 			.update(tables.providerModelVerification)
-			.set({ status: "passed", summary: "ok" })
+			.set({
+				status: "passed",
+				summary: "ok",
+				credentialCiphertext: "obsolete-run-ciphertext",
+			})
 			.where(
 				eq(tables.providerModelVerification.id, first.entry.verification.id),
 			);
@@ -219,6 +216,8 @@ describe("admin model verifications", () => {
 		const body = (await res.json()) as { entries: Entry[] };
 		expect(body.entries).toHaveLength(1);
 		expect(body.entries[0].mappingId).toBe("mv-mapping");
+		expect(body.entries[0]).not.toHaveProperty("credentialCiphertext");
+		expect(JSON.stringify(body)).not.toContain("obsolete-run-ciphertext");
 	});
 
 	test("lists every past run for a mapping with who triggered it", async () => {

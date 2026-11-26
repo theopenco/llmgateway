@@ -1,0 +1,87 @@
+---
+title: Fix the OpenAI 429 Rate Limit Error
+description: What the OpenAI 429 "Rate limit reached" and "insufficient_quota" errors mean, how to fix each one, and how to fail over to another provider automatically.
+icon: Timer
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+An OpenAI `429` error means the request was refused before the model ran. There are two different causes with the same status code: you sent requests or tokens faster than your account's limit allows, or your account has no quota left. The fix depends on which one you hit, and the error `code` tells you.
+
+## Tell the two 429 errors apart
+
+| Error `code`          | Typical message                                                               | Cause                                                                     | Retrying helps    |
+| --------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ----------------- |
+| `rate_limit_exceeded` | `Rate limit reached for ... on requests per min` or `tokens per min`          | Too many requests or tokens in the current window (per minute or per day) | Yes, after a wait |
+| `insufficient_quota`  | `You exceeded your current quota, please check your plan and billing details` | The account has no credit left or reached its monthly budget              | No                |
+
+## Fix a rate limit (`rate_limit_exceeded`)
+
+1. **Retry with exponential backoff and jitter.** The error message names the limit you exceeded. Per-minute limits reset within a minute: wait, then retry, doubling the wait each time. A daily limit does not reset until the next day, so retrying sooner will not help.
+2. **Lower `max_tokens`.** OpenAI counts the requested output tokens against the tokens-per-minute limit before the response is generated.
+3. **Reduce concurrency.** Queue requests instead of sending a burst.
+4. **Move work that is not urgent to the Batch API,** which has a separate limit.
+5. **Request a higher usage tier** in your OpenAI account once you have the payment history for it.
+
+```python
+import random
+import time
+
+from openai import OpenAI, RateLimitError, InternalServerError
+
+client = OpenAI(
+    base_url="https://api.llmgateway.io/v1",
+    api_key="YOUR_LLM_GATEWAY_API_KEY",
+)
+
+
+def complete(messages, model, attempts=5):
+    for attempt in range(attempts):
+        try:
+            return client.chat.completions.create(model=model, messages=messages)
+        except (RateLimitError, InternalServerError):
+            if attempt == attempts - 1:
+                raise
+            time.sleep(min(2**attempt, 30) + random.random())
+```
+
+The example calls LLM Gateway's OpenAI-compatible endpoint. With a provider's own SDK, catch that SDK's rate-limit and server-error exceptions instead.
+
+## Fix a quota error (`insufficient_quota`)
+
+Retrying will not help. Add credit or raise the monthly budget in your OpenAI billing settings, and check that the API key belongs to the organization and project you expect.
+
+## Let the gateway fail over for you
+
+Send the request with a model ID and no provider prefix. When the upstream provider returns a `429`, a `5xx`, or times out, LLM Gateway retries the same request on another provider that serves the model, inside the same API call. Your application receives the successful response.
+
+```bash
+curl https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{ "role": "user", "content": "Hello" }]
+  }'
+```
+
+Retry on another provider after a failure does not run when you pin a provider with a prefix (`openai/gpt-4o`), when you send `X-No-Fallback: true`, or when no other provider serves the model. A pinned request can still be rerouted before it is sent when that provider's recent uptime is degraded and another provider serves the model; `X-No-Fallback: true` blocks that as well. A streaming response that has already sent output is not retried either: a later failure ends the stream, so your client must handle partial output. See [Automatic Retry & Fallback](/features/routing#automatic-retry--fallback) for the full rules.
+
+If every provider fails, the gateway returns an error in the OpenAI format with `type` `upstream_error` or `gateway_error`, or HTTP `504` with `type` `upstream_timeout` when the upstream timed out. On a stream that has already started, the status is already `200` and the failure arrives as an `error` event in the stream. The upstream status code is recorded in the request log, not passed through. See [LLM Gateway API Errors](/resources/error-handling#upstream-provider-errors).
+
+<Callout type="info">
+	A `429` with `type` `rate_limit_error` and `code` `rate_limit_exceeded` that
+	arrives from LLM Gateway without a provider attempt is the gateway's own
+	limit, not OpenAI's. See [Rate Limits](/resources/rate-limits) for the
+	per-organization limits.
+</Callout>
+
+## Check whether OpenAI is having an incident
+
+A sudden wave of `429` and `5xx` errors on an account that is well inside its limits usually points to a provider incident. The [OpenAI status page](https://llmgateway.io/status/openai) shows official incidents next to the uptime LLM Gateway measures on real traffic.
+
+## Related
+
+- [What to do when an LLM provider API is down](/troubleshooting/provider-api-down)
+- [LLM Gateway API Errors](/resources/error-handling)
+- [Routing](/features/routing)

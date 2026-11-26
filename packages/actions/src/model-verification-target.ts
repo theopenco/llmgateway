@@ -9,7 +9,7 @@ import {
 
 import type { ProviderModelVerificationTarget, tables } from "@llmgateway/db";
 import type {
-	ProviderApiFormat,
+	RequestApiFormat,
 	ProviderModelMapping,
 	ToolChoiceMode,
 	WebSearchFormat,
@@ -17,11 +17,22 @@ import type {
 } from "@llmgateway/models";
 
 type MappingRow = typeof tables.modelProviderMapping.$inferSelect;
+
+export const DAILY_MODEL_VERIFICATION_PREFIX = "daily-verification:";
+
+/** A daily failure re-run on another managed key; see dailyKeyCheckId. */
+export const DAILY_KEY_CHECK_PREFIX = DAILY_MODEL_VERIFICATION_PREFIX + "key:";
+
+/** The worker's daily re-check of a live listing, not a carrier preflight. */
+export function isDailyModelVerification(job: { id: string }): boolean {
+	return job.id.startsWith(DAILY_MODEL_VERIFICATION_PREFIX);
+}
+
 export interface VerificationTargetInput {
 	providerId: string;
 	modelName: string;
 	externalId?: string | null;
-	apiFormat?: ProviderApiFormat | null;
+	apiFormat?: RequestApiFormat | null;
 	decisions?: boolean | null;
 	region?: string | null;
 	streaming?: boolean | null;
@@ -115,7 +126,13 @@ export function mappingTarget(
 		providerId: mapping.providerId,
 		modelName: mapping.modelId,
 		externalId: mapping.externalId,
-		apiFormat: mapping.apiFormat,
+		// The gateway serves a catalogue mapping without an `apiFormat` on its
+		// provider's native API; the chat-completions default is for listings.
+		apiFormat:
+			mapping.apiFormat ??
+			(mapping.source === "catalogue"
+				? (catalogueMapping?.apiFormat ?? "provider-native")
+				: null),
 		decisions: catalogueMapping?.decisions ?? mapping.decisions,
 		region: mapping.region,
 		streaming: mapping.streaming,

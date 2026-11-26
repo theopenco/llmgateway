@@ -8,7 +8,9 @@ import {
 	logContentFilterError,
 } from "./content-filter-error.js";
 import {
+	buildLatestTurnModerationText,
 	buildOpenAIContentFilterTextInput,
+	chunkModerationText,
 	type GatewayContentFilterContext,
 	type OpenAIContentFilterCheckResult,
 	type OpenAIModerationResult,
@@ -57,98 +59,6 @@ export function hasInternalContentFilterCredential(): boolean {
 }
 
 /**
- * Split text into pieces the service accepts. It refuses an oversized prompt
- * rather than scanning a prefix, so a long conversation is classified chunk by
- * chunk. Splits never cut through a multi-byte character.
- */
-export function chunkInternalModerationText(
-	text: string,
-	maxBytes: number = INTERNAL_MODERATION_MAX_PROMPT_BYTES,
-): string[] {
-	const bytes = new TextEncoder().encode(text);
-	if (bytes.length <= maxBytes) {
-		return text.length > 0 ? [text] : [];
-	}
-
-	const chunks: string[] = [];
-	let start = 0;
-	while (start < bytes.length) {
-		const end = Math.min(start + maxBytes, bytes.length);
-		const chunk = utf8Slice(bytes, start, end);
-		if (chunk.length === 0) {
-			break;
-		}
-		chunks.push(chunk);
-		start += new TextEncoder().encode(chunk).length;
-	}
-	return chunks;
-}
-
-function utf8Slice(bytes: Uint8Array, start: number, end: number): string {
-	// Move both edges off UTF-8 continuation bytes (0b10xxxxxx) so no
-	// character is cut in half.
-	while (start < end && (bytes[start]! & 0xc0) === 0x80) {
-		start++;
-	}
-	while (end < bytes.length && end > start && (bytes[end]! & 0xc0) === 0x80) {
-		end--;
-	}
-	return new TextDecoder().decode(bytes.subarray(start, end));
-}
-
-/**
- * Fit text into `maxBytes`, keeping its start and its end: an instruction can
- * sit on either side of a pasted document or tool output.
- */
-export function truncateMiddle(text: string, maxBytes: number): string {
-	const bytes = new TextEncoder().encode(text);
-	if (bytes.length <= maxBytes) {
-		return text;
-	}
-	if (maxBytes <= 0) {
-		return "";
-	}
-	const head = Math.floor(maxBytes / 4);
-	const tail = maxBytes - head - 1;
-	return `${utf8Slice(bytes, 0, head)}\n${utf8Slice(bytes, bytes.length - tail, bytes.length)}`;
-}
-
-/**
- * The text sent for classification: the system prompt plus the latest turn
- * (everything after the last assistant message), in one request the service
- * accepts. Earlier turns were already screened when they were the latest one,
- * and re-sending a long agent history on every request is what made the
- * classifier slow — it also dilutes the verdict, since benign padding can
- * suppress a block. The latest turn gets the byte budget first.
- */
-export function buildInternalModerationPrompt(
-	messages: BaseMessage[],
-	maxBytes: number = INTERNAL_MODERATION_MAX_PROMPT_BYTES,
-): string {
-	let lastAssistant = -1;
-	for (let i = messages.length - 1; i >= 0; i--) {
-		if (messages[i]!.role === "assistant") {
-			lastAssistant = i;
-			break;
-		}
-	}
-	const latest = buildOpenAIContentFilterTextInput(
-		messages.slice(lastAssistant + 1).filter((m) => m.role !== "system"),
-	);
-	const system = buildOpenAIContentFilterTextInput(
-		messages.filter((m) => m.role === "system"),
-	);
-	const separator = "\n\n";
-	const latestText = truncateMiddle(latest, maxBytes);
-	const remaining =
-		maxBytes -
-		new TextEncoder().encode(latestText).length -
-		new TextEncoder().encode(separator).length;
-	const systemText = truncateMiddle(system, remaining);
-	return [systemText, latestText].filter(Boolean).join(separator);
-}
-
-/**
  * Shape one verdict like a moderation result. `block` is the service's only
  * reject signal and is binary, so its tags are scored 1 and cross every tier's
  * threshold. Tags without `block` are topical and liberal by design: they are
@@ -161,12 +71,20 @@ export function toInternalModerationResult(
 	const tags = Array.isArray(response.tags) ? response.tags : [];
 	const block = response.block === true;
 	const scoredCategories = tags.length > 0 ? tags : [INTERNAL_BLOCK_CATEGORY];
+	// `signal:*` entries are inputs to the rules, not rules.
+	const rules = Array.isArray(response.reasons)
+		? response.reasons.filter(
+				(reason) => typeof reason === "string" && !reason.startsWith("signal:"),
+			)
+		: [];
 	return {
 		flagged: block,
 		categories: Object.fromEntries(tags.map((tag) => [tag, block])),
 		category_scores: block
 			? Object.fromEntries(scoredCategories.map((tag) => [tag, 1]))
 			: {},
+		// Set on every block, even empty: its tags must never stand in for it.
+		...(block ? { rules } : {}),
 	};
 }
 
@@ -316,9 +234,15 @@ export async function checkInternalContentFilter(
 	// is the oldest history rather than the turn being sent now.
 	const prompts =
 		scope === "latest_turn"
-			? [buildInternalModerationPrompt(messages)].filter(Boolean)
-			: chunkInternalModerationText(
+			? [
+					buildLatestTurnModerationText(
+						messages,
+						INTERNAL_MODERATION_MAX_PROMPT_BYTES,
+					),
+				].filter(Boolean)
+			: chunkModerationText(
 					buildOpenAIContentFilterTextInput(messages),
+					INTERNAL_MODERATION_MAX_PROMPT_BYTES,
 				).reverse();
 	if (!baseUrl || prompts.length === 0) {
 		return emptyResult();

@@ -2,19 +2,21 @@
 
 import {
 	Activity,
+	BarChart3,
 	Blocks,
 	BookOpen,
 	Bot,
 	Boxes,
-	Building2,
 	Calculator,
 	ChevronDown,
 	Clock,
 	Code,
+	FileSearch,
 	GitCompare,
 	Gift,
 	Github,
 	Handshake,
+	ImageIcon,
 	KeyRound,
 	LayoutGrid,
 	Menu,
@@ -196,6 +198,15 @@ export const Navbar = ({
 			gradient:
 				"hover:from-emerald-500/20 hover:to-teal-600/30 hover:shadow-emerald-500/10 group-hover/product:text-emerald-500 dark:group-hover/product:text-emerald-400",
 		},
+		{
+			title: "Image Generation",
+			href: "/products/image-generation",
+			description:
+				"Generate and edit images with every image model through one API, at provider prices.",
+			icon: ImageIcon,
+			gradient:
+				"hover:from-amber-500/20 hover:to-orange-600/30 hover:shadow-amber-500/10 group-hover/product:text-amber-500 dark:group-hover/product:text-amber-400",
+		},
 	];
 
 	const resourcesLinks: Array<{
@@ -206,15 +217,6 @@ export const Navbar = ({
 		gradient: string;
 		external?: boolean;
 	}> = [
-		{
-			title: "Enterprise",
-			href: "/enterprise",
-			description:
-				"Custom billing, SSO, guardrails and priority support for teams.",
-			icon: Building2,
-			gradient:
-				"hover:from-blue-500/20 hover:to-blue-600/30 hover:shadow-blue-500/10 group-hover/product:text-blue-500 dark:group-hover/product:text-blue-400",
-		},
 		{
 			title: "Blog",
 			href: "/blog",
@@ -331,6 +333,22 @@ export const Navbar = ({
 			icon: Calculator,
 			gradient:
 				"hover:from-green-500/20 hover:to-emerald-600/30 hover:shadow-green-500/10 group-hover/product:text-green-500 dark:group-hover/product:text-green-400",
+		},
+		{
+			title: "Savings Audit",
+			href: "/savings-audit",
+			description: "Check a usage export against the cheapest providers.",
+			icon: FileSearch,
+			gradient:
+				"hover:from-lime-500/20 hover:to-green-600/30 hover:shadow-lime-500/10 group-hover/product:text-lime-500 dark:group-hover/product:text-lime-400",
+		},
+		{
+			title: "State of LLM Usage",
+			href: "/state-of-llm-usage",
+			description: "The annual report on real model traffic.",
+			icon: BarChart3,
+			gradient:
+				"hover:from-indigo-500/20 hover:to-violet-600/30 hover:shadow-indigo-500/10 group-hover/product:text-indigo-500 dark:group-hover/product:text-indigo-400",
 		},
 		{
 			title: "Referral Program",
@@ -490,45 +508,18 @@ export const Navbar = ({
 
 						{/* Desktop center nav */}
 						<div className="m-auto hidden items-center gap-1 nav:flex min-w-0">
-							<div className="w-[140px] xl:w-[160px]">
+							<div className="hidden w-[140px] min-[1320px]:block">
 								<ModelSearch />
 							</div>
 							<NavigationMenu viewport={false} delayDuration={300}>
 								<NavigationMenuList className="flex gap-0.5 text-sm">
-									{/* Most-clicked destinations surfaced as direct links —
-									    DevPass (top product) and Models (top resource) per
-									    PostHog page traffic; Chat joins on wider screens. */}
-									<NavigationMenuItem>
-										<NavigationMenuLink asChild>
-											<a
-												href="https://devpass.llmgateway.io"
-												onClick={() => trackNav("DevPass")}
-												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-3 py-2 whitespace-nowrap"
-											>
-												DevPass
-											</a>
-										</NavigationMenuLink>
-									</NavigationMenuItem>
-
-									<NavigationMenuItem className="hidden min-[1360px]:block">
-										<NavigationMenuLink asChild>
-											<a
-												href={config.playgroundUrl ?? "#"}
-												onClick={() => trackNav("Chat")}
-												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-3 py-2 whitespace-nowrap"
-											>
-												Lounge
-											</a>
-										</NavigationMenuLink>
-									</NavigationMenuItem>
-
 									<NavigationMenuItem>
 										<NavigationMenuLink asChild>
 											<Link
 												href="/models"
 												prefetch={true}
 												onClick={() => trackNav("Models")}
-												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-3 py-2 whitespace-nowrap"
+												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-2 py-2 whitespace-nowrap"
 											>
 												Models
 											</Link>
@@ -537,7 +528,7 @@ export const Navbar = ({
 
 									{/* Products dropdown */}
 									<NavigationMenuItem>
-										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-3 py-2 bg-transparent">
+										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-2 py-2 bg-transparent">
 											Products
 										</NavigationMenuTrigger>
 										<NavigationMenuContent className="md:left-1/2 md:-translate-x-1/2">
@@ -559,7 +550,7 @@ export const Navbar = ({
 
 									{/* Resources dropdown */}
 									<NavigationMenuItem>
-										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-3 py-2 bg-transparent">
+										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-2 py-2 bg-transparent">
 											Resources
 										</NavigationMenuTrigger>
 										<NavigationMenuContent className="md:left-1/2 md:-translate-x-1/2">
@@ -581,7 +572,7 @@ export const Navbar = ({
 
 									{/* AI dropdown */}
 									<NavigationMenuItem>
-										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-3 py-2 bg-transparent">
+										<NavigationMenuTrigger className="text-muted-foreground hover:text-accent-foreground px-2 py-2 bg-transparent">
 											AI
 										</NavigationMenuTrigger>
 										<NavigationMenuContent className="md:left-1/2 md:-translate-x-1/2">
@@ -609,7 +600,7 @@ export const Navbar = ({
 												target="_blank"
 												rel="noopener noreferrer"
 												onClick={() => trackNav("Docs")}
-												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-3 py-2"
+												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-2 py-2"
 											>
 												Docs
 											</a>
@@ -623,9 +614,22 @@ export const Navbar = ({
 												href="/pricing"
 												prefetch={true}
 												onClick={() => trackNav("Pricing")}
-												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-3 py-2"
+												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-2 py-2"
 											>
 												Pricing
+											</Link>
+										</NavigationMenuLink>
+									</NavigationMenuItem>
+
+									<NavigationMenuItem>
+										<NavigationMenuLink asChild>
+											<Link
+												href="/enterprise"
+												prefetch={true}
+												onClick={() => trackNav("Enterprise")}
+												className="text-muted-foreground hover:text-accent-foreground block duration-150 px-2 py-2 whitespace-nowrap"
+											>
+												Enterprise
 											</Link>
 										</NavigationMenuLink>
 									</NavigationMenuItem>
@@ -644,22 +648,14 @@ export const Navbar = ({
 								</div>
 								<ul className="text-base">
 									<li>
-										<a
-											href="https://devpass.llmgateway.io"
-											onClick={() => trackNav("DevPass")}
+										<Link
+											href="/enterprise"
+											onClick={() => trackNav("Enterprise")}
 											className="text-muted-foreground hover:text-accent-foreground block py-2.5 duration-150"
+											prefetch={true}
 										>
-											DevPass
-										</a>
-									</li>
-									<li>
-										<a
-											href={config.playgroundUrl ?? "#"}
-											onClick={() => trackNav("Chat")}
-											className="text-muted-foreground hover:text-accent-foreground block py-2.5 duration-150"
-										>
-											Lounge
-										</a>
+											Enterprise
+										</Link>
 									</li>
 									<li>
 										<Link
@@ -776,16 +772,16 @@ export const Navbar = ({
 							</div>
 
 							<div className="flex w-full flex-col space-y-3 sm:flex-row sm:gap-3 sm:space-y-0 md:w-fit items-center">
-								{/* GitHub stars (compact) + Discord — hidden in the narrow
-								    band above the nav breakpoint so the promoted nav links
-								    don't collide with the right-side controls. */}
-								<div className="hidden min-[1280px]:flex items-center gap-1">
+								{/* GitHub stars (compact) and Discord only fit beside the
+								    sales and signup buttons on wide screens; the mobile
+								    menu and footer carry both links below that. */}
+								<div className="hidden min-[1400px]:flex items-center gap-1">
 									{children}
 									<a
 										href={config.discordUrl}
 										target="_blank"
 										rel="noopener noreferrer"
-										className="text-muted-foreground hover:text-foreground p-1.5 transition-colors"
+										className="text-muted-foreground hover:text-foreground p-1.5 transition-colors hidden min-[1536px]:block"
 										aria-label="Discord"
 									>
 										<svg
@@ -818,6 +814,25 @@ export const Navbar = ({
 										>
 											Log In
 										</Link>
+
+										<Button
+											asChild
+											variant="outline"
+											className="bg-transparent font-medium w-full md:w-fit"
+										>
+											<Link
+												href="/enterprise#contact"
+												onClick={() => {
+													setMenuState(false);
+													posthog.capture("cta_clicked", {
+														location: "navbar",
+														cta: "book_a_demo",
+													});
+												}}
+											>
+												Book a demo
+											</Link>
+										</Button>
 
 										<Button
 											asChild

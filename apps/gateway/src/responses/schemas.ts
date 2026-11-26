@@ -489,6 +489,12 @@ export const responsesRequestSchema = z
 			.nullable()
 			.optional()
 			.transform((value) => value ?? undefined),
+		// Legacy end-user identifier; logged when safety_identifier is absent.
+		// A non-string value was stripped before this field existed.
+		user: z
+			.unknown()
+			.optional()
+			.transform((value) => (typeof value === "string" ? value : undefined)),
 		top_p: z
 			.number()
 			.nullable()

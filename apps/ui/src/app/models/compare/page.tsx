@@ -1,9 +1,13 @@
+import Link from "next/link";
 import { Suspense } from "react";
 
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { ModelComparison } from "@/components/models/model-comparison";
 import { JsonLd } from "@/components/seo/json-ld";
+import { comparisonPath, featuredComparisons } from "@/lib/model-comparisons";
+
+import type { Route } from "next";
 
 export const metadata = {
 	title: "Compare AI Models Side by Side",
@@ -89,6 +93,33 @@ export default function ModelsComparePage() {
 						<Suspense>
 							<ModelComparison />
 						</Suspense>
+					</section>
+					<section
+						aria-labelledby="popular-comparisons-heading"
+						className="mt-16"
+					>
+						<h2
+							id="popular-comparisons-heading"
+							className="text-xl font-semibold md:text-2xl"
+						>
+							Popular model comparisons
+						</h2>
+						<p className="mt-1 mb-4 max-w-2xl text-muted-foreground">
+							Pricing, context window and capabilities for the flagship models
+							of each major lab, side by side.
+						</p>
+						<ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+							{featuredComparisons.map((pair) => (
+								<li key={pair.slug}>
+									<Link
+										href={comparisonPath(pair.slug) as Route}
+										className="block rounded-md border px-3 py-2 text-sm transition-colors hover:bg-muted/50"
+									>
+										{pair.left.name} vs {pair.right.name}
+									</Link>
+								</li>
+							))}
+						</ul>
 					</section>
 				</div>
 			</main>

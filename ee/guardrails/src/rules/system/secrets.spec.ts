@@ -36,6 +36,11 @@ const detected = [
 	["Password", "password=p<ssw0rd!"],
 	// Prefix-matching a placeholder word used to discard the whole value.
 	["Password", "password=testingSecret123"],
+	["OpenAI Key", ["sk", "proj", "Ab3dEf6hIj9kLm2nOp5qRs8t"].join("-")],
+	["Anthropic Key", ["sk", "ant", "api03", "x".repeat(40)].join("-")],
+	["Google API Key", "AIza" + "B".repeat(35)],
+	["GitLab Token", "glpat-" + "c".repeat(20)],
+	["Hugging Face Token", "hf_" + "d".repeat(34)],
 ] as const;
 
 describe("detectSecrets", () => {

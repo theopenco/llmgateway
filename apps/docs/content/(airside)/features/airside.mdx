@@ -16,7 +16,11 @@ If your email is on a different domain than your API, prove the API's domain ove
 
 Every claim is reviewed by the LLM Gateway team before the carrier goes live; a rejected claim shows the review note so you can follow up. One company can operate several carriers — regional deployments or separate brands all live under one console.
 
-Listing on llmgateway.io carries a one-time **$2,500 listing fee** per provider company, paid during onboarding. Providers we already work with receive an **invite code** that waives it — entered in the same onboarding step instead of paying. See the [pricing summary](https://airside.llmgateway.io/pricing.md) for the full economics.
+Listing on llmgateway.io carries a one-time **$5,000 listing fee** per provider company, paid during onboarding. Providers we already work with receive an **invite code** that waives it — entered in the same onboarding step instead of paying. See the [pricing summary](https://airside.llmgateway.io/pricing.md) for the full economics.
+
+## Review notifications
+
+Self-hosted operators can set `DISCORD_AIRSIDE_NOTIFICATION_URL` on the API to send pending carrier claims, branding and provider-key submissions, model listings and relist requests, price and metadata changes, and fare filings to a dedicated Discord channel. Set `ADMIN_URL` to your admin origin to include a review-queue link; without it, notifications omit the link. Delivery is best-effort: a Discord outage does not prevent filing.
 
 ## Crew
 
@@ -77,7 +81,19 @@ OpenAI Chat Completions listings, including custom carriers using their default 
 
 A stream must already contain assistant text and a finish reason, or the **streaming** check fails. The **tool calls** check is required too: on Chat Completions, a response with `tool_calls` must finish with `finish_reason: "tool_calls"` (a named `tool_choice` may finish with `stop`), or the check fails, because clients stop instead of running the tool. Since no other `tool_choice` mode fixes this, it never narrows your modes.
 
-The context check is billed like any other large prompt. You supply a provider API key that can call the model, saved as this carrier's **test key** under Settings so later runs — yours and ours — reuse it. Use a key separate from the one behind your live integration: preflight traffic is billed by your own platform and is not tracked in LLMGateway usage or billing. You can replace or remove it at any time. Editing the model, its limits included, invalidates the run, so a listing never ships with checks made against different settings.
+### Provider key and test usage
+
+Airside uses the carrier's saved **provider key**, managed by the carrier or LLM Gateway, for live traffic, preflight, benchmarks, load tests and scheduled checks when enabled. There is no separate provider-side testing credential.
+
+A newly registered carrier supplies this single key with its first preflight. Enter proposed prices before running it: these checks consume real upstream resources, including large context-window probes. The key is stored encrypted and serves live traffic after approval. Until then, leave the key field blank to reuse it or enter a replacement and rerun preflight.
+
+If you previously saved a test key, it is no longer used. You do not need to remove it or resubmit an existing provider key.
+
+Test requests consume usage on the same provider-key account as live requests. LLM Gateway records them as gateway inference and bills its operator project, so they are included in provider-side usage and gateway accounting for billing and reconciliation. Your agreed carrier billing mode is unchanged. Active listings use their effective approved prices; an initial preflight without an active mapping uses its proposed prices.
+
+Changing the deployment, adding capabilities or raising limits requires new verification. Descriptive edits and narrowing existing claims do not.
+
+Only a completed gateway-accounted run can authorize a new listing or capability claim. Changing the provider key or endpoint invalidates earlier proof; historical direct-upstream runs must be repeated.
 
 Re-verifying a live listing reports, it does not rewrite: a failed check names the capability your endpoint refused and leaves the listing exactly as you declared it, because one refused request is as easily a transient fault as a missing capability. Fix the endpoint and verify again, or switch the capability off yourself if the deployment genuinely does not do it. Fleet marks the listing **In service · unverified** until a run passes again.
 
@@ -89,15 +105,15 @@ Where a check can tell the difference between a capability and a dialect, it nar
 
 ### Daily verification and regression alerts
 
-When enabled by the operator, the worker rechecks every live chat and typed-decision mapping across the [catalogue](https://llmgateway.io/models), including regional deployments and Airside listings. This uses the same declared-capability and limit checks as preflight, including its optional-check policy. Image, video, audio-only, embedding, moderation, reranking, and other non-chat outputs are not supported by this verifier and are not scheduled.
+When enabled by the operator, the worker rechecks every live chat and typed-decision mapping across the [catalogue](https://llmgateway.io/models), including regional deployments and Airside listings. This uses the same declared-capability checks as preflight, including its optional-check policy, but leaves out the context-size, max-output, and prompt-caching checks, which preflight still runs. It calls a catalogue mapping on the API the gateway serves it on: its own `apiFormat`, else the provider's native API. Image, video, audio-only, embedding, moderation, reranking, and other non-chat outputs are not supported by this verifier and are not scheduled.
 
 The worker scans on startup and every five minutes, queuing at most one scheduled run per mapping per UTC calendar day across all replicas. It does not backfill missed days. An existing queued or running verification delays scheduling until a later scan; manual runs take priority, and scheduled runs rotate between providers with at most one running per provider. A large queue can therefore finish after the day it was scheduled.
 
-Only active providers, models, and mappings qualify. Deactivated mappings and paused, draft, rejected, or delisted Airside listings are excluded. Eligibility and the current declaration are checked again before execution and alert delivery. If the declaration changed or a usable key disappeared, the run is retained as failed with skipped checks, not reported as a capability regression. Completed runs remain in the existing verification history. Daily runs never delist models or change capabilities, prices, tool-choice modes, or reasoning tiers.
+Only active providers, models, and mappings qualify. Deactivated mappings and paused, draft, rejected, or delisted Airside listings are excluded. Eligibility and the current declaration are checked again before execution and alert delivery. If the declaration changed or a usable key disappeared, the run is retained as failed with skipped checks, not reported as a capability regression. When the operator gateway refuses a run, for example because the operator's credits ran out, the run goes back to the queue and verification pauses for two minutes; a run refused on three attempts fails with skipped checks. Completed runs remain in the existing verification history. Daily runs never delist models or change capabilities, prices, tool-choice modes, or reasoning tiers.
 
-Claimed providers use their current saved **test key**, never their managed serving key. Unclaimed catalogue mappings use an active managed key allowed for the model, or the provider credential configured on the worker. Terminal history ciphertext is never reused; rotating or removing a test key takes effect on the next execution. Providers without a usable credential are skipped. Verification requests consume upstream resources, including large context-window probes, without appearing in gateway usage or billing.
+Claimed providers use their current saved **provider key**, whether managed by the carrier or LLM Gateway. Unclaimed catalogue mappings use an active managed key allowed for the model, or the provider credential configured on the worker. Terminal history ciphertext is never reused; key changes take effect on the next execution. Providers without a usable credential are skipped. These requests consume provider-side usage and are recorded in the operator's gateway project, but stay out of the mapping health history behind routing and error-rate alerts; see [provider keys and test usage](#provider-key-and-test-usage).
 
-For self-hosting, configure these worker environment variables:
+Self-hosted operators must first [configure Airside inference credentials](/self-host/split-deployment#airside-inference-credentials). Scheduling and notifications use separate worker settings:
 
 - `AIRSIDE_DAILY_VERIFICATION_ENABLED=true` enables scheduling; it is disabled by default. Turning it off stops new scheduled runs; already queued runs continue to drain.
 - `MODEL_VERIFICATION_CONCURRENCY` sets parallel verification consumers per worker replica (1–16; default 4). Scheduled runs still serialize per provider across replicas; manual runs are prioritized but do not interrupt an in-flight verification.
@@ -145,6 +161,37 @@ Listed prices are what developers are billed, so pricing never changes silently:
 
 A filing covers input, output, optional cached-input, and optional per-request prices (token prices in USD per million tokens, the per-request price in USD), plus a note for the reviewer. It can also carry **regional fares** — per-region price overrides developers reach with `<provider>/<model>:<region>`, while all other traffic pays the default fares. Each approved filing's regional set fully replaces the previous one, and while no filing is pending a region can be dropped from the Fleet page — removing an offering changes no price, so it applies immediately without review. The latest approved filing is the model's effective price; pending and rejected filings are tracked under **Filings**.
 
+### Automatic fare approval
+
+The LLM Gateway team can approve a carrier for **automatic fare changes**. For an approved carrier:
+
+- Price **update** filings and fare changes under **Fares** take effect as soon as they are filed. Initial filings and metadata changes still go through review.
+- About once an hour, LLM Gateway reads the carrier's `GET /v1/models` and applies any price that differs from the live one. Registered carriers are read on their registered endpoint; carriers that claimed a catalogue provider are read on that provider's API.
+
+Publish prices per model in a `pricing` object, as decimal strings in USD per token:
+
+```json
+{
+	"data": [
+		{
+			"id": "my-model",
+			"pricing": {
+				"prompt": "0.0000004",
+				"completion": "0.0000016",
+				"input_cache_read": "0.00000004",
+				"request": "0"
+			}
+		}
+	]
+}
+```
+
+`id` is the model id your API expects. `prompt` and `completion` are required; `input_cache_read` and `request` (USD per request) are optional and keep their current value when omitted. Regional fares are not read from the endpoint and stay as last filed. A model with a filing awaiting review is skipped until that filing is decided. The request is authenticated with the credential LLM Gateway serves your traffic with.
+
+Every automatic change is recorded as an approved filing under **Filings**, next to the reviewed ones.
+
+Reviewers see current → filed only for input, output, or cached-input rates that change. Unchanged rates show a single value. Adding or removing a cached-input rate shows `none` on the corresponding side.
+
 ## Routing and billing
 
 Approved listings are genuinely routable. A request for `<provider>/<model>` that does not match the static catalogue resolves against active Airside listings with an approved price filing, and is billed at the filed prices — no extra configuration on the developer side.
@@ -156,6 +203,19 @@ LLM Gateway settles the traffic it sends you under one of three billing modes. T
 1. **Pay-as-you-go** — we open an account on your platform with a card on auto top-up, so usage is charged as it happens.
 2. **Payout** — you issue us an API key and invoice us on the 1st for the previous month. We pay out your earnings by USD wire, weekly or monthly.
 3. **Post-billing** — we open an account on your platform and you switch it to post-paid. You invoice us on the 1st for the previous month and we pay once a month.
+
+#### Payout statements
+
+On the **Payout** mode, the **Payouts** page shows one statement per carrier and calendar month (UTC). On the 1st we open the previous month's statement:
+
+- **Billed traffic** — requests we routed to you on our own credentials, billed at your filed prices. Bring-your-own-key traffic and cache hits are excluded: those requests never reach your account on our behalf.
+- **Gateway fee** — the landing fee you accepted, applied to each request at the rate in effect when it was served.
+- **Adjustments** — corrections made by the LLM Gateway team, each with a note.
+- **To pay out** — billed traffic minus the gateway fee, plus adjustments.
+
+**CSV** on a statement downloads its per-model breakdown — requests, cache hits, input, cached input, cache-write, output and reasoning tokens, billed amount and gateway fee — covering the same traffic as the statement, so you can reconcile it against your own records. It is recomputed from current data on each download.
+
+A new statement is a **Preview**: it keeps updating as late traffic is aggregated and stays subject to manual adjustments. About a day after the month closes we review and approve it; the amounts are then final unless we reopen it to correct an error, which returns it to Preview. After we send the wire it shows **Paid** with the payment date and reference.
 
 ## Traffic
 
@@ -184,7 +244,7 @@ Under **Fares** each claimed provider has two knobs:
 - **Traffic discount** (0–50%) — a discount you offer on routed traffic.
 - **Landing fee** (5–50%) — the gateway margin you accept; the baseline is **20%**.
 
-Accepting more than the baseline margin or offering a discount makes your traffic effectively cheaper, which boosts you in the [smart routing election](/features/routing); accepting less prices you up. Like price changes, fare changes are filed for review and only reach routing once the LLM Gateway team approves them. The election scores every candidate provider on weighted factors — expected token cost after your discount and margin (`%routing.weights.price%`), availability/uptime (`%routing.weights.uptime%`), throughput (`%routing.weights.throughput%`), and latency (`%routing.weights.latency%`) — and the lowest score wins. Cache-read savings count toward token cost; cache support alone receives no additional preference by default.
+Accepting more than the baseline margin or offering a discount makes your traffic effectively cheaper, which boosts you in the [smart routing election](/features/routing); accepting less prices you up. Like price changes, fare changes are filed for review and only reach routing once the LLM Gateway team approves them, unless the carrier has [automatic fare approval](#automatic-fare-approval). The election scores every candidate provider on weighted factors — expected token cost after your discount and margin (`%routing.weights.price%`), availability/uptime (`%routing.weights.uptime%`), throughput (`%routing.weights.throughput%`), and latency (`%routing.weights.latency%`) — and the lowest score wins. Cache-read savings count toward token cost; cache support alone receives no additional preference by default.
 
 <Callout type="info">
 	Routing reacts to live metrics: reliability and speed still matter. A cheap
@@ -193,7 +253,7 @@ Accepting more than the baseline margin or offering a discount makes your traffi
 
 ## Settings
 
-**Settings** holds the preflight **test key** for each claimed carrier, shown masked. Replace or remove it at any time; without one, preflight asks for a key on every run.
+**Settings** shows each carrier's key-management arrangement. For a registered carrier, its encrypted **provider key** is shown masked and runs both preflight and live traffic. Submit a replacement for review; the current key stays in use until approval. Catalogue carrier credentials are managed by LLM Gateway.
 
 Settings also shows each carrier's **billing mode**. It is view-only: the mode is agreed with the LLM Gateway team and set up before your carrier goes live (see [Getting paid](#getting-paid)). Contact the LLM Gateway team to change it.
 

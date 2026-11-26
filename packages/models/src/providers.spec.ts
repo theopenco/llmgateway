@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
 	getContextSizeDeviation,
@@ -491,13 +491,17 @@ describe("AWS Bedrock Anthropic regions", () => {
 				bedrockMapping ? [bedrockMapping] : [],
 			);
 			const baseMapping = expandedMappings.find((provider) => !provider.region);
+			const hasGlobalProfile = expandedMappings.some(
+				(provider) => provider.region === "global",
+			);
 
 			expect(baseMapping).toBeDefined();
 
 			for (const regionMapping of expandedMappings.filter(
 				(provider) => provider.region,
 			)) {
-				const multiplier = regionMapping.region === "global" ? 1 : 1.1;
+				const multiplier =
+					hasGlobalProfile && regionMapping.region !== "global" ? 1.1 : 1;
 
 				for (const field of TOKEN_PRICE_FIELDS) {
 					const basePrice = baseMapping?.[field];
@@ -506,8 +510,10 @@ describe("AWS Bedrock Anthropic regions", () => {
 						continue;
 					}
 
-					expect(Number(regionMapping[field])).toBeCloseTo(
-						Number(basePrice) * multiplier,
+					// Per-million units: the default precision cannot see 10% of 1e-6.
+					expect(Number(regionMapping[field]) * 1e6).toBeCloseTo(
+						Number(basePrice) * multiplier * 1e6,
+						6,
 					);
 				}
 			}
@@ -558,6 +564,25 @@ describe("AWS Bedrock Anthropic regions", () => {
 			inputPrice: "5.5e-6",
 			outputPrice: "27.5e-6",
 		});
+	});
+
+	it("bills the rate card in every region of a model without a global profile", () => {
+		const pixtral = models.find(
+			(candidate) => candidate.id === "pixtral-large-2502",
+		);
+		const bedrockMapping = pixtral?.providers.find(
+			(provider) => provider.providerId === "aws-bedrock",
+		);
+		const expandedMappings = expandAllProviderRegions(
+			bedrockMapping ? [bedrockMapping] : [],
+		);
+
+		expect(getRegionIds(bedrockMapping)).toEqual(["us", "eu"]);
+		for (const region of ["us", "eu"]) {
+			expect(
+				expandedMappings.find((provider) => provider.region === region),
+			).toMatchObject({ inputPrice: "2.0e-6", outputPrice: "6.0e-6" });
+		}
 	});
 
 	it("exposes Grok 4.6 cross-region profiles and us-west-2 in-region", () => {
@@ -717,5 +742,25 @@ describe("AtlasCloud video models", () => {
 				supportsVideoWithoutAudio ?? true,
 			);
 		}
+	});
+});
+
+describe("countryName", () => {
+	it("loads without Intl.DisplayNames, as in Hermes", async () => {
+		vi.resetModules();
+		vi.stubGlobal("Intl", { ...Intl, DisplayNames: undefined });
+		try {
+			const { countryName } = await import("./providers.js");
+			expect(countryName("US")).toBe("United States");
+			expect(countryName("DE")).toBe("DE");
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it("names countries with Intl.DisplayNames", async () => {
+		vi.resetModules();
+		const { countryName } = await import("./providers.js");
+		expect(countryName("DE")).toBe("Germany");
 	});
 });

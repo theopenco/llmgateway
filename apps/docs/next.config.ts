@@ -37,6 +37,27 @@ const nextConfig: NextConfig = {
 		];
 	},
 	redirects() {
+		// Guessed REST-style API reference URLs.
+		const apiPathReferenceSlugs: Record<string, string> = {
+			"audio/speech": "v1_audio_speech",
+			"audio/transcriptions": "v1_audio_transcriptions",
+			"chat/completions": "v1_chat_completions",
+			decisions: "v1_decisions",
+			embeddings: "v1_embeddings",
+			"images/edits": "v1_images_edits",
+			"images/generations": "v1_images_generations",
+			key: "v1_key_retrieve",
+			messages: "v1_messages",
+			models: "v1_models",
+			moderations: "v1_moderations",
+			ocr: "v1_ocr",
+			realtime: "v1_realtime_client_secrets",
+			rerank: "v1_rerank",
+			responses: "v1_chat_completions",
+			search: "v1_search",
+			systemone: "v1_systemone",
+			videos: "v1_videos_create",
+		};
 		return [
 			{
 				source: "/guides/cli",
@@ -93,35 +114,14 @@ const nextConfig: NextConfig = {
 				destination: "https://llmgateway.io/providers",
 				permanent: true,
 			},
-			// Guessed REST-style API reference URLs.
-			{
-				source: "/v1/chat/completions",
-				destination: "/v1_chat_completions",
+			...Object.entries(apiPathReferenceSlugs).map(([path, slug]) => ({
+				source: `/v1/${path}`,
+				destination: `/${slug}`,
 				permanent: true,
-			},
+			})),
 			{
-				source: "/v1/moderations",
-				destination: "/v1_moderations",
-				permanent: true,
-			},
-			{
-				source: "/v1/ocr",
-				destination: "/v1_ocr",
-				permanent: true,
-			},
-			{
-				source: "/v1/key",
-				destination: "/v1_key_retrieve",
-				permanent: true,
-			},
-			{
-				source: "/v1/videos",
+				source: "/v1_videos",
 				destination: "/v1_videos_create",
-				permanent: true,
-			},
-			{
-				source: "/v1/responses",
-				destination: "/v1_chat_completions",
 				permanent: true,
 			},
 		];

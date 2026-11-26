@@ -6,6 +6,7 @@ import { getUser } from "@/lib/getUser";
 import { readJsonBody } from "@/lib/read-json-body";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { deferDownloadsToGateway } from "@llmgateway/shared/ai-sdk-download";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getEscapeReasoningEffort } from "@llmgateway/shared/escape-reasoning";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
@@ -125,6 +126,7 @@ export async function POST(req: Request) {
 	let result: Awaited<ReturnType<typeof generateText>>;
 	try {
 		result = await generateText({
+			experimental_download: deferDownloadsToGateway,
 			model: llmgateway.chat(model as Parameters<typeof llmgateway.chat>[0], {
 				usage: { include: true },
 			}),

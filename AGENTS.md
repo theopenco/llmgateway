@@ -20,7 +20,7 @@ Area-specific rules live in skills under `.agents/skills`. Load the matching ski
 | `frontend`            | Next.js apps: API client, data fetching, navigation, dashboard routes, formatting                |
 | `infrastructure`      | Production hosting and hostnames, deploy ordering, client IP and country                         |
 | `legal-pages`         | Terms, privacy policy, and product supplemental terms                                            |
-| `pull-request`        | Opening and updating PRs, screenshots, stacked PRs, CI e2e                                       |
+| `pull-request`        | Opening and updating PRs, screenshots, stacked PRs                                               |
 | `model-benchmarks`    | Model and mapping benchmarks                                                                     |
 | `changelog`           | Changelog entries                                                                                |
 | `blog`                | Marketing blog posts                                                                             |
@@ -41,7 +41,7 @@ Run all `pnpm` commands from the repository root, not from app directories.
 - `pnpm build` - Build everything. ALWAYS run a full build after finishing a feature.
 - `pnpm clean` - Clean build artifacts and cache directories
 - `pnpm test:unit` / `pnpm test:e2e` - Unit (`*.spec.ts`) and e2e (`*.e2e.ts`) tests. Run unit tests after adding features, ALWAYS against the worktree's own isolated database (`local-stack` skill); details in the `testing` skill.
-- New or edited model mappings: ALWAYS run e2e locally, scoped to exactly those mappings (`TEST_MODELS="<provider>/<model>" FULL_MODE=true pnpm test:e2e`), before opening the PR or enabling auto-merge. NEVER run unscoped e2e for them, locally or in CI (`/e2e` runs every model and bills real provider spend). Without local credentials, dispatch the e2e workflow with `test_models` set to the same mappings and `full_mode` on. Unscoped CI e2e is only for generic gateway code changes whose effect across models needs checking.
+- New or edited model mappings: whenever their credentials are available, ALWAYS run e2e locally, scoped to exactly those mappings (`TEST_MODELS="<provider>/<model>" FULL_MODE=true pnpm test:e2e`), before opening the PR or enabling auto-merge. NEVER run unscoped e2e for them: it runs every model and bills real provider spend.
 
 To build a single app, ALWAYS use a Turbo filter (`turbo run build --filter=<app>`). NEVER use `pnpm --filter <app> build`: it skips rebuilding workspace dependencies and compiles against stale `dist/` artifacts.
 
@@ -117,6 +117,7 @@ NEVER put internal or private information into anything published to this public
 
 ### Git and pull requests
 
+- Before starting any task, including read-only analysis, run `git fetch origin` and work from `origin/main` (or the PR branch): a stale checkout gives a wrong model catalogue, schema, and code. Branch new work off `origin/main`; read current state with `git show origin/main:<path>` when the checkout is shared and behind.
 - Use conventional commit format for commits and PR titles. Count the PR title before creating or editing it: at most 50 characters, `type(scope): ` included.
 - Do not `--amend` commits after pushing. Force-push only feature branches, never main.
 - When checking out an existing PR or remote branch, set its upstream (`gh pr checkout <n>`, or `git checkout -B <branch> FETCH_HEAD && git branch --set-upstream-to=origin/<branch>`).

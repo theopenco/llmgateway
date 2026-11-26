@@ -22,7 +22,10 @@ import {
 	CLOUDFLARE_ACCOUNT_ID_REGEX,
 } from "@llmgateway/shared";
 
-import { getBedrockProfilePrefix } from "./provider-api-format.js";
+import {
+	getAwsBedrockModelPrefix,
+	getBedrockProfilePrefix,
+} from "./provider-api-format.js";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
@@ -49,6 +52,17 @@ function appendPath(url: string, path: string): string {
 	}
 
 	return `${url.slice(0, urlEnd)}/${path.slice(pathStart)}`;
+}
+
+function trimTrailingSlashes(url: string | undefined): string | undefined {
+	if (!url) {
+		return undefined;
+	}
+	let end = url.length;
+	while (end > 0 && url[end - 1] === "/") {
+		end--;
+	}
+	return url.slice(0, end) || undefined;
 }
 
 function isChatCompletionsUrl(url: string): boolean {
@@ -78,7 +92,7 @@ function getBedrockMantleBaseUrl(url: string, region?: string): string {
 
 /**
  * Fill the workspace placeholder of a workspace-scoped region endpoint
- * (Alibaba Frankfurt), falling back to the region's shared entry point when no
+ * (Alibaba Frankfurt, Hong Kong, Tokyo), falling back to the region's shared entry point when no
  * workspace id is configured. The workspace id becomes part of the hostname,
  * so it is validated against the character set Model Studio issues (`ws-…`)
  * rather than interpolated blindly.
@@ -227,6 +241,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	"together-ai": "https://api.together.ai",
 	mistral: "https://api.mistral.ai",
 	xai: "https://api.x.ai",
+	elevenlabs: "https://api.elevenlabs.io",
 	groq: "https://api.groq.com/openai",
 	cerebras: "https://api.cerebras.ai",
 	deepseek: "https://api.deepseek.com",
@@ -241,12 +256,10 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	bytedance: "https://ark.ap-southeast.bytepluses.com/api/v3",
 	minimax: "https://api.minimax.io",
 	sakana: "https://api.sakana.ai",
-	reve: "https://api.reve.com",
 	xiaomi: "https://api.xiaomimimo.com",
 	canopywave: "https://inference.canopywave.io",
 	deepinfra: "https://api.deepinfra.com/v1/openai",
 	fireworks: "https://api.fireworks.ai/inference",
-	ranoai: "https://api.ranoai.com",
 	baidu: "https://api.baiduqianfan.ai",
 	atria: "https://api.atria-asi.ai",
 	tencent: "https://tokenhub-intl.tencentcloudmaas.com",
@@ -255,20 +268,24 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 };
 
 /**
- * Path of a provider's typed-decision API, relative to its base URL. OpenAI
- * serves its own Decisions API; Azure serves Microsoft-Decision-1 on the
- * Foundry resource behind a TypeSafe-compatible System One route; TypeSafe
- * serves System One at the root.
+ * Path of a provider's typed-decision API, relative to its base URL. The
+ * OpenAI-compatible Decisions API is `/v1/decisions`, which Azure serves for
+ * its OpenAI models under `/openai`. System One: Azure serves
+ * Microsoft-Decision-1 on the Foundry resource behind a TypeSafe-compatible
+ * route; TypeSafe serves it at the root.
  */
-export function getDecisionsUpstreamPath(provider: ProviderId): string {
-	switch (provider) {
-		case "openai":
-			return "/v1/decisions";
-		case "azure":
-			return "/providers/microsoft/v1/systemone";
-		default:
-			return "/v1/systemone";
+export function getDecisionsUpstreamPath(
+	provider: string,
+	wireFormat: "openai" | "system-one" = provider === "openai"
+		? "openai"
+		: "system-one",
+): string {
+	if (wireFormat === "openai") {
+		return provider === "azure" ? "/openai/v1/decisions" : "/v1/decisions";
 	}
+	return provider === "azure"
+		? "/providers/microsoft/v1/systemone"
+		: "/v1/systemone";
 }
 
 /**
@@ -282,6 +299,73 @@ export function getAzureFoundryBaseUrl(resource: string): string {
 		);
 	}
 	return `https://${resource}.services.ai.azure.com`;
+}
+
+/** OpenAI-compatible host of an Azure resource; see getOpenAiV1Prefix. */
+export function getAzureOpenAiBaseUrl(resource: string): string {
+	if (!isProviderHostnameLabel(resource)) {
+		throw new ProviderConfigError(
+			"Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens",
+		);
+	}
+	return `https://${resource}.openai.azure.com`;
+}
+
+/**
+ * Path prefix of the OpenAI v1 API on a provider's base URL, for endpoints
+ * that build their own URL. Azure serves it under /openai/v1.
+ */
+export function getOpenAiV1Prefix(provider: ProviderId): string {
+	return provider === "azure" ? "/openai/v1" : "/v1";
+}
+
+/**
+ * Host of the Azure credential serving a request, shared by every Azure route
+ * (chat, images, embeddings, speech, realtime, key validation) so they agree.
+ * An explicit base URL wins over the resource: it is the only way to reach a
+ * deployment serving the Azure surface from a host other than
+ * <resource>.openai.azure.com. Exactly one of the two belongs on a credential,
+ * but they can arrive from different layers — a managed credential's base URL
+ * must override a deployment-wide LLM_AZURE_RESOURCE. A caller holding a BYOK
+ * key's own base URL applies it before this. Returns undefined when neither is
+ * set.
+ */
+export function resolveAzureBaseUrl(options: {
+	providerKeyOptions?: ProviderKeyOptions;
+	skipEnvVars?: boolean;
+	configIndex?: number;
+	variant?: EnvVarVariant;
+}): string | undefined {
+	const { providerKeyOptions, skipEnvVars, configIndex, variant } = options;
+	const credentialConfig = providerKeyOptions?.env_config;
+	const envValue = (key: string) =>
+		skipEnvVars
+			? undefined
+			: getProviderEnvValue("azure", key, configIndex, undefined, variant);
+
+	const baseUrl = credentialConfig?.baseUrl ?? envValue("baseUrl");
+	if (baseUrl) {
+		let end = baseUrl.length;
+		while (end > 0 && baseUrl[end - 1] === "/") {
+			end--;
+		}
+		return baseUrl.slice(0, end);
+	}
+
+	const resource =
+		credentialConfig?.resource ??
+		providerKeyOptions?.azure_resource ??
+		envValue("resource");
+	if (!resource) {
+		return undefined;
+	}
+	if (!isProviderHostnameLabel(resource)) {
+		const azureEnv = getProviderEnvConfig("azure");
+		throw new ProviderConfigError(
+			`Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or the ${azureEnv?.optional?.resource ?? "LLM_AZURE_RESOURCE"} env var)`,
+		);
+	}
+	return getAzureOpenAiBaseUrl(resource);
 }
 
 /** Workers AI's OpenAI-compatible base URL is scoped to the account. */
@@ -392,8 +476,13 @@ export function getProviderEndpoint(
 		regionBaseUrl = endpointMap?.[region];
 	}
 
-	if (baseUrl) {
-		url = baseUrl;
+	// A credential's base URL (e.g. a proxy) replaces any provider's default
+	// endpoint, exactly like an explicit one.
+	const explicitBaseUrl =
+		baseUrl ?? trimTrailingSlashes(credentialConfig?.baseUrl);
+
+	if (explicitBaseUrl) {
+		url = explicitBaseUrl;
 	} else {
 		switch (provider) {
 			case "llmgateway":
@@ -538,87 +627,18 @@ export function getProviderEndpoint(
 				break;
 			}
 			case "azure": {
-				// An explicit base URL wins over the resource: it is the only way to
-				// reach a deployment that serves the Azure surface from a host other
-				// than <resource>.openai.azure.com.
-				//
-				// Exactly one of the two belongs on any single credential, which is
-				// enforced where credentials are authored. Precedence still matters
-				// here because the two can arrive from different layers — a managed
-				// credential supplying a base URL must override a deployment-wide
-				// LLM_AZURE_RESOURCE rather than conflict with it.
-				const azureBaseUrl =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"azure",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-
-				if (azureBaseUrl) {
-					url = azureBaseUrl;
-					break;
-				}
-
-				const resource =
-					credentialConfig?.resource ??
-					providerKeyOptions?.azure_resource ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"azure",
-								"resource",
-								configIndex,
-								undefined,
-								variant,
-							));
-
-				if (!resource) {
+				url = resolveAzureBaseUrl({
+					providerKeyOptions,
+					skipEnvVars,
+					configIndex,
+					variant,
+				});
+				if (!url) {
 					const azureEnv = getProviderEnvConfig("azure");
 					throw new ProviderConfigError(
 						`Azure requires a resource or a base URL - set either via provider options or the ${azureEnv?.optional?.resource ?? "LLM_AZURE_RESOURCE"} / ${azureEnv?.optional?.baseUrl ?? "LLM_AZURE_BASE_URL"} env vars`,
 					);
 				}
-				if (!isProviderHostnameLabel(resource)) {
-					const azureEnv = getProviderEnvConfig("azure");
-					throw new ProviderConfigError(
-						`Azure resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or the ${azureEnv?.optional?.resource ?? "LLM_AZURE_RESOURCE"} env var)`,
-					);
-				}
-				url = `https://${resource}.openai.azure.com`;
-				break;
-			}
-			case "azure-ai-foundry": {
-				const resource =
-					credentialConfig?.resource ??
-					providerKeyOptions?.azure_ai_foundry_resource ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"azure-ai-foundry",
-								"resource",
-								configIndex,
-								undefined,
-								variant,
-							));
-
-				if (!resource) {
-					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
-					throw new ProviderConfigError(
-						`Azure AI Foundry resource is required - set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var`,
-					);
-				}
-				if (!isProviderHostnameLabel(resource)) {
-					const azureFoundryEnv = getProviderEnvConfig("azure-ai-foundry");
-					throw new ProviderConfigError(
-						`Azure AI Foundry resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureFoundryEnv?.required.resource ?? "LLM_AZURE_AI_FOUNDRY_RESOURCE"} env var)`,
-					);
-				}
-				url = `https://${resource}.services.ai.azure.com`;
 				break;
 			}
 			case "azure-anthropic": {
@@ -721,10 +741,12 @@ export function getProviderEndpoint(
 		return appendPath(url, "/v1/responses");
 	}
 	if (apiFormat === "anthropic-messages") {
-		// DeepSeek serves its Anthropic-compatible API under `/anthropic`.
+		// DeepSeek and AWS Bedrock serve it under `/anthropic`.
 		return appendPath(
 			url,
-			provider === "deepseek" ? "/anthropic/v1/messages" : "/v1/messages",
+			provider === "deepseek" || provider === "aws-bedrock"
+				? "/anthropic/v1/messages"
+				: "/v1/messages",
 		);
 	}
 	if (apiFormat === "google-vertex") {
@@ -744,6 +766,21 @@ export function getProviderEndpoint(
 
 	switch (provider) {
 		case "fal-ai":
+			// Images use fal's synchronous host; video keeps the queue root.
+			if (imageGenerations && externalId) {
+				const trimSlash = (value: string | undefined) => {
+					let end = value?.length ?? 0;
+					while (end > 0 && value?.[end - 1] === "/") {
+						end--;
+					}
+					return value?.slice(0, end);
+				};
+				const syncUrl =
+					trimSlash(url) === trimSlash(getProviderDefaultBaseUrl("fal-ai"))
+						? "https://fal.run"
+						: url;
+				return appendPath(syncUrl, `/${externalId}`);
+			}
 			return url;
 		case "anthropic":
 			return `${url}/v1/messages`;
@@ -821,29 +858,28 @@ export function getProviderEndpoint(
 			return `${url}/v1/projects/${projectId}/locations/${vertexRegion}/endpoints/openapi/chat/completions`;
 		}
 		case "vertex-anthropic": {
-			// A managed credential states its project outright: by the time a
-			// request is built its service-account JSON has already been exchanged
-			// for an access token, so nothing downstream can derive one from it.
-			let vaProjectId = credentialConfig?.project;
-			// BYOK provider keys hold the customer's service-account JSON; derive
-			// the project from it so requests hit their project, not the server's.
+			// A managed credential states its project outright; env credentials
+			// keep LLM_VERTEX_ANTHROPIC_PROJECT first.
+			let vaProjectId =
+				credentialConfig?.project ??
+				(skipEnvVars
+					? undefined
+					: getProviderEnvValue(
+							"vertex-anthropic",
+							"project",
+							configIndex,
+							undefined,
+							variant,
+						));
+			// Otherwise derive it from the selected service-account JSON, so a
+			// BYOK key hits the customer's project, not the server's.
 			if (!vaProjectId && token) {
 				try {
 					const sa = JSON.parse(token) as { project_id?: string };
 					vaProjectId = sa.project_id;
 				} catch {
-					// token is not service-account JSON (e.g. an OAuth access token);
-					// fall back to env-based resolution below
+					// not service-account JSON; fall back to the env JSON below
 				}
-			}
-			if (!vaProjectId) {
-				vaProjectId = getProviderEnvValue(
-					"vertex-anthropic",
-					"project",
-					configIndex,
-					undefined,
-					variant,
-				);
 			}
 			if (!vaProjectId) {
 				const saJson =
@@ -911,20 +947,19 @@ export function getProviderEndpoint(
 			}
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
-			const awsRegionPrefix = region
-				? (
-						providers.find((p) => p.id === "aws-bedrock") as
-							ProviderDefinition | undefined
-					)?.regionConfig?.modelPrefixMap?.[region]
-				: undefined;
-			// envValueOrDefault honors skipEnvVars (BYOK), so the server's
-			// LLM_AWS_BEDROCK_REGION can't silently affect provider-key routing.
-			const prefix =
-				providerKeyOptions?.aws_bedrock_region_prefix ??
-				awsRegionPrefix ??
-				envValueOrDefault("aws-bedrock", "region", "global.") ??
-				"global.";
-
+			// Callers that pass no format (key validation) still reach Claude's
+			// Messages API; the model id goes in its body.
+			if (providerMapping?.apiFormat === "anthropic-messages") {
+				return appendPath(url, "/anthropic/v1/messages");
+			}
+			// skipEnvVars (BYOK) keeps the server's LLM_AWS_BEDROCK_REGION from
+			// silently affecting provider-key routing.
+			const prefix = getAwsBedrockModelPrefix(region, {
+				providerKeyOptions,
+				skipEnvVars,
+				configIndex,
+				variant,
+			});
 			const endpoint = stream ? "converse-stream" : "converse";
 			return `${url}/model/${prefix}${externalId}/${endpoint}`;
 		}
@@ -1006,20 +1041,6 @@ export function getProviderEndpoint(
 				return `${url}/openai/v1/chat/completions`;
 			}
 		}
-		case "azure-ai-foundry": {
-			const apiVersion =
-				providerKeyOptions?.azure_ai_foundry_api_version ??
-				credentialConfig?.apiVersion ??
-				getProviderEnvValue(
-					"azure-ai-foundry",
-					"apiVersion",
-					configIndex,
-					"2024-05-01-preview",
-					variant,
-				) ??
-				"2024-05-01-preview";
-			return `${url}/models/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
-		}
 		case "azure-anthropic":
 			// Claude models on Microsoft Foundry are only served through the
 			// Anthropic Messages API; there is no OpenAI-compatible surface.
@@ -1064,11 +1085,6 @@ export function getProviderEndpoint(
 				return `${url}/v1/wand/hunyuan-image/v35-generation`;
 			}
 			return `${url}/v1/chat/completions`;
-		case "reve":
-			if (imageGenerations) {
-				return `${url}/v1/image/create`;
-			}
-			return `${url}/v1/image/create`;
 		case "deepinfra":
 			return `${url}/chat/completions`;
 		case "sakana": {
@@ -1114,14 +1130,17 @@ export function getProviderEndpoint(
 			}
 			return `${url}/v1/chat/completions`;
 		}
+		case "minimax":
+			if (imageGenerations) {
+				return `${url}/v1/images/generations`;
+			}
+			return `${url}/v1/chat/completions`;
 		case "baidu":
 		case "deepseek":
 		case "moonshot":
 		case "nebius":
 		case "canopywave":
-		case "minimax":
 		case "xiaomi":
-		case "ranoai":
 		case "atria":
 		case "cloudflare":
 		case "custom":

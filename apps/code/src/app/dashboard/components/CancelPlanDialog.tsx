@@ -4,7 +4,7 @@ import { ArrowRight, Check, DoorOpen, Loader2 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { usePlans } from "@/app/dashboard/plans";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppConfig } from "@/lib/config";
-import { cn } from "@/lib/utils";
+import { cn, formatUsd } from "@/lib/utils";
 
 import {
 	cancellationCommentsRequired,
@@ -27,101 +27,27 @@ import {
 	DEV_PLAN_CANCELLATION_HEADING,
 	DEV_PLAN_CANCELLATION_REASON_OPTIONS,
 	DEV_PLAN_PRICES,
+	DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
 	getDevPlanCycleUsageFraction,
 	type DevPlanCancellationReason,
 } from "@llmgateway/shared";
 
-import type { PlanOption, PlanTier } from "@/app/dashboard/types";
+import {
+	planName,
+	planUsage,
+	resolveOffer,
+	type SaveOffer,
+} from "./cancel-offers";
+
+import type { PlanTier } from "@/app/dashboard/types";
 
 type Step = "survey" | "offer" | "confirm";
-
-type SaveOffer =
-	| { kind: "downgrade"; tier: PlanTier }
-	| {
-			kind: "link";
-			id: "agents" | "models" | "compare";
-			href: string;
-			external: boolean;
-			title: string;
-			body: string;
-			cta: string;
-	  };
-
-// A save offer only makes sense while the cycle still has room: someone who
-// has burned through most of the allowance isn't kept by a smaller plan.
-const SAVE_OFFER_MAX_UTILIZATION = 0.4;
-
-const LOWER_TIER: Record<PlanTier, PlanTier | null> = {
-	lite: null,
-	pro: "lite",
-	max: "pro",
-};
 
 const STEPS: { id: Step; label: string }[] = [
 	{ id: "survey", label: "Reason" },
 	{ id: "offer", label: "Options" },
 	{ id: "confirm", label: "Confirm" },
 ];
-
-function planName(plans: PlanOption[], tier: PlanTier): string {
-	return plans.find((p) => p.tier === tier)?.name ?? tier.toUpperCase();
-}
-
-function resolveOffer(
-	reason: DevPlanCancellationReason,
-	tier: PlanTier,
-	utilization: number,
-	pendingTier: PlanTier | null,
-	docsUrl: string,
-): SaveOffer | null {
-	if (utilization >= SAVE_OFFER_MAX_UTILIZATION) {
-		return null;
-	}
-	switch (reason) {
-		case "too_expensive":
-		case "not_using_enough":
-		case "just_testing": {
-			const lower = LOWER_TIER[tier];
-			// A scheduled tier change already exists; change-tier would 409.
-			if (!lower || pendingTier) {
-				return null;
-			}
-			return { kind: "downgrade", tier: lower };
-		}
-		case "tool_not_supported":
-			return {
-				kind: "link",
-				id: "agents",
-				href: `${docsUrl}/learn/coding-agents`,
-				external: true,
-				title: "Most tools already work",
-				body: "Anything that speaks the OpenAI or Anthropic API can run on your DevPass key. The setup guides cover the usual editors, agents and CLIs.",
-				cta: "See supported tools",
-			};
-		case "missing_features":
-			return {
-				kind: "link",
-				id: "models",
-				href: "/models",
-				external: false,
-				title: "New models land every week",
-				body: "Every model in the catalogue is on your plan the day it ships. Check whether what you need is already there.",
-				cta: "Browse the catalogue",
-			};
-		case "switched_alternative":
-			return {
-				kind: "link",
-				id: "compare",
-				href: "/compare",
-				external: false,
-				title: "See how it stacks up",
-				body: "Side by side with the plan you're moving to: models, limits, tooling and price.",
-				cta: "Compare plans",
-			};
-		default:
-			return null;
-	}
-}
 
 interface CancelPlanDialogProps {
 	open: boolean;
@@ -131,6 +57,9 @@ interface CancelPlanDialogProps {
 	creditsLimit: number;
 	renewWhen: string | null;
 	pendingTier: PlanTier | null;
+	// Unused allowance the next renewal would carry over at current usage.
+	renewalRollover: number;
+	paygEnabled: boolean;
 	organizationId?: string | null;
 	isCancelling: boolean;
 	isDowngrading: boolean;
@@ -139,17 +68,38 @@ interface CancelPlanDialogProps {
 		comments: string | undefined,
 	) => Promise<void>;
 	onDowngrade: (tier: PlanTier) => Promise<void>;
+	onUpgrade: (tier: PlanTier) => void;
 }
 
 export default function CancelPlanDialog(props: CancelPlanDialogProps) {
+	// The upgrade offer hands over to the plan picker behind the dialog. The
+	// handover waits for the close to finish: until then the page is scroll
+	// locked and focus is still on its way back to the trigger.
+	const upgradeTier = useRef<PlanTier | null>(null);
+
 	return (
 		<Dialog open={props.open} onOpenChange={props.onOpenChange}>
 			<DialogContent
 				data-testid="cancel-plan-dialog"
 				className="max-h-[calc(100dvh-2rem)] overflow-y-auto overflow-x-hidden border-dashed border-stone-400/70 dark:border-stone-600/70"
+				onCloseAutoFocus={(event) => {
+					const tier = upgradeTier.current;
+					if (!tier) {
+						return;
+					}
+					upgradeTier.current = null;
+					event.preventDefault();
+					props.onUpgrade(tier);
+				}}
 			>
 				{/* Content unmounts with the dialog, so every open starts at the survey. */}
-				<CancelFlow {...props} />
+				<CancelFlow
+					{...props}
+					onUpgrade={(tier) => {
+						upgradeTier.current = tier;
+						props.onOpenChange(false);
+					}}
+				/>
 			</DialogContent>
 		</Dialog>
 	);
@@ -162,11 +112,14 @@ function CancelFlow({
 	creditsLimit,
 	renewWhen,
 	pendingTier,
+	renewalRollover,
+	paygEnabled,
 	organizationId,
 	isCancelling,
 	isDowngrading,
 	onCancel,
 	onDowngrade,
+	onUpgrade,
 }: CancelPlanDialogProps) {
 	const posthog = usePostHog();
 	const { posthogKey, docsUrl, discordUrl } = useAppConfig();
@@ -177,6 +130,7 @@ function CancelFlow({
 	const [reason, setReason] = useState<DevPlanCancellationReason | null>(null);
 	const [comments, setComments] = useState("");
 	const [offer, setOffer] = useState<SaveOffer | null>(null);
+	const handedOver = useRef(false);
 
 	const utilization = getDevPlanCycleUsageFraction(creditsUsed, creditsLimit);
 	const option = DEV_PLAN_CANCELLATION_REASON_OPTIONS.find(
@@ -197,7 +151,13 @@ function CancelFlow({
 	};
 
 	const offerLabel = (o: SaveOffer) =>
-		o.kind === "downgrade" ? `downgrade:${o.tier}` : `link:${o.id}`;
+		o.kind === "link"
+			? `link:${o.id}`
+			: o.kind === "rollover"
+				? "rollover"
+				: `${o.kind}:${o.tier}`;
+	// The tier the next renewal bills, which sets what a carry-over lands on.
+	const renewingTier = pendingTier ?? tier;
 
 	const continueFromSurvey = () => {
 		if (!reason) {
@@ -209,7 +169,17 @@ function CancelFlow({
 			utilization,
 			has_comments: trimmedComments.length > 0,
 		});
-		const next = resolveOffer(reason, tier, utilization, pendingTier, docsUrl);
+		const next = resolveOffer(reason, {
+			tier,
+			pendingTier,
+			creditsUsed,
+			creditsLimit,
+			renewalRollover,
+			paygEnabled,
+			plans,
+			docsUrl,
+			discordUrl,
+		});
 		if (next) {
 			setOffer(next);
 			track("dev_plan_cancel_offer_shown", { reason, offer: offerLabel(next) });
@@ -220,8 +190,13 @@ function CancelFlow({
 	};
 
 	const acceptOffer = async () => {
-		if (!offer || !reason) {
+		if (!offer || !reason || handedOver.current) {
 			return;
+		}
+		// The handover closes the dialog on an animation, so a second click can
+		// still land on the button.
+		if (offer.kind === "upgrade") {
+			handedOver.current = true;
 		}
 		track("dev_plan_cancel_offer_accepted", {
 			reason,
@@ -229,6 +204,10 @@ function CancelFlow({
 		});
 		if (offer.kind === "downgrade") {
 			await onDowngrade(offer.tier);
+		} else if (offer.kind === "upgrade") {
+			onUpgrade(offer.tier);
+		} else if (offer.kind === "rollover") {
+			onOpenChange(false);
 		}
 	};
 
@@ -425,7 +404,11 @@ function CancelFlow({
 									<div className="font-mono text-[10px] uppercase tracking-[0.35em] text-stone-500 dark:text-stone-400">
 										{offer.kind === "downgrade"
 											? "Visa amendment · Right-size"
-											: "Visa amendment · Worth a look"}
+											: offer.kind === "upgrade"
+												? "Visa amendment · More room"
+												: offer.kind === "rollover"
+													? "Visa amendment · Carry-over"
+													: "Visa amendment · Worth a look"}
 									</div>
 									<div className="font-mono text-[9px] tracking-[0.25em] text-stone-400 dark:text-stone-500">
 										No. CX-{serial}
@@ -455,6 +438,59 @@ function CancelFlow({
 											can move back up any time.
 										</p>
 									</div>
+								) : offer.kind === "upgrade" ? (
+									<div className="mt-3 space-y-2">
+										<p className="text-base font-semibold tracking-tight">
+											Move up to {planName(plans, offer.tier)}
+										</p>
+										<p className="text-2xl font-bold tracking-tight tabular-nums">
+											${planUsage(plans, offer.tier)}
+											<span className="text-sm font-normal text-muted-foreground">
+												{" "}
+												of usage a month
+											</span>{" "}
+											<span className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+												up from ${planUsage(plans, tier)}
+											</span>
+										</p>
+										<p className="text-sm text-muted-foreground">
+											Same key, same models, a bigger allowance. Upgrading
+											starts a new cycle today at ${DEV_PLAN_PRICES[offer.tier]}
+											/mo, and what is left of this cycle&apos;s allowance
+											carries over. You review the charge before anything
+											changes.
+										</p>
+									</div>
+								) : offer.kind === "rollover" ? (
+									<div className="mt-3 space-y-2">
+										<p className="text-base font-semibold tracking-tight">
+											{offer.capped
+												? "Part of what you haven't used comes with you"
+												: "What you haven't used comes with you"}
+										</p>
+										<p className="text-2xl font-bold tracking-tight tabular-nums">
+											{formatUsd(offer.amount)}
+											<span className="text-sm font-normal text-muted-foreground">
+												{" "}
+												{offer.capped &&
+													`of your ${formatUsd(offer.unused)} unused `}
+												carries into your next cycle
+											</span>{" "}
+											<span className="whitespace-nowrap text-sm font-medium text-emerald-700 dark:text-emerald-400">
+												on top of the full{" "}
+												{formatUsd(planUsage(plans, renewingTier))}
+											</span>
+										</p>
+										<p className="text-sm text-muted-foreground">
+											Renewing at today&apos;s usage starts your next cycle with{" "}
+											{formatUsd(planUsage(plans, renewingTier) + offer.amount)}{" "}
+											of usage for {pendingTier ? "" : "the same "}$
+											{DEV_PLAN_PRICES[renewingTier]}/mo. Unused allowance
+											carries over at every renewal, up to{" "}
+											{Math.round(DEV_PLAN_RENEWAL_ROLLOVER_PERCENT * 100)}% of
+											the plan&apos;s monthly allowance.
+										</p>
+									</div>
 								) : (
 									<div className="mt-3 space-y-2">
 										<p className="text-base font-semibold tracking-tight">
@@ -478,6 +514,22 @@ function CancelFlow({
 											)}
 											Switch to {planName(plans, offer.tier)} at renewal
 										</Button>
+									) : offer.kind === "upgrade" ? (
+										<Button
+											onClick={acceptOffer}
+											disabled={busy}
+											data-testid="cancel-offer-accept"
+										>
+											Review the {planName(plans, offer.tier)} upgrade
+										</Button>
+									) : offer.kind === "rollover" ? (
+										<Button
+											onClick={acceptOffer}
+											disabled={busy}
+											data-testid="cancel-offer-accept"
+										>
+											Keep my plan
+										</Button>
 									) : offer.external ? (
 										<Button asChild data-testid="cancel-offer-accept">
 											<a
@@ -500,7 +552,7 @@ function CancelFlow({
 											</Link>
 										</Button>
 									)}
-									{offer.kind === "downgrade" ? (
+									{offer.kind !== "link" ? (
 										<Link
 											href="/pricing"
 											target="_blank"
@@ -508,7 +560,7 @@ function CancelFlow({
 										>
 											Compare what each plan includes
 										</Link>
-									) : (
+									) : offer.id === "support" ? null : (
 										<a
 											href={discordUrl}
 											target="_blank"

@@ -10,6 +10,23 @@ export const reasoningDetailsSchema = z.array(
 		.passthrough(),
 );
 
+export const svgOptionsSchema = z.object({
+	model: z.string().min(1),
+	reasoning: z
+		.object({
+			effort: z
+				.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"])
+				.nullable()
+				.optional(),
+		})
+		.nullable()
+		.optional(),
+});
+export const imageAnimationFields = {
+	frame_count: z.number().int().min(2).max(16).optional(),
+	frame_duration_ms: z.number().int().min(20).max(2000).optional(),
+};
+export const imageMarkupSchema = z.object({ image_url: z.string().min(1) });
 export const completionsRequestSchema = z.object({
 	model: z.string().openapi({
 		example: "gpt-5",
@@ -308,7 +325,7 @@ export const completionsRequestSchema = z.object({
 		}),
 	safety_identifier: z.string().max(128).nullable().optional().openapi({
 		description:
-			"Opaque end-user identifier stored in log params.safety_identifier. Never forwarded upstream; credits requests use the fixed LLM Gateway API-key identifier instead.",
+			"Opaque end-user identifier stored in log params.safety_identifier. Never forwarded upstream; credits requests use LLM Gateway's fixed per-organization identifier instead.",
 	}),
 	user: z
 		.string()
@@ -562,9 +579,17 @@ export const completionsRequestSchema = z.object({
 				.enum(["low", "medium", "high", "xhigh", "max", "auto"])
 				.optional(),
 			moderation: z.enum(["auto", "low"]).optional(),
+			complexity: z.enum(["low", "medium", "high"]).optional(),
+			background: z.string().optional(),
+			output_format: z.string().optional(),
+			...imageAnimationFields,
+			markup: imageMarkupSchema.optional(),
+			svg: svgOptionsSchema.nullable().optional(),
+			output_compression: z.number().optional(),
 			n: z.number().optional(),
 			seed: z.number().optional(),
 		})
+		.superRefine(validateImageAnimation)
 		.optional(),
 	// OpenAI Chat Completions web search options
 	web_search_options: z
@@ -616,3 +641,30 @@ export const completionsRequestSchema = z.object({
 });
 
 export type CompletionsRequest = z.infer<typeof completionsRequestSchema>;
+
+export function validateImageAnimation(
+	value: {
+		output_format?: string;
+		frame_count?: number;
+		frame_duration_ms?: number;
+		output_compression?: number;
+	},
+	ctx: z.RefinementCtx,
+): void {
+	for (const field of ["frame_count", "frame_duration_ms"] as const) {
+		if (value[field] !== undefined && value.output_format !== "gif") {
+			ctx.addIssue({
+				code: "custom",
+				path: [field],
+				message: `${field} requires output_format=gif.`,
+			});
+		}
+	}
+	if (value.output_format === "gif" && value.output_compression !== undefined) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["output_compression"],
+			message: "output_compression is not supported with GIF output.",
+		});
+	}
+}

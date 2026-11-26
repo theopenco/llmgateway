@@ -5,6 +5,11 @@ date: 2026-05-26
 title: "LLM Gateway vs Portkey: An Honest Comparison"
 summary: "Looking for a Portkey alternative? A straightforward comparison of LLM Gateway and Portkey — features, pricing, deployment, and trade-offs — so you can pick the right AI gateway for your stack."
 categories: ["Guides"]
+faqs:
+  - question: "What is the difference between LLM Gateway and Portkey?"
+    answer: "Portkey combines an AI gateway with an LLMOps platform for observability and prompt management. LLM Gateway is a single platform that can be self-hosted, with routing that scores providers automatically."
+  - question: "How does routing differ between LLM Gateway and Portkey?"
+    answer: "Portkey routing is config-driven: you define conditional routes, fallback chains, and load-balancing weights. LLM Gateway scores the available providers for you."
 image:
   src: "/blog/llm-gateway-vs-portkey.png"
   alt: "LLM Gateway vs Portkey: An Honest Comparison"

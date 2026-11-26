@@ -17,8 +17,11 @@ import { logger, toError } from "@llmgateway/logger";
 import {
 	expandProviderRegions,
 	getProviderDefinition,
+	getVirtualAliasName,
 	models as modelsList,
 	providers,
+	supportsWebSearch,
+	webSearchListPrice,
 	type PeakPricing,
 	type PricingTier,
 	type ProviderModelMapping,
@@ -91,6 +94,7 @@ const pricingSchema = z.object({
 	video_output: z.string().optional(),
 	per_second: z.record(z.string(), z.string()).optional(),
 	per_image: z.record(z.string(), z.string()).optional(),
+	per_input_image: z.string().optional(),
 	request: z.string().optional(),
 	input_cache_read: z.string().optional(),
 	input_cache_read_explicit: z.string().optional().openapi({
@@ -153,6 +157,10 @@ const modelSchema = z.object({
 			"Human-readable model label, mirroring `name`. Anthropic-format clients such as Claude Code read this field when populating their model picker from gateway model discovery.",
 	}),
 	aliases: z.array(z.string()).optional(),
+	virtual_model_target: z.string().optional().openapi({
+		description:
+			"Set on virtual alias entries (e.g. `…-latest`): the model id this alias currently serves. The entry mirrors that model, and requests naming the alias route and bill against it.",
+	}),
 	created: z.number().optional(),
 	description: z.string().optional(),
 	family: z.string(),
@@ -256,7 +264,6 @@ const modelSchema = z.object({
 		}),
 	),
 	pricing: pricingSchema.extend({
-		web_search: z.string(),
 		internal_reasoning: z.string(),
 	}),
 	context_length: z.number().optional(),
@@ -511,7 +518,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 						}
 						return true;
 					})
-					.map((provider: ProviderModelMapping) => {
+					.flatMap((provider: ProviderModelMapping) => {
 						const providerDef = providers.find(
 							(p) => p.id === provider.providerId,
 						);
@@ -541,7 +548,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 							| "search"
 						)[] = model.output ?? ["text"];
 
-						return {
+						const entry = {
 							id:
 								provider.providerId === "custom"
 									? model.id
@@ -586,13 +593,17 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 							deactivated_at: provider.deactivatedAt?.toISOString(),
 							stability: provider.stability ?? model.stability,
 						};
+						return withVirtualAliasEntries(entry, model.id, {
+							idPrefix: `${provider.providerId}/`,
+							nameSuffix: ` (${providerDef?.name ?? provider.providerId})`,
+						});
 					}),
 			);
 
 			return c.json({ data: mappedData });
 		}
 
-		const modelData = filteredModels.map((model: ModelDefinition) => {
+		const modelData = filteredModels.flatMap((model: ModelDefinition) => {
 			// Determine input modalities (if model supports images)
 			const inputModalities: (
 				"text" | "image" | "video" | "embedding" | "audio"
@@ -635,7 +646,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 				modelDiscountOf,
 			);
 
-			return {
+			const entry = {
 				id: model.id,
 				name: model.name ?? model.id,
 				display_name: model.name ?? model.id,
@@ -696,6 +707,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 				),
 				stability: model.stability,
 			};
+			return withVirtualAliasEntries(entry, model.id);
 		});
 
 		return c.json({ data: modelData });
@@ -707,6 +719,54 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 		throw new HTTPException(500, { message: "Internal server error" });
 	}
 });
+
+// Virtual aliases (`aliasesAreVirtual`, e.g. "…-latest") per catalogue model.
+// Routing accepts them like model ids, resolving each to the first model that
+// lists it unless it is itself a model id (`getVirtualModelTarget`).
+const virtualAliasesByModelId = (() => {
+	const modelIds = new Set<string>(modelsList.map((model) => model.id));
+	const claimed = new Set<string>();
+	const owned = new Map<string, string[]>();
+	for (const model of modelsList as readonly ModelDefinition[]) {
+		if (!model.aliasesAreVirtual) {
+			continue;
+		}
+		for (const alias of model.aliases ?? []) {
+			if (modelIds.has(alias) || claimed.has(alias)) {
+				continue;
+			}
+			claimed.add(alias);
+			owned.set(model.id, [...(owned.get(model.id) ?? []), alias]);
+		}
+	}
+	return owned;
+})();
+
+// The entry followed by a copy per virtual alias of its model, so clients can
+// discover and select the alias like any other model. Mirrors the models
+// directory (`expandVirtualModels`), but named after the alias
+// (`getVirtualAliasName`) so name-based UIs can tell it from its target.
+function withVirtualAliasEntries<T extends { id: string; name: string }>(
+	entry: T,
+	modelId: string,
+	{ idPrefix = "", nameSuffix = "" } = {},
+): (T & { virtual_model_target?: string })[] {
+	const aliases = virtualAliasesByModelId.get(modelId) ?? [];
+	return [
+		entry,
+		...aliases.map((alias) => {
+			const name = `${getVirtualAliasName(alias)}${nameSuffix}`;
+			return {
+				...entry,
+				id: `${idPrefix}${alias}`,
+				name,
+				display_name: name,
+				aliases: undefined,
+				virtual_model_target: entry.id,
+			};
+		}),
+	];
+}
 
 // Serialize a provider mapping into the public `providers` entry shape shared
 // by the aggregated and mapped views.
@@ -770,7 +830,7 @@ function serializeProviderMapping(
 			: undefined,
 		json_output: provider.jsonOutput,
 		structured_outputs: provider.jsonOutputSchema,
-		web_search: provider.webSearch,
+		web_search: supportsWebSearch(provider),
 		verbosity: provider.verbosity,
 		reasoning: provider.reasoning ?? false,
 		reasoning_efforts: provider.reasoningEfforts,
@@ -866,12 +926,13 @@ function buildPricingFields(
 		video_output: p?.videoOutputPrice?.toString(),
 		per_second: stringifyPrices(p?.perSecondPrice),
 		per_image: stringifyPrices(p?.perImagePrice),
+		per_input_image: p?.perInputImagePrice?.toString(),
 		request: p?.requestPrice?.toString() ?? "0",
 		input_cache_read: p?.cachedInputPrice?.toString() ?? "0",
 		input_cache_read_explicit: p?.cacheReadInputPrice?.toString(),
 		input_cache_write: p?.cacheWriteInputPrice?.toString() ?? "0",
 		input_cache_write_1h: p?.cacheWriteInputPrice1h?.toString() ?? "0",
-		web_search: p?.webSearchPrice?.toString(),
+		web_search: p ? webSearchListPrice(p) : undefined,
 		content_filter: p?.contentFilterPrice?.toString(),
 		ocr_page: p?.ocrPagePrice?.toString(),
 		input_audio_hour: p?.inputAudioHourPrice?.toString(),
@@ -933,15 +994,14 @@ function serializePeakPricing(peakPricing: PeakPricing) {
 	};
 }
 
-// Model-level pricing always carries web_search and internal_reasoning.
+// Model-level pricing always carries internal_reasoning. web_search is listed
+// only for models that can search.
 function modelLevelPricing(
 	p: ProviderModelMapping | undefined,
 	discount: string | undefined,
 ) {
-	const fields = buildPricingFields(p, discount);
 	return {
-		...fields,
-		web_search: fields.web_search ?? "0",
+		...buildPricingFields(p, discount),
 		internal_reasoning: "0",
 	};
 }

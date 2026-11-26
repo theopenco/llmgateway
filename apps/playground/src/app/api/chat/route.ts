@@ -31,6 +31,7 @@ import { readJsonBody } from "@/lib/read-json-body";
 import { createServerApiClient, fetchServerData } from "@/lib/server-api";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { deferDownloadsToGateway } from "@llmgateway/shared/ai-sdk-download";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import {
@@ -747,6 +748,7 @@ export async function POST(req: Request) {
 				.filter(Boolean)
 				.join("\n\n") || undefined;
 		const result = streamText({
+			experimental_download: deferDownloadsToGateway,
 			model: llmgateway.chat(selectedModel, { usage: { include: true } }),
 			messages: modelMessages,
 			...(resolvedSystem ? { instructions: resolvedSystem } : {}),

@@ -22,8 +22,6 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { canWrite } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
 import { useApi } from "@/lib/fetch-client";
@@ -304,7 +302,7 @@ export function ModelVerificationDialog({
 	const api = useApi();
 	const readOnly = !canWrite(useAdminRole());
 	const [open, setOpen] = useState(false);
-	const [apiKey, setApiKey] = useState("");
+
 	const [verificationId, setVerificationId] = useState(latest?.id ?? "");
 
 	const verificationQuery = api.useQuery(
@@ -356,7 +354,7 @@ export function ModelVerificationDialog({
 	const queue = api.useMutation("post", "/admin/model-verifications", {
 		onSuccess: (data) => {
 			setVerificationId(data.entry.verification.id);
-			setApiKey("");
+
 			toast.success("Verification queued.");
 			void historyQuery.refetch();
 			onSettled?.();
@@ -392,34 +390,16 @@ export function ModelVerificationDialog({
 					</DialogDescription>
 				</DialogHeader>
 				<div className="space-y-4">
-					{!readOnly && (
-						<div className="space-y-2">
-							<Label htmlFor="admin-verify-api-key">
-								Provider API key{" "}
-								<span className="text-muted-foreground">(optional)</span>
-							</Label>
-							<Input
-								id="admin-verify-api-key"
-								type="password"
-								autoComplete="off"
-								value={apiKey}
-								onChange={(event) => setApiKey(event.target.value)}
-								placeholder="Uses the carrier's saved test key when blank"
-							/>
-							<p className="text-xs text-muted-foreground">
-								A pasted key is scoped to this run and erased when it finishes.
-								Left blank, a carrier-claimed provider runs on the test key that
-								carrier saved in Airside — so the run is billed to them, not us.
-								An unclaimed catalogue mapping falls back to the managed or
-								environment credential.
-							</p>
-						</div>
-					)}
+					<p className="text-xs text-muted-foreground">
+						Verification uses the carrier's saved provider key, managed by the
+						carrier or LLM Gateway. Unclaimed catalogue mappings use a managed
+						or environment credential.
+					</p>
 					{credentialSource ? (
 						<p className="text-xs text-muted-foreground">
 							Ran on the{" "}
 							{credentialSource === "carrier"
-								? "carrier's saved test key"
+								? "carrier's saved provider key"
 								: credentialSource === "supplied"
 									? "key pasted for this run"
 									: `${credentialSource} credential`}
@@ -450,7 +430,6 @@ export function ModelVerificationDialog({
 									body: {
 										...(mappingId ? { mappingId } : {}),
 										...(draftModelId ? { draftModelId } : {}),
-										...(apiKey ? { apiKey } : {}),
 									},
 								})
 							}

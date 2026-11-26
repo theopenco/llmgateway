@@ -14,6 +14,17 @@ const DEFAULT_IMAGE_FETCH_TIMEOUT_MS = 15_000;
 const MAX_IMAGE_FETCH_TIMEOUT_MS = 2_147_483_647;
 
 /**
+ * undici reports connect, DNS and TLS failures as `TypeError("fetch failed")`
+ * and a socket dropped while reading the body as `TypeError("terminated")`.
+ */
+function isFetchNetworkError(error: unknown): error is TypeError {
+	return (
+		error instanceof TypeError &&
+		(error.message.startsWith("fetch failed") || error.message === "terminated")
+	);
+}
+
+/**
  * Thrown when an image exceeds the caller's size limit. A `RequestError` so the
  * gateway maps it to a 400 and writes a client_error log row: the chat path
  * only preserves `RequestError`, so a plain `Error` here would still reach the
@@ -72,31 +83,32 @@ async function readBodyWithLimit(
 	maxSizeBytes: number,
 	maxSizeMB: number,
 	userPlan: "free" | "pro" | "enterprise" | null,
-	signal: AbortSignal,
+	signal?: AbortSignal,
 ): Promise<Buffer> {
+	signal?.throwIfAborted();
 	if (!response.body) {
 		return Buffer.alloc(0);
 	}
-
 	const reader = response.body.getReader();
+	// Some fetch runtimes lose body abort propagation under GC.
+	const cancelOnAbort = () => cancelImageBody(reader, signal?.reason);
+	signal?.addEventListener("abort", cancelOnAbort, { once: true });
+	if (signal?.aborted) {
+		cancelOnAbort();
+	}
 	const chunks: Uint8Array[] = [];
 	let received = 0;
-	const cancel = () => cancelImageBody(reader, signal.reason);
-	// Some fetch runtimes lose body abort propagation under GC.
-	signal.addEventListener("abort", cancel, { once: true });
-
 	try {
 		for (;;) {
-			signal.throwIfAborted();
+			signal?.throwIfAborted();
 			const { done, value } = await reader.read();
-			signal.throwIfAborted();
+			signal?.throwIfAborted();
 			if (done) {
 				break;
 			}
 			if (!value) {
 				continue;
 			}
-
 			received += value.byteLength;
 			if (received > maxSizeBytes) {
 				cancelImageBody(reader);
@@ -110,14 +122,12 @@ async function readBodyWithLimit(
 					getImageSizeErrorMessage(maxSizeMB, actualSizeMB, userPlan),
 				);
 			}
-
 			chunks.push(value);
 		}
 	} finally {
-		signal.removeEventListener("abort", cancel);
+		signal?.removeEventListener("abort", cancelOnAbort);
 		reader.releaseLock();
 	}
-
 	return Buffer.concat(chunks);
 }
 
@@ -133,6 +143,7 @@ export async function processImageUrl(
 	userPlan: "free" | "pro" | "enterprise" | null = null,
 	callerSignal?: AbortSignal,
 ): Promise<{ data: string; mimeType: string }> {
+	callerSignal?.throwIfAborted();
 	// Handle data URLs directly without network fetch
 	if (url.slice(0, 5).toLowerCase() === "data:") {
 		const parsed = parseDataUrl(url);
@@ -309,6 +320,18 @@ export async function processImageUrl(
 				host: urlHostForLog(url),
 			});
 			throw new RequestError("Timed out fetching image from URL");
+		}
+
+		// The user's host was unreachable or failed TLS (refused, reset, bad
+		// certificate, dropped mid-body): a client error, not a gateway fault.
+		if (isFetchNetworkError(error)) {
+			logger.warn("Failed to connect to image URL host", {
+				err: error,
+				host: urlHostForLog(url),
+			});
+			throw new RequestError(
+				"Failed to fetch image: could not connect to the image host (connection or TLS error)",
+			);
 		}
 
 		// Log the full error internally but sanitize the thrown error

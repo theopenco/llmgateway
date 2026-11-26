@@ -2,6 +2,9 @@ import { ImageResponse } from "next/og";
 
 import { createServerApiClient } from "@/lib/server-api";
 
+import { isProviderUrlGuardEnabled } from "@llmgateway/shared";
+import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
+
 import type { paths } from "@/lib/api/v1";
 
 export const size = {
@@ -9,6 +12,16 @@ export const size = {
 	height: 630,
 };
 export const contentType = "image/png";
+
+const SHARE_IMAGE_TYPES = new Set([
+	"image/png",
+	"image/jpeg",
+	"image/webp",
+	"image/gif",
+]);
+const INLINE_IMAGE_RE = /^data:image\/(png|jpeg|webp|gif);base64,/;
+const MAX_SHARE_IMAGE_BYTES = 8 * 1024 * 1024;
+const SHARE_IMAGE_TIMEOUT_MS = 5_000;
 
 type SharedChatResponse =
 	paths["/public/chats/share/{shareId}"]["get"]["responses"]["200"]["content"]["application/json"];
@@ -443,6 +456,11 @@ function ImagePreview({ preview }: { preview: SharePreview }) {
 }
 
 export default async function ShareOgImage({ params }: OgImageProps) {
+	const headers = {
+		"Content-Type": contentType,
+		"Cache-Control": "no-store",
+		"X-Robots-Tag": "noindex, nofollow",
+	};
 	try {
 		const { shareId } = await params;
 		const client = await createServerApiClient();
@@ -451,21 +469,22 @@ export default async function ShareOgImage({ params }: OgImageProps) {
 			cache: "no-store",
 		});
 		const preview = getPreview(data ?? null);
+		const imageUrl = preview.imageUrl
+			? await loadShareImage(preview.imageUrl)
+			: null;
 
-		return new ImageResponse(
-			preview.imageUrl ? (
-				<ImagePreview preview={preview} />
+		// Rendering is awaited here so a failure reaches the fallback below
+		// instead of resetting the connection mid-stream.
+		const image = await new ImageResponse(
+			imageUrl ? (
+				<ImagePreview preview={{ ...preview, imageUrl }} />
 			) : (
-				<TextPreview preview={preview} />
+				<TextPreview preview={{ ...preview, imageUrl: null }} />
 			),
-			{
-				...size,
-				headers: {
-					"Cache-Control": "no-store",
-					"X-Robots-Tag": "noindex, nofollow",
-				},
-			},
-		);
+			size,
+		).arrayBuffer();
+
+		return new Response(image, { headers });
 	} catch (error) {
 		console.error("Error generating share OpenGraph image:", error);
 		return new ImageResponse(
@@ -494,5 +513,56 @@ export default async function ShareOgImage({ params }: OgImageProps) {
 				},
 			},
 		);
+	}
+}
+// Share snapshots carry client-supplied image URLs, and the renderer would
+// fetch an <img src> from this server. Only an inline image or a guarded
+// download reaches it; anything else falls back to the text card.
+async function loadShareImage(url: string): Promise<string | null> {
+	if (url.startsWith("data:")) {
+		return INLINE_IMAGE_RE.test(url) && url.length <= MAX_SHARE_IMAGE_BYTES * 2
+			? url
+			: null;
+	}
+
+	try {
+		const init = {
+			redirect: "error" as const,
+			signal: AbortSignal.timeout(SHARE_IMAGE_TIMEOUT_MS),
+		};
+		const response = isProviderUrlGuardEnabled()
+			? await fetchSafeUserUrl(url, init)
+			: await fetch(url, init);
+		const mediaType = response.headers
+			.get("content-type")
+			?.split(";")[0]
+			.trim()
+			.toLowerCase();
+		if (!response.ok || !mediaType || !SHARE_IMAGE_TYPES.has(mediaType)) {
+			await response.body?.cancel();
+			return null;
+		}
+
+		const reader = response.body?.getReader();
+		if (!reader) {
+			return null;
+		}
+		const chunks: Uint8Array[] = [];
+		let total = 0;
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) {
+				break;
+			}
+			total += value.byteLength;
+			if (total > MAX_SHARE_IMAGE_BYTES) {
+				await reader.cancel();
+				return null;
+			}
+			chunks.push(value);
+		}
+		return `data:${mediaType};base64,${Buffer.concat(chunks).toString("base64")}`;
+	} catch {
+		return null;
 	}
 }

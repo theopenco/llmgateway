@@ -6,6 +6,7 @@ import {
 	DocsTitle,
 } from "fumadocs-ui/page";
 import { notFound } from "next/navigation";
+import { isValidElement } from "react";
 
 import { LLMCopyButton, ViewOptions } from "@/components/ai/page-actions";
 import { EnterpriseCTA } from "@/components/enterprise-cta";
@@ -83,6 +84,27 @@ export async function generateMetadata({
 	};
 }
 
+const HOW_TO_EXCLUDED = new Set(["FAQ", "Next steps"]);
+
+interface HowToTocItem {
+	title: unknown;
+	url: string;
+}
+
+/** Flattens a table-of-contents title, which may be a React node, to text. */
+function nodeText(node: unknown): string {
+	if (typeof node === "string" || typeof node === "number") {
+		return String(node);
+	}
+	if (Array.isArray(node)) {
+		return node.map(nodeText).join("");
+	}
+	if (isValidElement<{ children?: unknown }>(node)) {
+		return nodeText(node.props.children);
+	}
+	return "";
+}
+
 export default async function Page(props: {
 	params: Promise<{ slug?: string[] }>;
 }) {
@@ -116,6 +138,36 @@ export default async function Page(props: {
 		},
 	};
 
+	// The quickstart is a numbered procedure ("1 · Get an API key"), so its
+	// steps are also published as HowTo structured data.
+	const howToSteps =
+		page.url === "/quick-start"
+			? (page.data.toc as HowToTocItem[]).flatMap((item) => {
+					const title = nodeText(item.title);
+					const step = title.match(/^\d+ · (.+)$/)?.[1];
+					return step && !HOW_TO_EXCLUDED.has(step)
+						? [{ name: step, url: `${docsBaseUrl}${path}${item.url}` }]
+						: [];
+				})
+			: [];
+	const howToSchema =
+		howToSteps.length > 1
+			? {
+					"@context": "https://schema.org",
+					"@type": "HowTo",
+					name: page.data.title,
+					description: page.data.description,
+					url: `${docsBaseUrl}${path}`,
+					step: howToSteps.map((step, index) => ({
+						"@type": "HowToStep",
+						position: index + 1,
+						name: step.name,
+						text: step.name,
+						url: step.url,
+					})),
+				}
+			: null;
+
 	return (
 		<DocsPage
 			toc={page.data.toc}
@@ -126,7 +178,11 @@ export default async function Page(props: {
 			}}
 			lastUpdate={lastUpdate}
 		>
-			<JsonLd data={techArticleSchema} />
+			<JsonLd
+				data={
+					howToSchema ? [techArticleSchema, howToSchema] : techArticleSchema
+				}
+			/>
 			<nav
 				aria-label="Page actions"
 				className="flex flex-row gap-2 items-center border-b pt-2 pb-6"

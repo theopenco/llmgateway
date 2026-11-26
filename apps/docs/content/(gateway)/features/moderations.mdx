@@ -137,9 +137,15 @@ The response follows the standard OpenAI moderation format:
 				"self_harm": 0.01
 			}
 		}
-	]
+	],
+	"usage": {
+		"cost": 0.00001,
+		"cost_details": { "request_cost": 0.00001, "total_cost": 0.00001 }
+	}
 }
 ```
+
+`usage` is an LLM Gateway addition: what the request was billed in USD (see [Cost Breakdown](/features/cost-breakdown)).
 
 ## When To Use This Instead Of Chat Content Filtering
 

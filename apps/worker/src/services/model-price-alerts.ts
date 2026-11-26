@@ -31,6 +31,7 @@ const SYNC_LOCK_MS = 5 * 60 * 1000;
 /** More covered models than this in one run are sent as a single digest. */
 const DIGEST_AFTER = 3;
 const DIGEST_NAMES = 10;
+const DIGEST_CHANGES = 5;
 
 const PRICE_FIELDS = [
 	"inputPrice",
@@ -262,6 +263,7 @@ async function notifyPriceChanges(changes: PriceChange[], now: Date) {
 			name,
 			eventKey: `price:${modelId}:${fingerprint}`,
 			title: `Price change for ${name}`,
+			lines,
 			message: `New prices are in effect. ${lines.join(". ")}.`,
 			href: `/models/${encodeURIComponent(modelId)}`,
 		};
@@ -314,6 +316,8 @@ async function notifyPriceChanges(changes: PriceChange[], now: Date) {
 interface PriceEvent {
 	modelId: string;
 	name: string;
+	/** One "<provider> (<region>): <change>" line per changed mapping. */
+	lines: string[];
 	eventKey: string;
 	title: string;
 	message: string;
@@ -322,9 +326,24 @@ interface PriceEvent {
 
 function digestEvent(
 	events: PriceEvent[],
-): Omit<PriceEvent, "modelId" | "name"> {
-	const names = events.slice(0, DIGEST_NAMES).map((event) => event.name);
-	const more = events.length - names.length;
+): Omit<PriceEvent, "modelId" | "name" | "lines"> {
+	// Models sharing the same change are listed together under it, in name
+	// order so the message does not depend on query order.
+	const byLine = new Map<string, string[]>();
+	const sorted = [...events].sort(
+		(a, b) =>
+			a.name.localeCompare(b.name) || a.modelId.localeCompare(b.modelId),
+	);
+	for (const event of sorted) {
+		for (const line of new Set(event.lines)) {
+			byLine.set(line, [...(byLine.get(line) ?? []), event.name]);
+		}
+	}
+	const groups = [...byLine].slice(0, DIGEST_CHANGES).map(([line, names]) => {
+		const more = names.length - DIGEST_NAMES;
+		return `${line} for ${names.slice(0, DIGEST_NAMES).join(", ")}${more > 0 ? `, and ${more} more` : ""}`;
+	});
+	const moreChanges = byLine.size - groups.length;
 	const fingerprint = createHash("sha256")
 		.update(JSON.stringify(events.map((event) => event.eventKey).sort()))
 		.digest("hex")
@@ -332,7 +351,7 @@ function digestEvent(
 	return {
 		eventKey: `price:digest:${fingerprint}`,
 		title: `Price changes for ${events.length} models`,
-		message: `New prices are in effect for ${names.join(", ")}${more ? `, and ${more} more` : ""}. Compare current prices in the model catalogue.`,
+		message: `New prices are in effect. ${groups.join(". ")}${moreChanges > 0 ? `. ${moreChanges} more ${moreChanges === 1 ? "change" : "changes"}` : ""}. Compare current prices in the model catalogue.`,
 		href: "/models",
 	};
 }

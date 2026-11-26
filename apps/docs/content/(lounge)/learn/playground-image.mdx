@@ -58,3 +58,17 @@ Models that expose a content-filtering control (GPT Image) show a **Moderation**
 selector next to the quality control. `auto` applies the provider's standard
 filtering; `low` is less restrictive. See
 [Image Generation](/features/image-generation#moderation).
+
+## SVG Output
+
+Models that return vector graphics (GPT Image 2.6 Sunburst and Flare) show a
+format menu next to the moderation control. Switch it from **Image** to
+**SVG** to get an editable SVG for icons,
+logos, stickers, and illustrations instead of a raster image. SVG output
+returns one image per generation and takes no reference images, so the image
+count and **Add image** are disabled while it is selected. SVG results carry an
+**SVG** badge, stay sharp when zoomed, and download as `.svg` files. In
+comparison mode, the format menu appears if any selected model supports SVG;
+only those models return SVG. Saved SVGs keep their badge and vector preview
+after a reload. SVG results cannot be used as reference images. See
+[SVG output](/features/image-generation#svg-output).

@@ -82,10 +82,6 @@
 		"viewBox": "0 0 96 96",
 		"src": "/provider-logos/azure.svg"
 	},
-	"azure-ai-foundry": {
-		"viewBox": "0 0 96 96",
-		"src": "/provider-logos/azure-ai-foundry.svg"
-	},
 	"azure-anthropic": {
 		"viewBox": "0 0 96 96",
 		"src": "/provider-logos/azure-anthropic.svg"
@@ -106,9 +102,6 @@
 	"deepinfra": {
 		"viewBox": "0 9 28 32"
 	},
-	"reve": {
-		"viewBox": "0 0 182 148"
-	},
 	"sakana": {
 		"viewBox": "0 0 1289 1289"
 	},
@@ -117,9 +110,6 @@
 	},
 	"runpod": {
 		"viewBox": "0 0 195 206"
-	},
-	"ranoai": {
-		"viewBox": "0 0 512 512"
 	},
 	"baidu": {
 		"viewBox": "0 0 24 24"

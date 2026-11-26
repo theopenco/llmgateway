@@ -5,6 +5,11 @@ date: 2026-04-25
 title: "Prompt Caching Explained: How to Cut LLM Costs by 30–99%"
 summary: "How LLM response caching actually works, where it helps, where it doesn't, and how to turn it on without rewriting your app."
 categories: ["Guides"]
+faqs:
+  - question: "How does response caching for LLMs work?"
+    answer: "A cache sits between your application and the provider. The gateway hashes the request parameters and stores the response, so an identical later request is answered from the cache instead of being sent to the model."
+  - question: "When does an exact-match cache hit?"
+    answer: "Only when the request is identical: the same model, messages, temperature, and tools. Any difference sends a new request to the provider."
 image:
   src: "/blog/prompt-caching-explained.png"
   alt: "Prompt Caching Explained: How to Cut LLM Costs by 30–99%"

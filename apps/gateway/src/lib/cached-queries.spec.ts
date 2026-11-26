@@ -281,6 +281,23 @@ describe("Cached Queries - Gateway Database Access", () => {
 			expect(result).toBeUndefined();
 		});
 
+		it("should return undefined for platform publishable tokens", async () => {
+			const publishableToken = "pk-test-platform-publishable-cached-queries";
+			await db.insert(apiKey).values({
+				id: "test-platform-publishable-cached-queries",
+				...hashApiKeyForStorage(publishableToken),
+				projectId: testProjectId,
+				description: "Test Platform Publishable",
+				status: "active",
+				createdBy: testUserId,
+				keyType: "platform_publishable",
+			});
+
+			const result = await findApiKeyByToken(publishableToken);
+
+			expect(result).toBeUndefined();
+		});
+
 		it("finds a hash-only embeddable session token", async () => {
 			const token = "es_hash-only-cached-queries";
 			await insertEndUserSession(hashTokenForStorage(token));

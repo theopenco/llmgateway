@@ -1,3 +1,4 @@
+import { CompareAnswer } from "@/components/compare/compare-answer";
 import { CompareFaq } from "@/components/compare/compare-faq";
 import { ComparisonSources } from "@/components/compare/comparison-sources";
 import { HeroCompare } from "@/components/compare/hero-compare";
@@ -67,6 +68,29 @@ export default function CompareVercelPage() {
 							},
 						},
 					}}
+				/>
+				<CompareAnswer
+					competitor="Vercel AI Gateway"
+					verdict="Vercel AI Gateway is a managed service with zero markup on inference. LLM Gateway charges 5% on credit purchases and no platform fee on your own provider keys, and its core can be self-hosted. Both work from any host through OpenAI-compatible APIs."
+					rows={[
+						{
+							label: "Deployment",
+							llmGateway: "Hosted, or self-host the AGPLv3 core",
+							competitor: "Managed service only",
+						},
+						{
+							label: "Pricing",
+							llmGateway:
+								"5% fee on credit purchases; no platform fee on your own provider keys",
+							competitor:
+								"Zero gateway markup; $5 monthly free credit for eligible models",
+						},
+						{
+							label: "Your own provider keys",
+							llmGateway: "Available with no platform fee",
+							competitor: "Enabled once you buy credits",
+						},
+					]}
 				/>
 				<ComparisonVercel />
 				<ComparisonSources slug="vercel-ai-gateway" />

@@ -1,6 +1,7 @@
 import { Zap, Shield, Globe } from "lucide-react";
+import { Suspense } from "react";
 
-import { TweetCard } from "@/lib/components/tweet-card";
+import { TweetCard, TweetSkeleton } from "@/lib/components/tweet-card";
 import { TESTIMONIAL_TWEET_IDS } from "@/lib/testimonials";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
@@ -83,12 +84,19 @@ export async function AuthBrandPanel({
 					</div>
 				)}
 
-				{/* Real tweet from our community */}
+				{/* Real tweet from our community. The card awaits a tweet fetch, so
+				    it streams in behind Suspense instead of blocking the form. */}
 				<div className="mt-8">
-					<TweetCard
-						id={tweetId}
-						className="w-full rounded-xl border-zinc-200 bg-white/30 dark:border-zinc-700/50 dark:bg-zinc-800/30 shadow-none [&_a]:text-zinc-500 dark:[&_a]:text-zinc-400 [&_img]:border-zinc-200 dark:[&_img]:border-zinc-700"
-					/>
+					<Suspense
+						fallback={
+							<TweetSkeleton className="h-64 max-h-none w-full rounded-xl border-zinc-200 bg-white/30 shadow-none dark:border-zinc-700/50 dark:bg-zinc-800/30" />
+						}
+					>
+						<TweetCard
+							id={tweetId}
+							className="w-full rounded-xl border-zinc-200 bg-white/30 dark:border-zinc-700/50 dark:bg-zinc-800/30 shadow-none [&_a]:text-zinc-500 dark:[&_a]:text-zinc-400 [&_img]:border-zinc-200 dark:[&_img]:border-zinc-700"
+						/>
+					</Suspense>
 				</div>
 			</div>
 

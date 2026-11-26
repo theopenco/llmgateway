@@ -23,11 +23,12 @@ export type ContentFilterClassifier =
 	(typeof CONTENT_FILTER_CLASSIFIERS)[number];
 
 /**
- * What the internal classifier reads.
- * - `full`: the whole conversation, split into as many requests as its size
- *   limit needs. Slow on long agent histories.
+ * What the internal and OpenAI classifiers read.
+ * - `full`: the whole conversation, split into chunks their size limits
+ *   accept: all of it for the internal classifier, the newest 256 KiB for
+ *   OpenAI. Slow on long agent histories.
  * - `latest_turn`: the system prompt plus the turn after the last assistant
- *   message, in one request.
+ *   message.
  */
 export const CONTENT_FILTER_INTERNAL_SCOPES = ["full", "latest_turn"] as const;
 
@@ -37,6 +38,63 @@ export type ContentFilterInternalScope =
 /** Model name on the internal classifier's stored moderation responses. */
 export const INTERNAL_CLASSIFIER_MODEL = "internal-classifier";
 
+/**
+ * Policy groups the filter can block on, independent of the classifier's own
+ * category names.
+ */
+export const CONTENT_FILTER_BLOCK_GROUPS = ["csam", "sexual", "cyber"] as const;
+
+export type ContentFilterBlockGroup =
+	(typeof CONTENT_FILTER_BLOCK_GROUPS)[number];
+
+// OpenAI moderation categories and internal classifier tags.
+const BLOCK_GROUP_CATEGORIES: Record<string, ContentFilterBlockGroup> = {
+	"sexual/minors": "csam",
+	child_exploitation: "csam",
+	grooming_predation: "csam",
+	direct_grooming: "csam",
+	luring_isolation: "csam",
+	sextortion_ibsa: "csam",
+	impersonation_minor: "csam",
+	image_based_coercion: "csam",
+	sexual: "sexual",
+	sexual_content: "sexual",
+	nudify_tooling: "sexual",
+	malware_cyber: "cyber",
+	dark_market_tooling: "cyber",
+};
+
+// Internal classifier rule names (`reasons`), matched by prefix.
+const BLOCK_GROUP_RULE_PREFIXES: [string, ContentFilterBlockGroup][] = [
+	["minor_", "csam"],
+	["grooming_", "csam"],
+	["nudify_", "sexual"],
+	["malware_", "cyber"],
+	["cyber_", "cyber"],
+];
+
+/** Group of a moderation category or internal classifier tag. */
+export function getContentFilterCategoryGroup(
+	category: string,
+): ContentFilterBlockGroup | null {
+	return BLOCK_GROUP_CATEGORIES[category] ?? null;
+}
+
+/**
+ * Group of an internal classifier rule. Unlike its tags, which all fire
+ * together on a block, the rules name what triggered it.
+ */
+export function getContentFilterRuleGroup(
+	rule: string,
+): ContentFilterBlockGroup | null {
+	for (const [prefix, group] of BLOCK_GROUP_RULE_PREFIXES) {
+		if (rule.startsWith(prefix)) {
+			return group;
+		}
+	}
+	return null;
+}
+
 export const contentFilterSettingsSchema = z.object({
 	// Master switch for sampling requests through the moderation API.
 	enabled: z.boolean().default(true),
@@ -45,14 +103,39 @@ export const contentFilterSettingsSchema = z.object({
 	sampleRatePercent: z.number().min(0).max(100).default(100),
 	// When false every violation is recorded as metadata but never blocked.
 	enforce: z.boolean().default(false),
+	// Providers that block (awaited before the provider call) even while
+	// `enforce` is off. Always moderated, whether or not in `providerIds`.
+	enforceProviderIds: z.array(z.string()).default([]),
+	// Share of a blocking provider's requests checked in blocking mode. The
+	// rest are monitored log-only at `sampleRatePercent`.
+	enforceSampleRatePercent: z.number().min(0).max(100).default(100),
+	// Extra blocking providers for DevPass orgs only, on top of
+	// `enforceProviderIds`.
+	devPassEnforceProviderIds: z.array(z.string()).default([]),
 	// Enterprise orgs stay log-only unless this is also on.
 	enforceEnterprise: z.boolean().default(false),
 	// Classifier whose scores decide the outcome.
 	classifier: z.enum(CONTENT_FILTER_CLASSIFIERS).default("openai"),
+	// Classifiers that also score every sampled request, in the background and
+	// in parallel, so flag rates compare per classifier on the same traffic.
+	// Their verdicts are recorded, never enforced. The deciding one is skipped.
+	shadowClassifiers: z.array(z.enum(CONTENT_FILTER_CLASSIFIERS)).default([]),
 	internalScope: z.enum(CONTENT_FILTER_INTERNAL_SCOPES).default("full"),
+	// What OpenAI moderation reads of the text; images are always read whole.
+	openaiScope: z.enum(CONTENT_FILTER_INTERNAL_SCOPES).default("latest_turn"),
 	// Whether a text-only classifier (jev, internal) hands image parts to
 	// OpenAI moderation. Off leaves images unmoderated.
 	moderateImages: z.boolean().default(true),
+	// Whether /v1/embeddings text inputs are moderated like chat prompts.
+	moderateEmbeddings: z.boolean().default(false),
+	// Groups whose matches block. Null blocks every matched category.
+	blockGroups: z
+		.array(z.enum(CONTENT_FILTER_BLOCK_GROUPS))
+		.nullable()
+		.default(null),
+	// OpenAI `sexual/minors` score above which a request matches `csam` at
+	// every tier, far below the general thresholds.
+	csamScoreThreshold: z.number().min(0).max(1).default(0.01),
 });
 
 export type ContentFilterSettings = z.infer<typeof contentFilterSettingsSchema>;
@@ -98,6 +181,8 @@ export const GATEWAY_CONTENT_FILTER_MESSAGE =
  *   sensitive content in input or generation`
  * - OpenAI cybersecurity policy: `cyber_policy`, `flagged for possible
  *   cybersecurity risk`
+ * - MiniMax H3 Image (codes 1026/1027): `failed safety check`, `failed content
+ *   safety check`
  */
 const CONTENT_FILTER_ERROR_SIGNALS = [
 	"ResponsibleAIPolicyViolation",
@@ -112,6 +197,8 @@ const CONTENT_FILTER_ERROR_SIGNALS = [
 	"System detected potentially unsafe or sensitive content in input or generation",
 	"cyber_policy",
 	"flagged for possible cybersecurity risk",
+	"failed safety check",
+	"failed content safety check",
 ];
 
 /**

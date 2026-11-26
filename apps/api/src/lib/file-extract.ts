@@ -136,7 +136,12 @@ export async function extractFileText(
 	}
 
 	if (isPdf(name, mimeType)) {
-		const pdf = await getDocumentProxy(new Uint8Array(buffer));
+		// verbosity 0 (VerbosityLevel.ERRORS): pdf.js logs recoverable parse
+		// warnings for malformed uploads ("Indexing all PDF objects", missing
+		// fonts) that surface as production error alerts.
+		const pdf = await getDocumentProxy(new Uint8Array(buffer), {
+			verbosity: 0,
+		});
 		const { text } = await extractText(pdf, { mergePages: true });
 		return text;
 	}

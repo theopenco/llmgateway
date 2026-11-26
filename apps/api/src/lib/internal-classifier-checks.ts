@@ -85,6 +85,12 @@ export function internalClassifierChecksFromLog(
 	row: ContentFilteredLogRow,
 ): InternalClassifierCheck[] {
 	const evaluation = row.evaluation;
+	// The internal classifier either decided or ran as a shadow.
+	const internalScope =
+		evaluation?.internalScope ??
+		evaluation?.shadows?.find((shadow) => shadow.classifier === "internal")
+			?.internalScope ??
+		"";
 	const verdicts = (row.response ?? [])
 		.filter((response) => response.model === INTERNAL_CLASSIFIER_MODEL)
 		.flatMap((response) => response.results ?? []);
@@ -112,7 +118,7 @@ export function internalClassifierChecksFromLog(
 			apiKeyId: row.apiKeyId,
 			usedModel: row.usedModel,
 			usedProvider: row.usedProvider,
-			internalScope: evaluation?.internalScope ?? "",
+			internalScope,
 			tier: evaluation?.tier ?? null,
 			level: evaluation?.level ?? null,
 			action: evaluation?.action ?? null,

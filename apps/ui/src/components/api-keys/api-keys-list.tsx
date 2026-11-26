@@ -73,7 +73,8 @@ import { useApi } from "@/lib/fetch-client";
 import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
 import { cn } from "@/lib/utils";
 
-import { Time } from "@llmgateway/shared";
+import { Time, useDisplayTimeZone } from "@llmgateway/shared";
+import { ASSISTANT_KEY_DESCRIPTION } from "@llmgateway/shared/dashboard-assistant";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
 import {
@@ -107,8 +108,10 @@ import {
 } from "./api-key-selection";
 import { formatApiKeyExpiry } from "./api-key-ttl-fields";
 import {
-	apiKeyUsagePeriodLabel,
-	parseApiKeyUsagePeriod,
+	apiKeyUsageQuery,
+	apiKeyUsageSelectionLabel,
+	isSameApiKeyUsageQuery,
+	parseApiKeyUsageSelection,
 } from "./api-key-usage-period";
 import { ApiKeyUsagePeriodSelect } from "./api-key-usage-period-select";
 import {
@@ -125,7 +128,10 @@ import type {
 	ApiKeyLimitSuggestion,
 } from "./api-key-insights";
 import type { ApiKeyLimitStatus } from "./api-key-limit-status";
-import type { ApiKeyUsagePeriod } from "./api-key-usage-period";
+import type {
+	ApiKeyUsageQuery,
+	ApiKeyUsageSelection,
+} from "./api-key-usage-period";
 import type { paths } from "@/lib/api/v1";
 import type { ApiKey, Project } from "@/lib/types";
 import type { Route } from "next";
@@ -143,8 +149,8 @@ export type ApiKeysResponse =
 interface ApiKeysListProps {
 	scope: ApiKeysScope;
 	initialData: ApiKeysResponse | undefined;
-	/** Period the SSR `initialData` was fetched for. */
-	initialPeriod: ApiKeyUsagePeriod;
+	/** Usage query the SSR `initialData` was fetched with. */
+	initialUsageQuery: ApiKeyUsageQuery;
 }
 
 type StatusFilter = "all" | "active" | "inactive";
@@ -207,6 +213,12 @@ function renderLastUsed(key: ApiKey) {
 	);
 }
 
+function managedKeyLabel(apiKey: { description: string }) {
+	return apiKey.description === ASSISTANT_KEY_DESCRIPTION
+		? "Autopilot"
+		: "Playground";
+}
+
 function ManagedPlaygroundTableRow({
 	apiKey,
 	statisticsUrl,
@@ -225,7 +237,7 @@ function ManagedPlaygroundTableRow({
 			<TableCell />
 			<TableCell>
 				<div className="flex items-center gap-2">
-					<span className="font-medium">Playground</span>
+					<span className="font-medium">{managedKeyLabel(apiKey)}</span>
 					<Badge variant="outline">Managed</Badge>
 				</div>
 			</TableCell>
@@ -278,7 +290,7 @@ function ManagedPlaygroundCard({
 		<div className="border rounded-lg p-3 space-y-3">
 			<div className="flex items-start justify-between gap-3">
 				<div className="flex items-center gap-2">
-					<h3 className="font-medium text-sm">Playground</h3>
+					<h3 className="font-medium text-sm">{managedKeyLabel(apiKey)}</h3>
 					<Badge variant="outline">Managed</Badge>
 					<StatusBadge status={apiKey.status} />
 				</div>
@@ -308,7 +320,7 @@ function ManagedPlaygroundCard({
 export function ApiKeysList({
 	scope,
 	initialData,
-	initialPeriod,
+	initialUsageQuery,
 }: ApiKeysListProps) {
 	const queryClient = useQueryClient();
 	const api = useApi();
@@ -323,7 +335,14 @@ export function ApiKeysList({
 		[pathname],
 	);
 	const isOrgScope = scope.type === "organization";
-	const period = parseApiKeyUsagePeriod(searchParams.get("period"));
+	const { timeZone } = useDisplayTimeZone();
+	const usageSelection = parseApiKeyUsageSelection({
+		period: searchParams.get("period"),
+		from: searchParams.get("from"),
+		to: searchParams.get("to"),
+	});
+	const period = usageSelection.period;
+	const usageQuery = apiKeyUsageQuery(usageSelection, timeZone);
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
 	const [creatorFilter, setCreatorFilter] = useState<CreatorFilter>("all");
 	const [usageFilter, setUsageFilter] = useState<UsageFilter>("all");
@@ -363,12 +382,16 @@ export function ApiKeysList({
 		setPage(0);
 	};
 
-	const setPeriod = (next: ApiKeyUsagePeriod) => {
+	const setPeriod = (next: ApiKeyUsageSelection) => {
 		const params = new URLSearchParams(searchParams.toString());
-		if (next === "all") {
-			params.delete("period");
-		} else {
-			params.set("period", next);
+		params.delete("period");
+		params.delete("from");
+		params.delete("to");
+		if (next.period === "custom") {
+			params.set("from", next.from);
+			params.set("to", next.to);
+		} else if (next.period !== "all") {
+			params.set("period", next.period);
 		}
 		const query = params.toString();
 		resetView();
@@ -386,7 +409,7 @@ export function ApiKeysList({
 				query: {
 					...apiKeysScopeQuery(scope),
 					filter: creatorFilter,
-					period,
+					...usageQuery,
 				},
 			},
 		},
@@ -397,7 +420,7 @@ export function ApiKeysList({
 			refetchInterval: false,
 			// Only use initialData for the query the server rendered
 			...(creatorFilter === "all" &&
-				period === initialPeriod &&
+				isSameApiKeyUsageQuery(usageQuery, initialUsageQuery) &&
 				initialData && { initialData }),
 		},
 	);
@@ -1131,7 +1154,7 @@ export function ApiKeysList({
 		</Badge>
 	);
 
-	const usageLabel = apiKeyUsagePeriodLabel(period);
+	const usageLabel = apiKeyUsageSelectionLabel(usageSelection);
 
 	return (
 		<div className="space-y-3">
@@ -1254,7 +1277,10 @@ export function ApiKeysList({
 							className="h-8 w-full pl-8 md:w-48"
 						/>
 					</div>
-					<ApiKeyUsagePeriodSelect value={period} onChange={setPeriod} />
+					<ApiKeyUsagePeriodSelect
+						value={usageSelection}
+						onChange={setPeriod}
+					/>
 				</div>
 			</div>
 

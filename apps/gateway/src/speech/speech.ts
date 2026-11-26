@@ -8,9 +8,12 @@ import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import {
+	getAzureCredentialBaseUrl,
+	getAzureUpstreamModel,
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
+import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -66,12 +69,20 @@ import {
 } from "@/lib/logs.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { trackPendingWork } from "@/lib/pending-work.js";
+import { clientSafetyIdentifierFields } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { usageCost } from "@/lib/usage-cost.js";
+import { buildMusicRequestBody, extractMusicAudio } from "@/speech/music.js";
+import {
+	encodeSpeechEvents,
+	prepareSpeechStream,
+} from "@/speech/speech-stream.js";
 
 import { RedirectError } from "@llmgateway/actions";
 import {
 	getGoogleVertexPublisherModelPath,
+	getOpenAiV1Prefix,
 	getProviderHeaders,
 	managedCredentialOptions,
 	providerKeyLabel,
@@ -100,7 +111,23 @@ import type { ContentFilterClassifier } from "@llmgateway/shared";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
 import type { Context } from "hono";
 
+const ELEVENLABS_VOICE_ID_PATTERN = /^[A-Za-z0-9]{20}$/;
+
+function isElevenLabsVoiceAccessDenied(body: unknown): boolean {
+	if (typeof body !== "object" || body === null || !("detail" in body)) {
+		return false;
+	}
+	const { detail } = body;
+	return (
+		typeof detail === "object" &&
+		detail !== null &&
+		"code" in detail &&
+		detail.code === "voice_access_denied"
+	);
+}
+
 const speechRequestSchema = z.object({
+	...clientSafetyIdentifierFields,
 	model: z.string().openapi({
 		description: "ID of the speech generation (text-to-speech) model to use.",
 		example: "gemini-2.5-flash-preview-tts",
@@ -108,6 +135,10 @@ const speechRequestSchema = z.object({
 	input: z.string().min(1).openapi({
 		description: "The text to synthesize into speech.",
 		example: "Hello, welcome to LLM Gateway!",
+	}),
+	stream_format: z.enum(["audio", "sse"]).optional().openapi({
+		description:
+			"Return binary audio (default) or `sse` speech events: `speech.audio.delta` events with base64 audio, then a `speech.audio.done` event whose `usage` carries the request's `cost`.",
 	}),
 	voice: z.string().optional().openapi({
 		description:
@@ -164,14 +195,6 @@ interface GeminiResponse {
 	error?: { message?: string };
 }
 
-/** Minimal shape of an OpenAI `/v1/audio/speech` SSE event. */
-interface SpeechSseEvent {
-	type?: string;
-	audio?: string;
-	usage?: { input_tokens?: number; output_tokens?: number };
-	error?: { message?: string };
-}
-
 /**
  * Minimal shape of the Alibaba DashScope non-streaming TTS response. The
  * synthesized audio is returned as a short-lived (24h) download URL.
@@ -209,6 +232,7 @@ const PROVIDER_BASE_URL_DEFAULTS: Partial<Record<string, string>> = {
 	"google-vertex": "https://aiplatform.googleapis.com",
 	openai: "https://api.openai.com",
 	elevenlabs: "https://api.elevenlabs.io",
+	groq: "https://api.groq.com/openai",
 	alibaba: "https://dashscope-intl.aliyuncs.com",
 };
 
@@ -216,8 +240,10 @@ const SUPPORTED_PROVIDERS = new Set([
 	"google-ai-studio",
 	"google-vertex",
 	"openai",
+	"azure",
 	"elevenlabs",
 	"alibaba",
+	"groq",
 ]);
 
 // Response formats Gemini can satisfy. Gemini emits raw PCM, so the gateway can
@@ -264,6 +290,9 @@ const ELEVENLABS_OUTPUT_FORMATS: Record<string, string> = {
 // so the gateway can only serve WAV for Qwen TTS models.
 const ALIBABA_RESPONSE_FORMATS = new Set(["wav"]);
 
+// Groq serves OpenAI's speech API, but its Orpheus models only emit WAV.
+const GROQ_RESPONSE_FORMATS = new Set(["wav"]);
+
 /**
  * Wrap raw signed 16-bit little-endian PCM samples in a minimal WAV container
  * so callers receive a directly playable file. Gemini returns mono PCM at the
@@ -294,6 +323,32 @@ function pcmToWav(
 	return Buffer.concat([header, pcm]);
 }
 
+/**
+ * Return the PCM samples of a RIFF/WAVE buffer, or undefined when `buf` is not
+ * a WAV file. Gemini 3.8 TTS returns complete WAV files for unary requests,
+ * while earlier models return headerless `audio/L16`.
+ */
+function extractWavPcm(buf: Buffer): Buffer | undefined {
+	if (
+		buf.length < 12 ||
+		buf.toString("ascii", 0, 4) !== "RIFF" ||
+		buf.toString("ascii", 8, 12) !== "WAVE"
+	) {
+		return undefined;
+	}
+	let offset = 12;
+	while (offset + 8 <= buf.length) {
+		const chunkId = buf.toString("ascii", offset, offset + 4);
+		const chunkSize = buf.readUInt32LE(offset + 4);
+		const start = offset + 8;
+		if (chunkId === "data") {
+			return buf.subarray(start, Math.min(start + chunkSize, buf.length));
+		}
+		offset = start + chunkSize + (chunkSize % 2);
+	}
+	return undefined;
+}
+
 function parseSampleRate(mimeType: string | undefined): number {
 	const match = mimeType?.match(/rate=(\d+)/);
 	const rate = match ? Number(match[1]) : NaN;
@@ -305,6 +360,24 @@ function toArrayBuffer(buf: Buffer): ArrayBuffer {
 		buf.byteOffset,
 		buf.byteOffset + buf.byteLength,
 	) as ArrayBuffer;
+}
+
+/** Audio generated in one piece, returned as `stream_format: "sse"` events. */
+function speechEventsResponse(
+	c: Context<ServerTypes>,
+	audio: Buffer,
+	requestId: string,
+	usage: object,
+): Response {
+	return c.body(
+		toArrayBuffer(Buffer.from(encodeSpeechEvents(audio, usage))),
+		200,
+		{
+			"Content-Type": "text/event-stream",
+			"Cache-Control": "no-store",
+			"x-request-id": requestId,
+		},
+	);
 }
 
 function findSpeechMapping(modelId: string): {
@@ -449,6 +522,7 @@ const createSpeech = createRoute({
 				"audio/wav": { schema: z.any() },
 				"audio/mpeg": { schema: z.any() },
 				"application/octet-stream": { schema: z.any() },
+				"text/event-stream": { schema: z.any() },
 			},
 			description: "Generated audio.",
 		},
@@ -456,7 +530,7 @@ const createSpeech = createRoute({
 	},
 });
 
-speech.openapi(createSpeech, async (c): Promise<Response> => {
+async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
 	c.header("x-request-id", requestId);
 
@@ -541,10 +615,19 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	const { mapping, modelDef, modelDefId, explicitProvider } = match;
 	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
-	const isOpenAI = providerId === "openai";
+	// Azure and Groq serve OpenAI's speech API.
+	const isGroq = providerId === "groq";
+	const isOpenAI = providerId === "openai" || providerId === "azure" || isGroq;
 	const isElevenLabs = providerId === "elevenlabs";
 	const isAlibaba = providerId === "alibaba";
 	const isGoogleVertex = providerId === "google-vertex";
+	// Lyria returns encoded audio: WAV from Vertex `:predict`, MP3 from the
+	// AI Studio Interactions API.
+	const musicFormat = mapping.musicGenerations
+		? isGoogleVertex
+			? "wav"
+			: "mp3"
+		: undefined;
 	// OpenAI and ElevenLabs both return audio already encoded in the requested
 	// format and bill independently of Gemini's inline-PCM path.
 	const isEncodedPassthrough = isOpenAI || isElevenLabs;
@@ -555,6 +638,9 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	const billByCharacters =
 		isOpenAI && mapping.inputCharacterPrice !== undefined;
 	const useSse = isOpenAI && !billByCharacters;
+	// Every model streams speech events on request; they end with a
+	// `speech.audio.done` event carrying usage and cost.
+	const clientSse = request.stream_format === "sse";
 
 	if (!SUPPORTED_PROVIDERS.has(providerId)) {
 		return c.json(
@@ -571,25 +657,35 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	}
 
 	const responseFormat =
-		request.response_format ?? (isEncodedPassthrough ? "mp3" : "wav");
-	const allowedFormats = isOpenAI
-		? OPENAI_RESPONSE_FORMATS
-		: isElevenLabs
-			? ELEVENLABS_RESPONSE_FORMATS
-			: isAlibaba
-				? ALIBABA_RESPONSE_FORMATS
-				: GOOGLE_RESPONSE_FORMATS;
+		request.response_format ??
+		musicFormat ??
+		(isEncodedPassthrough && !isGroq ? "mp3" : "wav");
+	const allowedFormats = musicFormat
+		? new Set([musicFormat])
+		: isGroq
+			? GROQ_RESPONSE_FORMATS
+			: isOpenAI
+				? OPENAI_RESPONSE_FORMATS
+				: isElevenLabs
+					? ELEVENLABS_RESPONSE_FORMATS
+					: isAlibaba
+						? ALIBABA_RESPONSE_FORMATS
+						: GOOGLE_RESPONSE_FORMATS;
 	if (!allowedFormats.has(responseFormat)) {
 		return c.json(
 			{
 				error: {
-					message: isOpenAI
-						? `Unsupported response_format '${responseFormat}'.`
-						: isElevenLabs
-							? `Unsupported response_format '${responseFormat}'. ElevenLabs supports 'mp3', 'wav', 'pcm' and 'opus'.`
-							: isAlibaba
-								? `Unsupported response_format '${responseFormat}'. Qwen TTS models only support 'wav'.`
-								: `Unsupported response_format '${responseFormat}'. Gemini speech models only support 'wav' and 'pcm'.`,
+					message: musicFormat
+						? `Unsupported response_format '${responseFormat}'. ${modelDefId} only supports '${musicFormat}'.`
+						: isGroq
+							? `Unsupported response_format '${responseFormat}'. Groq speech models only support 'wav'.`
+							: isOpenAI
+								? `Unsupported response_format '${responseFormat}'.`
+								: isElevenLabs
+									? `Unsupported response_format '${responseFormat}'. ElevenLabs supports 'mp3', 'wav', 'pcm' and 'opus'.`
+									: isAlibaba
+										? `Unsupported response_format '${responseFormat}'. Qwen TTS models only support 'wav'.`
+										: `Unsupported response_format '${responseFormat}'. Gemini speech models only support 'wav' and 'pcm'.`,
 					type: "invalid_request_error",
 					param: "response_format",
 					code: "unsupported_response_format",
@@ -600,10 +696,17 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	}
 
 	const supportedVoices = mapping.supportedVoices ?? [];
+	// ElevenLabs also accepts any raw voice id (e.g. from its voice library);
+	// the upstream rejects ids the key cannot use.
+	const isRawElevenLabsVoiceId =
+		isElevenLabs &&
+		request.voice !== undefined &&
+		ELEVENLABS_VOICE_ID_PATTERN.test(request.voice);
 	if (
 		request.voice !== undefined &&
 		supportedVoices.length > 0 &&
-		!supportedVoices.includes(request.voice)
+		!supportedVoices.includes(request.voice) &&
+		!isRawElevenLabsVoiceId
 	) {
 		return c.json(
 			{
@@ -742,9 +845,20 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	// this org's env-credential reads. Undefined = base vars only.
 	const envVariant = getLicensedOrganizationEnvVariant(retryOrganization);
 
-	const promptText = request.instructions
-		? `${request.instructions}: ${request.input}`
-		: request.input;
+	// Gemini 3.8 TTS reads `text` verbatim, so instructions go in
+	// `speechMetadata.style` rather than being spoken as a prefix.
+	const googleTextPart = mapping.speechStyleMetadata
+		? {
+				text: request.input,
+				...(request.instructions
+					? { speechMetadata: { style: request.instructions } }
+					: {}),
+			}
+		: {
+				text: request.instructions
+					? `${request.instructions}: ${request.input}`
+					: request.input,
+			};
 
 	const upstreamRequestBody: Record<string, unknown> = isOpenAI
 		? {
@@ -752,7 +866,9 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				input: request.input,
 				voice,
 				response_format: responseFormat,
-				...(request.speed !== undefined ? { speed: request.speed } : {}),
+				...(request.speed !== undefined && !isGroq
+					? { speed: request.speed }
+					: {}),
 				// `instructions` and SSE streaming only apply to gpt-4o-mini-tts;
 				// tts-1/tts-1-hd reject both.
 				...(useSse && request.instructions
@@ -784,17 +900,25 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 							sample_rate: 24000,
 						},
 					}
-				: {
-						contents: [{ role: "user", parts: [{ text: promptText }] }],
-						generationConfig: {
-							responseModalities: ["AUDIO"],
-							speechConfig: {
-								voiceConfig: {
-									prebuiltVoiceConfig: { voiceName: voice },
+				: musicFormat
+					? buildMusicRequestBody(
+							isGoogleVertex,
+							upstreamModel,
+							request.instructions
+								? `${request.instructions}: ${request.input}`
+								: request.input,
+						)
+					: {
+							contents: [{ role: "user", parts: [googleTextPart] }],
+							generationConfig: {
+								responseModalities: ["AUDIO"],
+								speechConfig: {
+									voiceConfig: {
+										prebuiltVoiceConfig: { voiceName: voice },
+									},
 								},
 							},
-						},
-					};
+						};
 
 	interface SpeechAttempt {
 		providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
@@ -806,6 +930,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		upstreamUrl: string;
 		tenantBaseUrl: string | null;
 		vertexTokenType?: VertexTokenType;
+		/** Request body sent upstream; Azure keys may rename the model. */
+		requestBody: Record<string, unknown>;
 	}
 
 	async function resolveAttempt(): Promise<SpeechAttempt> {
@@ -830,6 +956,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (!providerKey) {
 				throw new HTTPException(400, {
@@ -850,7 +977,9 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 
 			const platformCredential = await resolvePlatformCredential(providerId, {
 				selectionScope: upstreamModel,
+				model: modelDefId,
 				variant: envVariant,
+				organizationId: project.organizationId,
 				region: undefined,
 				requiresServiceTier: false,
 				excludedEnvIndices: excludedEnvKeyIndices,
@@ -866,6 +995,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (providerKey) {
 				usedToken = readProviderKey(providerKey);
@@ -882,7 +1012,9 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 
 				const platformCredential = await resolvePlatformCredential(providerId, {
 					selectionScope: upstreamModel,
+					model: modelDefId,
 					variant: envVariant,
+					organizationId: project.organizationId,
 					region: undefined,
 					requiresServiceTier: false,
 					excludedEnvIndices: excludedEnvKeyIndices,
@@ -915,12 +1047,17 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 
 		const credential = { providerKey, managedKey };
 		const resolvedBaseUrl =
-			providerKey?.baseUrl ??
-			getCredentialSetting(providerId, "baseUrl", credential, {
-				configIndex,
-				variant: envVariant,
-			}) ??
-			PROVIDER_BASE_URL_DEFAULTS[providerId];
+			providerId === "azure"
+				? getAzureCredentialBaseUrl(credential, {
+						configIndex,
+						variant: envVariant,
+					})
+				: (providerKey?.baseUrl ??
+					getCredentialSetting(providerId, "baseUrl", credential, {
+						configIndex,
+						variant: envVariant,
+					}) ??
+					PROVIDER_BASE_URL_DEFAULTS[providerId]);
 		if (!resolvedBaseUrl) {
 			throw new HTTPException(500, {
 				message: `No base URL set for provider: ${providerId}`,
@@ -937,7 +1074,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		let upstreamUrl: string;
 		let vertexTokenType: VertexTokenType | undefined;
 		if (isOpenAI) {
-			upstreamUrl = `${resolvedBaseUrl}/v1/audio/speech`;
+			upstreamUrl = `${resolvedBaseUrl}${getOpenAiV1Prefix(providerId)}/audio/speech`;
 		} else if (isElevenLabs) {
 			upstreamUrl = `${resolvedBaseUrl}/v1/text-to-speech/${encodeURIComponent(elevenLabsVoiceId)}?output_format=${elevenLabsOutputFormat}`;
 		} else if (isAlibaba) {
@@ -974,7 +1111,9 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				vertexTokenType === "oauth"
 					? ""
 					: `?key=${encodeURIComponent(usedToken)}`;
-			upstreamUrl = `${resolvedBaseUrl}${getGoogleVertexPublisherModelPath(upstreamModel, vertexProjectId, vertexRegion)}:generateContent${vertexAuthQuery}`;
+			upstreamUrl = `${resolvedBaseUrl}${getGoogleVertexPublisherModelPath(upstreamModel, vertexProjectId, vertexRegion)}:${musicFormat ? "predict" : "generateContent"}${vertexAuthQuery}`;
+		} else if (musicFormat) {
+			upstreamUrl = `${resolvedBaseUrl}/v1beta/interactions?key=${encodeURIComponent(usedToken)}`;
 		} else {
 			upstreamUrl = `${resolvedBaseUrl}/v1beta/models/${upstreamModel}:generateContent?key=${encodeURIComponent(usedToken)}`;
 		}
@@ -988,6 +1127,13 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			upstreamUrl,
 			tenantBaseUrl: providerKey?.baseUrl ?? null,
 			vertexTokenType,
+			requestBody:
+				providerId === "azure"
+					? {
+							...upstreamRequestBody,
+							model: getAzureUpstreamModel(credential, upstreamModel),
+						}
+					: upstreamRequestBody,
 		};
 	}
 
@@ -1054,7 +1200,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				debugMode,
 				userAgent,
 				rawRequest: rawBody,
-				upstreamRequest: upstreamRequestBody,
+				upstreamRequest: current.requestBody,
 			}),
 		};
 	};
@@ -1205,9 +1351,13 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		throw new HTTPException(403, { message: GATEWAY_CONTENT_FILTER_MESSAGE });
 	}
 
+	let streamingResponse = false;
 	const controller = new AbortController();
+	// Once streaming, prepareSpeechStream handles a disconnect itself.
 	const onAbort = () => {
-		controller.abort();
+		if (!streamingResponse) {
+			controller.abort();
+		}
 	};
 	// The client may have hung up while an enforced check was awaited.
 	if (c.req.raw.signal.aborted) {
@@ -1228,9 +1378,9 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			} = describeAttempt(attempt);
 
 			let upstreamResponse: Response;
+			const fetchSignal = createCombinedSignal(controller);
 			let fetchError: Error | null = null;
 			try {
-				const fetchSignal = createCombinedSignal(controller);
 				upstreamResponse = await fetchProvider(
 					attempt.upstreamUrl,
 					{
@@ -1246,7 +1396,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 								tokenType: attempt.vertexTokenType,
 							}),
 						},
-						body: JSON.stringify(upstreamRequestBody),
+						body: JSON.stringify(attempt.requestBody),
 						signal: fetchSignal,
 					},
 					attempt.tenantBaseUrl,
@@ -1427,7 +1577,13 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					}
 				}
 				const status = upstreamResponse.status;
-				if (attempt.envVarName !== undefined) {
+				// A voice the key cannot use is a request error, not a bad key.
+				const reportsKeyHealth = !(
+					isElevenLabs &&
+					status === 403 &&
+					isElevenLabsVoiceAccessDenied(upstreamJson)
+				);
+				if (reportsKeyHealth && attempt.envVarName !== undefined) {
 					reportKeyError(
 						attempt.envVarName,
 						attempt.configIndex,
@@ -1438,7 +1594,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				}
 				const trackedKeyHealthId =
 					attempt.providerKey?.id ?? attempt.managedKey?.id;
-				if (trackedKeyHealthId) {
+				if (reportsKeyHealth && trackedKeyHealthId) {
 					reportTrackedKeyError(
 						trackedKeyHealthId,
 						status,
@@ -1572,259 +1728,215 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			// requested format. ElevenLabs bills by input characters, matching the
 			// binary (non-SSE) OpenAI path below.
 			if (isEncodedPassthrough) {
-				let out: Buffer;
-				let contentType: string;
-				let inputCost: number;
-				let outputCost = 0;
-				let promptTokens: number | null = null;
-				let completionTokens: number | null = null;
-				const requestCost = Number(mapping.requestPrice ?? "0");
-
-				if (useSse) {
-					// gpt-4o-mini-tts: parse the SSE stream, concatenating the base64
-					// audio deltas and reading exact token usage from the done event.
-					const sseText = await upstreamResponse.text();
-					const chunks: Buffer[] = [];
-					let inputTokens: number | null = null;
-					let outputTokens: number | null = null;
-					let sseErrorMessage: string | null = null;
-					for (const line of sseText.split("\n")) {
-						const trimmed = line.trim();
-						if (!trimmed.startsWith("data:")) {
-							continue;
-						}
-						const payload = trimmed.slice(5).trim();
-						if (!payload || payload === "[DONE]") {
-							continue;
-						}
-						let event: SpeechSseEvent;
-						try {
-							event = JSON.parse(payload) as SpeechSseEvent;
-						} catch {
-							continue;
-						}
-						if (event.type === "speech.audio.delta" && event.audio) {
-							chunks.push(Buffer.from(event.audio, "base64"));
-						} else if (event.type === "speech.audio.done" && event.usage) {
-							inputTokens =
-								typeof event.usage.input_tokens === "number"
-									? event.usage.input_tokens
-									: null;
-							outputTokens =
-								typeof event.usage.output_tokens === "number"
-									? event.usage.output_tokens
-									: null;
-						} else if (event.type === "error") {
-							sseErrorMessage = event.error?.message ?? "Speech stream error";
-						}
-					}
-
-					// A 200 SSE stream can still carry an error frame or yield no audio;
-					// surface that as a failure instead of returning an empty 200.
-					if (sseErrorMessage !== null || chunks.length === 0) {
-						logger.warn("Speech API - no audio in SSE stream", {
-							requestId,
-							model: upstreamModel,
-							...(retentionLevel === "retain" && {
-								sseError: sseErrorMessage,
-							}),
-						});
-						routingAttempts.push(
-							buildRoutingAttempt(
-								providerId,
-								modelDefId,
-								upstreamResponse.status,
-								"upstream_error",
-								false,
-								{
-									apiKeyHash: usedApiKeyHash,
-									credentialSource,
-									providerKeyId,
-									providerKeyLabel: keyLabel,
-									logId: finalLogId,
-								},
-							),
-						);
-						await insertLog(
-							{
-								...baseLogEntry,
-								id: finalLogId,
-								routingMetadata: buildSpeechRoutingMetadata(
-									usedApiKeyHash,
-									credentialSource,
-									usedProviderKey,
-								),
-								duration,
-								timeToFirstToken: null,
-								timeToFirstReasoningToken: null,
-								responseSize: sseText.length,
-								content: null,
-								reasoningContent: null,
-								finishReason: "upstream_error",
-								promptTokens: null,
-								completionTokens: null,
-								totalTokens: null,
-								reasoningTokens: null,
-								cachedTokens: null,
-								hasError: true,
-								streamed: false,
-								canceled: false,
-								errorDetails: {
-									statusCode: upstreamResponse.status,
-									statusText: "no_audio",
-									responseText: (sseErrorMessage ?? sseText).slice(0, 2000),
-								},
-								inputCost: 0,
-								outputCost: 0,
-								cachedInputCost: 0,
-								requestCost: 0,
-								webSearchCost: 0,
-								imageInputTokens: null,
-								imageOutputTokens: null,
-								imageInputCost: null,
-								imageOutputCost: null,
-								cost: 0,
-								estimatedCost: false,
-								discount: null,
-								pricingTier: null,
-								dataStorageCost: calculateDataStorageCost(
-									null,
-									null,
-									null,
-									null,
-									retentionLevel,
-								),
-								cached: false,
-								toolResults: null,
-							},
-							{ retentionLevel },
-						);
-						return c.json(
-							{
-								error: {
-									message:
-										sseErrorMessage ??
-										"The model did not return any audio. The content may have been filtered.",
-									type: "upstream_error",
-									param: null,
-									code: "no_audio",
-								},
-							} satisfies SpeechErrorBody,
-							502,
-						);
-					}
-
-					out = Buffer.concat(chunks);
-					contentType = OPENAI_CONTENT_TYPES[responseFormat] ?? "audio/mpeg";
-					promptTokens = inputTokens;
-					completionTokens = outputTokens;
-					const inputPrice = Number(mapping.inputPrice ?? "0");
-					const outputAudioPrice = Number(
+				const contentType = clientSse
+					? "text/event-stream"
+					: useSse
+						? (OPENAI_CONTENT_TYPES[responseFormat] ?? "audio/mpeg")
+						: (upstreamResponse.headers.get("content-type") ??
+							OPENAI_CONTENT_TYPES[responseFormat] ??
+							"audio/mpeg");
+				streamingResponse = true;
+				const passthroughCosts = (
+					billable: boolean,
+					inputTokens: number | null,
+					outputTokens: number | null,
+				) => {
+					const inputCost = !billable
+						? new Decimal(0)
+						: useSse
+							? new Decimal(
+									inputTokens ?? Math.ceil(request.input.length / 4),
+								).mul(mapping.inputPrice ?? "0")
+							: new Decimal(request.input.length).mul(
+									mapping.inputCharacterPrice ?? "0",
+								);
+					const outputCost = new Decimal(outputTokens ?? 0).mul(
 						mapping.outputAudioPrice ?? mapping.outputPrice ?? "0",
 					);
-					inputCost = inputTokens !== null ? inputTokens * inputPrice : 0;
-					outputCost =
-						outputTokens !== null ? outputTokens * outputAudioPrice : 0;
-				} else {
-					// tts-1 / tts-1-hd and all ElevenLabs models: binary passthrough
-					// billed by input characters.
-					out = Buffer.from(await upstreamResponse.arrayBuffer());
-					contentType =
-						upstreamResponse.headers.get("content-type") ??
-						OPENAI_CONTENT_TYPES[responseFormat] ??
-						"audio/mpeg";
-					const characters = request.input.length;
-					const inputCharacterPrice = Number(
-						mapping.inputCharacterPrice ?? "0",
+					const requestCost = new Decimal(
+						billable ? (mapping.requestPrice ?? "0") : "0",
 					);
-					inputCost = characters * inputCharacterPrice;
-				}
-
-				const cost = inputCost + outputCost + requestCost;
-				const totalTokens =
-					promptTokens !== null || completionTokens !== null
-						? (promptTokens ?? 0) + (completionTokens ?? 0)
-						: null;
-				// SSE bills on reported usage; flag estimated if the done event is
-				// missing usage (character-billed models are always exact).
-				const estimatedCost =
-					useSse && (promptTokens === null || completionTokens === null);
-
-				routingAttempts.push(
-					buildRoutingAttempt(
-						providerId,
-						modelDefId,
-						upstreamResponse.status,
-						"none",
-						true,
-						{
-							apiKeyHash: usedApiKeyHash,
-							credentialSource,
-							providerKeyId,
-							providerKeyLabel: keyLabel,
-							logId: finalLogId,
-						},
-					),
-				);
-
-				await insertLog(
-					{
-						...baseLogEntry,
-						id: finalLogId,
-						routingMetadata: buildSpeechRoutingMetadata(
-							usedApiKeyHash,
-							credentialSource,
-							usedProviderKey,
-						),
-						duration,
-						timeToFirstToken: null,
-						timeToFirstReasoningToken: null,
-						responseSize: out.length,
-						content: `[audio: ${out.length} bytes, ${contentType}]`,
-						reasoningContent: null,
-						finishReason: "stop",
-						promptTokens:
-							promptTokens !== null ? promptTokens.toString() : null,
-						completionTokens:
-							completionTokens !== null ? completionTokens.toString() : null,
-						totalTokens: totalTokens !== null ? totalTokens.toString() : null,
-						reasoningTokens: null,
-						cachedTokens: null,
-						hasError: false,
-						streamed: false,
-						canceled: false,
-						errorDetails: null,
+					return {
 						inputCost,
 						outputCost,
-						cachedInputCost: 0,
 						requestCost,
-						webSearchCost: 0,
-						imageInputTokens: null,
-						imageOutputTokens: null,
-						imageInputCost: null,
-						imageOutputCost: null,
-						cost,
-						estimatedCost,
-						discount: null,
-						pricingTier: null,
-						dataStorageCost: calculateDataStorageCost(
-							promptTokens,
-							null,
-							completionTokens,
-							null,
-							retentionLevel,
-						),
-						cached: false,
-						toolResults: null,
-					},
-					{ retentionLevel },
-				);
-
-				return c.body(toArrayBuffer(out), 200, {
-					"Content-Type": contentType,
-					"Content-Length": String(out.length),
-					"x-request-id": requestId,
-				});
+						cost: inputCost.plus(outputCost).plus(requestCost).toNumber(),
+					};
+				};
+				try {
+					const body = await prepareSpeechStream({
+						response: upstreamResponse,
+						upstreamSse: useSse,
+						clientSse,
+						signal: fetchSignal,
+						clientSignal: c.req.raw.signal,
+						abort: () => controller.abort(),
+						// The completion event reports what the stream is billed: it
+						// carries audio, so it is billable.
+						completedUsage: (inputTokens, outputTokens) => {
+							const costs = passthroughCosts(true, inputTokens, outputTokens);
+							return {
+								...(useSse
+									? {
+											input_tokens: inputTokens,
+											output_tokens: outputTokens,
+											total_tokens:
+												inputTokens !== null && outputTokens !== null
+													? inputTokens + outputTokens
+													: null,
+										}
+									: { input_characters: request.input.length }),
+								...usageCost(costs.cost, {
+									input_cost: costs.inputCost.toNumber(),
+									output_cost: costs.outputCost.toNumber(),
+									request_cost: costs.requestCost.toNumber(),
+								}),
+							};
+						},
+						onSettled: async (stats) => {
+							c.req.raw.signal.removeEventListener("abort", onAbort);
+							const timedOut =
+								stats.error !== null && isTimeoutError(stats.error);
+							const hasError =
+								stats.error !== null &&
+								(!stats.canceled ||
+									(useSse &&
+										(stats.inputTokens === null ||
+											stats.outputTokens === null)));
+							const finishReason = stats.canceled
+								? "canceled"
+								: timedOut
+									? "timeout"
+									: hasError
+										? "upstream_error"
+										: "stop";
+							const billable =
+								stats.audioBytes > 0 ||
+								stats.inputTokens !== null ||
+								stats.outputTokens !== null;
+							const { inputCost, outputCost, requestCost, cost } =
+								passthroughCosts(
+									billable,
+									stats.inputTokens,
+									stats.outputTokens,
+								);
+							const totalTokens =
+								stats.inputTokens !== null || stats.outputTokens !== null
+									? (stats.inputTokens ?? 0) + (stats.outputTokens ?? 0)
+									: null;
+							if (hasError) {
+								logger.warn("Speech API - no audio in SSE stream", {
+									requestId,
+									model: upstreamModel,
+									...(retentionLevel === "retain" && {
+										sseError: stats.error?.message,
+									}),
+								});
+							}
+							routingAttempts.push(
+								buildRoutingAttempt(
+									providerId,
+									modelDefId,
+									timedOut ? 504 : hasError ? 502 : upstreamResponse.status,
+									hasError ? "upstream_error" : "none",
+									!hasError,
+									{
+										apiKeyHash: usedApiKeyHash,
+										credentialSource,
+										providerKeyId,
+										providerKeyLabel: keyLabel,
+										logId: finalLogId,
+									},
+								),
+							);
+							await insertLog(
+								{
+									...baseLogEntry,
+									id: finalLogId,
+									routingMetadata: buildSpeechRoutingMetadata(
+										usedApiKeyHash,
+										credentialSource,
+										usedProviderKey,
+									),
+									duration: Date.now() - startedAt,
+									timeToFirstToken:
+										stats.firstAudioAt === null
+											? null
+											: stats.firstAudioAt - startedAt,
+									timeToFirstReasoningToken: null,
+									responseSize: stats.responseBytes,
+									content: stats.audioBytes
+										? "[audio: " +
+											stats.audioBytes +
+											" bytes, " +
+											contentType +
+											"]"
+										: null,
+									reasoningContent: null,
+									finishReason,
+									promptTokens: stats.inputTokens?.toString() ?? null,
+									completionTokens: stats.outputTokens?.toString() ?? null,
+									totalTokens: totalTokens?.toString() ?? null,
+									reasoningTokens: null,
+									cachedTokens: null,
+									hasError,
+									streamed: true,
+									canceled: stats.canceled,
+									errorDetails: stats.error
+										? {
+												statusCode: timedOut ? 504 : stats.canceled ? 499 : 502,
+												statusText: finishReason,
+												responseText: stats.error.message.slice(0, 2000),
+											}
+										: null,
+									inputCost: inputCost.toNumber(),
+									outputCost: outputCost.toNumber(),
+									cachedInputCost: 0,
+									requestCost: requestCost.toNumber(),
+									webSearchCost: 0,
+									imageInputTokens: null,
+									imageOutputTokens: null,
+									imageInputCost: null,
+									imageOutputCost: null,
+									cost,
+									estimatedCost:
+										useSse &&
+										(stats.inputTokens === null || stats.outputTokens === null),
+									discount: null,
+									pricingTier: null,
+									dataStorageCost: calculateDataStorageCost(
+										stats.inputTokens,
+										null,
+										stats.outputTokens,
+										null,
+										retentionLevel,
+									),
+									cached: false,
+									toolResults: null,
+								},
+								{ retentionLevel },
+							);
+						},
+					});
+					return c.newResponse(body, 200, {
+						"Content-Type": contentType,
+						"Cache-Control": "no-store",
+						"X-Accel-Buffering": "no",
+						"x-request-id": requestId,
+					});
+				} catch (error) {
+					return c.json(
+						{
+							error: {
+								message: toError(error).message,
+								type: "upstream_error",
+								param: null,
+								code: "no_audio",
+							},
+						} satisfies SpeechErrorBody,
+						isTimeoutError(error) ? 504 : 502,
+					);
+				}
 			}
 
 			// Alibaba (DashScope): the non-streaming TTS response carries a
@@ -2035,6 +2147,15 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					{ retentionLevel },
 				);
 
+				if (clientSse) {
+					return speechEventsResponse(c, out, requestId, {
+						input_characters: characters,
+						...usageCost(cost, {
+							input_cost: inputCost,
+							request_cost: requestCost,
+						}),
+					});
+				}
 				return c.body(toArrayBuffer(out), 200, {
 					"Content-Type": "audio/wav",
 					"Content-Length": String(out.length),
@@ -2043,23 +2164,29 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			}
 
 			// Google (AI Studio or Vertex): parse the inline PCM audio from the
-			// JSON generateContent response — both return the same shape.
+			// JSON generateContent response — both return the same shape. Lyria
+			// returns encoded audio in a `:predict` or Interactions response.
 			const upstreamText = await upstreamResponse.text();
 			const responseSize = upstreamText.length;
-			let upstreamJson: GeminiResponse = {};
+			let parsedJson: unknown = {};
 			if (upstreamText) {
 				try {
-					upstreamJson = JSON.parse(upstreamText) as GeminiResponse;
+					parsedJson = JSON.parse(upstreamText);
 				} catch {
-					upstreamJson = {};
+					parsedJson = {};
 				}
 			}
+			const upstreamJson = (parsedJson ?? {}) as GeminiResponse;
 
-			// Extract the audio payload from the Gemini response.
 			const parts = upstreamJson.candidates?.[0]?.content?.parts ?? [];
 			const audioPart = parts.find(hasInlineAudio);
-			const base64Audio: string | undefined = audioPart?.inlineData.data;
-			const audioMimeType: string | undefined = audioPart?.inlineData.mimeType;
+			const musicAudio = musicFormat ? extractMusicAudio(parsedJson) : null;
+			const base64Audio: string | undefined = musicAudio
+				? musicAudio.data
+				: audioPart?.inlineData.data;
+			const audioMimeType: string | undefined = musicAudio
+				? musicAudio.mimeType
+				: audioPart?.inlineData.mimeType;
 
 			if (!base64Audio) {
 				const finishReason =
@@ -2156,18 +2283,32 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				);
 			}
 
-			const pcm = Buffer.from(base64Audio, "base64");
+			const audio = Buffer.from(base64Audio, "base64");
+			const wavPcm = extractWavPcm(audio);
+			const pcm = wavPcm ?? audio;
 			const sampleRate = parseSampleRate(audioMimeType);
-			const out = responseFormat === "pcm" ? pcm : pcmToWav(pcm, sampleRate);
-			const contentType = responseFormat === "pcm" ? "audio/pcm" : "audio/wav";
+			const out =
+				responseFormat === "pcm"
+					? pcm
+					: musicAudio || wavPcm
+						? audio
+						: pcmToWav(pcm, sampleRate);
+			const contentType =
+				responseFormat === "pcm"
+					? "audio/pcm"
+					: responseFormat === "mp3"
+						? "audio/mpeg"
+						: "audio/wav";
 
 			const usage = upstreamJson.usageMetadata ?? {};
-			const promptTokens =
-				typeof usage.promptTokenCount === "number"
+			const promptTokens = musicAudio
+				? musicAudio.inputTokens
+				: typeof usage.promptTokenCount === "number"
 					? usage.promptTokenCount
 					: null;
-			const audioOutputTokens =
-				typeof usage.candidatesTokenCount === "number"
+			const audioOutputTokens = musicAudio
+				? musicAudio.outputTokens
+				: typeof usage.candidatesTokenCount === "number"
 					? usage.candidatesTokenCount
 					: null;
 
@@ -2238,7 +2379,10 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					imageInputCost: null,
 					imageOutputCost: null,
 					cost,
-					estimatedCost: promptTokens === null || audioOutputTokens === null,
+					// Lyria bills a flat price per track; tokens are informational.
+					estimatedCost:
+						!musicAudio &&
+						(promptTokens === null || audioOutputTokens === null),
 					discount: null,
 					pricingTier: null,
 					dataStorageCost: calculateDataStorageCost(
@@ -2254,6 +2398,18 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				{ retentionLevel },
 			);
 
+			if (clientSse) {
+				return speechEventsResponse(c, out, requestId, {
+					input_tokens: promptTokens,
+					output_tokens: audioOutputTokens,
+					total_tokens: totalTokens,
+					...usageCost(cost, {
+						input_cost: inputCost,
+						output_cost: outputCost,
+						request_cost: requestCost,
+					}),
+				});
+			}
 			return c.body(toArrayBuffer(out), 200, {
 				"Content-Type": contentType,
 				"Content-Length": String(out.length),
@@ -2261,6 +2417,10 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			});
 		}
 	} finally {
-		c.req.raw.signal.removeEventListener("abort", onAbort);
+		if (!streamingResponse) {
+			c.req.raw.signal.removeEventListener("abort", onAbort);
+		}
 	}
-});
+}
+
+speech.openapi(createSpeech, handleSpeech);

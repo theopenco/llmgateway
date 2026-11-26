@@ -73,3 +73,65 @@ describe("stream telemetry", () => {
 		).toHaveLength(2);
 	});
 });
+
+it("preserves opaque tool metadata across later argument deltas", async () => {
+	const extra = {
+		google: { thought_signature: "signature-fixture" },
+		opaque: { values: [1, "value"] },
+	};
+	const provider = { google: { thought_signature: "signature-fixture" } };
+	const chunks = [
+		{
+			index: 0,
+			id: "call",
+			function: { name: "ping", arguments: "{" },
+			extra_content: extra,
+		},
+		{
+			index: 0,
+			function: { arguments: '"value":1' },
+			provider_extra: provider,
+		},
+		{ index: 0, function: { arguments: "}" } },
+	];
+	const response = await executeStreamingRequest({
+		client: { url: "https://gateway.example" },
+		request: { messages: [] },
+		model: "fixture",
+		timeoutMs: 1000,
+		fetch: async () =>
+			new Response(
+				chunks
+					.map(
+						(call) =>
+							`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [call] } }] })}\n\n`,
+					)
+					.join("") + "data: [DONE]\n\n",
+			),
+	});
+	expect(response.toolCalls).toEqual([
+		{
+			id: "call",
+			type: "function",
+			function: { name: "ping", arguments: '{"value":1}' },
+			extra_content: extra,
+			provider_extra: provider,
+		},
+	]);
+});
+
+it("marks a normalized provider-error frame as a failed benchmark", async () => {
+	const response = await executeStreamingRequest({
+		client: { url: "https://gateway.example" },
+		request: { messages: [] },
+		model: "fixture",
+		timeoutMs: 1000,
+		fetch: async () =>
+			new Response(
+				`event: error\ndata: ${JSON.stringify({ error: { type: "provider_error", message: "Provider inference failed" } })}\n\n`,
+				{ headers: { "content-type": "text/event-stream" } },
+			),
+	});
+	expect(response.error?.code).toBe("upstream_stream_error");
+	expect(response.content).toBe("");
+});

@@ -6,6 +6,7 @@ import {
 	type CrmAccountSummary,
 	type CrmBookEntry,
 	corporateDomain,
+	isLeadFollowUpRef,
 	loadCrmBook,
 	loadSummaries,
 	parseUserAgent,
@@ -1032,6 +1033,17 @@ const deleteActivity = createRoute({
 
 adminCrm.openapi(deleteActivity, async (c) => {
 	const { activityId } = c.req.valid("param");
+	const activity = await db.query.crmActivity.findFirst({
+		where: { id: activityId },
+		columns: { externalRef: true },
+	});
+	// Deleting it would only make the next load create it again, as open.
+	if (activity && isLeadFollowUpRef(activity.externalRef)) {
+		throw new HTTPException(400, {
+			message:
+				"An inquiry's follow-up cannot be deleted. It records whether the inquiry was answered; an open one goes away when the inquiry is archived.",
+		});
+	}
 	await db
 		.delete(tables.crmActivity)
 		.where(eq(tables.crmActivity.id, activityId));
@@ -1113,22 +1125,21 @@ const listTasks = createRoute({
 
 adminCrm.openapi(listTasks, async (c) => {
 	const now = new Date();
-	const [{ summaries }, rows] = await Promise.all([
-		loadSummaries(now),
-		db
-			.select()
-			.from(tables.crmActivity)
-			.where(
-				and(
-					eq(tables.crmActivity.kind, "task"),
-					isNull(tables.crmActivity.completedAt),
-				),
-			)
-			.orderBy(
-				sql`${tables.crmActivity.dueAt} asc nulls last`,
-				asc(tables.crmActivity.createdAt),
+	// Summaries first: loading them creates the follow-ups new inquiries need.
+	const { summaries } = await loadSummaries(now);
+	const rows = await db
+		.select()
+		.from(tables.crmActivity)
+		.where(
+			and(
+				eq(tables.crmActivity.kind, "task"),
+				isNull(tables.crmActivity.completedAt),
 			),
-	]);
+		)
+		.orderBy(
+			sql`${tables.crmActivity.dueAt} asc nulls last`,
+			asc(tables.crmActivity.createdAt),
+		);
 	const byId = new Map(summaries.map((s) => [s.id, s]));
 	return c.json({
 		tasks: rows.flatMap((r) => {

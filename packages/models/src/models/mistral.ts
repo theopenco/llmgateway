@@ -47,6 +47,33 @@ export const mistralModels = [
 		],
 	},
 	{
+		id: "pixtral-large-2502",
+		name: "Pixtral Large 25.02",
+		description:
+			"Mistral's 124B multimodal model for text, documents, charts and images.",
+		family: "mistral",
+		releasedAt: new Date("2025-04-08"),
+		providers: [
+			{
+				providerId: "aws-bedrock",
+				externalId: "mistral.pixtral-large-2502-v1:0",
+				inputPrice: "2.0e-6",
+				outputPrice: "6.0e-6",
+				requestPrice: "0",
+				contextSize: 131072,
+				maxOutput: 131072,
+				maxTemperature: 1,
+				streaming: true,
+				vision: true,
+				// Converse rejects tools on streaming requests for this model.
+				tools: false,
+				jsonOutput: false,
+				supportedParameters: ["temperature", "max_tokens", "top_p"],
+				regions: [{ id: "us" }, { id: "eu" }],
+			},
+		],
+	},
+	{
 		id: "mistral-large-2512",
 		name: "Mistral Large 3",
 		description:

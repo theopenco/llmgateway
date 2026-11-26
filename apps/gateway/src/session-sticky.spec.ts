@@ -1,4 +1,12 @@
-import { beforeAll, describe, expect, test, vi } from "vitest";
+import {
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+	vi,
+} from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
@@ -8,11 +16,12 @@ import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
 import { resetFailOnceCounter } from "./test-utils/mock-openai-server.js";
+import { overrideProviderPriorities } from "./test-utils/routing-priority.js";
 
 // Regression tests for https://github.com/theopenco/llmgateway/issues/3347:
 // switching service tiers mid-session must not break session stickiness.
 //
-// gpt-5.5 is served by openai and azure. Azure has provider priority 2, so with
+// gpt-5.5 is served by openai and azure. The suite gives azure priority 2, so with
 // equal prices it is always the natural routing winner — any request that lands
 // on openai instead can only be explained by the session pin. Azure sells
 // Priority processing but no Flex tier, so a `service_tier: "flex"` request
@@ -22,6 +31,14 @@ import { resetFailOnceCounter } from "./test-utils/mock-openai-server.js";
 // re-scoring to azure and cold-starting a different provider's prompt cache.
 describe("session stickiness across candidate changes", () => {
 	const harness = createGatewayApiTestHarness();
+	// gpt-5.5 / gpt-6-luna tie on price between openai and azure; make azure
+	// the natural winner so routing assertions are deterministic.
+	beforeEach(() => {
+		overrideProviderPriorities({ azure: 2 });
+	});
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
 	let mockServerUrl = "";
 
 	beforeAll(() => {
@@ -253,7 +270,7 @@ describe("session stickiness across candidate changes", () => {
 	});
 
 	test("tool-choice capability takes precedence over an existing session pin", async () => {
-		const model = "deepseek-v4-flash";
+		const model = "deepseek-v4-pro";
 		const sessionId = "session-tool-choice-precedence";
 		const token = "real-token-session-sticky-tool-choice";
 

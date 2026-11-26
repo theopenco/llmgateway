@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	anthropicRequestNeedsEffortBeta,
+	anthropicThinkingBetas,
 	anthropicToolBetas,
 	appendAnthropicBeta,
 } from "./anthropic-effort-beta.js";
@@ -111,5 +112,37 @@ describe("appendAnthropicBeta", () => {
 		appendAnthropicBeta(headers, "b");
 		appendAnthropicBeta(headers, "a");
 		expect(headers["anthropic-beta"]).toBe("a,b");
+	});
+});
+
+describe("anthropicThinkingBetas", () => {
+	const messages = [{ role: "user" as const, content: "hi" }];
+	const bound = {
+		model: "claude-sonnet-5-5",
+		messages,
+		thinking: {
+			type: "adaptive",
+			block_binding: { prefix_mismatch_behavior: "drop_block" },
+		},
+	} as never;
+
+	it("adds the binding beta on Anthropic and Foundry", () => {
+		expect(anthropicThinkingBetas("anthropic", bound)).toEqual([
+			"thinking-binding-controls-2026-08-01",
+		]);
+		expect(anthropicThinkingBetas("azure-anthropic", bound)).toEqual([
+			"thinking-binding-controls-2026-08-01",
+		]);
+	});
+
+	it("adds nothing without a binding or on other providers", () => {
+		expect(
+			anthropicThinkingBetas("anthropic", {
+				model: "claude-sonnet-5-5",
+				messages,
+				thinking: { type: "adaptive" },
+			} as never),
+		).toEqual([]);
+		expect(anthropicThinkingBetas("vertex-anthropic", bound)).toEqual([]);
 	});
 });

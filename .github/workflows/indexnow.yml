@@ -1,0 +1,42 @@
+name: indexnow
+
+on:
+  schedule:
+    # Daily 06:15 UTC — submits sitemap URLs changed in the last two days.
+    - cron: "15 6 * * *"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Submit URLs changed in the last N days"
+        default: "2"
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Collect versions
+        run: |
+          echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: ${{ env.nodejs_version }}
+
+      - name: Submit changed URLs
+        env:
+          INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
+          DAYS: ${{ inputs.days || '2' }}
+        run: |
+          if [ -z "$INDEXNOW_KEY" ]; then
+            echo "INDEXNOW_KEY is not set; skipping."
+            exit 0
+          fi
+          node scripts/indexnow.mjs --days "$DAYS"

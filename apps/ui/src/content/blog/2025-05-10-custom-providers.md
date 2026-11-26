@@ -5,6 +5,11 @@ date: 2025-05-10
 title: Custom OpenAI-Compatible Providers Are Now Supported
 summary: Connect your internal LLM deployments or any OpenAI-compatible API to LLM Gateway—and get the same analytics, caching, and routing.
 categories: ["Announcements"]
+faqs:
+  - question: "Can I use a custom OpenAI-compatible endpoint with LLM Gateway?"
+    answer: "Yes. Add any OpenAI-compatible endpoint as a custom provider with a name, base URL, and API token. Requests to it appear in the same analytics and can use caching, like requests to built-in providers."
+  - question: "How do I call a model on a custom provider?"
+    answer: "In the dashboard, open Settings, then Provider Keys, and add a custom provider with a lowercase name. Then request its models using the providerName/modelName format."
 image:
   src: "/blog/custom-openai-compatible-providers.png"
   alt: "LLM Gateway"

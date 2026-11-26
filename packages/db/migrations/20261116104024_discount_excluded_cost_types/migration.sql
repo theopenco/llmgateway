@@ -1,0 +1,1 @@
+ALTER TABLE "discount" ADD COLUMN "excluded_cost_types" text[] DEFAULT '{}'::text[] NOT NULL;

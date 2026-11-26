@@ -1,3 +1,4 @@
+import { Decimal } from "decimal.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { logger } from "@llmgateway/logger";
@@ -237,10 +238,10 @@ describe("calculateCosts", () => {
 			},
 		);
 
-		expect(result.inputCost).toBeCloseTo(46 * 4e-6, 10); // 2006 - 1920 - 40 uncached
-		expect(result.cachedInputCost).toBeCloseTo(1920 * 0.4e-6, 10);
-		expect(result.cacheWriteInputCost).toBeCloseTo(40 * 5e-6, 10);
-		expect(result.outputCost).toBeCloseTo(300 * 20e-6, 10);
+		expect(result.inputCost).toBeCloseTo(46 * 5e-6, 10); // 2006 - 1920 - 40 uncached
+		expect(result.cachedInputCost).toBeCloseTo(1920 * 0.5e-6, 10);
+		expect(result.cacheWriteInputCost).toBeCloseTo(40 * 6.25e-6, 10);
+		expect(result.outputCost).toBeCloseTo(300 * 30e-6, 10);
 		expect(result.pricingTier).toBe("Up to 272K");
 		expect(result.pricingPeriod).toBeUndefined();
 	});
@@ -270,10 +271,10 @@ describe("calculateCosts", () => {
 
 		// The whole request bills at the long-context tier: 2x input, 2x cached,
 		// 2x cache write, 1.5x output.
-		expect(result.inputCost).toBeCloseTo(150000 * 8e-6, 6); // 300000 - 100000 - 50000 uncached
-		expect(result.cachedInputCost).toBeCloseTo(100000 * 0.8e-6, 6);
-		expect(result.cacheWriteInputCost).toBeCloseTo(50000 * 10e-6, 6);
-		expect(result.outputCost).toBeCloseTo(1000 * 30e-6, 6);
+		expect(result.inputCost).toBeCloseTo(150000 * 10e-6, 6); // 300000 - 100000 - 50000 uncached
+		expect(result.cachedInputCost).toBeCloseTo(100000 * 1e-6, 6);
+		expect(result.cacheWriteInputCost).toBeCloseTo(50000 * 12.5e-6, 6);
+		expect(result.outputCost).toBeCloseTo(1000 * 45e-6, 6);
 		expect(result.pricingTier).toBe("Over 272K");
 	});
 
@@ -289,8 +290,8 @@ describe("calculateCosts", () => {
 			null,
 		);
 
-		expect(result.inputCost).toBeCloseTo(272000 * 4e-6, 6);
-		expect(result.outputCost).toBeCloseTo(1000 * 20e-6, 6);
+		expect(result.inputCost).toBeCloseTo(272000 * 5e-6, 6);
+		expect(result.outputCost).toBeCloseTo(1000 * 30e-6, 6);
 		expect(result.pricingTier).toBe("Up to 272K");
 	});
 
@@ -304,8 +305,8 @@ describe("calculateCosts", () => {
 			null,
 		);
 
-		expect(result.inputCost).toBeCloseTo(272001 * 8e-6, 6);
-		expect(result.outputCost).toBeCloseTo(1000 * 30e-6, 6);
+		expect(result.inputCost).toBeCloseTo(272001 * 10e-6, 6);
+		expect(result.outputCost).toBeCloseTo(1000 * 45e-6, 6);
 		expect(result.pricingTier).toBe("Over 272K");
 	});
 
@@ -864,6 +865,54 @@ describe("calculateCosts", () => {
 		);
 	});
 
+	it("bills web search at full price when the discount excludes it", async () => {
+		const run = () =>
+			calculateCosts(
+				"gemini-2.5-pro",
+				"google-vertex",
+				null,
+				1000,
+				700,
+				200,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				2, // webSearchCount
+			);
+		const base = await run();
+		vi.mocked(mockGetEffectiveDiscount).mockResolvedValueOnce({
+			discount: "0.5",
+			source: "global_provider",
+			discountId: "disc-google",
+			excludedCostTypes: ["web_search"],
+		});
+		const excluded = await run();
+		vi.mocked(mockGetEffectiveDiscount).mockResolvedValueOnce({
+			discount: "0.5",
+			source: "global_provider",
+			discountId: "disc-google",
+			excludedCostTypes: [],
+		});
+		const included = await run();
+
+		expect(base.webSearchCost).toBeGreaterThan(0);
+		expect(base.cachedInputCost).toBeGreaterThan(0);
+		expect(excluded.webSearchCost).toBeCloseTo(base.webSearchCost!);
+		expect(included.webSearchCost).toBeCloseTo(base.webSearchCost! / 2);
+		for (const result of [excluded, included]) {
+			expect(result.discount).toBeCloseTo(0.5);
+			expect(result.inputCost).toBeCloseTo(base.inputCost! / 2);
+			expect(result.outputCost).toBeCloseTo(base.outputCost! / 2);
+			expect(result.cachedInputCost).toBeCloseTo(base.cachedInputCost! / 2);
+		}
+		const discountedNonSearch = (base.totalCost! - base.webSearchCost!) / 2;
+		expect(excluded.totalCost).toBeCloseTo(
+			discountedNonSearch + base.webSearchCost!,
+		);
+	});
+
 	it("should not include discount field when no discount applied", async () => {
 		const result = await calculateCosts("gpt-4", "azure", null, 100, 50, null);
 
@@ -1015,47 +1064,6 @@ describe("calculateCosts", () => {
 		expect(result.totalCost).toBeCloseTo(0.00325);
 		expect(result.completionTokens).toBe(200);
 		expect(result.estimatedCost).toBe(false);
-	});
-
-	it("should bill RanoAI cached tokens at the cache-read rate", async () => {
-		// RanoAI does automatic prefix caching and charges input_cache_read
-		// (0.05/M), half the input rate. Without cachedInputPrice the engine
-		// falls back to inputPrice and would bill cached tokens at 2x.
-		const result = await calculateCosts(
-			"gemma-4-31b-it",
-			"ranoai",
-			null,
-			2521,
-			10,
-			2496, // cachedTokens
-		);
-
-		// 25 uncached * 0.1e-6 + 2496 cached * 0.05e-6
-		expect(result.inputCost).toBeCloseTo(0.0000025, 10);
-		expect(result.cachedInputCost).toBeCloseTo(0.0001248, 10);
-	});
-
-	it("should not double-bill RanoAI reasoning tokens", async () => {
-		// RanoAI reports reasoning in completion_tokens_details (hoisted to a
-		// top-level reasoning_tokens by the streaming transform) while already
-		// counting it inside completion_tokens, so it must not be added again.
-		const result = await calculateCosts(
-			"gemma-4-31b-it",
-			"ranoai",
-			null,
-			1000,
-			330, // completionTokens already includes the 267 reasoning tokens
-			null,
-			undefined,
-			267,
-		);
-
-		// inputPrice 0.1e-6, outputPrice 0.3e-6. Precision matters here: billing
-		// 330 vs 597 output tokens differs by only 8e-5, which the default
-		// two-decimal toBeCloseTo would not catch.
-		expect(result.inputCost).toBeCloseTo(0.0001, 10);
-		expect(result.outputCost).toBeCloseTo(0.000099, 10); // 330 * 0.3e-6, not 597
-		expect(result.completionTokens).toBe(330);
 	});
 
 	it("should not double-bill DeepSeek reasoning tokens", async () => {
@@ -1630,7 +1638,135 @@ describe("calculateCosts", () => {
 		});
 	});
 
-	it.each(["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
+	const gptImageTokenModels = [
+		"gpt-image-2",
+		"gpt-image-2.5-sunburst",
+		"gpt-image-2.5-flare",
+		"gpt-image-2.6-sunburst",
+		"gpt-image-2.6-flare",
+	];
+
+	describe("SVG author usage", () => {
+		async function svgCosts(
+			model: string | null,
+			organizationId: string | null = null,
+			effectiveDiscount?: { discount: string; source: "org_provider_model" },
+		) {
+			return await calculateCosts(
+				"gpt-image-2.6-flare",
+				"openai",
+				null,
+				10,
+				400,
+				null,
+				undefined,
+				null,
+				1,
+				undefined,
+				0,
+				null,
+				organizationId,
+				"medium",
+				0,
+				400,
+				{
+					effectiveDiscount,
+					svgAuthorUsage: {
+						model,
+						inputTokens: 1000,
+						outputTokens: 2000,
+						reasoningTokens: 500,
+					},
+				},
+			);
+		}
+
+		it.each(["gpt-5.4-mini", "gpt-5.4-mini-2026-03-17"])(
+			"bills %s authoring tokens at the author's rates",
+			async (author) => {
+				const result = await svgCosts(author);
+
+				const imageInputCost = 10 * 5e-6;
+				const authorInputCost = 1000 * 0.75e-6;
+				const imageOutputCost = 400 * 30e-6;
+				const authorOutputCost = 2000 * 4.5e-6;
+				expect(result.inputCost).toBeCloseTo(
+					imageInputCost + authorInputCost,
+					10,
+				);
+				expect(result.outputCost).toBeCloseTo(
+					imageOutputCost + authorOutputCost,
+					10,
+				);
+				expect(result.imageOutputCost).toBeCloseTo(400 * 30e-6, 10);
+				expect(result.totalCost).toBeCloseTo(0.0218, 10);
+			},
+		);
+
+		it.each([null, "unlisted-svg-author"])(
+			"does not invent a rate for an unknown author (%s)",
+			async (author) => {
+				const error = vi.spyOn(logger, "error");
+				const result = await svgCosts(author);
+				expect(result.inputCost).toBeCloseTo(10 * 5e-6, 10);
+				expect(result.outputCost).toBeCloseTo(400 * 30e-6, 10);
+				expect(error).toHaveBeenCalledWith(
+					"Unknown SVG author model, authoring cost omitted for reconciliation",
+					{ authorModel: author },
+				);
+			},
+		);
+		it.each([
+			["0.2", "0", false],
+			["0", "0.5", false],
+			["0.2", "0.5", false],
+			["0.2", "0.5", true],
+		] as const)(
+			"applies image discount %s and author discount %s independently (pre-resolved %s)",
+			async (imageDiscount, authorDiscount, preResolved) => {
+				mockGetEffectiveDiscount.mockImplementation(
+					async (
+						_organizationId: string | null,
+						_provider: string,
+						model: string,
+					) => ({
+						discount: model === "gpt-5.4-mini" ? authorDiscount : imageDiscount,
+						source: "org_provider_model",
+					}),
+				);
+				const result = await svgCosts(
+					"gpt-5.4-mini-2026-03-17",
+					"test-org",
+					preResolved
+						? { discount: imageDiscount, source: "org_provider_model" }
+						: undefined,
+				);
+				const imageMultiplier = new Decimal(1).minus(imageDiscount);
+				const authorMultiplier = new Decimal(1).minus(authorDiscount);
+				expect(result.inputCost).toBeCloseTo(
+					new Decimal("0.00005")
+						.times(imageMultiplier)
+						.plus(new Decimal("0.00075").times(authorMultiplier))
+						.toNumber(),
+					10,
+				);
+				expect(result.outputCost).toBeCloseTo(
+					new Decimal("0.012")
+						.times(imageMultiplier)
+						.plus(new Decimal("0.009").times(authorMultiplier))
+						.toNumber(),
+					10,
+				);
+				expect(mockGetEffectiveDiscount).toHaveBeenCalledWith(
+					"test-org",
+					"openai",
+					"gpt-5.4-mini",
+				);
+			},
+		);
+	});
+
+	it.each(gptImageTokenModels)(
 		"should use reported image output tokens for %s",
 		async (model) => {
 			const result = await calculateCosts(
@@ -1663,7 +1799,7 @@ describe("calculateCosts", () => {
 		},
 	);
 
-	it.each(["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
+	it.each(gptImageTokenModels)(
 		"should bill reported image input tokens at imageInputPrice for %s edits",
 		async (model) => {
 			// /v1/images/edits sends input images as part of the prompt. OpenAI's
@@ -1716,6 +1852,43 @@ describe("calculateCosts", () => {
 		},
 	);
 
+	it("bills Google's reported image output tokens over the image count", async () => {
+		const reported = await calculateCosts(
+			"gemini-3-pro-image-preview",
+			"google-vertex",
+			null,
+			13,
+			1338, // 1120 image + 218 thinking
+			null,
+			undefined,
+			218,
+			2, // miscounted: interim thought image included
+			"1K",
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			1120,
+		);
+		const counted = await calculateCosts(
+			"gemini-3-pro-image-preview",
+			"google-vertex",
+			null,
+			13,
+			1338,
+			null,
+			undefined,
+			218,
+			1,
+			"1K",
+		);
+
+		expect(reported.imageOutputTokens).toBe(1120);
+		expect(reported.imageOutputCost).toBeCloseTo(counted.imageOutputCost!);
+		expect(reported.outputCost).toBeCloseTo(counted.outputCost!);
+	});
+
 	it.each(["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
 		"should split azure image/text input pricing for %s",
 		async (model) => {
@@ -1758,7 +1931,7 @@ describe("calculateCosts", () => {
 		},
 	);
 
-	it.each(["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
+	it.each(gptImageTokenModels)(
 		"should split cached tokens between text and image rates for %s",
 		async (model) => {
 			// OpenAI returns a single cached_tokens count without splitting text/image,
@@ -1813,7 +1986,7 @@ describe("calculateCosts", () => {
 		},
 	);
 
-	it.each(["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
+	it.each(gptImageTokenModels)(
 		"should bill cached image tokens for %s even when fully cached",
 		async (model) => {
 			// Edge case: cached_tokens equals image_tokens. All image is cached, all
@@ -2015,6 +2188,98 @@ describe("calculateCosts", () => {
 		},
 	);
 
+	it("bills minimax-h3-image edits from MiniMax's reported text and image tokens", async () => {
+		// Live /v1/images/edits usage: 2955 text + 2050 image input, 4096 output.
+		const result = await calculateCosts(
+			"minimax-h3-image",
+			"minimax",
+			null,
+			5005,
+			4096,
+			null,
+			undefined,
+			null,
+			1,
+			"1K",
+			1,
+			null,
+			null,
+			undefined,
+			2050,
+			4096,
+		);
+
+		const textInputCost = 2955 * (2.3 / 1e6);
+		const imageInputCost = 2050 * (1.5 / 1e6);
+		const imageOutputCost = 4096 * (3.8 / 1e6);
+		expect(result.imageInputCost).toBeCloseTo(imageInputCost, 10);
+		expect(result.inputCost).toBeCloseTo(textInputCost + imageInputCost, 10);
+		expect(result.imageOutputCost).toBeCloseTo(imageOutputCost, 10);
+		expect(result.totalCost).toBeCloseTo(
+			textInputCost + imageInputCost + imageOutputCost,
+			10,
+		);
+	});
+
+	it("bills minimax-h3-image at the 4K token count when usage is missing", async () => {
+		const result = await calculateCosts(
+			"minimax-h3-image",
+			"minimax",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			undefined,
+			0,
+		);
+
+		expect(result.imageOutputTokens).toBe(16384);
+		expect(result.imageOutputCost).toBeCloseTo(16384 * (3.8 / 1e6), 10);
+	});
+
+	it("bills a lowercase minimax-h3-image tier at its token count when usage is missing", async () => {
+		const result = await calculateCosts(
+			"minimax-h3-image",
+			"minimax",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"2k",
+			0,
+		);
+
+		expect(result.imageOutputTokens).toBe(4096);
+	});
+
+	it("keeps the estimated text charge on a minimax-h3-image edit without usage", async () => {
+		const result = await calculateCosts(
+			"minimax-h3-image",
+			"minimax",
+			null,
+			null,
+			null,
+			null,
+			{ prompt: "Make it blue" },
+			null,
+			1,
+			"1K",
+			1,
+		);
+
+		expect(result.promptTokens).toBeGreaterThan(0);
+		expect(result.imageInputTokens).toBe(560);
+		const textCost = (result.promptTokens ?? 0) * (2.3 / 1e6);
+		const imageCost = 560 * (1.5 / 1e6);
+		expect(result.inputCost).toBeCloseTo(textCost + imageCost, 10);
+	});
+
 	it("bills hy-image-v3.5-preview at the 4K token count when usage is missing", async () => {
 		const result = await calculateCosts(
 			"hy-image-v3.5-preview",
@@ -2069,6 +2334,90 @@ describe("calculateCosts", () => {
 		expect(at2k.outputCost).toBeCloseTo(0.075);
 	});
 
+	it("bills Seedream 5.5 per output image tier plus each reference image", async () => {
+		// $0.02 per image up to 2.61MP (1K, 1.5K), $0.035 above (2K);
+		// $0.008 per reference image.
+		const at1k = await calculateCosts(
+			"seedream-5-5",
+			"bytedance",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"1K",
+			0,
+		);
+		expect(at1k.imageOutputCost).toBeCloseTo(0.02);
+		expect(at1k.imageInputCost).toBeNull();
+		expect(at1k.totalCost).toBeCloseTo(0.02);
+
+		const at2kWithRefs = await calculateCosts(
+			"seedream-5-5",
+			"bytedance",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"2K",
+			3,
+		);
+		expect(at2kWithRefs.imageOutputCost).toBeCloseTo(0.035);
+		expect(at2kWithRefs.imageInputCost).toBeCloseTo(0.024);
+		expect(at2kWithRefs.totalCost).toBeCloseTo(0.059);
+
+		const noSize = await calculateCosts(
+			"seedream-5-5",
+			"bytedance",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			undefined,
+			0,
+		);
+		expect(noSize.imageOutputCost).toBeCloseTo(0.035);
+
+		// Custom sizes bill by pixel area: 1024x1024 (1.05MP) is the low band,
+		// 2560x1440 (3.69MP) the high one.
+		const small = await calculateCosts(
+			"seedream-5-5",
+			"bytedance",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"1024x1024",
+			0,
+		);
+		expect(small.imageOutputCost).toBeCloseTo(0.02);
+		const large = await calculateCosts(
+			"seedream-5-5",
+			"bytedance",
+			null,
+			0,
+			0,
+			null,
+			undefined,
+			null,
+			1,
+			"2560x1440",
+			0,
+		);
+		expect(large.imageOutputCost).toBeCloseTo(0.035);
+	});
+
 	it("falls back to the default perImagePrice tier for unknown or missing sizes", async () => {
 		// A raw pixel size that is not a tier key must not undercharge: it falls
 		// back to "default" ($0.075 for the pro model, the no-size 2K case).
@@ -2102,6 +2451,34 @@ describe("calculateCosts", () => {
 		);
 		expect(noSize.imageOutputCost).toBeCloseTo(0.075);
 	});
+
+	it.each([
+		["flux-2-klein-4b", undefined, 1, 0.005],
+		["flux-2-klein-4b", "1344x768", 1, 0.004921875],
+		["flux-2-klein-4b", "2048x2048", 2, 0.04],
+		["flux-3-klein", "1536x1024", 1, 0.011],
+		["z-image-turbo", "1024x1536", 1, 0.01],
+		["recraft-v4.1-flash", "2048x2048", 1, 0.007],
+	] as const)(
+		"bills fal %s at %s per megapixel tier",
+		async (model, size, images, expected) => {
+			const result = await calculateCosts(
+				model,
+				"fal-ai",
+				null,
+				0,
+				0,
+				null,
+				undefined,
+				null,
+				images,
+				size,
+				0,
+			);
+			expect(result.imageOutputCost).toBeCloseTo(expected, 10);
+			expect(result.totalCost).toBeCloseTo(expected, 10);
+		},
+	);
 
 	it("multiplies perImagePrice by the output image count", async () => {
 		// qwen-image-3.0 is $0.03/image at every tier; n=3 bills 3 images.
@@ -2783,7 +3160,7 @@ describe("output-token estimation guardrails", () => {
 
 		// gpt-5.6-sol advertises maxOutput 128000; the raw estimate is far larger.
 		expect(result.completionTokens).toBe(128000);
-		expect(result.outputCost).toBeCloseTo(128000 * 20e-6, 6);
+		expect(result.outputCost).toBeCloseTo(128000 * 30e-6, 6);
 	});
 
 	it("never clamps a provider-reported output count", async () => {
@@ -2797,7 +3174,7 @@ describe("output-token estimation guardrails", () => {
 		);
 
 		expect(result.completionTokens).toBe(reported);
-		expect(result.outputCost).toBeCloseTo(reported * 20e-6, 6);
+		expect(result.outputCost).toBeCloseTo(reported * 30e-6, 6);
 	});
 
 	it("does not re-encode tool-call arguments when estimating", async () => {

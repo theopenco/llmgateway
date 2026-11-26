@@ -12,7 +12,12 @@ const configPaths = [
 	"/v3/ai/config",
 	"/v4/ai/config",
 ];
-const privateMetadataPaths = ["/v1/key", "/v1/credits"];
+const privateMetadataPaths = [
+	"/v1/key",
+	"/v1/credits",
+	"/v1/files",
+	"/v1/batches",
+];
 const metadataPaths = [...privateMetadataPaths, ...configPaths];
 const headers = {
 	Authorization: "Bearer read-access-token",
@@ -60,7 +65,7 @@ describe("gateway authenticated reads", () => {
 				.set({ keyType: "platform_publishable" })
 				.where(eq(tables.apiKey.id, "read-access-key"));
 			const response = await app.request(path, { headers });
-			expect(response.status, await response.text()).toBe(403);
+			expect(response.status, await response.text()).toBe(401);
 		},
 	);
 

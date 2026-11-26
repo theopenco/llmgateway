@@ -287,7 +287,7 @@ describe("Authenticated model discovery", () => {
 			.update(tables.apiKey)
 			.set({ keyType: "platform_publishable" })
 			.where(eq(tables.apiKey.id, "models-key"));
-		expect((await app.request("/v1/models", { headers })).status).toBe(403);
+		expect((await app.request("/v1/models", { headers })).status).toBe(401);
 	});
 
 	test("rejects archived projects and revoked member access", async () => {

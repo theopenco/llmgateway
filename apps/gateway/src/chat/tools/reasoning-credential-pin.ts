@@ -4,6 +4,7 @@ import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
 	findPinnableProviderKey,
 	hasManagedProviderCredential,
+	managedKeyServesOrganization,
 } from "@/lib/cached-queries.js";
 import { parseCommaSeparatedEnv } from "@/lib/round-robin-env.js";
 
@@ -125,6 +126,167 @@ export function isInvalidEncryptedContentError(
 	errorText: string | undefined,
 ): boolean {
 	return errorText?.includes("invalid_encrypted_content") ?? false;
+}
+
+const ANTHROPIC_REASONING_FORMAT = "anthropic-claude-v1";
+
+/**
+ * The messages without Anthropic thinking blocks. Omitting all of them is
+ * accepted upstream, so a replay whose signatures no longer verify can be
+ * served without them.
+ */
+export function stripAnthropicThinking<T extends StrippableMessage>(
+	messages: readonly T[],
+): { messages: T[]; stripped: boolean } {
+	return stripReasoningDetails(
+		messages,
+		(detail) => detail?.format === ANTHROPIC_REASONING_FORMAT,
+	);
+}
+
+/**
+ * Claude binds a thinking block to the system prompt it was created under, so
+ * a rejection only holds for that block under the same system prompt: the
+ * same blocks stay valid in the requests that keep the original prompt.
+ */
+function anthropicThinkingKey(
+	messages: readonly { role: string; content?: unknown }[],
+): (detail: ReasoningDetail) => string | undefined {
+	const system = createHash("sha256")
+		.update(
+			JSON.stringify(
+				messages
+					.filter((m) => m.role === "system" || m.role === "developer")
+					.map((m) => m.content),
+			),
+		)
+		.digest("hex")
+		.slice(0, 16);
+	return (detail) => {
+		if (detail?.format !== ANTHROPIC_REASONING_FORMAT) {
+			return undefined;
+		}
+		const opaque = detail.signature ?? detail.data;
+		return typeof opaque === "string" && opaque.length > 0
+			? `athink:${system}:${opaque}`
+			: undefined;
+	};
+}
+
+/** Ids of every Anthropic thinking block a request replays. */
+function anthropicThinkingIds(
+	messages: readonly {
+		role: string;
+		content?: unknown;
+		reasoning_details?: unknown;
+	}[],
+): string[] {
+	const key = anthropicThinkingKey(messages);
+	const ids = new Set<string>();
+	for (const message of messages) {
+		if (
+			message.role !== "assistant" ||
+			!Array.isArray(message.reasoning_details)
+		) {
+			continue;
+		}
+		for (const detail of message.reasoning_details as ReasoningDetail[]) {
+			const id = key(detail);
+			if (id) {
+				ids.add(id);
+			}
+		}
+	}
+	return [...ids];
+}
+
+/**
+ * Record every thinking block a rejected request replayed, so later turns
+ * with the same system prompt leave them out up front instead of failing
+ * first. Blocks created afterwards are not marked and replay as usual.
+ */
+export async function rememberRejectedAnthropicThinking(
+	organizationId: string,
+	messages: readonly {
+		role: string;
+		content?: unknown;
+		reasoning_details?: unknown;
+	}[],
+): Promise<void> {
+	await markDiscardedReasoning(organizationId, anthropicThinkingIds(messages));
+}
+
+/** The messages without thinking blocks an upstream already rejected. */
+export async function stripRejectedAnthropicThinking<
+	T extends StrippableMessage,
+>(
+	organizationId: string,
+	messages: readonly T[],
+): Promise<{ messages: T[]; stripped: boolean }> {
+	const ids = anthropicThinkingIds(messages);
+	if (ids.length === 0) {
+		return { messages: [...messages], stripped: false };
+	}
+	const pins = new Map<string, StoredPin>();
+	try {
+		// Bounded batches, but the whole history: rejected blocks are the
+		// oldest ones, so a cap on the newest would miss them.
+		for (let i = 0; i < ids.length; i += MAX_PIN_LOOKUP_IDS) {
+			const batch = await readPins(
+				organizationId,
+				ids.slice(i, i + MAX_PIN_LOOKUP_IDS),
+			);
+			for (const [id, pin] of batch) {
+				pins.set(id, pin);
+			}
+		}
+	} catch (error) {
+		logger.warn("Failed to read rejected thinking", { organizationId, error });
+		return { messages: [...messages], stripped: false };
+	}
+	const rejected = ids.filter((id) => {
+		const pin = pins.get(id);
+		return pin !== undefined && isRejectedPin(pin);
+	});
+	if (rejected.length === 0) {
+		return { messages: [...messages], stripped: false };
+	}
+	const rejectedIds = new Set(rejected);
+	// Refresh the tombstones: a client replays its full history, so a rejected
+	// block would otherwise resurface once its tombstone expires.
+	const pipeline = redisClient.pipeline();
+	for (const id of rejected) {
+		pipeline.expire(
+			pinKey(organizationId, id),
+			REASONING_CREDENTIAL_PIN_TTL_SECONDS,
+		);
+	}
+	try {
+		await pipeline.exec();
+	} catch (error) {
+		logger.warn("Failed to refresh rejected thinking", {
+			organizationId,
+			error,
+		});
+	}
+	const key = anthropicThinkingKey(messages);
+	return stripReasoningDetails(messages, (detail) => {
+		const id = key(detail);
+		return id !== undefined && rejectedIds.has(id);
+	});
+}
+
+/**
+ * An Anthropic rejection of a replayed thinking signature, e.g. a block bound
+ * to a conversation whose system prompt has since changed.
+ */
+export function isInvalidThinkingSignatureError(
+	errorText: string | undefined,
+): boolean {
+	return (
+		errorText !== undefined &&
+		/Invalid `\w+` in `(redacted_)?thinking` block/.test(errorText)
+	);
 }
 
 /** An assistant message or streamed delta that may carry bound reasoning. */
@@ -607,7 +769,10 @@ export async function resolveReasoningCredentialPin(params: {
 
 	if (pin.source === "env") {
 		// Managed credentials supersede the provider's env vars entirely.
-		if (!allowsPlatform || (await hasManagedProviderCredential(pin.provider))) {
+		if (
+			!allowsPlatform ||
+			(await hasManagedProviderCredential(pin.provider, params.organizationId))
+		) {
 			return undefined;
 		}
 		const credential = resolveEnvCredential(pin);
@@ -626,7 +791,11 @@ export async function resolveReasoningCredentialPin(params: {
 		return undefined;
 	}
 	if (pin.source === "managed") {
-		if (!row.managed || !allowsPlatform) {
+		if (
+			!row.managed ||
+			!allowsPlatform ||
+			!(await managedKeyServesOrganization(row, params.organizationId))
+		) {
 			return undefined;
 		}
 		return {

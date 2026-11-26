@@ -76,14 +76,16 @@ function FareEditor({
 		"put",
 		"/airside/routing-settings/{providerId}",
 		{
-			onSuccess: async () => {
+			onSuccess: async ({ filing }) => {
 				await queryClient.invalidateQueries({
 					queryKey: api.queryOptions("get", "/airside/routing-settings", {
 						params: { query: { providerCompanyId } },
 					}).queryKey,
 				});
 				toast.success(
-					"Fare change filed — it takes effect once our team approves it.",
+					filing.status === "approved"
+						? "Fare change applied — it reaches dispatch within minutes."
+						: "Fare change filed — it takes effect once our team approves it.",
 				);
 			},
 			onError: (error) => {

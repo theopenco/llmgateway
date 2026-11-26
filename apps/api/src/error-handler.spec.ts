@@ -1,8 +1,18 @@
-import { APICallError } from "ai";
+import { APICallError, ToolChoiceViolationError } from "ai";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
+
+app.get("/test-errors/content-filter", () => {
+	throw new ToolChoiceViolationError({
+		toolChoice: { type: "required" },
+		finishReason: "content-filter",
+		provider: "llmgateway.chat",
+		modelId: "openai/gpt-5-mini",
+		content: [{ type: "text", text: "Blocked by the content filter." }],
+	});
+});
 
 app.get("/test-errors/upstream-4xx", () => {
 	throw new APICallError({
@@ -63,6 +73,18 @@ describe("global error handler - upstream gateway errors", () => {
 					type: "invalid_request_error",
 				},
 			},
+		});
+	});
+
+	test("maps content-filter tool choice violations to a 400", async () => {
+		const res = await app.request("/test-errors/content-filter", {
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(400);
+		expect(await res.json()).toEqual({
+			error: true,
+			status: 400,
+			message: "Blocked by the content filter.",
 		});
 	});
 

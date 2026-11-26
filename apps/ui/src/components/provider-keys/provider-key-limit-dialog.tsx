@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/lib/components/button";
 import {
@@ -18,6 +18,7 @@ import { Label } from "@/lib/components/label";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
+import { getProviderModelIds } from "@llmgateway/shared";
 import {
 	parseProviderKeyRateLimitInputs,
 	ProviderKeyRateLimitFields,
@@ -32,9 +33,12 @@ export function ProviderKeyLimitDialog({
 	currentLimit,
 	currentUsage,
 	currentRateLimits,
+	provider,
 	children,
 }: {
 	providerKeyId: string;
+	/** Per-model caps are edited only for catalogue providers. */
+	provider: string;
 	currentLimit: string | null;
 	currentUsage: string;
 	currentRateLimits: ProviderKeyRateLimits;
@@ -46,6 +50,23 @@ export function ProviderKeyLimitDialog({
 	const [limit, setLimit] = useState(currentLimit ?? "");
 	const [rateLimits, setRateLimits] = useState(() =>
 		toProviderKeyRateLimitInputs(currentRateLimits),
+	);
+
+	const { data: providerFacts } = api.useQuery(
+		"get",
+		"/internal/provider-facts",
+		{},
+		{ enabled: open && provider !== "custom" },
+	);
+	const modelOptions = useMemo(
+		() =>
+			provider === "custom"
+				? undefined
+				: (
+						providerFacts?.providers.find((entry) => entry.id === provider)
+							?.modelIds ?? getProviderModelIds(provider)
+					).map((modelId) => ({ value: modelId, label: modelId })),
+		[provider, providerFacts],
 	);
 
 	const queryKey = api.queryOptions("get", "/keys/provider").queryKey;
@@ -109,7 +130,7 @@ export function ProviderKeyLimitDialog({
 	return (
 		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogTrigger asChild>{children}</DialogTrigger>
-			<DialogContent className="sm:max-w-md">
+			<DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
 				<form onSubmit={handleSubmit}>
 					<DialogHeader>
 						<DialogTitle>Limits</DialogTitle>
@@ -147,6 +168,7 @@ export function ProviderKeyLimitDialog({
 							values={rateLimits}
 							onChange={setRateLimits}
 							disabled={limitMutation.isPending}
+							models={modelOptions}
 						/>
 					</div>
 					<DialogFooter>

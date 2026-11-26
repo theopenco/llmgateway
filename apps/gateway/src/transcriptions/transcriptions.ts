@@ -9,6 +9,7 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
+import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -53,8 +54,14 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import {
+	getClientSafetyIdentifierParams,
+	clientSafetyIdentifierFields,
+	formSafetyIdentifierFields,
+} from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
 
 import {
 	getProviderDefaultBaseUrl,
@@ -67,6 +74,14 @@ import { logger } from "@llmgateway/logger";
 import { models as modelDefinitions } from "@llmgateway/models";
 import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 
+import {
+	buildTranscriptionForm,
+	getTranscriptionUpstreamPath,
+	getUnsupportedTranscriptionParam,
+	normalizeTranscriptionResponse,
+} from "./providers.js";
+
+import type { TranscriptionOptions } from "./providers.js";
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { ServerTypes } from "@/vars.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
@@ -111,6 +126,7 @@ const transcriptionFormSchema = z
 			description:
 				"A key term to bias transcription toward (e.g. product names). Repeat the field for multiple terms.",
 		}),
+		...clientSafetyIdentifierFields,
 	})
 	.openapi({
 		description: "Multipart form fields for the transcription request.",
@@ -132,6 +148,7 @@ const transcriptionResponseSchema = z
 		duration: z.number().optional(),
 		words: z.array(transcriptionWordSchema).optional(),
 		channels: z.array(z.record(z.string(), z.unknown())).optional(),
+		usage: usageWithCostSchema.optional(),
 	})
 	.passthrough()
 	.openapi({
@@ -385,6 +402,10 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 	const keyterms = keytermValues.filter(
 		(value): value is string => typeof value === "string" && value.length > 0,
 	);
+	// Only logged as params.safety_identifier; never forwarded upstream.
+	const clientSafetyParams = getClientSafetyIdentifierParams(
+		formSafetyIdentifierFields(formBody),
+	);
 
 	// Authenticate before model resolution so unauthenticated callers get a
 	// 401 instead of catalogue-dependent errors.
@@ -423,6 +444,31 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 	const { mapping, modelDef, modelDefId, explicitProvider } = match;
 	const upstreamModel = mapping.externalId;
 	const providerId = mapping.providerId;
+	const transcriptionOptions: TranscriptionOptions = {
+		language,
+		diarize,
+		fillerWords,
+		keyterms,
+		url,
+		file,
+	};
+	const unsupportedParam = getUnsupportedTranscriptionParam(
+		providerId,
+		transcriptionOptions,
+	);
+	if (unsupportedParam) {
+		return c.json(
+			{
+				error: {
+					message: `Parameter \`${unsupportedParam}\` is not supported by ${requestedModel}`,
+					type: "invalid_request_error",
+					param: unsupportedParam,
+					code: "unsupported_parameter",
+				},
+			} satisfies TranscriptionErrorBody,
+			400,
+		);
+	}
 	const responseModel = formatUsedModelForDisplay(
 		providerId,
 		modelDefId,
@@ -576,31 +622,6 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 	// this org's env-credential reads. Undefined = base vars only.
 	const envVariant = getLicensedOrganizationEnvVariant(retryOrganization);
 
-	// Option fields must precede the file in the multipart body — the upstream
-	// xAI /v1/stt endpoint ignores fields sent after `file` on streamed uploads.
-	function buildUpstreamForm(): FormData {
-		const upstreamForm = new FormData();
-		if (language) {
-			upstreamForm.append("format", "true");
-			upstreamForm.append("language", language);
-		}
-		if (diarize) {
-			upstreamForm.append("diarize", "true");
-		}
-		if (fillerWords) {
-			upstreamForm.append("filler_words", "true");
-		}
-		for (const term of keyterms) {
-			upstreamForm.append("keyterm", term);
-		}
-		if (url) {
-			upstreamForm.append("url", url);
-		} else if (file) {
-			upstreamForm.append("file", file, file.name || "audio");
-		}
-		return upstreamForm;
-	}
-
 	interface TranscriptionAttempt {
 		providerKey: InferSelectModel<typeof tables.providerKey> | undefined;
 		/** Platform-managed credential when one served this attempt. */
@@ -634,6 +655,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (!providerKey) {
 				throw new HTTPException(400, {
@@ -653,7 +675,9 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 
 			const platformCredential = await resolvePlatformCredential(providerId, {
 				selectionScope: upstreamModel,
+				model: modelDefId,
 				variant: envVariant,
+				organizationId: project.organizationId,
 				region: undefined,
 				requiresServiceTier: false,
 				excludedEnvIndices: excludedEnvKeyIndices,
@@ -669,6 +693,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (providerKey) {
 				usedToken = readProviderKey(providerKey);
@@ -684,7 +709,9 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 
 				const platformCredential = await resolvePlatformCredential(providerId, {
 					selectionScope: upstreamModel,
+					model: modelDefId,
 					variant: envVariant,
+					organizationId: project.organizationId,
 					region: undefined,
 					requiresServiceTier: false,
 					excludedEnvIndices: excludedEnvKeyIndices,
@@ -738,7 +765,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			usedToken,
 			configIndex,
 			envVarName,
-			upstreamUrl: `${resolvedBaseUrl}/v1/stt`,
+			upstreamUrl: `${resolvedBaseUrl}${getTranscriptionUpstreamPath(providerId)}`,
 			tenantBaseUrl: providerKey?.baseUrl ?? null,
 		};
 	}
@@ -809,7 +836,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				customHeaders,
 				debugMode,
 				userAgent,
-				rawRequest: upstreamRequestSummary,
+				rawRequest: { ...upstreamRequestSummary, ...clientSafetyParams },
 				upstreamRequest: upstreamRequestSummary,
 			});
 
@@ -830,7 +857,11 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 						headers: getProviderHeaders(providerId, attempt.usedToken, {
 							requestId,
 						}),
-						body: buildUpstreamForm(),
+						body: buildTranscriptionForm(
+							providerId,
+							upstreamModel,
+							transcriptionOptions,
+						),
 						signal: fetchSignal,
 					},
 					attempt.tenantBaseUrl,
@@ -1155,7 +1186,10 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 
 			const responseObject =
 				upstreamJson && typeof upstreamJson === "object"
-					? (upstreamJson as Record<string, unknown>)
+					? normalizeTranscriptionResponse(
+							providerId,
+							upstreamJson as Record<string, unknown>,
+						)
 					: undefined;
 			const transcriptText =
 				typeof responseObject?.text === "string" ? responseObject.text : null;
@@ -1255,9 +1289,19 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			);
 
 			return c.json(
-				(responseObject && typeof responseObject.model === "string"
-					? { ...responseObject, model: responseModel }
-					: upstreamJson) as z.infer<typeof transcriptionResponseSchema>,
+				withUsageCost(
+					(responseObject && typeof responseObject.model === "string"
+						? { ...responseObject, model: responseModel }
+						: (responseObject ?? {})) as z.infer<
+						typeof transcriptionResponseSchema
+					>,
+					cost,
+					{ audio_input_cost: audioCost, request_cost: requestCost },
+					// OpenAI's usage shape for audio billed by duration.
+					audioDurationSeconds !== null
+						? { type: "duration", seconds: audioDurationSeconds }
+						: {},
+				),
 			);
 		}
 	} finally {

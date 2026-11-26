@@ -68,6 +68,15 @@ export interface ImageContent {
 	};
 }
 
+/** Anthropic Messages API document block, lowered from a `file` part. */
+export interface DocumentContent {
+	type: "document";
+	source:
+		| { type: "base64"; media_type: string; data: string }
+		| { type: "text"; media_type: "text/plain"; data: string };
+	title?: string;
+}
+
 export interface InputAudioContent {
 	type: "input_audio";
 	input_audio: {
@@ -136,6 +145,7 @@ export type MessageContent =
 	| TextContent
 	| ImageUrlContent
 	| ImageContent
+	| DocumentContent
 	| InputAudioContent
 	| FileContent
 	| ToolUseContent
@@ -550,6 +560,11 @@ export interface AnthropicSystemContent {
 	};
 }
 
+/** Sent only with the `thinking-binding-controls-2026-08-01` beta. */
+export interface AnthropicThinkingBinding {
+	prefix_mismatch_behavior: "drop_block";
+}
+
 export interface AnthropicRequestBody extends BaseRequestBody {
 	messages: AnthropicMessage[];
 	system?: string | AnthropicSystemContent[];
@@ -560,10 +575,12 @@ export interface AnthropicRequestBody extends BaseRequestBody {
 				type: "enabled";
 				budget_tokens: number;
 				display?: "summarized" | "omitted";
+				block_binding?: AnthropicThinkingBinding;
 		  }
 		| {
 				type: "adaptive";
 				display?: "summarized" | "omitted";
+				block_binding?: AnthropicThinkingBinding;
 		  };
 	output_config?: {
 		effort?: "low" | "medium" | "high" | "xhigh" | "max";
@@ -719,6 +736,10 @@ export type RequestBodyPreparer = (
 		image_size?: string;
 		image_quality?: string;
 		moderation?: string;
+		frame_count?: number;
+		frame_duration_ms?: number;
+		markup?: { image_url: string };
+		complexity?: "low" | "medium" | "high";
 		n?: number;
 		seed?: number;
 	},

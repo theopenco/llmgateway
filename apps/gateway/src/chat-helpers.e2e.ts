@@ -16,6 +16,7 @@ import {
 	getConcurrentTestOptions,
 	getTestOptions,
 	expandAllProviderRegions,
+	usesGatewayWebSearch,
 } from "@llmgateway/models";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { uniqueId } from "@llmgateway/shared/random";
@@ -220,12 +221,15 @@ export const filteredModels = models
 		(model) =>
 			!model.providers.some((p) => (p as ProviderModelMapping).rerank === true),
 	)
-	// Filter out realtime models (they are served only by the /v1/realtime
-	// WebSocket and are covered by realtime.e2e.ts)
+	// Filter out realtime and realtime transcription models (they are served
+	// only by the /v1/realtime WebSocket and are covered by realtime.e2e.ts and
+	// realtime-transcription.e2e.ts)
 	.filter(
 		(model) =>
 			!model.providers.some(
-				(p) => (p as ProviderModelMapping).realtime === true,
+				(p) =>
+					(p as ProviderModelMapping).realtime === true ||
+					(p as ProviderModelMapping).realtimeTranscription === true,
 			),
 	)
 	// Filter out typed-decision models (they use the dedicated /v1/decisions
@@ -900,7 +904,16 @@ export const transcriptionModels = models
 // realtime-transcription.e2e.ts, applying the same TEST_MODELS/TEST_PROVIDERS,
 // deactivation, env-var, and stability filters as transcriptionModels.
 export const realtimeTranscriptionModels = realtimeTestCases(
-	(provider) => provider.realtimeTranscription === true,
+	(provider) =>
+		provider.realtimeTranscription === true &&
+		provider.providerId !== "elevenlabs",
+);
+
+// ElevenLabs Scribe Live sessions speak ElevenLabs' own realtime protocol.
+export const elevenLabsRealtimeTranscriptionModels = realtimeTestCases(
+	(provider) =>
+		provider.realtimeTranscription === true &&
+		provider.providerId === "elevenlabs",
 );
 
 // Speech-to-speech realtime mappings that speak the OpenAI realtime protocol
@@ -939,7 +952,12 @@ function realtimeTestCases(
 				if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
 					continue;
 				}
-				if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+				if (
+					!specifiedModels &&
+					!specifiedProviders &&
+					provider.deprecatedAt &&
+					new Date() > provider.deprecatedAt
+				) {
 					continue;
 				}
 				if (specifiedModels || specifiedProviders) {
@@ -1300,6 +1318,22 @@ export const reasoningEffortModels = fullMode
 		)
 	: [];
 
+/**
+ * One case per (provider mapping, reasoning mode) the catalogue declares in
+ * `reasoningModes`, so a mapping that accepts `reasoning.mode` (e.g. OpenAI
+ * Pro) is exercised against the real upstream. Provider-pinned entries only:
+ * the modes are a per-mapping property.
+ */
+export const reasoningModeModels = fullMode
+	? testModels.flatMap((m) =>
+			m.originalModel
+				? m.providers.flatMap((p: ProviderModelMapping) =>
+						(p.reasoningModes ?? []).map((mode) => ({ model: m.model, mode })),
+					)
+				: [],
+		)
+	: [];
+
 export const verbosityModels = testModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.verbosity === true),
 );
@@ -1352,9 +1386,29 @@ export const streamingImageModels = imageModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.streaming !== false),
 );
 
-export const webSearchModels = testModels.filter((m) =>
-	m.providers.some((p: ProviderModelMapping) => p.webSearch === true),
-);
+// Mappings without native search get gateway-run search, the same for every
+// model, so one text model per provider covers it.
+export const gatewayWebSearchModels = testModels.filter((m, i, all) => {
+	const isGatewaySearched = (o: (typeof all)[number]) =>
+		o.providers.length === 1 &&
+		usesGatewayWebSearch(o.providers[0]) &&
+		!imageModels.includes(o);
+	return (
+		isGatewaySearched(m) &&
+		all.findIndex(
+			(o) =>
+				isGatewaySearched(o) &&
+				o.providers[0].providerId === m.providers[0].providerId,
+		) === i
+	);
+});
+
+export const webSearchModels = [
+	...testModels.filter((m) =>
+		m.providers.some((p: ProviderModelMapping) => p.webSearch === true),
+	),
+	...gatewayWebSearchModels,
+];
 
 export const streamingWebSearchModels = webSearchModels.filter((m) =>
 	m.providers.some((p: ProviderModelMapping) => p.streaming !== false),
@@ -1545,18 +1599,6 @@ function providerEnvOptionsForTests(
 		// Without a project the API key falls back to the project-less express
 		// path, which Google pins to us-central1; global-only models 404 there.
 		return { google_vertex_project_id: process.env.LLM_GOOGLE_CLOUD_PROJECT };
-	}
-	if (providerId === "azure-ai-foundry") {
-		const resource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
-		const apiVersion = process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
-		const opts: ProviderKeyOptions = {};
-		if (resource) {
-			opts.azure_ai_foundry_resource = resource;
-		}
-		if (apiVersion) {
-			opts.azure_ai_foundry_api_version = apiVersion;
-		}
-		return Object.keys(opts).length > 0 ? opts : undefined;
 	}
 	if (
 		providerId === "azure-anthropic" &&

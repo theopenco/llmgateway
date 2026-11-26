@@ -1,6 +1,7 @@
 import { isInternalApiOrigin } from "@/lib/api-origin.js";
 import { logGatewayClientError } from "@/lib/client-error-log.js";
 import { requestLogContext } from "@/lib/request-log-context.js";
+import { formSafetyIdentifierFields } from "@/lib/safety-identifier.js";
 
 import { logger, toError } from "@llmgateway/logger";
 import { resolvePathRateLimit } from "@llmgateway/shared";
@@ -32,7 +33,7 @@ export const rejectionLogMiddleware: MiddlewareHandler<ServerTypes> = async (
 	c,
 	next,
 ) => {
-	const config = resolvePathRateLimit(c.req.path);
+	const config = resolvePathRateLimit(c.req.path, c.req.method);
 	const apiOrigin = config && origins[config.key];
 	if (
 		c.req.method !== "POST" ||
@@ -70,10 +71,13 @@ export const rejectionLogMiddleware: MiddlewareHandler<ServerTypes> = async (
 			// caches a read body under `text`, not `json`, so check any key.
 			let rawBody: unknown;
 			try {
+				// Multipart routes only contribute the end-user identifier.
 				rawBody =
-					Object.keys(c.req.bodyCache).length > 0
-						? await c.req.json()
-						: undefined;
+					Object.keys(c.req.bodyCache).length === 0
+						? undefined
+						: c.req.header("content-type")?.includes("multipart/form-data")
+							? formSafetyIdentifierFields(await c.req.parseBody({ all: true }))
+							: await c.req.json();
 			} catch {
 				logger.debug("Rejected request body could not be parsed");
 				rawBody = undefined;

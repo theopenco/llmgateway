@@ -1,0 +1,1 @@
+ALTER TABLE "provider_key" ADD COLUMN "dedicated_organization_ids" text[];

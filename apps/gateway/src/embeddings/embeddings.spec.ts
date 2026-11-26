@@ -5,7 +5,10 @@ import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import { resetKeyHealth } from "@/lib/api-key-health.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import { resetFailOnceCounter } from "@/test-utils/mock-openai-server.js";
-import { waitForLogs } from "@/test-utils/test-helpers.js";
+import {
+	getOrganizationSafetyIdentifier,
+	waitForLogs,
+} from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { cdb, db, eq, tables } from "@llmgateway/db";
@@ -42,6 +45,44 @@ describe("embeddings", () => {
 		expect(JSON.stringify(json)).toContain(
 			"Embeddings are not available for coding plans",
 		);
+	});
+
+	test("/v1/embeddings serves Azure deployments on the v1 API", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-embeddings-azure",
+			...hashApiKeyForStorage("real-token-embeddings-azure"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-azure-embeddings",
+			...encryptProviderKeyForStorage(
+				"azure-embeddings-token",
+				"provider-key-azure-embeddings",
+				"org-id",
+			),
+			provider: "azure",
+			organizationId: "org-id",
+			baseUrl: harness.mockServerUrl,
+		});
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-embeddings-azure",
+			},
+			body: JSON.stringify({
+				model: "azure/text-embedding-3-small",
+				input: "The food was delicious",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json).toHaveProperty("model", "azure/text-embedding-3-small");
+		expect(json.data[0].embedding).toHaveLength(1536);
 	});
 
 	test("/v1/embeddings retries with another BYOK key after upstream 500", async () => {
@@ -216,11 +257,6 @@ describe("embeddings", () => {
 			baseUrl: harness.mockServerUrl,
 		});
 
-		const [apiKey] = await db
-			.select({ safetyIdentifier: tables.apiKey.safetyIdentifier })
-			.from(tables.apiKey)
-			.where(eq(tables.apiKey.id, "token-id-embeddings-safety"));
-
 		const res = await app.request("/v1/embeddings", {
 			method: "POST",
 			headers: {
@@ -239,10 +275,54 @@ describe("embeddings", () => {
 		const embeddingLog = logs.find(
 			(log) => log.usedModel === "openai/text-embedding-3-small",
 		);
-		expect(apiKey?.safetyIdentifier).toMatch(/^key_[0-9a-f]{32}$/);
 		expect(embeddingLog?.upstreamRequest).not.toHaveProperty("user");
 		expect(embeddingLog?.params).toMatchObject({
 			safety_identifier: "client-controlled-user",
+		});
+	});
+
+	test("/v1/embeddings forwards the organization identifier as user on credits", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-embeddings-safety-on",
+			...hashApiKeyForStorage("real-token-embeddings-safety-on"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await harness.setProjectMode("credits");
+		await cdb.insert(tables.providerKey).values({
+			id: "managed-embeddings-safety-on",
+			provider: "openai",
+			...encryptProviderKeyForStorage(
+				"openai-token",
+				"managed-embeddings-safety-on",
+				null,
+			),
+			managed: true,
+			organizationId: null,
+			config: { baseUrl: harness.mockServerUrl },
+		});
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-embeddings-safety-on",
+			},
+			body: JSON.stringify({
+				model: "text-embedding-3-small",
+				input: "safety attribution on input",
+				user: "client-controlled-user",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const logs = await waitForLogs(1);
+		const embeddingLog = logs.find(
+			(log) => log.usedModel === "openai/text-embedding-3-small",
+		);
+		expect(embeddingLog?.upstreamRequest).toMatchObject({
+			user: await getOrganizationSafetyIdentifier("org-id"),
 		});
 	});
 

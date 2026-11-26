@@ -17,6 +17,7 @@
 - [Model release timeline](https://llmgateway.io/timeline): When each LLM was released by its provider and when it was added to LLM Gateway — a reference for AI model release dates.
 - [Pricing](https://llmgateway.io/pricing): Per-token at provider rates. Pay-as-you-go credits carry a flat 5% platform fee; Bring-Your-Own-Keys is free; enterprise plans available.
 - [Pricing (machine-readable)](https://llmgateway.io/pricing.md): Plain-markdown pricing summary for AI agents.
+- [Image generation API](https://llmgateway.io/products/image-generation): One OpenAI-compatible endpoint (`/v1/images/generations`, `/v1/images/edits`) for every image model, with a live table of the lowest price of one image per model (models billed by image tokens alone are marked as priced per token).
 - [Providers](https://llmgateway.io/providers): Every supported provider and the models each offers.
 - [Docs](https://docs.llmgateway.io): API reference and integration guides.
 - [About](https://llmgateway.io/about): Who builds LLM Gateway and why.
@@ -25,6 +26,12 @@
 - [GitHub Copilot cost calculator](https://llmgateway.io/copilot-cost-calculator): Estimate a team's monthly Copilot AI Credits bill under the June 2026 usage-based billing and compare the same workload at pass-through token prices with prompt caching.
 - [Migrate from GitHub Copilot](https://llmgateway.io/migration/github-copilot): Map Copilot chat, agent mode, and code review to gateway-backed tools with hard budget caps.
 - [Migrate from OpenRouter](https://llmgateway.io/migration/openrouter): Same OpenAI-compatible API and model strings — swap the base URL and key, keep BYOK free, and self-host if you need prompts inside your own network.
+- [Model comparisons](https://llmgateway.io/models/compare): Side-by-side pricing, context window, and capabilities for any two models, with a page per popular pair.
+- [Glossary](https://llmgateway.io/glossary): Short definitions of LLM API terms — tokens, context windows, prompt caching, routing, fallback, TTFT.
+- [Token counter](https://llmgateway.io/token-counter): Count tokens, words, and characters in the browser.
+- [Context window checker](https://llmgateway.io/context-window-checker): See which models a prompt fits in, with room reserved for the response.
+- [Troubleshooting](https://docs.llmgateway.io/troubleshooting/provider-api-down): What to do when a provider is down, and fixes for OpenAI 429, Anthropic 529, and Gemini 429 errors.
+- [Blog feed](https://llmgateway.io/blog/rss.xml) and [changelog feed](https://llmgateway.io/changelog/rss.xml): RSS.
 
 ## Best models by use case
 
@@ -47,6 +54,10 @@
 - [Cost optimization](https://llmgateway.io/use-cases/cost-optimization): Route by task, cache prompts, and see spend per key.
 - [Cyber security](https://llmgateway.io/use-cases/cyber-security): Code audits, log triage, CTFs and sandboxed malware analysis; frontier models for defensive work, Chinese-lab models for tasks Claude and GPT refuse.
 - [Reverse engineering](https://llmgateway.io/use-cases/reverse-engineering): Run REA, Ghidra and Hopper agents (Claude Code, Codex, OpenCode) on models that do not stop mid-analysis.
+- [Startups](https://llmgateway.io/use-cases/startups): One API and key for every model, pay-as-you-go, with failover and per-request cost analytics.
+- [Agencies](https://llmgateway.io/use-cases/agencies): Per-client projects, API keys, usage limits, and cost logs for bill-back.
+- [Healthcare](https://llmgateway.io/use-cases/healthcare): Restrict which providers receive requests, redact sensitive data, control retention, or self-host.
+- [Fintech](https://llmgateway.io/use-cases/fintech): Audit logs, provider compliance policies, SSO, spend limits, and cross-provider failover.
 
 ## Developer resources
 

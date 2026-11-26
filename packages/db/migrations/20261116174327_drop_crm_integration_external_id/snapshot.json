@@ -1,0 +1,124 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "8fbee3d6-a9a5-4d42-bd79-adea9131be45",
+  "prevIds": [
+    "1662bcf1-d4e2-4214-8080-de68f495547b"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "newsletter_issue"
+      ],
+      "writes": [
+        "s|tbl|public.newsletter_issue",
+        "n|tbl|public.newsletter_issue",
+        "e|tbl|public.newsletter_issue",
+        "n|rel|public.newsletter_issue",
+        "n|type|public.newsletter_issue",
+        "n|rel|public.newsletter_issue_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "drop_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "crm_integration",
+        "external_id"
+      ],
+      "writes": [
+        "s|col|public.crm_integration.external_id",
+        "n|col|public.crm_integration.external_id",
+        "e|col|public.crm_integration.external_id"
+      ],
+      "reads": [
+        "n|tbl|public.crm_integration",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "newsletter_issue",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "newsletter_issue",
+        "name": "id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "newsletter_issue",
+        "name": "created_at",
+        "type": "timestamp",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "newsletter_issue",
+        "name": "broadcast_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "newsletter_issue",
+        "name": "newsletter_issue_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"crm_integration\",\"external_id\"]"
+    }
+  ]
+}

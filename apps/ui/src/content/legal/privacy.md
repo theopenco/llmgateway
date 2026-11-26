@@ -9,7 +9,7 @@ description: "How LLM Gateway collects, uses, shares, and protects your data: co
 # Privacy Policy
 
 **Effective Date:** October 21, 2025  
-**Last Updated:** October 9, 2026
+**Last Updated:** November 18, 2026
 
 LLM Gateway (“we”, “our”, or “us”) provides a unified AI gateway platform that enables users to connect, manage, and analyze AI models across multiple providers. This Privacy Policy explains how we collect, use, share, and protect personal information when you use our website, APIs, SDKs, dashboards, and related services (collectively, the “Service”).
 
@@ -95,6 +95,7 @@ We do **not sell** your personal information. We share limited data only as need
 
 - **Service Providers / Sub-processors:** for hosting, analytics, payments, and email (see below).
 - **AI Providers:** when routing your API requests to the model you select (e.g., OpenAI, Anthropic, Google, Mistral, and others). Once your request reaches a provider, that provider processes it under **its own terms, privacy policy, and data-training practices**, which vary by provider and which we do not control. You can review each provider's terms, privacy policy, headquarters, certifications, and AI-training and data-retention practices on our [Provider Information page](https://llmgateway.io/legal/providers) before selecting a model.
+- **Web Search Providers:** when a request asks for web search and the model serving it has none, a search query built from your latest message goes to the search engine your organization selects (Perplexity by default, or Exa), under that engine's own terms. See our [Sub-processor page](https://llmgateway.io/legal/sub-processors).
 - **Legal Authorities:** only where required by law or to protect our rights, users, or the public.
 - **Business transfers:** in connection with a merger, acquisition, financing, or sale of assets, subject to this Policy.
 

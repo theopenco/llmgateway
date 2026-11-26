@@ -1,0 +1,74 @@
+---
+title: Fix the Gemini 429 RESOURCE_EXHAUSTED Error
+description: What the Gemini API 429 RESOURCE_EXHAUSTED and 503 UNAVAILABLE errors mean, how to fix each one, and how to fail over to another provider automatically.
+icon: Gauge
+---
+
+A Gemini API `429` response with status `RESOURCE_EXHAUSTED` means your project exceeded a quota: requests per minute, tokens per minute, or requests per day for that model. A `503` with status `UNAVAILABLE` is different: the model is temporarily overloaded on Google's side.
+
+## Tell the two errors apart
+
+| HTTP status | `status`             | Cause                                              | What to do                                        |
+| ----------- | -------------------- | -------------------------------------------------- | ------------------------------------------------- |
+| `429`       | `RESOURCE_EXHAUSTED` | Your project exceeded a rate limit or daily quota  | Slow down, wait for the reset, or raise the quota |
+| `503`       | `UNAVAILABLE`        | The model is overloaded or temporarily unavailable | Retry with backoff, or use another provider       |
+
+## Fix a 429 RESOURCE_EXHAUSTED
+
+1. **Read the error details.** The response names the quota that was exceeded, which tells you whether the limit is per minute or per day.
+2. **Retry per-minute limits with exponential backoff and jitter.** A per-day quota does not reset until the next day, so retrying will not help.
+3. **Check the model's limits for your tier.** Free-tier limits are far lower than paid ones, and preview models have lower limits than stable ones.
+4. **Enable billing or request a higher quota** on the Google Cloud project behind the API key.
+5. **Reduce tokens per request.** Long prompts consume the tokens-per-minute quota quickly.
+
+```python
+import random
+import time
+
+from openai import OpenAI, RateLimitError, InternalServerError
+
+client = OpenAI(
+    base_url="https://api.llmgateway.io/v1",
+    api_key="YOUR_LLM_GATEWAY_API_KEY",
+)
+
+
+def complete(messages, model, attempts=5):
+    for attempt in range(attempts):
+        try:
+            return client.chat.completions.create(model=model, messages=messages)
+        except (RateLimitError, InternalServerError):
+            if attempt == attempts - 1:
+                raise
+            time.sleep(min(2**attempt, 30) + random.random())
+```
+
+The example calls LLM Gateway's OpenAI-compatible endpoint. With a provider's own SDK, catch that SDK's rate-limit and server-error exceptions instead.
+
+## Let the gateway fail over for you
+
+Send the request with a model ID and no provider prefix. When the upstream provider returns a `429`, a `5xx`, or times out, LLM Gateway retries the same request on another provider that serves the model, inside the same API call. Your application receives the successful response.
+
+```bash
+curl https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-2.5-pro",
+    "messages": [{ "role": "user", "content": "Hello" }]
+  }'
+```
+
+Retry on another provider after a failure does not run when you pin a provider with a prefix (`google-ai-studio/gemini-2.5-pro`), when you send `X-No-Fallback: true`, or when no other provider serves the model. A pinned request can still be rerouted before it is sent when that provider's recent uptime is degraded and another provider serves the model; `X-No-Fallback: true` blocks that as well. A streaming response that has already sent output is not retried either: a later failure ends the stream, so your client must handle partial output. See [Automatic Retry & Fallback](/features/routing#automatic-retry--fallback) for the full rules.
+
+If every provider fails, the gateway returns an error in the OpenAI format with `type` `upstream_error` or `gateway_error`, or HTTP `504` with `type` `upstream_timeout` when the upstream timed out. On a stream that has already started, the status is already `200` and the failure arrives as an `error` event in the stream. The upstream status code is recorded in the request log, not passed through. See [LLM Gateway API Errors](/resources/error-handling#upstream-provider-errors).
+
+## Check whether Google is having an incident
+
+The [Google AI Studio status page](https://llmgateway.io/status/google-ai-studio) shows official incidents next to the uptime LLM Gateway measures on real traffic.
+
+## Related
+
+- [What to do when an LLM provider API is down](/troubleshooting/provider-api-down)
+- [LLM Gateway API Errors](/resources/error-handling)
+- [Routing](/features/routing)

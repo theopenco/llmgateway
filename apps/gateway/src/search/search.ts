@@ -55,6 +55,7 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { clientSafetyIdentifierFields } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	clientFacingUpstreamFailureMessage,
@@ -62,6 +63,7 @@ import {
 	shouldRedactProviderError,
 } from "@/lib/stealth-provider-errors.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
 import {
@@ -98,6 +100,7 @@ const dateFilterSchema = z
 	.optional();
 
 const searchRequestSchema = z.object({
+	...clientSafetyIdentifierFields,
 	model: z.string().optional().openapi({
 		description:
 			'ID of the search model to use, or "auto" for the cheapest active search model (matching search_type when set). Defaults to perplexity/perplexity-search, or perplexity/perplexity-search-fast when search_type is fast.',
@@ -179,6 +182,7 @@ const searchResponseSchema = z
 		model: z.string(),
 		results: z.array(searchResultSchema),
 		server_time: z.string().nullable().optional(),
+		usage: usageWithCostSchema.optional(),
 	})
 	.passthrough()
 	.openapi({
@@ -406,9 +410,12 @@ search.openapi(createSearch, async (c): Promise<any> => {
 		);
 	}
 
+	// The end-user identifier is only logged (from the raw body), never sent.
 	const {
 		model: requestedModelInput,
 		search_type: requestedSearchType,
+		safety_identifier: _safetyIdentifier,
+		user: _user,
 		...searchParams
 	} = validationResult.data;
 	const { query } = searchParams;
@@ -667,6 +674,7 @@ search.openapi(createSearch, async (c): Promise<any> => {
 					selectionScope: upstreamModel,
 					model: modelDefId,
 					variant: envVariant,
+					organizationId: project.organizationId,
 					region: undefined,
 					requiresServiceTier: false,
 					excludedEnvIndices: excludedEnvKeyIndices,
@@ -1315,7 +1323,11 @@ search.openapi(createSearch, async (c): Promise<any> => {
 				{ retentionLevel },
 			);
 
-			return c.json(normalizedResponse);
+			return c.json(
+				withUsageCost(normalizedResponse, requestCost, {
+					request_cost: requestCost,
+				}),
+			);
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

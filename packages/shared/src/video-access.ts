@@ -1,6 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-import { buildGatewayVideoLogContentUrl } from "./gateway-url.js";
+import { getApiKeyHashSecret, getApiKeyHashSecrets } from "./api-key-hash.js";
+import {
+	buildGatewayVideoLogContentUrl,
+	getGatewayPublicBaseUrl,
+} from "./gateway-url.js";
 
 const VIDEO_CONTENT_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
 const VIDEO_CONTENT_TOKEN_SECRET_ENV = "LLM_VIDEO_CONTENT_JWT_SECRET";
@@ -122,5 +126,81 @@ export function verifyVideoContentAccessToken(
 export function buildSignedGatewayVideoLogContentUrl(logId: string): string {
 	const url = new URL(buildGatewayVideoLogContentUrl(logId));
 	url.searchParams.set("token", createVideoContentAccessToken(logId));
+	return url.toString();
+}
+
+function getVideoJobContentTokenSecret(secret = getApiKeyHashSecret()): string {
+	return createHmac("sha256", secret)
+		.update("video-job-content:v1:")
+		.update(getVideoContentTokenSecret())
+		.digest("hex");
+}
+
+export function createVideoJobContentAccessToken(
+	jobId: string,
+	expiresAt = getDefaultVideoContentExpiryDate(),
+): string {
+	const payload = base64urlEncode(
+		JSON.stringify({
+			j: jobId,
+			exp: Math.floor(expiresAt.getTime() / 1000),
+		}),
+	);
+	return `${JWT_HEADER_BASE64URL}.${payload}.${signJwtSegment(
+		JWT_HEADER_BASE64URL,
+		payload,
+		getVideoJobContentTokenSecret(),
+	)}`;
+}
+
+export function verifyVideoJobContentAccessToken(
+	token: string,
+	expectedJobId: string,
+	now = new Date(),
+): boolean {
+	const [header, payload, signature, extra] = token.split(".");
+	if (
+		header !== JWT_HEADER_BASE64URL ||
+		!payload ||
+		!signature ||
+		extra !== undefined
+	) {
+		return false;
+	}
+	const providedSignature = Buffer.from(signature);
+	const validSignature = getApiKeyHashSecrets().some((secret) => {
+		const expectedSignature = Buffer.from(
+			signJwtSegment(header, payload, getVideoJobContentTokenSecret(secret)),
+		);
+		return (
+			providedSignature.length === expectedSignature.length &&
+			timingSafeEqual(providedSignature, expectedSignature)
+		);
+	});
+	if (!validSignature) {
+		return false;
+	}
+	try {
+		const decoded = JSON.parse(base64urlDecode(payload)) as {
+			j?: unknown;
+			exp?: unknown;
+		} | null;
+		return (
+			decoded?.j === expectedJobId &&
+			typeof decoded.exp === "number" &&
+			Number.isSafeInteger(decoded.exp) &&
+			decoded.exp > Math.floor(now.getTime() / 1000)
+		);
+	} catch {
+		return false;
+	}
+}
+
+export function buildSignedGatewayVideoJobContentUrl(jobId: string): string {
+	const url = new URL(
+		`/v1/video-assets/jobs/${encodeURIComponent(jobId)}/content`,
+		`${getGatewayPublicBaseUrl()}/`,
+	);
+	url.searchParams.set("token", createVideoJobContentAccessToken(jobId));
 	return url.toString();
 }

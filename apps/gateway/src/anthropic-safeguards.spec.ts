@@ -11,9 +11,12 @@ import { app } from "./app.js";
 import {
 	applyAnthropicSafeguards,
 	extractAnthropicSafeguards,
+	extractBedrockSafeguardResults,
 	isSafeguardBeta,
+	mappingSupportsAnthropicSafeguards,
 } from "./chat/tools/anthropic-safeguards.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
+import { buildAwsEventStreamMessage } from "./test-utils/mock-openai-server.js";
 
 // Shapes taken from Claude Code's wire format (v2.1.292): the request carries
 // `safeguards` plus the `dangerous-tool-use-*` beta, and Anthropic answers with
@@ -79,39 +82,135 @@ describe("anthropic safeguards helpers", () => {
 		}
 	});
 
-	test("apply merges the beta on Anthropic and strips everywhere else", () => {
+	test("apply merges the beta on Anthropic and Bedrock Messages, strips elsewhere", () => {
 		const passthrough = { safeguards: SAFEGUARDS, betas: [SAFEGUARD_BETA] };
 
 		const body: Record<string, unknown> = {};
 		const headers: Record<string, string> = {
 			"anthropic-beta": `effort-2025-11-24,${SAFEGUARD_BETA}`,
 		};
-		applyAnthropicSafeguards("anthropic", body, headers, passthrough);
+		applyAnthropicSafeguards(
+			"anthropic",
+			"anthropic",
+			body,
+			headers,
+			passthrough,
+		);
 		expect(body.safeguards).toEqual(SAFEGUARDS);
 		expect(headers["anthropic-beta"]).toBe(
 			`effort-2025-11-24,${SAFEGUARD_BETA}`,
 		);
 
-		const otherBody: Record<string, unknown> = { safeguards: SAFEGUARDS };
-		const otherHeaders: Record<string, string> = {};
+		// Claude on Bedrock's Messages endpoint takes the same body and header.
+		const bedrockBody: Record<string, unknown> = {};
+		const bedrockHeaders: Record<string, string> = {};
 		applyAnthropicSafeguards(
 			"aws-bedrock",
-			otherBody,
-			otherHeaders,
+			"anthropic",
+			bedrockBody,
+			bedrockHeaders,
 			passthrough,
 		);
-		expect(otherBody.safeguards).toBeUndefined();
-		expect(otherHeaders["anthropic-beta"]).toBeUndefined();
+		expect(bedrockBody.safeguards).toEqual(SAFEGUARDS);
+		expect(bedrockHeaders["anthropic-beta"]).toBe(SAFEGUARD_BETA);
+
+		// Without a valid pair the field is stripped.
+		const plainBody: Record<string, unknown> = { safeguards: SAFEGUARDS };
+		applyAnthropicSafeguards(
+			"anthropic",
+			"anthropic",
+			plainBody,
+			{},
+			undefined,
+		);
+		expect(plainBody.safeguards).toBeUndefined();
 
 		// Claude on Google Cloud and Microsoft Foundry speaks the same Messages
-		// format, but only Anthropic's own API is known to run the review.
+		// format, but is not known to run the review.
 		for (const provider of ["vertex-anthropic", "azure-anthropic"]) {
 			const cloudBody: Record<string, unknown> = { safeguards: SAFEGUARDS };
 			const cloudHeaders: Record<string, string> = {};
-			applyAnthropicSafeguards(provider, cloudBody, cloudHeaders, passthrough);
+			applyAnthropicSafeguards(
+				provider,
+				provider,
+				cloudBody,
+				cloudHeaders,
+				passthrough,
+			);
 			expect(cloudBody.safeguards).toBeUndefined();
 			expect(cloudHeaders["anthropic-beta"]).toBeUndefined();
 		}
+	});
+
+	test("apply puts both halves in Bedrock Converse model fields", () => {
+		const body: Record<string, unknown> = {
+			additionalModelRequestFields: {
+				anthropic_beta: ["structured-outputs-2025-11-13"],
+			},
+			additionalModelResponseFieldPaths: ["/output_format"],
+		};
+		const headers: Record<string, string> = {};
+		applyAnthropicSafeguards("aws-bedrock", "aws-bedrock", body, headers, {
+			safeguards: SAFEGUARDS,
+			betas: [SAFEGUARD_BETA],
+		});
+		expect(body.safeguards).toBeUndefined();
+		expect(headers["anthropic-beta"]).toBeUndefined();
+		expect(body.additionalModelRequestFields).toEqual({
+			anthropic_beta: ["structured-outputs-2025-11-13", SAFEGUARD_BETA],
+			safeguards: SAFEGUARDS,
+		});
+		expect(body.additionalModelResponseFieldPaths).toEqual([
+			"/output_format",
+			"/safeguard_results",
+			"/delta/safeguard_results",
+		]);
+	});
+
+	test("only Claude mappings on Bedrock support safeguards", () => {
+		expect(
+			mappingSupportsAnthropicSafeguards({
+				providerId: "anthropic",
+				externalId: "claude-opus-4-8",
+			}),
+		).toBe(true);
+		for (const apiFormat of [undefined, "anthropic-messages"] as const) {
+			expect(
+				mappingSupportsAnthropicSafeguards({
+					providerId: "aws-bedrock",
+					externalId: "anthropic.claude-opus-4-8",
+					apiFormat,
+				}),
+			).toBe(true);
+		}
+		expect(
+			mappingSupportsAnthropicSafeguards({
+				providerId: "aws-bedrock",
+				externalId: "moonshotai.kimi-k3",
+				apiFormat: "openai-chat-completions",
+			}),
+		).toBe(false);
+		expect(
+			mappingSupportsAnthropicSafeguards({
+				providerId: "vertex-anthropic",
+				externalId: "claude-opus-4-8",
+			}),
+		).toBe(false);
+	});
+
+	test("reads Bedrock verdicts from converse and converse-stream fields", () => {
+		expect(
+			extractBedrockSafeguardResults({ safeguard_results: SAFEGUARD_RESULTS }),
+		).toEqual(SAFEGUARD_RESULTS);
+		expect(
+			extractBedrockSafeguardResults({
+				delta: { safeguard_results: SAFEGUARD_RESULTS },
+			}),
+		).toEqual(SAFEGUARD_RESULTS);
+		expect(
+			extractBedrockSafeguardResults({ safeguard_results: [] }),
+		).toBeUndefined();
+		expect(extractBedrockSafeguardResults(undefined)).toBeUndefined();
 	});
 });
 
@@ -496,7 +595,7 @@ describe("/v1/messages Claude Code auto mode safeguards", () => {
 		});
 	}
 
-	test.each(["aws-bedrock", "vertex-anthropic", "azure-anthropic"])(
+	test.each(["vertex-anthropic", "azure-anthropic"])(
 		"rejects an explicit %s pin before upstream, including streaming",
 		async (provider) => {
 			await seedAnthropicKey();
@@ -542,12 +641,224 @@ describe("/v1/messages Claude Code auto mode safeguards", () => {
 		},
 	);
 
-	test("automatic model selection rejects when only an incompatible key is available", async () => {
+	test("rejects a non-Claude Bedrock pin before upstream", async () => {
+		await seedAnthropicKey();
+		await seedOtherProvider("aws-bedrock");
+		const spy = vi.spyOn(globalThis, "fetch");
+		try {
+			const res = await sendSafeguards("aws-bedrock/kimi-k3");
+			expect(res.status).toBe(400);
+			expect((await res.json()).error.message).toContain(
+				"CLAUDE_CODE_AUTO_MODE_SERVER=0",
+			);
+			expect(spy).not.toHaveBeenCalled();
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	async function seedBedrockOnly() {
 		await seedAnthropicKey();
 		await db
 			.delete(tables.providerKey)
 			.where(eq(tables.providerKey.id, "provider-key-id"));
 		await seedOtherProvider("aws-bedrock");
+	}
+
+	test("forwards safeguards to Claude on Bedrock's Messages API", async () => {
+		await seedBedrockOnly();
+		const { spy, seen } = captureAnthropicUpstream(
+			() =>
+				new Response(
+					JSON.stringify({
+						id: "msg_bedrock",
+						type: "message",
+						role: "assistant",
+						model: "claude-opus-4-8",
+						content: [
+							{
+								type: "tool_use",
+								id: "toolu_01SAFE",
+								name: "Bash",
+								input: { command: "ls" },
+							},
+						],
+						stop_reason: "tool_use",
+						usage: { input_tokens: 100, output_tokens: 5 },
+						safeguard_results: SAFEGUARD_RESULTS,
+					}),
+					{ headers: { "Content-Type": "application/json" } },
+				),
+		);
+		try {
+			const res = await sendSafeguards("aws-bedrock/claude-opus-4-8", false, {
+				"x-no-fallback": "true",
+			});
+			expect(res.status).toBe(200);
+			expect(seen.body.safeguards).toEqual(SAFEGUARDS);
+			expect(seen.headers?.get("anthropic-beta") ?? "").toContain(
+				SAFEGUARD_BETA,
+			);
+			expect((await res.json()).safeguard_results).toEqual(SAFEGUARD_RESULTS);
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	// A Claude mapping Bedrock still serves through the Converse API.
+	const CONVERSE_MODEL = "aws-bedrock/claude-opus-4-5-20251101";
+
+	function captureBedrockConverse(respond: () => Response) {
+		const originalFetch = globalThis.fetch;
+		const seen: { body: any; url: string | null } = { body: null, url: null };
+		const spy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+				if (url.startsWith(`${harness.mockServerUrl}/model/`)) {
+					seen.url = url;
+					seen.body = JSON.parse(String(init?.body));
+					return respond();
+				}
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+		return { spy, seen };
+	}
+
+	function expectConverseSafeguards(body: any) {
+		expect(body.safeguards).toBeUndefined();
+		expect(body.additionalModelRequestFields.safeguards).toEqual(SAFEGUARDS);
+		expect(body.additionalModelRequestFields.anthropic_beta).toContain(
+			SAFEGUARD_BETA,
+		);
+		expect(body.additionalModelResponseFieldPaths).toEqual(
+			expect.arrayContaining([
+				"/safeguard_results",
+				"/delta/safeguard_results",
+			]),
+		);
+	}
+
+	test("forwards safeguards through Bedrock Converse and returns verdicts", async () => {
+		await seedBedrockOnly();
+		const { spy, seen } = captureBedrockConverse(
+			() =>
+				new Response(
+					JSON.stringify({
+						output: {
+							message: {
+								role: "assistant",
+								content: [
+									{
+										toolUse: {
+											toolUseId: "toolu_bdrk_01SAFE",
+											name: "Bash",
+											input: { command: "ls" },
+										},
+									},
+								],
+							},
+						},
+						stopReason: "tool_use",
+						usage: { inputTokens: 100, outputTokens: 5, totalTokens: 105 },
+						additionalModelResponseFields: {
+							safeguard_results: SAFEGUARD_RESULTS,
+						},
+					}),
+					{ headers: { "Content-Type": "application/json" } },
+				),
+		);
+		try {
+			const res = await sendSafeguards(CONVERSE_MODEL, false, {
+				"x-no-fallback": "true",
+			});
+			expect(res.status).toBe(200);
+			expect(seen.url).toContain("/converse");
+			expectConverseSafeguards(seen.body);
+			const json = await res.json();
+			expect(json.safeguard_results).toEqual(SAFEGUARD_RESULTS);
+			expect(json.content.find((b: any) => b.type === "tool_use")?.id).toBe(
+				"toolu_bdrk_01SAFE",
+			);
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	test("streams Bedrock Converse verdicts from messageStop", async () => {
+		await seedBedrockOnly();
+		const frames = [
+			buildAwsEventStreamMessage("messageStart", { role: "assistant" }),
+			buildAwsEventStreamMessage("contentBlockStart", {
+				contentBlockIndex: 0,
+				start: { toolUse: { toolUseId: "toolu_bdrk_01SAFE", name: "Bash" } },
+			}),
+			buildAwsEventStreamMessage("contentBlockDelta", {
+				contentBlockIndex: 0,
+				delta: { toolUse: { input: '{"command":"ls"}' } },
+			}),
+			buildAwsEventStreamMessage("contentBlockStop", { contentBlockIndex: 0 }),
+			buildAwsEventStreamMessage("messageStop", {
+				stopReason: "tool_use",
+				additionalModelResponseFields: {
+					delta: { safeguard_results: SAFEGUARD_RESULTS },
+				},
+			}),
+			buildAwsEventStreamMessage("metadata", {
+				usage: { inputTokens: 100, outputTokens: 5, totalTokens: 105 },
+				metrics: { latencyMs: 10 },
+			}),
+		];
+		const { spy, seen } = captureBedrockConverse(
+			() =>
+				new Response(
+					new ReadableStream({
+						start(controller) {
+							for (const frame of frames) {
+								controller.enqueue(frame);
+							}
+							controller.close();
+						},
+					}),
+					{ headers: { "Content-Type": "application/vnd.amazon.eventstream" } },
+				),
+		);
+		try {
+			const res = await sendSafeguards(CONVERSE_MODEL, true, {
+				"x-no-fallback": "true",
+			});
+			expect(res.status).toBe(200);
+			const text = await res.text();
+			expect(seen.url).toContain("/converse-stream");
+			expectConverseSafeguards(seen.body);
+			const events = text
+				.split("\n")
+				.filter((line) => line.startsWith("data: "))
+				.map((line) => JSON.parse(line.slice(6)));
+			const messageDelta = events.find((e) => e.type === "message_delta");
+			expect(messageDelta?.delta?.safeguard_results).toEqual(SAFEGUARD_RESULTS);
+			const toolStart = events.find(
+				(e) =>
+					e.type === "content_block_start" &&
+					e.content_block?.type === "tool_use",
+			);
+			expect(toolStart?.content_block?.id).toBe("toolu_bdrk_01SAFE");
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	test("automatic model selection rejects when only an incompatible key is available", async () => {
+		await seedAnthropicKey();
+		await db
+			.delete(tables.providerKey)
+			.where(eq(tables.providerKey.id, "provider-key-id"));
+		await seedOtherProvider("azure-anthropic");
 		const res = await sendSafeguards("auto");
 		expect(res.status).toBe(400);
 		expect((await res.json()).error.message).toContain(
@@ -555,14 +866,14 @@ describe("/v1/messages Claude Code auto mode safeguards", () => {
 		);
 	});
 
-	test("a saved Bedrock session pin yields to the safeguard requirement", async () => {
+	test("an incompatible saved session pin yields to the safeguard requirement", async () => {
 		await seedAnthropicKey();
-		await seedOtherProvider("aws-bedrock");
+		await seedOtherProvider("azure-anthropic");
 		const sessionId = "safeguards-session";
 		const key = `session_provider:org-id:claude-opus-4-8:${sessionId}`;
 		await redisClient.set(
 			key,
-			JSON.stringify({ providerId: "aws-bedrock", region: "global" }),
+			JSON.stringify({ providerId: "azure-anthropic" }),
 			"EX",
 			3600,
 		);
@@ -598,10 +909,10 @@ describe("/v1/messages Claude Code auto mode safeguards", () => {
 	});
 
 	test.each([false, true])(
-		"upstream failure never falls back to Bedrock (stream=%s)",
+		"upstream failure never falls back to an incompatible provider (stream=%s)",
 		async (stream) => {
 			await seedAnthropicKey();
-			await seedOtherProvider("aws-bedrock");
+			await seedOtherProvider("azure-anthropic");
 			const { spy, seen } = captureAnthropicUpstream(
 				() =>
 					new Response(

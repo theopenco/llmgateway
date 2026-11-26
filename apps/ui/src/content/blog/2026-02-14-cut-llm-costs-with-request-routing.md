@@ -5,6 +5,11 @@ date: 2026-02-14
 title: "How We Cut Our LLM Costs 60% With Request Routing"
 summary: "A practical breakdown of how intelligent routing, caching, and model selection through an LLM gateway can dramatically reduce your AI infrastructure costs."
 categories: ["Product"]
+faqs:
+  - question: "How does request routing cut LLM costs?"
+    answer: "Not every request needs your best model. Routing simple tasks such as classification to cheaper model tiers, and keeping flagship models for complex work, lowers the cost of most requests without changing the hard ones."
+  - question: "What else reduces LLM spend besides routing?"
+    answer: "Cache responses for repeated requests so identical calls are not paid for twice, and compare providers, since the same quality tier is priced differently across them. A gateway lets you switch without code changes."
 image:
   src: "/blog/cut-llm-costs-with-request-routing.png"
   alt: "How We Cut Our LLM Costs 60% With Request Routing"

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import React, { useMemo, type ReactNode, useRef, useState } from "react";
+import { useMemo, type ReactNode, useRef, useState } from "react";
 
 import { ModelSelector } from "@/components/models/playground-model-selector";
 import { Badge } from "@/lib/components/badge";
@@ -14,18 +14,10 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/lib/components/table";
 import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
 import { getLoungeStudioPath } from "@/lib/model-utils";
-import { formatContextSize } from "@/lib/utils";
+import { cn, formatContextSize } from "@/lib/utils";
 
 import {
 	models,
@@ -205,6 +197,18 @@ const groupedRows: Array<{
 		rows: [{ key: "supportedParameters", label: "Supported Parameters" }],
 	},
 ];
+
+// The selectors and every comparison row share these columns, so each model's
+// controls sit above its own values. Below `md` the feature label spans both
+// model columns instead of taking a third one.
+const MODEL_COLUMNS =
+	"md:grid-cols-[10rem_minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-[13rem_minmax(0,1fr)_minmax(0,1fr)]";
+const SELECTOR_GRID = `grid grid-cols-1 gap-4 ${MODEL_COLUMNS}`;
+const ROW_GRID = `grid grid-cols-2 gap-x-4 ${MODEL_COLUMNS}`;
+
+// "View <model name> details" can be wider than a model column, so the label
+// wraps inside the button instead of pushing the page sideways.
+const WRAPPING_BUTTON = "h-auto min-h-8 max-w-full whitespace-normal text-left";
 
 const PLACEHOLDER: ReactNode = <span className="text-muted-foreground">—</span>;
 
@@ -556,6 +560,9 @@ function renderRowValue(
 						year: "numeric",
 						month: "short",
 						day: "numeric",
+						// releasedAt is UTC midnight; without this, browsers west of
+						// UTC render the previous day and mismatch the server HTML.
+						timeZone: "UTC",
 					})
 				: PLACEHOLDER;
 		case "stability":
@@ -755,8 +762,8 @@ export function ModelComparison() {
 		<div ref={containerRef} className="relative space-y-8 bg-background">
 			<Card>
 				<CardHeader className="space-y-4">
-					<div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-						<div>
+					<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+						<div className="min-w-0">
 							<CardTitle className="text-2xl md:text-3xl">
 								Compare AI Models
 							</CardTitle>
@@ -765,12 +772,11 @@ export function ModelComparison() {
 								context window, and key platform features side by side.
 							</CardDescription>
 						</div>
-						<div className="flex items-center gap-2">
+						<div className="grid shrink-0 grid-cols-2 gap-2 sm:flex sm:items-center">
 							<Button
 								variant="outline"
 								size="sm"
 								onClick={() => updateParams(rightModelId, leftModelId)}
-								className="w-full md:w-auto"
 							>
 								Swap Models
 							</Button>
@@ -799,14 +805,14 @@ export function ModelComparison() {
 										setIsCapturing(false);
 									}
 								}}
-								className="w-full md:w-auto"
 							>
 								Download PNG
 							</Button>
 						</div>
 					</div>
-					<div className="grid gap-4 md:grid-cols-2">
-						<div className="space-y-2 md:pl-48">
+					<div className={cn(SELECTOR_GRID, "md:px-2")}>
+						<div className="hidden md:block" aria-hidden="true" />
+						<div className="min-w-0 space-y-2">
 							<div className="text-sm font-medium text-muted-foreground">
 								Model A
 							</div>
@@ -845,8 +851,40 @@ export function ModelComparison() {
 									);
 								}}
 							/>
+							<div className="flex flex-wrap items-center gap-2">
+								{leftModel && (
+									<>
+										<Button
+											asChild
+											size="sm"
+											variant="outline"
+											className={WRAPPING_BUTTON}
+										>
+											<Link
+												href={`/models/${encodeURIComponent(leftModel.id)}`}
+											>
+												View {leftModel.displayName} details
+											</Link>
+										</Button>
+										<Button asChild size="sm">
+											<a
+												href={buildPlaygroundUrl(
+													queryLeftProviderId ??
+														leftModel.providers[0]?.providerId,
+													leftModel.id,
+													leftModel.model.output,
+												)}
+												target="_blank"
+												rel="noopener noreferrer"
+											>
+												Try in Lounge
+											</a>
+										</Button>
+									</>
+								)}
+							</div>
 						</div>
-						<div className="space-y-2 md:pl-24">
+						<div className="min-w-0 space-y-2">
 							<div className="text-sm font-medium text-muted-foreground">
 								Model B
 							</div>
@@ -886,141 +924,119 @@ export function ModelComparison() {
 									);
 								}}
 							/>
-						</div>
-					</div>
-					<div className="grid gap-4 md:grid-cols-2">
-						<div className="flex items-center gap-3 md:pl-48">
-							{leftModel && (
-								<>
-									<Button asChild size="sm" variant="outline">
-										<Link href={`/models/${encodeURIComponent(leftModel.id)}`}>
-											View {leftModel.displayName} details
-										</Link>
-									</Button>
-									<Button asChild size="sm">
-										<a
-											href={buildPlaygroundUrl(
-												queryLeftProviderId ??
-													leftModel.providers[0]?.providerId,
-												leftModel.id,
-												leftModel.model.output,
-											)}
-											target="_blank"
-											rel="noopener noreferrer"
+							<div className="flex flex-wrap items-center gap-2">
+								{rightModel && (
+									<>
+										<Button
+											asChild
+											size="sm"
+											variant="outline"
+											className={WRAPPING_BUTTON}
 										>
-											Try in Lounge
-										</a>
-									</Button>
-								</>
-							)}
-						</div>
-						<div className="flex items-center gap-3 md:pl-24">
-							{rightModel && (
-								<>
-									<Button asChild size="sm" variant="outline">
-										<Link href={`/models/${encodeURIComponent(rightModel.id)}`}>
-											View {rightModel.displayName} details
-										</Link>
-									</Button>
-									<Button asChild size="sm">
-										<a
-											href={buildPlaygroundUrl(
-												queryRightProviderId ??
-													rightModel.providers[0]?.providerId,
-												rightModel.id,
-												rightModel.model.output,
-											)}
-											target="_blank"
-											rel="noopener noreferrer"
-										>
-											Try in Lounge
-										</a>
-									</Button>
-								</>
-							)}
+											<Link
+												href={`/models/${encodeURIComponent(rightModel.id)}`}
+											>
+												View {rightModel.displayName} details
+											</Link>
+										</Button>
+										<Button asChild size="sm">
+											<a
+												href={buildPlaygroundUrl(
+													queryRightProviderId ??
+														rightModel.providers[0]?.providerId,
+													rightModel.id,
+													rightModel.model.output,
+												)}
+												target="_blank"
+												rel="noopener noreferrer"
+											>
+												Try in Lounge
+											</a>
+										</Button>
+									</>
+								)}
+							</div>
 						</div>
 					</div>
 				</CardHeader>
 				<CardContent>
-					<div className="overflow-x-auto">
-						<Table className="table-fixed min-w-[900px] md:min-w-0">
-							<TableHeader>
-								<TableRow>
-									<TableHead className="w-40 md:w-52 text-base">
-										Feature
-									</TableHead>
-									<TableHead className="w-1/2">
-										<div className="flex items-center gap-2">
-											<div className="flex flex-col">
-												<span className="font-semibold text-base">
-													{leftModel?.displayName ?? "Select a model"}
-												</span>
-												{leftModel ? (
-													<Link
-														href={`/models/${encodeURIComponent(leftModel.id)}`}
-														className="text-sm text-primary hover:underline"
-													>
-														View model details
-													</Link>
-												) : null}
-											</div>
+					<div role="table" aria-label="Model comparison" className="text-base">
+						<div role="rowgroup">
+							<div role="row" className={cn(ROW_GRID, "border-b px-2 pb-3")}>
+								<div
+									role="columnheader"
+									className="sr-only font-medium text-muted-foreground md:not-sr-only"
+								>
+									Feature
+								</div>
+								<div role="columnheader" className="flex min-w-0 flex-col">
+									<span className="break-words font-semibold text-base">
+										{leftModel?.displayName ?? "Select a model"}
+									</span>
+									{leftModel ? (
+										<Link
+											href={`/models/${encodeURIComponent(leftModel.id)}`}
+											className="text-sm text-primary hover:underline"
+										>
+											View model details
+										</Link>
+									) : null}
+								</div>
+								<div role="columnheader" className="flex min-w-0 flex-col">
+									<span className="break-words font-semibold text-base">
+										{rightModel?.displayName ?? "Select a model"}
+									</span>
+									{rightModel ? (
+										<Link
+											href={`/models/${encodeURIComponent(rightModel.id)}`}
+											className="text-sm text-primary hover:underline"
+										>
+											View model details
+										</Link>
+									) : null}
+								</div>
+							</div>
+						</div>
+						{groupedRows.map((group) => (
+							<div role="rowgroup" key={`grp-${group.title}`}>
+								<div role="row">
+									<div
+										role="cell"
+										aria-colspan={3}
+										className="bg-muted/40 px-2 py-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground"
+									>
+										{group.title}
+									</div>
+								</div>
+								{group.rows.map((row) => (
+									<div
+										role="row"
+										key={row.key}
+										className={cn(
+											ROW_GRID,
+											"items-start gap-y-1 border-b px-2 py-3",
+										)}
+									>
+										<div
+											role="rowheader"
+											className="col-span-2 text-sm font-medium text-muted-foreground md:col-span-1 md:text-base md:text-foreground"
+										>
+											{row.label}
 										</div>
-									</TableHead>
-									<TableHead className="w-1/2">
-										<div className="flex items-center gap-2">
-											<div className="flex flex-col">
-												<span className="font-semibold text-base">
-													{rightModel?.displayName ?? "Select a model"}
-												</span>
-												{rightModel ? (
-													<Link
-														href={`/models/${encodeURIComponent(rightModel.id)}`}
-														className="text-sm text-primary hover:underline"
-													>
-														View model details
-													</Link>
-												) : null}
-											</div>
+										<div role="cell" className="min-w-0 break-words">
+											{renderRowValue(row.key, leftModel, queryLeftProviderId)}
 										</div>
-									</TableHead>
-								</TableRow>
-							</TableHeader>
-							<TableBody>
-								{groupedRows.map((group) => (
-									<React.Fragment key={`grp-${group.title}`}>
-										<TableRow>
-											<TableCell
-												colSpan={3}
-												className="bg-muted/40 text-sm font-semibold uppercase tracking-wider text-muted-foreground"
-											>
-												{group.title}
-											</TableCell>
-										</TableRow>
-										{group.rows.map((row) => (
-											<TableRow key={row.key}>
-												<TableCell className="font-medium text-sm md:text-base">
-													{row.label}
-												</TableCell>
-												<TableCell className="align-top whitespace-normal break-words pr-4 text-base">
-													{renderRowValue(
-														row.key,
-														leftModel,
-														queryLeftProviderId,
-													)}
-												</TableCell>
-												<TableCell className="align-top whitespace-normal break-words text-base">
-													{renderRowValue(
-														row.key,
-														rightModel,
-														queryRightProviderId,
-													)}
-												</TableCell>
-											</TableRow>
-										))}
-									</React.Fragment>
+										<div role="cell" className="min-w-0 break-words">
+											{renderRowValue(
+												row.key,
+												rightModel,
+												queryRightProviderId,
+											)}
+										</div>
+									</div>
 								))}
-							</TableBody>
-						</Table>
+							</div>
+						))}
 					</div>
 				</CardContent>
 			</Card>

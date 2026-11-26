@@ -1,25 +1,26 @@
 import {
-	decryptModelVerificationCredential,
+	AirsideGatewayInfrastructureError,
 	disprovedCapabilities,
+	isDailyModelVerification,
 	managedCredentialOptions,
 	readProviderKey,
 	redactToken,
 	runProviderModelVerification,
 	modelVerificationEnvironmentToken,
-	narrowManagedKeysToRegion,
+	createAirsideGatewayFetch,
+	providerVerificationCredentialFingerprint,
+	airsideInferencePricing,
+	environmentVerificationCredentialFingerprint,
 } from "@llmgateway/actions";
+import { redisClient } from "@llmgateway/cache";
 import { and, asc, cdb, db, eq, lt, tables, sql } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import {
-	getProviderEnvVar,
-	getProviderDefinition,
-	REASONING_EFFORTS,
-	TOOL_CHOICE_MODES,
-} from "@llmgateway/models";
+import { REASONING_EFFORTS, TOOL_CHOICE_MODES } from "@llmgateway/models";
 
 import {
-	isDailyModelVerification,
 	resolveDailyVerificationCredential,
+	claimVerificationProviderKey,
+	managedVerificationProviderKey,
 } from "./daily-model-verifications.js";
 
 import type { RunModelVerificationOptions } from "@llmgateway/actions";
@@ -37,69 +38,41 @@ type VerificationRunner = (
 const STALE_RUNNING_MS = 20 * 60 * 1000;
 const MAX_VERIFICATION_ATTEMPTS = 3;
 const STALE_ATTEMPT_FEEDBACK = "Verification timed out.";
+// A gateway refusal (an empty operator wallet, a rate limit) hits every run
+// alike, so the queue pauses instead of failing each run it would claim.
+// The pause lives in Redis so every worker replica honours it.
+const GATEWAY_RETRY_DELAY_MS = 2 * 60 * 1000;
+const GATEWAY_PAUSE_KEY = "model-verification:gateway-paused";
+
+/** Test hook: lifts a gateway pause left by an earlier case. */
+export async function resetModelVerificationGatewayPause() {
+	await redisClient.del(GATEWAY_PAUSE_KEY);
+}
 
 interface ResolvedCredential {
 	providerKey: string;
+	providerKeyId?: string;
+	credentialFingerprint?: string;
 	baseUrl?: string;
 	providerKeyOptions?: RunModelVerificationOptions["providerKeyOptions"];
 	skipEnvVars?: boolean;
 }
 
-function firstEnvironmentCredential(value: string): string {
-	const trimmed = value.trim();
-	return trimmed.startsWith("{") ? value : (value.split(",")[0]?.trim() ?? "");
-}
-
-// Both a pasted key and the one saved on a carrier's claim are copied into the
-// run's own encrypted column at queue time, so they read back the same way.
-function isRunScopedCredential(job: VerificationRow): boolean {
-	return (
-		job.credentialSource === "supplied" || job.credentialSource === "carrier"
-	);
-}
-
 async function managedCredential(
-	job: VerificationRow,
-	baseUrlOverride?: string,
+	job: CredentialJob,
 ): Promise<ResolvedCredential> {
-	const keys = await db.query.providerKey.findMany({
-		where: {
-			provider: { eq: job.target.providerId },
-			managed: { eq: true },
-			status: { eq: "active" },
-		},
-		orderBy: { sortOrder: "asc", createdAt: "asc" },
-	});
-	const key = narrowManagedKeysToRegion(
-		keys.filter(
-			(candidate) =>
-				!candidate.allowedModels?.length ||
-				candidate.allowedModels.includes(job.target.externalId),
-		),
-		job.target.providerId,
-		job.target.region ?? undefined,
-	)[0];
+	const key = await managedVerificationProviderKey(job.target, db);
 	if (!key) {
 		throw new Error("No active managed credential can verify this mapping.");
 	}
-	return {
-		providerKey: readProviderKey(key),
-		baseUrl: baseUrlOverride ?? key.baseUrl ?? undefined,
-		providerKeyOptions: managedCredentialOptions(key),
-		skipEnvVars: true,
-	};
+	return resolvedProviderKey(key);
 }
 
-function environmentCredential(job: VerificationRow): string {
-	const envName = getProviderEnvVar(job.target.providerId);
-	const token = isDailyModelVerification(job)
-		? modelVerificationEnvironmentToken(job.target)
-		: envName
-			? firstEnvironmentCredential(process.env[envName] ?? "")
-			: "";
+function environmentCredential(job: CredentialJob): string {
+	const token = modelVerificationEnvironmentToken(job.target);
 	if (!token) {
 		throw new Error(
-			"No environment credential is configured for this provider. Re-run the verification with a provider API key.",
+			"No environment credential is configured for this provider.",
 		);
 	}
 	return token;
@@ -110,37 +83,34 @@ function environmentCredential(job: VerificationRow): string {
  * so they resolve the platform's own credentials without a provider claim.
  */
 async function resolvePlatformCredential(
-	job: VerificationRow,
+	job: CredentialJob,
 ): Promise<ResolvedCredential> {
-	if (isRunScopedCredential(job)) {
-		if (!job.credentialCiphertext) {
-			throw new Error("The supplied verification credential is unavailable.");
-		}
-		return {
-			providerKey: decryptModelVerificationCredential(
-				job.credentialCiphertext,
-				job.id,
-				job.providerCompanyId,
-			),
-		};
-	}
 	if (job.credentialSource === "managed") {
 		return await managedCredential(job);
 	}
-	return { providerKey: environmentCredential(job) };
+	if (job.credentialSource !== "environment") {
+		throw new Error(
+			"A platform-managed credential is required for catalogue verification.",
+		);
+	}
+	const token = environmentCredential(job);
+	return {
+		providerKey: token,
+		credentialFingerprint: environmentVerificationCredentialFingerprint(
+			job.target,
+			token,
+		),
+	};
 }
 
-async function resolveCredential(
-	job: VerificationRow,
+export async function resolveCredential(
+	job: CredentialJob,
+	preferPending = true,
 ): Promise<ResolvedCredential> {
 	if (isDailyModelVerification(job)) {
 		const current = await resolveDailyVerificationCredential(job);
-		if (current.providerKey) {
-			return {
-				providerKey: current.providerKey,
-				baseUrl: current.baseUrl,
-				skipEnvVars: !getProviderDefinition(job.target.providerId),
-			};
+		if (current.key) {
+			return resolvedProviderKey(current.key, current.baseUrl);
 		}
 		return await resolvePlatformCredential({
 			...job,
@@ -148,16 +118,12 @@ async function resolveCredential(
 			credentialSource: current.credentialSource,
 		});
 	}
-	// A run with no carrier (an admin run against a catalogue mapping) has no
-	// claim to resolve; admin runs against a carrier's listing keep the
-	// claim-scoped path so a custom carrier's base URL still applies.
 	if (!job.providerCompanyId) {
 		return await resolvePlatformCredential(job);
 	}
-	const companyId = job.providerCompanyId;
 	const claim = await db.query.providerClaim.findFirst({
 		where: {
-			providerCompanyId: { eq: companyId },
+			providerCompanyId: { eq: job.providerCompanyId },
 			providerId: { eq: job.target.providerId },
 			status: { eq: "active" },
 		},
@@ -165,27 +131,25 @@ async function resolveCredential(
 	if (!claim) {
 		throw new Error("The provider claim is no longer active.");
 	}
-	if (isRunScopedCredential(job)) {
-		if (!job.credentialCiphertext) {
-			throw new Error("The supplied verification credential is unavailable.");
-		}
-		return {
-			providerKey: decryptModelVerificationCredential(
-				job.credentialCiphertext,
-				job.id,
-				job.providerCompanyId,
-			),
-			baseUrl: claim.customBaseUrl ?? undefined,
-			skipEnvVars: !getProviderDefinition(claim.providerId),
-		};
+	if (
+		claim.kind === "catalogue" &&
+		!claim.providerKeyId &&
+		!claim.pendingProviderKeyId &&
+		(job.credentialSource === "managed" ||
+			job.credentialSource === "environment")
+	) {
+		return await resolvePlatformCredential(job);
 	}
-	if (job.credentialSource === "managed") {
-		return await managedCredential(job, claim.customBaseUrl ?? undefined);
+	const key = await claimVerificationProviderKey(
+		claim,
+		job.target,
+		db,
+		preferPending,
+	);
+	if (!key) {
+		throw new Error("No linked provider credential can verify this listing.");
 	}
-	return {
-		providerKey: environmentCredential(job),
-		baseUrl: claim.customBaseUrl ?? undefined,
-	};
+	return resolvedProviderKey(key, claim.customBaseUrl);
 }
 
 export async function claimNextModelVerification(): Promise<VerificationRow | null> {
@@ -504,21 +468,64 @@ async function narrowReasoningEfforts(
 export async function processNextModelVerification(
 	runner: VerificationRunner = runProviderModelVerification,
 ): Promise<boolean> {
+	if (await redisClient.exists(GATEWAY_PAUSE_KEY)) {
+		return false;
+	}
 	const job = await claimNextModelVerification();
 	if (!job) {
 		return false;
 	}
 	let token = "";
+	let infrastructureError: Error | undefined;
+	let gatewayExecuted = false;
 	let checks = job.checks;
 	try {
-		const credential = await resolveCredential(job);
+		let credential: ResolvedCredential;
+		let pricing: ReturnType<typeof airsideInferencePricing>;
+		try {
+			credential = await resolveCredential(job);
+			pricing = await verificationPricing(job);
+			if (
+				(job.target.providerKeyId &&
+					job.target.providerKeyId !== credential.providerKeyId) ||
+				(job.target.credentialFingerprint &&
+					job.target.credentialFingerprint !== credential.credentialFingerprint)
+			) {
+				throw new Error("Verification credential changed.");
+			}
+		} catch (error) {
+			logger.warn("Airside verification credential could not be resolved", {
+				verificationId: job.id,
+				providerId: job.target.providerId,
+				credentialSource: job.credentialSource,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			infrastructureError = new Error(
+				"Verification configuration is unavailable or changed. Re-run verification.",
+			);
+			throw infrastructureError;
+		}
 		token = credential.providerKey;
+		const gatewayFetch = createAirsideGatewayFetch({
+			runId: job.id,
+			providerKeyId: credential.providerKeyId,
+			target: job.target,
+			pricing,
+			onInfrastructureError: (error) => {
+				infrastructureError = error;
+			},
+		});
 		const result = await runner({
 			target: job.target,
 			token,
 			baseUrl: credential.baseUrl,
 			providerKeyOptions: credential.providerKeyOptions,
 			skipEnvVars: credential.skipEnvVars,
+			fetchImplementation: async (input, init) => {
+				const response = await gatewayFetch(input, init);
+				gatewayExecuted = true;
+				return response;
+			},
 			onCheck: async (check) => {
 				checks = replaceCheck(checks, check);
 				const updated = await db
@@ -537,10 +544,36 @@ export async function processNextModelVerification(
 				}
 			},
 		});
+		if (!infrastructureError) {
+			try {
+				const current = await resolveCredential(job);
+				if (
+					current.providerKeyId !== credential.providerKeyId ||
+					current.credentialFingerprint !== credential.credentialFingerprint ||
+					current.providerKey !== credential.providerKey ||
+					current.baseUrl !== credential.baseUrl
+				) {
+					throw new Error("Verification credential changed.");
+				}
+			} catch {
+				infrastructureError = new Error(
+					"Verification configuration changed during execution. Re-run verification.",
+				);
+			}
+		}
+		if (infrastructureError) {
+			throw infrastructureError;
+		}
 		const completed = await db
 			.update(tables.providerModelVerification)
 			.set({
 				status: result.passed ? "passed" : "failed",
+				target: {
+					...job.target,
+					providerKeyId: credential.providerKeyId,
+					credentialFingerprint: credential.credentialFingerprint,
+					gatewayExecutionVersion: gatewayExecuted ? 1 : undefined,
+				},
 				checks: result.checks,
 				summary: result.summary,
 				completedAt: new Date(),
@@ -582,6 +615,33 @@ export async function processNextModelVerification(
 		if (error instanceof StaleModelVerificationAttemptError) {
 			return true;
 		}
+		if (
+			infrastructureError instanceof AirsideGatewayInfrastructureError &&
+			job.attempts < MAX_VERIFICATION_ATTEMPTS
+		) {
+			await redisClient.set(
+				GATEWAY_PAUSE_KEY,
+				"1",
+				"PX",
+				GATEWAY_RETRY_DELAY_MS,
+			);
+			await db
+				.update(tables.providerModelVerification)
+				.set({ status: "queued", startedAt: null, checks: job.checks })
+				.where(
+					and(
+						eq(tables.providerModelVerification.id, job.id),
+						eq(tables.providerModelVerification.status, "running"),
+						eq(tables.providerModelVerification.attempts, job.attempts),
+					),
+				);
+			logger.warn("Airside gateway refused a verification; queue paused", {
+				verificationId: job.id,
+				providerId: job.target.providerId,
+				attempts: job.attempts,
+			});
+			return true;
+		}
 		const feedback = redactToken(
 			(error instanceof Error ? error.message : "Verification failed.").slice(
 				0,
@@ -590,17 +650,20 @@ export async function processNextModelVerification(
 			token,
 		);
 		checks =
-			isDailyModelVerification(job) && !token
+			infrastructureError || (isDailyModelVerification(job) && !token)
 				? checks.map((check) => ({
 						...check,
 						status: "skipped" as const,
-						feedback: "Scheduled verification is currently unavailable.",
+						feedback: infrastructureError
+							? "Operator gateway verification is currently unavailable."
+							: "Scheduled verification is currently unavailable.",
 					}))
 				: terminalChecks(checks, feedback);
 		const completed = await db
 			.update(tables.providerModelVerification)
 			.set({
 				status: "failed",
+				target: { ...job.target, gatewayExecutionVersion: undefined },
 				checks,
 				summary: feedback,
 				completedAt: new Date(),
@@ -625,3 +688,66 @@ export async function processNextModelVerification(
 	}
 	return true;
 }
+function resolvedProviderKey(
+	key: typeof tables.providerKey.$inferSelect,
+	baseUrl?: string | null,
+): ResolvedCredential {
+	const effectiveBaseUrl = baseUrl ?? key.baseUrl;
+	return {
+		providerKey: readProviderKey(key),
+		providerKeyId: key.id,
+		credentialFingerprint: providerVerificationCredentialFingerprint(
+			key,
+			effectiveBaseUrl,
+		),
+		baseUrl: effectiveBaseUrl ?? undefined,
+		providerKeyOptions: managedCredentialOptions(key),
+		skipEnvVars: true,
+	};
+}
+async function verificationPricing(job: VerificationRow) {
+	if (!job.modelProviderMappingId && !job.draftModelId) {
+		if (!job.target.pricing) {
+			throw new Error(
+				"Verification inference pricing snapshot is unavailable.",
+			);
+		}
+		return airsideInferencePricing(job.target);
+	}
+	const mapping = await db.query.modelProviderMapping.findFirst({
+		where: {
+			...(job.modelProviderMappingId
+				? { id: { eq: job.modelProviderMappingId } }
+				: { source: { eq: "airside" as const } }),
+			providerId: { eq: job.target.providerId },
+			modelId: { eq: job.target.modelName },
+			externalId: { eq: job.target.externalId },
+			region: job.target.region ? { eq: job.target.region } : { isNull: true },
+		},
+	});
+	if (job.modelProviderMappingId && !mapping) {
+		throw new Error("Verification inference mapping changed.");
+	}
+	const filing =
+		job.draftModelId && !mapping && !isDailyModelVerification(job)
+			? await db.query.providerPriceFiling.findFirst({
+					where: {
+						draftModelId: { eq: job.draftModelId },
+						status: { ne: "rejected" },
+					},
+					orderBy: { createdAt: "desc", id: "desc" },
+				})
+			: undefined;
+	if (!mapping && !filing && !job.target.pricing) {
+		throw new Error("Verification inference pricing snapshot is unavailable.");
+	}
+	return airsideInferencePricing(job.target, mapping, filing);
+}
+type CredentialJob = Pick<
+	VerificationRow,
+	| "id"
+	| "target"
+	| "providerCompanyId"
+	| "credentialSource"
+	| "modelProviderMappingId"
+>;

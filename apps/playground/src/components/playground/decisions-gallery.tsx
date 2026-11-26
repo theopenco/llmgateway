@@ -37,6 +37,8 @@ import type {
 
 interface DecisionsGalleryProps {
 	items: DecisionGalleryItem[];
+	// Item id → React key, so a run keeps its element when its id changes.
+	itemKeys?: ReadonlyMap<string, string>;
 	comparisonMode: boolean;
 	onScenarioClick?: (scenario: DecisionScenario) => void;
 }
@@ -512,6 +514,7 @@ function EmptyState({
 
 export function DecisionsGallery({
 	items,
+	itemKeys,
 	comparisonMode,
 	onScenarioClick,
 }: DecisionsGalleryProps) {
@@ -522,7 +525,11 @@ export function DecisionsGallery({
 	return (
 		<div className="space-y-10">
 			{items.map((item) => (
-				<div key={item.id} id={`gallery-${item.id}`} className="space-y-4">
+				<div
+					key={itemKeys?.get(item.id) ?? item.id}
+					id={`gallery-${item.id}`}
+					className="space-y-4"
+				>
 					<RunHeader item={item} />
 					{comparisonMode || item.models.length > 1 ? (
 						<div

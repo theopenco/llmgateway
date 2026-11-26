@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { isStaffHiddenPage } from "@/lib/admin-role";
+import { isStaffHiddenPage, canReadFinancials } from "@/lib/admin-role";
 
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
@@ -83,7 +83,7 @@ export async function proxy(req: NextRequest) {
 			});
 		}
 
-		if (role !== "admin" && isStaffHiddenPage(pathname)) {
+		if (!canReadFinancials(role) && isStaffHiddenPage(pathname)) {
 			return NextResponse.redirect(new URL("/organizations", req.url));
 		}
 

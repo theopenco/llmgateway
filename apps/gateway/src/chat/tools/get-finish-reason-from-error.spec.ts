@@ -238,6 +238,24 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(400, alibabaError)).toBe("content_filter");
 	});
 
+	it.each([
+		"input content failed safety check: prompt (1026)",
+		"no image generated: all 2 images failed content safety check (1027)",
+	])(
+		"returns content_filter for MiniMax safety check errors: %s",
+		(message) => {
+			expect(
+				getFinishReasonFromError(
+					422,
+					JSON.stringify({
+						type: "error",
+						error: { type: "unprocessable_entity_error", message },
+					}),
+				),
+			).toBe("content_filter");
+		},
+	);
+
 	it("returns content_filter for OpenAI cyber_policy errors", () => {
 		const openAiError = JSON.stringify({
 			error: {

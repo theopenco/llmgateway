@@ -1,3 +1,5 @@
+import { imageFormatFromBase64, imageMimeType } from "@/lib/image-format.js";
+
 import {
 	billedServerToolUseCount,
 	fromConverseReasoningContent,
@@ -5,15 +7,19 @@ import {
 	sealAnthropicThinkingBlock,
 	toAnthropicReasoningDetail,
 	type AnthropicThinkingBlock,
+	type SvgAuthorUsage,
 } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
+import { extractBedrockSafeguardResults } from "./anthropic-safeguards.js";
 import { estimateTokens } from "./estimate-tokens.js";
+import { isGoogleOutputImagePart } from "./extract-images.js";
 import {
 	adjustGoogleCandidateTokens,
 	extractBedrockCacheCreationDetails,
+	getGoogleImageOutputTokens,
 	normalizeCompletionTokens,
 } from "./extract-token-usage.js";
 import { dedupeGoogleCandidateParts } from "./google-candidates.js";
@@ -54,6 +60,30 @@ function sealedThinkingDetails(
 	return details.length > 0 ? details : null;
 }
 
+// OpenAI reports the tokens of the model that authors an SVG separately from
+// the image model's `usage`; they are billed at the authoring model's rates.
+function parseSvgAuthorUsage(svgUsage: unknown): SvgAuthorUsage | null {
+	if (!svgUsage || typeof svgUsage !== "object") {
+		return null;
+	}
+	const usage = svgUsage as Record<string, unknown>;
+	const count = (value: unknown) =>
+		typeof value === "number" && Number.isFinite(value) && value > 0
+			? value
+			: 0;
+	const inputTokens = count(usage.input_tokens);
+	const outputTokens = count(usage.output_tokens);
+	if (inputTokens === 0 && outputTokens === 0) {
+		return null;
+	}
+	return {
+		model: typeof usage.model === "string" ? usage.model : null,
+		inputTokens,
+		outputTokens,
+		reasoningTokens: count(usage.reasoning_tokens),
+	};
+}
+
 /**
  * Parses response content and metadata from different providers
  */
@@ -74,8 +104,14 @@ export function parseProviderResponse(
 	options?: {
 		cacheThoughtSignatures?: boolean;
 		serverToolUseAlwaysReported?: boolean;
+		/**
+		 * Provider whose replay the thinking signatures are sealed for, when it
+		 * differs from the response format (Claude on AWS Bedrock).
+		 */
+		thinkingProvider?: Provider;
 	},
 ) {
+	const thinkingProvider = options?.thinkingProvider ?? usedProvider;
 	let content = null;
 	let reasoningContent = null;
 	let reasoningDetails: ReasoningDetail[] | null = null;
@@ -100,6 +136,7 @@ export function parseProviderResponse(
 	let imageOutputTokens: number | null = null;
 	let audioInputTokens: number | null = null;
 	let cachedAudioInputTokens: number | null = null;
+	let svgAuthorUsage: SvgAuthorUsage | null = null;
 	let toolResults = null;
 	let anthropicNativeBlocks: AnthropicNativeBlock[] | null = null;
 	let anthropicContent: AnthropicNativeBlock[] | null = null;
@@ -256,6 +293,12 @@ export function parseProviderResponse(
 				cacheCreation1hTokens = cacheDetails.cacheCreation1hTokens;
 			}
 
+			// Safeguard verdicts, requested via additionalModelResponseFieldPaths
+			// when the request carried `safeguards` (Claude Code auto mode).
+			anthropicSafeguardResults =
+				extractBedrockSafeguardResults(json.additionalModelResponseFields) ??
+				null;
+
 			// Extract tool calls if present
 			const toolUseBlocks = contentBlocks.filter((block: any) => block.toolUse);
 			if (toolUseBlocks.length > 0) {
@@ -287,7 +330,7 @@ export function parseProviderResponse(
 			reasoningContent =
 				thinkingBlocks.map((block: any) => block.thinking).join("") ?? null;
 			reasoningDetails = sealedThinkingDetails(
-				usedProvider,
+				thinkingProvider,
 				contentBlocks.map((block: any): AnthropicThinkingBlock | null =>
 					block.type === "thinking" && typeof block.signature === "string"
 						? {
@@ -410,7 +453,7 @@ export function parseProviderResponse(
 				anthropicContent = contentBlocks.map((block: any) =>
 					(block.type === "thinking" && typeof block.signature === "string") ||
 					(block.type === "redacted_thinking" && typeof block.data === "string")
-						? sealAnthropicThinkingBlock(usedProvider, block)
+						? sealAnthropicThinkingBlock(thinkingProvider, block)
 						: block,
 				);
 			}
@@ -492,7 +535,7 @@ export function parseProviderResponse(
 			reasoningContent = thoughtContent.length > 0 ? thoughtContent : null;
 
 			// Extract images from Google response parts
-			const imageParts = parts.filter((part: any) => part.inlineData);
+			const imageParts = parts.filter(isGoogleOutputImagePart);
 			images = imageParts.map((part: any): ImageObject => ({
 				type: "image_url",
 				image_url: {
@@ -631,6 +674,7 @@ export function parseProviderResponse(
 					}
 				}
 			}
+			imageOutputTokens = getGoogleImageOutputTokens(json.usageMetadata);
 			if (Array.isArray(json.usageMetadata?.cacheTokensDetails)) {
 				for (const detail of json.usageMetadata.cacheTokensDetails) {
 					if (detail?.modality === "AUDIO" && detail.tokenCount) {
@@ -946,6 +990,43 @@ export function parseProviderResponse(
 			break;
 		}
 		default: // OpenAI format
+			// MiniMax H3 Image: OpenAI-style { data, usage } where items that failed
+			// (e.g. the content safety check) carry only `error`. Usage counts
+			// successful images only; input_tokens includes the image tokens.
+			if (
+				usedProvider === "minimax" &&
+				Array.isArray(json.data) &&
+				!json.choices
+			) {
+				images = json.data
+					.filter(
+						(item: { url?: unknown }) =>
+							typeof item?.url === "string" && item.url.length > 0,
+					)
+					.map((item: { url: string }): ImageObject => ({
+						type: "image_url",
+						image_url: { url: item.url },
+					}));
+				content = images.length > 0 ? imageLabel : null;
+				finishReason =
+					images.length > 0
+						? "stop"
+						: json.data.some((item: { error?: { code?: unknown } }) =>
+									["1026", "1027"].includes(String(item?.error?.code)),
+							  )
+							? "content_filter"
+							: "upstream_error";
+				promptTokens = json.usage?.input_tokens ?? 0;
+				completionTokens = json.usage?.output_tokens ?? 0;
+				imageInputTokens =
+					json.usage?.input_tokens_details?.image_tokens ?? null;
+				imageOutputTokens =
+					json.usage?.output_tokens_details?.image_tokens ?? null;
+				totalTokens =
+					json.usage?.total_tokens ??
+					(promptTokens ?? 0) + (completionTokens ?? 0);
+				break;
+			}
 			// Check if this is an OpenAI / Azure image generation response (e.g. gpt-image-2)
 			// Format: { created: number, data: [{ b64_json?: string, url?: string, revised_prompt?: string }], usage?: {...} }
 			if (
@@ -959,7 +1040,7 @@ export function parseProviderResponse(
 				images = imageData.map((item: any): ImageObject => {
 					let url: string;
 					if (item.b64_json) {
-						url = `data:image/png;base64,${item.b64_json}`;
+						url = `data:${imageMimeType(imageFormatFromBase64(item.b64_json) ?? "png")};base64,${item.b64_json}`;
 					} else {
 						url = item.url;
 					}
@@ -981,6 +1062,34 @@ export function parseProviderResponse(
 				totalTokens =
 					json.usage?.total_tokens ??
 					(promptTokens ?? 0) + (completionTokens ?? 0);
+				svgAuthorUsage = parseSvgAuthorUsage(json.svg_usage);
+				break;
+			}
+			// fal text-to-image: { images: [{ url }], has_nsfw_concepts?: boolean[] }.
+			// The safety checker replaces flagged images with black frames, so drop them.
+			if (usedProvider === "fal-ai" && Array.isArray(json.images)) {
+				const nsfw: unknown[] = Array.isArray(json.has_nsfw_concepts)
+					? json.has_nsfw_concepts
+					: [];
+				images = json.images
+					.filter(
+						(item: { url?: unknown }, index: number) =>
+							typeof item?.url === "string" && nsfw[index] !== true,
+					)
+					.map((item: { url: string }): ImageObject => ({
+						type: "image_url",
+						image_url: { url: item.url },
+					}));
+				content = images.length > 0 ? imageLabel : null;
+				finishReason =
+					images.length > 0
+						? "stop"
+						: nsfw.includes(true)
+							? "content_filter"
+							: "upstream_error";
+				promptTokens = 0;
+				completionTokens = 0;
+				totalTokens = 0;
 				break;
 			}
 			// Check if this is an xAI Grok Imagine image generation response
@@ -1073,24 +1182,6 @@ export function parseProviderResponse(
 				completionTokens = billedTokens;
 				imageOutputTokens = billedTokens > 0 ? billedTokens : null;
 				totalTokens = billedTokens;
-				break;
-			}
-			// Check if this is a Reve image generation response
-			// Format: { image: "base64...", version: "...", content_violation: false, ... }
-			if (usedProvider === "reve" && typeof json.image === "string") {
-				images = [
-					{
-						type: "image_url",
-						image_url: {
-							url: `data:image/png;base64,${json.image}`,
-						},
-					},
-				];
-				content = imageLabel;
-				finishReason = "stop";
-				promptTokens = 0;
-				completionTokens = 0;
-				totalTokens = 0;
 				break;
 			}
 			// Check if this is an OpenAI responses format (has output array instead of choices)
@@ -1573,6 +1664,7 @@ export function parseProviderResponse(
 		imageOutputTokens,
 		audioInputTokens,
 		cachedAudioInputTokens,
+		svgAuthorUsage,
 		toolResults,
 		anthropicNativeBlocks,
 		anthropicContent,

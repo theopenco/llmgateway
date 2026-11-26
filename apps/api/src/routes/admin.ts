@@ -3,13 +3,16 @@ import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { deleteResendContact } from "@/auth/config.js";
 import {
 	cancelOrganizationSubscriptions,
 	getCancelledOrganizationPlanState,
 	isTerminalSubscriptionError,
 } from "@/lib/account-deletion.js";
 import { approveHighRiskUser } from "@/lib/account-risk.js";
+import {
+	modelBreakdownKey,
+	modelBreakdownSql,
+} from "@/lib/admin-model-breakdown.js";
 import {
 	ADMIN_REFUND_REASONS,
 	computeAdminRefundability,
@@ -41,7 +44,6 @@ import {
 	errorScopeSchema,
 	listIgnoredErrorMatchers,
 } from "@/lib/error-filters.js";
-import { escapeLikePattern } from "@/lib/like-pattern.js";
 import { buildLogErrorFilter } from "@/lib/log-error-filter.js";
 import {
 	mappingErrorShapesSchema,
@@ -59,6 +61,7 @@ import {
 	getModelErrorRateAlertsSettings,
 	setModelErrorRateAlertsSettings,
 } from "@/lib/model-error-rate-alerts.js";
+import { buildOrganizationSearchFilter } from "@/lib/organization-search.js";
 import {
 	getOrganizationTimeseries,
 	organizationTimeseriesQuery,
@@ -67,6 +70,7 @@ import {
 import { managedProviderKeyName } from "@/lib/provider-key-label.js";
 import { PG_INTEGER_MAX } from "@/lib/provider-key-rate-limits.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
+import { deleteResendContact } from "@/lib/resend-contacts.js";
 import {
 	getBucketUnitForWindow,
 	getTokenWindowStartDate,
@@ -115,6 +119,11 @@ import {
 	pickMappingHistoryTable,
 	pickModelHistoryTable,
 } from "@/utils/history-window.js";
+import {
+	buildInvoiceDataForTransaction,
+	generateAndEmailInvoice,
+} from "@/utils/invoice.js";
+import { resolveInvoiceBillingDetails } from "@/utils/plan-billing.js";
 
 import { getOrgTierQualifyingSpendUsd } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
@@ -157,6 +166,8 @@ import {
 	globalProviderKeyModelStats,
 	globalSourceStats,
 	rootModelIdSql,
+	DISCOUNT_EXCLUDABLE_COST_TYPES,
+	type DiscountExcludableCostType,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -173,6 +184,7 @@ import {
 	MAX_BULK_BLOCK_ORGANIZATIONS,
 	MIN_BULK_BLOCK_SEARCH_LENGTH,
 	CONTENT_FILTER_CLASSIFIERS,
+	CONTENT_FILTER_BLOCK_GROUPS,
 	CONTENT_FILTER_INTERNAL_SCOPES,
 	contentFilterSettingsSchema,
 	getOrgContentFilterTier,
@@ -209,35 +221,6 @@ function escapeHtml(text: string): string {
 		"'": "&#x27;",
 	};
 	return text.replace(/[&<>"']/g, (char) => htmlEscapeMap[char] || char);
-}
-
-/**
- * Builds the organization search filter shared by the listing and the bulk
- * block endpoints. Returns `undefined` for an empty search so callers must
- * decide explicitly what "no filter" means — the listing shows everything, the
- * bulk block endpoints reject the request.
- */
-function buildOrganizationSearchFilter(search: string | undefined) {
-	const trimmed = search?.trim();
-	if (!trimmed) {
-		return undefined;
-	}
-
-	const textPattern = `%${escapeLikePattern(trimmed.toLowerCase())}%`;
-	const idPattern = `%${escapeLikePattern(trimmed)}%`;
-
-	return or(
-		sql`LOWER(${tables.organization.name}) LIKE ${textPattern} ESCAPE '\\'`,
-		sql`LOWER(${tables.organization.billingEmail}) LIKE ${textPattern} ESCAPE '\\'`,
-		sql`${tables.organization.id} LIKE ${idPattern} ESCAPE '\\'`,
-		// Provider abuse reports quote the safety identifier we send upstream:
-		// per API key now, per organization for older reports.
-		sql`${tables.organization.safetyIdentifier} LIKE ${idPattern} ESCAPE '\\'`,
-		// Project and API key IDs match exactly, resolving to their organization.
-		sql`EXISTS (SELECT 1 FROM ${tables.project} p WHERE p.organization_id = ${tables.organization.id} AND p.id = ${trimmed})`,
-		sql`EXISTS (SELECT 1 FROM ${tables.apiKey} ak JOIN ${tables.project} p ON ak.project_id = p.id WHERE p.organization_id = ${tables.organization.id} AND (ak.safety_identifier = ${trimmed} OR ak.id = ${trimmed}))`,
-		sql`EXISTS (SELECT 1 FROM ${tables.userOrganization} uo JOIN ${tables.user} u ON uo.user_id = u.id WHERE uo.organization_id = ${tables.organization.id} AND LOWER(u.email) LIKE ${textPattern} ESCAPE '\\')`,
-	);
 }
 
 /**
@@ -765,7 +748,6 @@ const apiKeySchema = z.object({
 	usageLimit: z.string().nullable(),
 	projectId: z.string(),
 	projectName: z.string(),
-	safetyIdentifier: z.string(),
 	createdAt: z.string(),
 	iamRules: z.array(iamRuleAdminSchema),
 });
@@ -859,6 +841,41 @@ const providerKeysListSchema = z.object({
 	counts: keyStatusCountsSchema,
 });
 
+// High-risk review state of a user (see `user.riskStatus`), returned wherever
+// an admin may need to approve the account.
+const accountRiskSchema = z.object({
+	status: z.enum(["none", "flagged", "approved"]),
+	flaggedAt: z.string().nullable(),
+	source: z.enum(["signup", "email_verification"]).nullable(),
+	ipAddress: z.string().nullable(),
+	abuseConfidenceScore: z.number().nullable(),
+	countryCode: z.string().nullable(),
+	reviewedAt: z.string().nullable(),
+});
+
+const accountRiskColumns = {
+	riskStatus: true,
+	riskFlaggedAt: true,
+	riskFlagSource: true,
+	riskFlagIp: true,
+	riskFlagDetails: true,
+	riskReviewedAt: true,
+} as const;
+
+function toAccountRisk(
+	user: Pick<typeof tables.user.$inferSelect, keyof typeof accountRiskColumns>,
+): z.infer<typeof accountRiskSchema> {
+	return {
+		status: user.riskStatus,
+		flaggedAt: user.riskFlaggedAt?.toISOString() ?? null,
+		source: user.riskFlagSource,
+		ipAddress: user.riskFlagIp,
+		abuseConfidenceScore: user.riskFlagDetails?.abuseConfidenceScore ?? null,
+		countryCode: user.riskFlagDetails?.countryCode ?? null,
+		reviewedAt: user.riskReviewedAt?.toISOString() ?? null,
+	};
+}
+
 const memberSchema = z.object({
 	id: z.string(),
 	userId: z.string(),
@@ -879,6 +896,8 @@ const memberSchema = z.object({
 		email: z.string(),
 		name: z.string().nullable(),
 		emailVerified: z.boolean(),
+		status: z.enum(["active", "deactivated"]),
+		risk: accountRiskSchema,
 	}),
 });
 
@@ -2756,17 +2775,6 @@ admin.openapi(getGlobalStatsProviderKeys, async (c) => {
 	});
 });
 
-// `used_model` in global_model_stats is stored as `<provider>/<canonical-model>[:<region>]`
-// (e.g. `google-ai-studio/gemini-embedding-2`, `alibaba/deepseek-v4-flash:singapore`).
-// The canonical id is the segment between the first `/` and the optional `:`.
-function extractCanonicalModelId(usedModel: string): string {
-	const slashIdx = usedModel.indexOf("/");
-	const withoutProvider =
-		slashIdx === -1 ? usedModel : usedModel.slice(slashIdx + 1);
-	const colonIdx = withoutProvider.indexOf(":");
-	return colonIdx === -1 ? withoutProvider : withoutProvider.slice(0, colonIdx);
-}
-
 const GLOBAL_STATS_MODE_LABELS: Record<string, string> = {
 	credits: "Credits",
 	"api-keys": "BYOK",
@@ -3751,7 +3759,6 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 			usageLimit: tables.apiKey.usageLimit,
 			projectId: tables.apiKey.projectId,
 			projectName: tables.project.name,
-			safetyIdentifier: tables.apiKey.safetyIdentifier,
 			createdAt: tables.apiKey.createdAt,
 		})
 		.from(tables.apiKey)
@@ -3902,7 +3909,14 @@ admin.openapi(getOrganizationMembers, async (c) => {
 			where: { organizationId: { eq: orgId } },
 			with: {
 				user: {
-					columns: { id: true, email: true, name: true, emailVerified: true },
+					columns: {
+						id: true,
+						email: true,
+						name: true,
+						emailVerified: true,
+						status: true,
+						...accountRiskColumns,
+					},
 				},
 				team: { columns: { id: true, name: true, isDefault: true } },
 				iamRules: true,
@@ -3953,6 +3967,8 @@ admin.openapi(getOrganizationMembers, async (c) => {
 				email: m.user!.email,
 				name: m.user!.name,
 				emailVerified: m.user!.emailVerified,
+				status: m.user!.status,
+				risk: toAccountRisk(m.user!),
 			},
 		})),
 		total: members.length,
@@ -4290,6 +4306,8 @@ const logEntrySchema = z.object({
 	cacheWriteInputCost: z.number().nullable(),
 	requestCost: z.number().nullable(),
 	webSearchCost: z.number().nullable(),
+	webSearchEngine: z.string().nullable(),
+	webSearchType: z.enum(["native", "gateway"]).nullable(),
 	contentFilterCost: z.number().nullable(),
 	imageInputCost: z.number().nullable(),
 	imageOutputCost: z.number().nullable(),
@@ -4494,6 +4512,8 @@ async function fetchAdminLogs(scope: SQLWrapper, query: AdminLogQuery) {
 			cacheWriteInputCost: tables.log.cacheWriteInputCost,
 			requestCost: tables.log.requestCost,
 			webSearchCost: tables.log.webSearchCost,
+			webSearchEngine: tables.log.webSearchEngine,
+			webSearchType: tables.log.webSearchType,
 			contentFilterCost: tables.log.contentFilterCost,
 			imageInputCost: tables.log.imageInputCost,
 			imageOutputCost: tables.log.imageOutputCost,
@@ -4703,6 +4723,7 @@ const discountSchema = z.object({
 	provider: z.string().nullable(),
 	model: z.string().nullable(),
 	discountPercent: z.string(),
+	excludedCostTypes: z.array(z.enum(DISCOUNT_EXCLUDABLE_COST_TYPES)),
 	reason: z.string().nullable(),
 	expiresAt: z.string().nullable(),
 	createdAt: z.string(),
@@ -4721,6 +4742,11 @@ const createDiscountBodySchema = z.object({
 		.number()
 		.min(0, "Discount must be at least 0%")
 		.max(100, "Discount cannot exceed 100%"),
+	// Cost types billed at full price. Omitted: none on create, unchanged on update.
+	excludedCostTypes: z
+		.array(z.enum(DISCOUNT_EXCLUDABLE_COST_TYPES))
+		.transform((types) => [...new Set(types)])
+		.optional(),
 	reason: z.string().nullable().optional(),
 	expiresAt: z.string().nullable().optional(),
 });
@@ -5136,6 +5162,7 @@ function formatDiscount(d: {
 	provider: string | null;
 	model: string | null;
 	discountPercent: string | null;
+	excludedCostTypes: DiscountExcludableCostType[];
 	reason: string | null;
 	expiresAt: Date | null;
 	createdAt: Date;
@@ -5147,6 +5174,7 @@ function formatDiscount(d: {
 		provider: d.provider,
 		model: d.model,
 		discountPercent: String(d.discountPercent),
+		excludedCostTypes: d.excludedCostTypes,
 		reason: d.reason,
 		expiresAt: d.expiresAt?.toISOString() ?? null,
 		createdAt: d.createdAt.toISOString(),
@@ -5450,6 +5478,7 @@ admin.openapi(createGlobalDiscount, async (c) => {
 			provider,
 			model,
 			discountPercent: discountDecimal,
+			excludedCostTypes: body.excludedCostTypes ?? [],
 			reason: body.reason ?? null,
 			expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
 		})
@@ -5551,6 +5580,9 @@ async function updateDiscount(
 				provider,
 				model,
 				discountPercent: new Decimal(body.discountPercent).div(100).toFixed(4),
+				...(body.excludedCostTypes !== undefined && {
+					excludedCostTypes: body.excludedCostTypes,
+				}),
 				reason: body.reason ?? null,
 				expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
 			})
@@ -5735,6 +5767,7 @@ admin.openapi(getAllOrganizationDiscounts, async (c) => {
 			provider: tables.discount.provider,
 			model: tables.discount.model,
 			discountPercent: tables.discount.discountPercent,
+			excludedCostTypes: tables.discount.excludedCostTypes,
 			reason: tables.discount.reason,
 			expiresAt: tables.discount.expiresAt,
 			createdAt: tables.discount.createdAt,
@@ -5838,6 +5871,7 @@ admin.openapi(createOrganizationDiscount, async (c) => {
 			provider,
 			model,
 			discountPercent: discountDecimal,
+			excludedCostTypes: body.excludedCostTypes ?? [],
 			reason: body.reason ?? null,
 			expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
 		})
@@ -5853,6 +5887,7 @@ admin.openapi(createOrganizationDiscount, async (c) => {
 			provider,
 			model,
 			discountPercent: body.discountPercent,
+			excludedCostTypes: created.excludedCostTypes,
 			reason: created.reason,
 			expiresAt: created.expiresAt?.toISOString() ?? null,
 			source: "admin",
@@ -5892,6 +5927,7 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 			discountPercent: new Decimal(deleted.discountPercent ?? 0)
 				.times(100)
 				.toNumber(),
+			excludedCostTypes: deleted.excludedCostTypes,
 			source: "admin",
 		},
 	});
@@ -6461,16 +6497,24 @@ const contentFilterSettingsResponseSchema = z
 		enabled: z.boolean(),
 		sampleRatePercent: z.number(),
 		enforce: z.boolean(),
+		enforceSampleRatePercent: z.number(),
 		enforceEnterprise: z.boolean(),
 		classifier: z.enum(CONTENT_FILTER_CLASSIFIERS),
+		shadowClassifiers: z.array(z.enum(CONTENT_FILTER_CLASSIFIERS)),
 		internalScope: z.enum(CONTENT_FILTER_INTERNAL_SCOPES),
+		openaiScope: z.enum(CONTENT_FILTER_INTERNAL_SCOPES),
 		moderateImages: z.boolean(),
+		moderateEmbeddings: z.boolean(),
+		blockGroups: z.array(z.enum(CONTENT_FILTER_BLOCK_GROUPS)).nullable(),
+		csamScoreThreshold: z.number(),
 		providers: z.array(
 			z.object({
 				id: z.string(),
 				name: z.string(),
 				color: z.string().nullable(),
 				enabled: z.boolean(),
+				enforced: z.boolean(),
+				devPassEnforced: z.boolean(),
 			}),
 		),
 	})
@@ -6498,7 +6542,11 @@ const updateContentFilterSettingsRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: contentFilterSettingsSchema,
+					// Optional so a save from an older admin build keeps the stored value.
+					schema: contentFilterSettingsSchema.extend({
+						devPassEnforceProviderIds: z.array(z.string()).optional(),
+						moderateEmbeddings: z.boolean().optional(),
+					}),
 				},
 			},
 		},
@@ -6519,24 +6567,43 @@ admin.openapi(getContentFilterSettingsRoute, async (c) => {
 		enabled: settings.enabled,
 		sampleRatePercent: settings.sampleRatePercent,
 		enforce: settings.enforce,
+		enforceSampleRatePercent: settings.enforceSampleRatePercent,
 		enforceEnterprise: settings.enforceEnterprise,
 		classifier: settings.classifier,
+		shadowClassifiers: settings.shadowClassifiers,
 		internalScope: settings.internalScope,
+		openaiScope: settings.openaiScope,
 		moderateImages: settings.moderateImages,
+		moderateEmbeddings: settings.moderateEmbeddings,
+		blockGroups: settings.blockGroups,
+		csamScoreThreshold: settings.csamScoreThreshold,
 		providers: listContentFilterProviders(settings),
 	});
 });
 
 admin.openapi(updateContentFilterSettingsRoute, async (c) => {
-	const settings = await setContentFilterSettings(c.req.valid("json"));
+	const input = c.req.valid("json");
+	const stored = await getContentFilterSettings();
+	const settings = await setContentFilterSettings({
+		...input,
+		devPassEnforceProviderIds:
+			input.devPassEnforceProviderIds ?? stored.devPassEnforceProviderIds,
+		moderateEmbeddings: input.moderateEmbeddings ?? stored.moderateEmbeddings,
+	});
 	return c.json({
 		enabled: settings.enabled,
 		sampleRatePercent: settings.sampleRatePercent,
 		enforce: settings.enforce,
+		enforceSampleRatePercent: settings.enforceSampleRatePercent,
 		enforceEnterprise: settings.enforceEnterprise,
 		classifier: settings.classifier,
+		shadowClassifiers: settings.shadowClassifiers,
 		internalScope: settings.internalScope,
+		openaiScope: settings.openaiScope,
 		moderateImages: settings.moderateImages,
+		moderateEmbeddings: settings.moderateEmbeddings,
+		blockGroups: settings.blockGroups,
+		csamScoreThreshold: settings.csamScoreThreshold,
 		providers: listContentFilterProviders(settings),
 	});
 });
@@ -9062,7 +9129,7 @@ admin.openapi(manualCreditsRoute, async (c) => {
 		? `Manual payment (${paymentMethod}) credited by Administrator: ${comment}`
 		: `Manual payment (${paymentMethod}) credited by Administrator`;
 
-	const { transactionId, updatedCredits } = await db.transaction(async (tx) => {
+	const { txn, updatedCredits } = await db.transaction(async (tx) => {
 		const [txn] = await tx
 			.insert(tables.transaction)
 			.values({
@@ -9079,7 +9146,7 @@ admin.openapi(manualCreditsRoute, async (c) => {
 				paymentMethod,
 				externalReference: externalReference || null,
 			})
-			.returning({ id: tables.transaction.id });
+			.returning();
 
 		const [updatedOrg] = await tx
 			.update(tables.organization)
@@ -9090,10 +9157,11 @@ admin.openapi(manualCreditsRoute, async (c) => {
 			.returning({ credits: tables.organization.credits });
 
 		return {
-			transactionId: txn.id,
+			txn,
 			updatedCredits: String(updatedOrg.credits),
 		};
 	});
+	const transactionId = txn.id;
 
 	await logAuditEvent({
 		organizationId: orgId,
@@ -9109,6 +9177,24 @@ admin.openapi(manualCreditsRoute, async (c) => {
 			transactionId,
 		},
 	});
+
+	// Emailed once, when the payment is booked; the same document stays
+	// downloadable from the organization's transactions.
+	try {
+		const billingDetails = await resolveInvoiceBillingDetails(org);
+		await generateAndEmailInvoice(
+			buildInvoiceDataForTransaction(txn, {
+				id: org.id,
+				name: org.name,
+				...billingDetails,
+			}),
+		);
+	} catch (error) {
+		logger.error(
+			"Invoice email failed (manual payment); credits were added",
+			error as Error,
+		);
+	}
 
 	return c.json({
 		message: "Credits added successfully",
@@ -10055,12 +10141,10 @@ async function blockOrganizationById(
 	if (memberUserIds.length > 0) {
 		const members = await db.query.user.findMany({
 			where: { id: { in: memberUserIds } },
-			columns: { email: true },
+			columns: { email: true, emailVerified: true },
 		});
 
-		await Promise.all(
-			members.map((member) => deleteResendContact(member.email)),
-		);
+		await Promise.all(members.map((member) => deleteResendContact(member)));
 	}
 
 	await logAuditEvent({
@@ -11088,8 +11172,7 @@ const providerDetailSchema = z.object({
 				logoUrl: z.string().nullable(),
 				iconUrl: z.string().nullable(),
 				hasPendingBranding: z.boolean(),
-				verificationKeyMasked: z.string().nullable(),
-				verificationKeyUpdatedAt: z.string().nullable(),
+
 				claimedAt: z.string(),
 				approvedAt: z.string().nullable(),
 				companyWebsite: z.string().nullable(),
@@ -11106,6 +11189,7 @@ const providerDetailSchema = z.object({
 				paidAt: z.string().nullable(),
 				listingInviteCode: z.string().nullable(),
 				billingMode: z.enum(AIRSIDE_BILLING_MODES),
+				autoApproveFares: z.boolean(),
 				domains: z.array(
 					z.object({
 						domain: z.string(),
@@ -11266,10 +11350,9 @@ admin.openapi(getProviderDetail, async (c) => {
 					logoUrl: tables.providerClaim.logoUrl,
 					iconUrl: tables.providerClaim.iconUrl,
 					pendingBranding: tables.providerClaim.pendingBranding,
-					verificationKeyMasked: tables.providerClaim.verificationKeyMasked,
-					verificationKeyUpdatedAt:
-						tables.providerClaim.verificationKeyUpdatedAt,
+
 					billingMode: tables.providerClaim.billingMode,
+					autoApproveFares: tables.providerClaim.autoApproveFares,
 					createdAt: tables.providerClaim.createdAt,
 					reviewedAt: tables.providerClaim.reviewedAt,
 				},
@@ -11508,9 +11591,7 @@ admin.openapi(getProviderDetail, async (c) => {
 						logoUrl: carrier.claim.logoUrl,
 						iconUrl: carrier.claim.iconUrl,
 						hasPendingBranding: carrier.claim.pendingBranding !== null,
-						verificationKeyMasked: carrier.claim.verificationKeyMasked,
-						verificationKeyUpdatedAt:
-							carrier.claim.verificationKeyUpdatedAt?.toISOString() ?? null,
+
 						claimedAt: carrier.claim.createdAt.toISOString(),
 						approvedAt: carrier.claim.reviewedAt?.toISOString() ?? null,
 						companyWebsite: carrier.companyWebsite,
@@ -11524,6 +11605,7 @@ admin.openapi(getProviderDetail, async (c) => {
 						paidAt: carrier.paidAt?.toISOString() ?? null,
 						listingInviteCode: carrier.listingInviteCode,
 						billingMode: carrier.claim.billingMode,
+						autoApproveFares: carrier.claim.autoApproveFares,
 						domains: carrierDomains.map((d) => ({
 							domain: d.domain,
 							verificationMethod: d.verificationMethod,
@@ -11831,7 +11913,12 @@ const costByModelResponseSchema = z.object({
 	totalApiKeysCost: z.number(),
 });
 
-const costByModelViewSchema = z.enum(["mapping", "canonical"]);
+const costByModelViewSchema = z.enum([
+	"mapping",
+	"canonical",
+	"provider",
+	"family",
+]);
 const organizationCostGroupBySchema = z.enum([
 	"model",
 	"project",
@@ -12132,6 +12219,7 @@ admin.openapi(getOrgCostByModel, async (c) => {
 	const rows = await db
 		.select({
 			usedModel: projectHourlyModelStats.usedModel,
+			usedProvider: projectHourlyModelStats.usedProvider,
 			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
 				"cost",
 			),
@@ -12152,14 +12240,14 @@ admin.openapi(getOrgCostByModel, async (c) => {
 				gte(projectHourlyModelStats.hourTimestamp, startDate),
 			),
 		)
-		.groupBy(projectHourlyModelStats.usedModel);
+		.groupBy(
+			projectHourlyModelStats.usedModel,
+			projectHourlyModelStats.usedProvider,
+		);
 
 	const byModel = new Map<string, CostBreakdownRow>();
 	for (const row of rows) {
-		const model =
-			modelView === "canonical"
-				? extractCanonicalModelId(row.usedModel)
-				: row.usedModel;
+		const model = modelBreakdownKey(row.usedModel, row.usedProvider, modelView);
 		const current = byModel.get(model) ?? {
 			model,
 			cost: 0,
@@ -12711,84 +12799,50 @@ async function buildCostByModelTimeseries({
 	models: string[];
 	data: z.infer<typeof costByModelTimeseriesPointSchema>[];
 }> {
-	const keyOf = (usedModel: string) =>
-		modelView === "canonical" ? extractCanonicalModelId(usedModel) : usedModel;
-
+	const dimension = modelBreakdownSql(projectHourlyModelStats, modelView);
 	const modelTotals = await db
 		.select({
-			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
-				"cost",
-			),
+			key: dimension,
+			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`,
 		})
 		.from(projectHourlyModelStats)
 		.where(baseFilter)
-		.groupBy(projectHourlyModelStats.usedModel);
-
-	const totalByKey = new Map<string, number>();
-	const usedModelsByKey = new Map<string, string[]>();
-	for (const row of modelTotals) {
-		const key = keyOf(row.usedModel);
-		totalByKey.set(key, (totalByKey.get(key) ?? 0) + Number(row.cost));
-		const list = usedModelsByKey.get(key) ?? [];
-		list.push(row.usedModel);
-		usedModelsByKey.set(key, list);
-	}
-
-	const topKeys = [...totalByKey.entries()]
-		.sort((a, b) => b[1] - a[1])
+		.groupBy(sql`1`);
+	const topKeys = modelTotals
+		.sort(
+			(a, b) => Number(b.cost) - Number(a.cost) || a.key.localeCompare(b.key),
+		)
 		.slice(0, TOP_TIMESERIES_SERIES)
-		.map(([k]) => k);
-
-	if (topKeys.length === 0) {
+		.map((row) => row.key);
+	if (!topKeys.length) {
 		return { models: [], data: [] };
 	}
-
 	const allBuckets = generateBucketTimestamps(
 		startDate,
 		new Date(),
 		bucketUnit,
 	);
-	const usedModelsToFetch = topKeys.flatMap(
-		(k) => usedModelsByKey.get(k) ?? [],
-	);
-
-	const bucketExpr = sql<string>`to_char(date_trunc(${sql.raw(`'${bucketUnit}'`)}, ${projectHourlyModelStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
-
+	const bucketExpr = sql<string>`to_char(date_trunc(${bucketUnit}, ${projectHourlyModelStats.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
 	const rows = await db
 		.select({
 			bucket: bucketExpr.as("bucket"),
-			usedModel: projectHourlyModelStats.usedModel,
-			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`.as(
-				"cost",
-			),
-			requestCount:
-				sql<number>`SUM(${projectHourlyModelStats.requestCount})`.as(
-					"request_count",
-				),
-			totalTokens:
-				sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`.as(
-					"total_tokens",
-				),
+			key: dimension,
+			cost: sql<number>`SUM(cast(${projectHourlyModelStats.cost} as double precision))`,
+			requestCount: sql<number>`SUM(${projectHourlyModelStats.requestCount})`,
+			totalTokens: sql<number>`SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC))`,
 			...modeSplitFields(projectHourlyModelStats),
 		})
 		.from(projectHourlyModelStats)
-		.where(
-			and(
-				baseFilter,
-				inArray(projectHourlyModelStats.usedModel, usedModelsToFetch),
-			),
-		)
-		.groupBy(bucketExpr, projectHourlyModelStats.usedModel)
-		.orderBy(asc(bucketExpr));
-
+		.where(and(baseFilter, inArray(dimension, topKeys)))
+		.groupBy(sql`1, 2`)
+		.orderBy(sql`1`);
 	return {
 		models: topKeys,
 		data: assembleCostTimeseriesPoints({
 			allBuckets,
 			rows: rows.map((row) => ({
 				bucket: row.bucket,
-				key: keyOf(row.usedModel),
+				key: row.key,
 				cost: Number(row.cost),
 				requestCount: Number(row.requestCount),
 				totalTokens: Number(row.totalTokens),
@@ -14365,7 +14419,13 @@ const getContactSubmissions = createRoute({
 			offset: z.coerce.number().min(0).default(0).optional(),
 			search: z.string().optional(),
 			status: z
-				.enum(["pending", "rejected", "delivered", "delivery_failed"])
+				.enum([
+					"pending",
+					"rejected",
+					"unconfirmed",
+					"delivered",
+					"delivery_failed",
+				])
 				.optional(),
 			sortBy: contactSubmissionsSortBySchema.default("createdAt").optional(),
 			sortOrder: sortOrderSchema.default("desc").optional(),
@@ -14722,8 +14782,30 @@ const chatSupportConversationDetailSchema = z.object({
 	archivedAt: z.string().nullable(),
 	resolvedAt: z.string().nullable(),
 	rating: z.number().int().min(0).max(5).nullable(),
-	organizationId: z.string().nullable(),
-	organizationName: z.string().nullable(),
+	// The visitor's account, matched by email, so admins can see restrictions
+	// and jump to (or unblock) every organization the visitor belongs to.
+	account: z
+		.object({
+			userId: z.string(),
+			email: z.string(),
+			status: z.enum(["active", "deactivated"]),
+			blockReason: z.string().nullable(),
+			risk: accountRiskSchema,
+			organizations: z.array(
+				z.object({
+					id: z.string(),
+					name: z.string(),
+					kind: z.enum(["default", "chat", "devpass"]),
+					plan: z.string(),
+					devPlan: z.string(),
+					status: z.string().nullable(),
+					blockReason: z.string().nullable(),
+					riskFlagged: z.boolean(),
+					role: z.string(),
+				}),
+			),
+		})
+		.nullable(),
 	messages: z.array(chatSupportMessageSchema),
 });
 
@@ -14977,6 +15059,63 @@ const getChatSupportConversation = createRoute({
 	},
 });
 
+async function findChatSupportAccount(
+	email: string,
+): Promise<z.infer<typeof chatSupportConversationDetailSchema>["account"]> {
+	const [user] = await db
+		.select({
+			id: tables.user.id,
+			email: tables.user.email,
+			status: tables.user.status,
+			blockReason: tables.user.blockReason,
+			riskStatus: tables.user.riskStatus,
+			riskFlaggedAt: tables.user.riskFlaggedAt,
+			riskFlagSource: tables.user.riskFlagSource,
+			riskFlagIp: tables.user.riskFlagIp,
+			riskFlagDetails: tables.user.riskFlagDetails,
+			riskReviewedAt: tables.user.riskReviewedAt,
+		})
+		.from(tables.user)
+		.where(sql`LOWER(${tables.user.email}) = LOWER(${email})`)
+		.limit(1);
+	if (!user) {
+		return null;
+	}
+
+	// Owners first, so the visitor's own organization leads the list.
+	const organizations = await db
+		.select({
+			id: tables.organization.id,
+			name: tables.organization.name,
+			kind: tables.organization.kind,
+			plan: tables.organization.plan,
+			devPlan: tables.organization.devPlan,
+			status: tables.organization.status,
+			blockReason: tables.organization.blockReason,
+			riskFlagged: tables.organization.riskFlagged,
+			role: tables.userOrganization.role,
+		})
+		.from(tables.userOrganization)
+		.innerJoin(
+			tables.organization,
+			eq(tables.organization.id, tables.userOrganization.organizationId),
+		)
+		.where(eq(tables.userOrganization.userId, user.id))
+		.orderBy(
+			sql`CASE ${tables.userOrganization.role} WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END`,
+			asc(tables.userOrganization.createdAt),
+		);
+
+	return {
+		userId: user.id,
+		email: user.email,
+		status: user.status,
+		blockReason: user.blockReason,
+		risk: toAccountRisk(user),
+		organizations,
+	};
+}
+
 admin.openapi(getChatSupportConversation, async (c) => {
 	const { id } = c.req.valid("param");
 
@@ -15020,37 +15159,9 @@ admin.openapi(getChatSupportConversation, async (c) => {
 		.where(eq(mt.conversationId, id))
 		.orderBy(asc(mt.sequence));
 
-	// Best-effort link to the visitor's organization so admins can jump straight
-	// to their account. Matched by email; owners are preferred when a visitor
-	// belongs to more than one org.
-	let organizationId: string | null = null;
-	let organizationName: string | null = null;
-	if (conversation.email) {
-		const orgRows = await db
-			.select({
-				id: tables.organization.id,
-				name: tables.organization.name,
-			})
-			.from(tables.user)
-			.innerJoin(
-				tables.userOrganization,
-				eq(tables.userOrganization.userId, tables.user.id),
-			)
-			.innerJoin(
-				tables.organization,
-				eq(tables.organization.id, tables.userOrganization.organizationId),
-			)
-			.where(sql`LOWER(${tables.user.email}) = LOWER(${conversation.email})`)
-			.orderBy(
-				sql`CASE ${tables.userOrganization.role} WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END`,
-				asc(tables.userOrganization.createdAt),
-			)
-			.limit(1);
-		if (orgRows[0]) {
-			organizationId = orgRows[0].id;
-			organizationName = orgRows[0].name;
-		}
-	}
+	const account = conversation.email
+		? await findChatSupportAccount(conversation.email)
+		: null;
 
 	return c.json({
 		...conversation,
@@ -15060,8 +15171,7 @@ admin.openapi(getChatSupportConversation, async (c) => {
 		archivedAt: conversation.archivedAt?.toISOString() ?? null,
 		resolvedAt: conversation.resolvedAt?.toISOString() ?? null,
 		rating: conversation.rating ?? null,
-		organizationId,
-		organizationName,
+		account,
 		messages: messages.map((m) => ({
 			...m,
 			createdAt: m.createdAt.toISOString(),

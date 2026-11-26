@@ -98,6 +98,7 @@ const AGGREGATE_KEYS = [
 	"inputCost",
 	"outputCost",
 	"requestCost",
+	"webSearchCost",
 	"dataStorageCost",
 	"discountSavings",
 	"imageInputCost",

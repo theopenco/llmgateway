@@ -54,7 +54,10 @@ export function changelogMetadata(page: number, tag?: ChangelogTag): Metadata {
 	return {
 		title,
 		description,
-		alternates: { canonical },
+		alternates: {
+			canonical,
+			types: { "application/rss+xml": "/changelog/rss.xml" },
+		},
 		openGraph: {
 			title,
 			description,

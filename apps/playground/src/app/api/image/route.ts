@@ -38,6 +38,7 @@ interface ImageRequestBody {
 		image_size?: "0.5K" | "1K" | "2K" | "4K" | string;
 		image_quality?: "auto" | "low" | "medium" | "high" | string;
 		moderation?: "auto" | "low";
+		output_format?: "svg";
 		n?: number;
 	};
 	input_images?: { url: string; mediaType: string }[];
@@ -117,8 +118,11 @@ export async function POST(req: Request) {
 			quality: image_config.image_quality,
 		}),
 		...(image_config?.moderation && { moderation: image_config.moderation }),
+		...(image_config?.output_format === "svg" && { output_format: "svg" }),
 		...(service_tier === "flex" && { service_tier }),
 	};
+	// The AI SDK sniffs raster signatures only, so label SVG documents here.
+	const svgOutput = image_config?.output_format === "svg";
 
 	let generation: ReturnType<typeof generateImage>;
 	try {
@@ -175,7 +179,9 @@ export async function POST(req: Request) {
 					const result = await generation;
 					const images = result.images.map((image) => ({
 						base64: image.base64,
-						mediaType: image.mediaType || "image/png",
+						mediaType: svgOutput
+							? "image/svg+xml"
+							: image.mediaType || "image/png",
 					}));
 					controller.enqueue(encoder.encode(JSON.stringify({ images }) + "\n"));
 				} catch (error: unknown) {

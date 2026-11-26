@@ -9,6 +9,7 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
+import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -53,8 +54,10 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { clientSafetyIdentifierFields } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
 
 import {
 	getProviderDefaultBaseUrl,
@@ -109,6 +112,7 @@ const ocrDocumentSchema = z
 
 const ocrRequestSchema = z
 	.object({
+		...clientSafetyIdentifierFields,
 		model: z.string().openapi({
 			description: "ID of the OCR model to use.",
 			example: "mistral-ocr-latest",
@@ -155,6 +159,7 @@ const ocrResponseSchema = z
 		model: z.string().optional(),
 		document_annotation: z.string().nullable().optional(),
 		usage_info: ocrUsageInfoSchema.optional(),
+		usage: usageWithCostSchema.optional(),
 	})
 	.passthrough()
 	.openapi({
@@ -372,7 +377,13 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 		);
 	}
 
-	const { model: requestedModel, ...ocrParams } = validationResult.data;
+	// The end-user identifier is only logged (from the raw body), never sent.
+	const {
+		model: requestedModel,
+		safety_identifier: _safetyIdentifier,
+		user: _user,
+		...ocrParams
+	} = validationResult.data;
 
 	// Authenticate before model resolution so unauthenticated callers get a
 	// 401 instead of catalogue-dependent errors.
@@ -589,6 +600,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (!providerKey) {
 				throw new HTTPException(400, {
@@ -608,7 +620,9 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 
 			const platformCredential = await resolvePlatformCredential(providerId, {
 				selectionScope: upstreamModel,
+				model: modelDefId,
 				variant: envVariant,
+				organizationId: project.organizationId,
 				region: undefined,
 				requiresServiceTier: false,
 				excludedEnvIndices: excludedEnvKeyIndices,
@@ -624,6 +638,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (providerKey) {
 				usedToken = readProviderKey(providerKey);
@@ -639,7 +654,9 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 
 				const platformCredential = await resolvePlatformCredential(providerId, {
 					selectionScope: upstreamModel,
+					model: modelDefId,
 					variant: envVariant,
+					organizationId: project.organizationId,
 					region: undefined,
 					requiresServiceTier: false,
 					excludedEnvIndices: excludedEnvKeyIndices,
@@ -1200,10 +1217,17 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 				{ retentionLevel },
 			);
 
-			return c.json({
-				...(upstreamJson as z.infer<typeof ocrResponseSchema>),
-				model: responseModel,
-			});
+			return c.json(
+				withUsageCost(
+					{
+						...(upstreamJson as z.infer<typeof ocrResponseSchema>),
+						model: responseModel,
+					},
+					cost,
+					{ page_cost: pageCost, request_cost: requestCost },
+					pagesProcessed !== null ? { pages_processed: pagesProcessed } : {},
+				),
+			);
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

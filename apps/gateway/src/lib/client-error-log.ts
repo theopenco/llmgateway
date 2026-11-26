@@ -38,6 +38,7 @@ interface LogGatewayClientErrorOptions extends ClientErrorLogOptions {
 
 interface LogRealtimeClientErrorOptions extends ClientErrorLogOptions {
 	token: string | undefined;
+	clientSafetyIdentifier?: string;
 	requestId: string;
 	requestedModel: string | undefined;
 	source: string | null;
@@ -278,6 +279,9 @@ export async function logRealtimeClientError(
 				requestId: options.requestId,
 				requestedModel: options.requestedModel ?? "unknown",
 				messages: [],
+				clientSafetyParams: getClientSafetyIdentifierParams({
+					safety_identifier: options.clientSafetyIdentifier,
+				}),
 				source: options.source ?? undefined,
 				customHeaders: options.customHeaders,
 				userAgent: options.userAgent,

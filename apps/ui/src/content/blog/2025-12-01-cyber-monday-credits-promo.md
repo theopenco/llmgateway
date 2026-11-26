@@ -5,6 +5,11 @@ date: 2025-12-01
 title: Cyber Monday at LLM Gateway – 50% Off Credits
 summary: Use the CYBERMONDAY promo code to get 50% off credits for a limited time.
 categories: ["Announcements"]
+faqs:
+  - question: "What was the LLM Gateway Cyber Monday 2025 offer?"
+    answer: "The post announced a limited-time promotion in December 2025: 50% off credits with the promo code CYBERMONDAY."
+  - question: "Is the Cyber Monday 2025 promotion still available?"
+    answer: "It was announced as a limited-time offer in December 2025. For current pricing and offers, see the LLM Gateway pricing page."
 image:
   src: "/blog/cyber-monday-llmgateway.png"
   alt: "LLM Gateway Cyber Monday Credits Promotion"

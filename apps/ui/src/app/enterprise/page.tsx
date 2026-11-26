@@ -1,9 +1,12 @@
+import dynamic from "next/dynamic";
+import { Suspense } from "react";
+
 import { AdminDashboardEnterprise } from "@/components/enterprise/admin-dashboard";
 import { EnterpriseCapabilities } from "@/components/enterprise/capabilities";
-import { ContactFormEnterprise } from "@/components/enterprise/contact";
 import { FeaturesEnterprise } from "@/components/enterprise/features";
 import { HeroEnterprise } from "@/components/enterprise/hero";
 import { InfrastructureAsCodeEnterprise } from "@/components/enterprise/iac";
+import { EnterpriseInlineCTA } from "@/components/enterprise/inline-cta";
 import { OpenSourceEnterprise } from "@/components/enterprise/open-source";
 import { PricingEnterprise } from "@/components/enterprise/pricing";
 import { ProcurementEnterprise } from "@/components/enterprise/procurement";
@@ -11,14 +14,30 @@ import { ProductShowcase } from "@/components/enterprise/product-showcase";
 import { SecurityEnterprise } from "@/components/enterprise/security";
 import { SupportEnterprise } from "@/components/enterprise/support";
 import { TrustBarEnterprise } from "@/components/enterprise/trust-bar";
-import { UptimeVisualization } from "@/components/enterprise/uptime";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
-import { Testimonials } from "@/components/landing/testimonials";
+import {
+	Testimonials,
+	TestimonialsFallback,
+} from "@/components/landing/testimonials";
+import { CommittedUse } from "@/components/pricing/committed-use";
 import { pageTitle } from "@/lib/page-title";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Metadata } from "next";
+
+// Below-the-fold client sections, loaded the same way the home page loads
+// Uptime.
+const UptimeVisualization = dynamic(() =>
+	import("@/components/enterprise/uptime").then(
+		(mod) => mod.UptimeVisualization,
+	),
+);
+const ContactFormEnterprise = dynamic(() =>
+	import("@/components/enterprise/contact").then(
+		(mod) => mod.ContactFormEnterprise,
+	),
+);
 
 export const metadata: Metadata = {
 	title: pageTitle("Enterprise LLM Gateway – SSO, Audit Logs & Guardrails"),
@@ -69,17 +88,32 @@ export default function EnterprisePage() {
 	return (
 		<div>
 			<HeroRSC />
-			<HeroEnterpriseWithStats />
+			<Suspense fallback={<HeroEnterprise />}>
+				<HeroEnterpriseWithStats />
+			</Suspense>
 			<TrustBarEnterprise />
 			<SecurityEnterprise />
+			<EnterpriseInlineCTA
+				location="enterprise_after_security"
+				title="Bring your security checklist to the call"
+				description="SOC 2 Type II report, DPA and security questionnaires, answered by the engineers who run the gateway."
+			/>
 			<SupportEnterprise />
 			<EnterpriseCapabilities />
 			<UptimeVisualization />
 			<FeaturesEnterprise />
 			<ProductShowcase />
 			<AdminDashboardEnterprise />
-			<Testimonials />
+			<Suspense fallback={<TestimonialsFallback />}>
+				<Testimonials />
+			</Suspense>
+			<EnterpriseInlineCTA
+				location="enterprise_after_testimonials"
+				title="Start with a 30-Day Production Pilot"
+				description="Live traffic in week one, controls on in week two, and a decision gate at day 30."
+			/>
 			<PricingEnterprise />
+			<CommittedUse location="enterprise_committed_use" />
 			<InfrastructureAsCodeEnterprise />
 			<OpenSourceEnterprise />
 			<ProcurementEnterprise />

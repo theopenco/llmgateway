@@ -48,8 +48,10 @@ import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
+import { clientSafetyIdentifierFields } from "@/lib/safety-identifier.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { usageWithCostSchema, withUsageCost } from "@/lib/usage-cost.js";
 
 import {
 	getProviderDefaultBaseUrl,
@@ -72,6 +74,11 @@ import type { Context } from "hono";
  */
 export const MODERATION_REQUEST_PRICE = 0.00001;
 const MODERATION_MODEL_ID = "openai-moderation";
+
+// Moderation runs a fixed pseudo-model outside the catalogue that no
+// allowedModels list can name (see applicableRuleTypes in lib/iam.ts), so a
+// model-restricted key is not excluded from it.
+const moderationKeyFilter = (): boolean => true;
 const DEFAULT_UPSTREAM_MODERATION_MODEL = "omni-moderation-latest";
 const CANONICAL_MODERATION_MODEL = formatUsedModelForDisplay(
 	"openai",
@@ -172,6 +179,7 @@ const moderationResponseSchema = z
 		results: z.array(moderationResultSchema).optional().openapi({
 			description: "Moderation results for the submitted input.",
 		}),
+		usage: usageWithCostSchema.optional(),
 	})
 	.passthrough()
 	.openapi({
@@ -179,6 +187,7 @@ const moderationResponseSchema = z
 	});
 
 const moderationRequestSchema = z.object({
+	...clientSafetyIdentifierFields,
 	input: moderationInputSchema,
 	model: z
 		.string()
@@ -512,6 +521,8 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			project.organizationId,
 			"openai",
 			upstreamModel,
+			undefined,
+			moderationKeyFilter,
 		);
 		if (!providerKey) {
 			throw new HTTPException(400, {
@@ -532,6 +543,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		const platformCredential = await resolvePlatformCredential("openai", {
 			selectionScope: upstreamModel,
 			variant: envVariant,
+			organizationId: project.organizationId,
 			region: undefined,
 			requiresServiceTier: false,
 		});
@@ -544,6 +556,8 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			project.organizationId,
 			"openai",
 			upstreamModel,
+			undefined,
+			moderationKeyFilter,
 		);
 		if (providerKey) {
 			usedToken = readProviderKey(providerKey);
@@ -559,6 +573,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			const platformCredential = await resolvePlatformCredential("openai", {
 				selectionScope: upstreamModel,
 				variant: envVariant,
+				organizationId: project.organizationId,
 				region: undefined,
 				requiresServiceTier: false,
 			});
@@ -654,6 +669,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			const next = await resolvePlatformCredential("openai", {
 				selectionScope: upstreamModel,
 				variant: envVariant,
+				organizationId: project.organizationId,
 				region: undefined,
 				requiresServiceTier: false,
 				excludedProviderKeyIds: triedManagedKeyIds,
@@ -990,10 +1006,16 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				{ retentionLevel },
 			);
 
-			return c.json({
-				...(upstreamJson as Record<string, unknown>),
-				model: CANONICAL_MODERATION_MODEL,
-			});
+			return c.json(
+				withUsageCost(
+					{
+						...(upstreamJson as Record<string, unknown>),
+						model: CANONICAL_MODERATION_MODEL,
+					},
+					MODERATION_REQUEST_PRICE,
+					{ request_cost: MODERATION_REQUEST_PRICE },
+				),
+			);
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

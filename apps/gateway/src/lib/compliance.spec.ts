@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
 	filterCompliantProviders,
 	getActiveCompliancePolicy,
+	getCatalogueMappingDataPolicy,
 	getComplianceFailureReasons,
 	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
+	isWebSearchEngineCompliant,
 	isZeroDataRetentionEnabled,
 } from "./compliance.js";
 
@@ -243,6 +245,57 @@ describe("filterCompliantProviders passes context through", () => {
 	});
 });
 
+describe("mapping data policy overrides", () => {
+	const zdr: ProviderCompliancePolicy = {
+		enabled: true,
+		zeroDataRetention: true,
+	};
+	const retains = { promptLogging: true, retentionPeriod: "30 days" };
+
+	it("fails a ZDR provider whose mapping retains data", () => {
+		expect(isProviderIdCompliant("aws-bedrock", zdr)).toBe(true);
+		expect(
+			isProviderIdCompliant("aws-bedrock", zdr, { mappingDataPolicy: retains }),
+		).toBe(false);
+		expect(
+			getComplianceFailureReasons("aws-bedrock", "claude-fable-5-2", zdr, {
+				mappingDataPolicy: retains,
+			}),
+		).toContain("zeroDataRetention");
+	});
+
+	it("finds the catalogue mapping by model or external id", () => {
+		expect(
+			getCatalogueMappingDataPolicy("aws-bedrock", "claude-fable-5-2"),
+		).toEqual(retains);
+		expect(
+			getCatalogueMappingDataPolicy(
+				"aws-bedrock",
+				"listing-name",
+				"anthropic.claude-fable-5-2",
+			),
+		).toEqual(retains);
+		expect(
+			getCatalogueMappingDataPolicy("anthropic", "claude-fable-5-2"),
+		).toBeUndefined();
+		expect(
+			getCatalogueMappingDataPolicy(
+				"aws-bedrock",
+				"claude-fable-5-2",
+				"some-other-model",
+			),
+		).toBeUndefined();
+	});
+
+	it("keeps the provider compliant when the policy allows retention", () => {
+		expect(
+			isProviderIdCompliant("aws-bedrock", POLICY, {
+				mappingDataPolicy: retains,
+			}),
+		).toBe(true);
+	});
+});
+
 describe("provider restriction lists", () => {
 	it("blocks a catalogue provider on the deny list even when certified", () => {
 		const policy: ProviderCompliancePolicy = {
@@ -459,5 +512,26 @@ describe("model lists with virtual aliases", () => {
 				blockedModels: ["deepseek-v4.1-flash-latest"],
 			}),
 		).toBe(true);
+	});
+});
+
+describe("isWebSearchEngineCompliant", () => {
+	it("applies org and key policies together", () => {
+		const policy = getActiveCompliancePolicy(
+			{
+				id: "org-test",
+				plan: "enterprise",
+				providerCompliancePolicy: { enabled: true, requireSoc2: true },
+			},
+			{ providerCompliancePolicy: { enabled: true, blockApiTraining: true } },
+		)!;
+		expect(isWebSearchEngineCompliant("perplexity", policy)).toBe(true);
+		expect(isWebSearchEngineCompliant("exa", policy)).toBe(false);
+	});
+
+	it("fails closed under zero data retention", () => {
+		const policy = { enabled: true, zeroDataRetention: true };
+		expect(isWebSearchEngineCompliant("perplexity", policy)).toBe(false);
+		expect(isWebSearchEngineCompliant("exa", policy)).toBe(false);
 	});
 });
