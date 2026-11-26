@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { db, eq, tables } from "@llmgateway/db";
+
 async function pngOf(width: number, height: number) {
 	return await sharp({
 		create: { width, height, channels: 3, background: "#3366ff" },
@@ -183,6 +185,55 @@ describe("playground image history binary routes", () => {
 		expect(preview.status).toBe(200);
 		expect(preview.headers.get("content-type")).toBe("image/webp");
 		expect(await dimensionsOf(preview)).toEqual({ width: 40, height: 20 });
+	});
+
+	test("rejects a media type that is not a bare type/subtype", async () => {
+		const res = await app.request("/playground/image-history", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: authCookie },
+			body: JSON.stringify({
+				prompt: "Header injection",
+				models: [
+					{
+						modelId: "gemini-3-pro-image",
+						modelName: "Gemini 3 Pro Image",
+						images: [
+							{
+								base64: original.toString("base64"),
+								mediaType: "text/html\r\nX-Injected: 1",
+							},
+						],
+					},
+				],
+			}),
+		});
+		expect(res.status).toBe(400);
+	});
+
+	test("serves a stored invalid media type as octet-stream", async () => {
+		await db
+			.update(tables.playgroundImageHistory)
+			.set({
+				models: [
+					{
+						modelId: "gemini-3-pro-image",
+						modelName: "Gemini 3 Pro Image",
+						images: [
+							{
+								base64: original.toString("base64"),
+								mediaType: "text/html\r\nX-Injected: 1",
+							},
+						],
+					},
+				],
+			})
+			.where(eq(tables.playgroundImageHistory.id, itemId));
+
+		const res = await get("/images/0/0");
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toBe("application/octet-stream");
+		expect(res.headers.get("x-injected")).toBeNull();
+		expect(res.headers.get("x-content-type-options")).toBe("nosniff");
 	});
 
 	test("requires authentication", async () => {
