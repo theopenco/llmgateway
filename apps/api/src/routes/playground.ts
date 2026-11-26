@@ -32,6 +32,17 @@ import { mergeVideoModelResults } from "@llmgateway/shared/video-generation-conf
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
 
+// Stored media types are client-supplied and become the Content-Type of the
+// binary image routes, so only a bare `type/subtype` token is accepted.
+const STORED_MEDIA_TYPE_PATTERN = /^[\w.+-]+\/[\w.+-]+$/;
+const storedMediaTypeSchema = z
+	.string()
+	.regex(STORED_MEDIA_TYPE_PATTERN, "Invalid media type");
+const storedImageInputSchema = z.object({
+	dataUrl: z.string(),
+	mediaType: storedMediaTypeSchema,
+});
+
 const playground = new OpenAPIHono<ServerTypes>();
 
 const ensureKey = createRoute({
@@ -173,7 +184,9 @@ playground.openapi(getKey, async (c) => {
 const imageModelResultSchema = z.object({
 	modelId: z.string(),
 	modelName: z.string(),
-	images: z.array(z.object({ base64: z.string(), mediaType: z.string() })),
+	images: z.array(
+		z.object({ base64: z.string(), mediaType: storedMediaTypeSchema }),
+	),
 	error: z.string().optional(),
 });
 
@@ -521,7 +534,14 @@ function notModified(c: Context, etag: string): boolean {
 // type, so an SVG (or anything else) opened directly can neither run scripts
 // nor load resources.
 function setStoredImageHeaders(c: Context, mediaType: string) {
-	c.header("Content-Type", mediaType);
+	// Rows saved before the media type was validated can hold any string, and
+	// one that is not a header-safe token would make Headers.set throw.
+	c.header(
+		"Content-Type",
+		STORED_MEDIA_TYPE_PATTERN.test(mediaType)
+			? mediaType
+			: "application/octet-stream",
+	);
 	c.header("X-Content-Type-Options", "nosniff");
 	c.header(
 		"Content-Security-Policy",
@@ -637,9 +657,7 @@ const saveImageHistory = createRoute({
 					schema: z.object({
 						prompt: z.string().min(1),
 						organizationId: z.string().trim().min(1).optional(),
-						inputImages: z
-							.array(z.object({ dataUrl: z.string(), mediaType: z.string() }))
-							.optional(),
+						inputImages: z.array(storedImageInputSchema).optional(),
 						models: z.array(imageModelResultSchema),
 					}),
 				},
@@ -1491,17 +1509,11 @@ const saveVideoHistory = createRoute({
 						organizationId: z.string().trim().min(1).optional(),
 						frameInputs: z
 							.object({
-								start: z
-									.object({ dataUrl: z.string(), mediaType: z.string() })
-									.nullable(),
-								end: z
-									.object({ dataUrl: z.string(), mediaType: z.string() })
-									.nullable(),
+								start: storedImageInputSchema.nullable(),
+								end: storedImageInputSchema.nullable(),
 							})
 							.optional(),
-						referenceImages: z
-							.array(z.object({ dataUrl: z.string(), mediaType: z.string() }))
-							.optional(),
+						referenceImages: z.array(storedImageInputSchema).optional(),
 						models: z.array(videoModelResultSchema),
 					}),
 				},
