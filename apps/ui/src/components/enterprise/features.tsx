@@ -42,9 +42,9 @@ const features = [
 	},
 	{
 		icon: Users,
-		title: "Unlimited Seats",
+		title: "Room for Your Team",
 		description:
-			"Add as many team members as you need. No per-seat pricing or user limits.",
+			"Up to 100 team members included, with higher seat limits available on request.",
 	},
 	{
 		icon: Rocket,
@@ -56,7 +56,7 @@ const features = [
 		icon: Database,
 		title: "Full Data Retention",
 		description:
-			"Store full request and response payloads, not just metadata, for 30 days.",
+			"Store full request and response payloads, not just metadata, for as long as you choose. Retention is fully up to you.",
 	},
 	{
 		icon: Headphones,

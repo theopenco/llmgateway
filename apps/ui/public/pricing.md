@@ -23,7 +23,7 @@ Last updated: 2026-11-21
 
 ## Enterprise
 
-- Price: custom — volume discounts, custom routing, full request and response retention (30 days), 99.9% uptime SLA.
+- Price: custom — volume discounts, custom routing, full request and response retention for as long as you choose, 99.9% uptime SLA.
 - Details: https://llmgateway.io/enterprise — contact contact@llmgateway.io
 - Committed use: for an organization that buys credits every month, the same usage on an Enterprise Cloud contract with volume discounts on the platform fee, invoicing options and a contractual SLA. It starts with the 30-Day Production Pilot: https://llmgateway.io/enterprise#committed-use
 
