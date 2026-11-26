@@ -25,6 +25,7 @@ import {
 } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { requiresMessageContentVerification } from "./model-verification-compatibility.js";
+import { catalogueMappingFor } from "./model-verification-target.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
 import {
 	getProviderApiTransport,
@@ -2276,7 +2277,17 @@ export async function prepareProviderModelVerificationRequest(
 	requestOptions[23] = webSearchTool;
 	requestOptions[24] = reasoningBudget;
 	requestOptions[25] = useResponsesApi;
+	// Catalogue flags the target does not freeze (reasoningMode, …) shape the
+	// probe exactly as the gateway serves the mapping.
+	const catalogueMapping = knownProvider
+		? catalogueMappingFor({
+				modelId: options.target.modelName,
+				providerId: options.target.providerId,
+				region: options.target.region,
+			})
+		: undefined;
 	requestOptions[36] = {
+		...catalogueMapping,
 		providerId: awsBedrockMessages ? provider : (transportProvider as Provider),
 		externalId: options.target.externalId,
 		streaming: options.target.streaming,
@@ -2286,14 +2297,19 @@ export async function prepareProviderModelVerificationRequest(
 		jsonOutputSchema: options.target.jsonOutputSchema,
 		reasoning: options.target.reasoning,
 		reasoningMaxTokens: options.target.reasoningMaxTokens,
-		reasoningEfforts: options.target.reasoningEfforts as
-			ReasoningEffort[] | undefined,
-		supportedToolChoices: options.target.supportedToolChoices ?? undefined,
+		reasoningEfforts:
+			(options.target.reasoningEfforts as ReasoningEffort[] | null) ??
+			catalogueMapping?.reasoningEfforts,
+		supportedToolChoices:
+			options.target.supportedToolChoices ??
+			catalogueMapping?.supportedToolChoices,
 		webSearch: options.target.webSearch,
-		webSearchFormat: options.target.webSearchFormat ?? undefined,
+		webSearchFormat:
+			options.target.webSearchFormat ?? catalogueMapping?.webSearchFormat,
 		region: options.target.region ?? undefined,
 	};
-	requestOptions[40] = options.target.webSearchFormat ?? undefined;
+	requestOptions[40] =
+		options.target.webSearchFormat ?? catalogueMapping?.webSearchFormat;
 	let payload = await prepareRequestBody(...requestOptions);
 	// The OpenAI Responses body always carries a reasoning block (every OpenAI
 	// model on that surface reasons). A carrier listing that declares no

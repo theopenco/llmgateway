@@ -280,6 +280,9 @@ describe("signed exact Airside inference", () => {
 		const log = await waitForLogByRequestId(first.headers.get("x-request-id")!);
 		expect(log.hasError).toBe(true);
 		expect(log.cost).toBe(0);
+		expect(log.errorDetails?.statusCode).toBe(500);
+		expect(log.errorDetails?.responseText).toMatch(/^bad /);
+		expect(log.errorDetails?.responseText).not.toContain(providerToken);
 	});
 
 	test.each(["credits", "IAM", "customer credential", "deleted credential"])(
@@ -358,6 +361,10 @@ describe("signed exact Airside inference", () => {
 		expect(await response.json()).toEqual({
 			error: { message: "The request to the provider endpoint failed." },
 		});
+		const log = await waitForLogByRequestId(
+			response.headers.get("x-request-id")!,
+		);
+		expect(log.errorDetails?.responseText).toBe("fetch failed");
 	});
 
 	test("names the provider endpoint when the upstream times out", async () => {
