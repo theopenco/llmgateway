@@ -1,6 +1,6 @@
 ---
 name: pull-request
-description: Create, update, illustrate, and hand off pull requests in this repo. Use when opening a PR, pushing a branch for review, writing or revising a PR title/description, embedding a screenshot or image in a PR body, triggering e2e CI on a PR, or whenever the user mentions "PR", "pull request", "open a PR", "update the PR", or "attach a screenshot to the PR".
+description: Create, update, illustrate, and hand off pull requests in this repo. Use when opening a PR, pushing a branch for review, writing or revising a PR title/description, embedding a screenshot or image in a PR body, or whenever the user mentions "PR", "pull request", "open a PR", "update the PR", or "attach a screenshot to the PR".
 ---
 
 # Pull requests
@@ -40,12 +40,37 @@ Most review happens before the PR exists. Before `gh pr create`:
 - `pr-risk` labels the PR `risk: low|medium|high` and requests a maintainer
   review on `risk: high`.
 - CodeRabbit posts a pre-merge checks table and findings as threads. Wait
-  for both (`gh pr checks <n>` shows `CodeRabbit` as completed), fix every
-  failed check (title length, description, rollback) and every finding, or
-  resolve it with a one-line reason; unresolved threads block the merge.
+  for both (`gh pr checks <n>` shows `CodeRabbit` as completed) and fix every
+  failed check (title length, description, rollback).
   Docstring Coverage is CodeRabbit's default, not a repo rule; ignore it.
+- Open review feedback blocks the merge, from CodeRabbit or a human:
+  auto-merge never lands while a thread is unresolved or a change request
+  stands. Address every item: implement the fix and push, or dismiss it with
+  a one-line reason, then resolve the thread.
 - When the same finding comes back on a second PR, fix it at the source
   (ESLint rule, skill line, `REVIEW.md`) in that PR.
+
+## Review agents
+
+Once the first revision is up, harden it with independent review subagents on
+top of CodeRabbit and human reviews. Rate the change yourself:
+
+- **Simple** (copy, config, a small contained fix): none.
+- **Medium** size or risk (one feature area, a schema or billing touch): at
+  least one.
+- **Big** (cross-app features, request path, billing, security, migrations):
+  two or three, each with a different focus (correctness and edge cases;
+  security, billing and data isolation; tests and simplification).
+
+Brief each agent with the PR number, the intended behaviour and `REVIEW.md`,
+not your own reasoning, so it reviews with fresh context. Each one reads the
+PR's own diff (`gh pr diff <n>`; on a stacked layer, not `origin/main...HEAD`),
+fixes what it finds, runs the affected tests and lint, and pushes to the same
+PR. Run them one after another on a shared branch, or in separate worktrees
+that each `git fetch origin <branch> && git rebase origin/<branch>` right
+before `git push origin HEAD:<branch>`, never force-pushing, so no agent drops
+another's fix. Then reply to and resolve any review threads their fixes
+address, and wait for checks again.
 
 ## Creating the PR
 
@@ -154,13 +179,6 @@ Why it is shaped this way:
 
 Use the `verify` skill to launch an isolated stack and capture the screenshot.
 
-## CI
-
-The e2e workflow does **not** run automatically on PRs — e2e spends real money on provider API calls. Trigger it on demand by commenting `/e2e` on the PR (maintainers/collaborators only, and only for branches in this repository, not forks), or via `workflow_dispatch`. Use it only for generic gateway code changes whose
-effect across models needs checking. NEVER comment `/e2e` on PRs that add or
-edit model mappings: run those locally scoped with `TEST_MODELS`, or dispatch
-with `test_models` and `full_mode` when local credentials are missing (`add-model` skill).
-
 ## Auto-merge means ship it
 
 When the user explicitly asks to set a PR to auto-merge, enable it
@@ -197,3 +215,7 @@ When the user explicitly asks to set a PR to auto-merge, enable it
 Run both scripts as background jobs instead of polling in the conversation.
 Without `kubectl` access, confirm the deploy run succeeded and say the pods were
 not checked.
+
+Once the change is live (or the PR was already merged without a rollout watch),
+remove the local worktrees this session created for it (`git worktree remove`).
+Leave every other worktree alone.

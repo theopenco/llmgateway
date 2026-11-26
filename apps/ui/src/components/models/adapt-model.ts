@@ -1,3 +1,4 @@
+import { getBatchEndpoints } from "@llmgateway/models";
 import { isPremiumModel, discountLookupFromMappings } from "@llmgateway/shared";
 
 import type {
@@ -42,6 +43,7 @@ const toTimeBasedPrices = (rates: PeakPricing["peak"]) => ({
 export function adaptProviderMapping(
 	p: ProviderWithInfo,
 	modelId: string,
+	output: ModelDefinition["output"],
 ): { provider: ApiModelProviderMapping; providerInfo: ApiProvider } {
 	const supportedServiceTierIds = new Set(p.serviceTiers ?? []);
 	const serviceTiers =
@@ -91,6 +93,7 @@ export function adaptProviderMapping(
 			jsonOutputSchema: p.jsonOutputSchema ?? null,
 			webSearch: p.webSearch ?? null,
 			webSearchPrice: toStr(p.webSearchPrice),
+			batchEndpoints: getBatchEndpoints(p, { output }),
 			supportedVideoSizes: p.supportedVideoSizes ?? null,
 			supportedVideoDurationsSeconds: p.supportedVideoDurationsSeconds ?? null,
 			supportsVideoAudio: p.supportsVideoAudio ?? null,
@@ -190,6 +193,8 @@ export function adaptModel(
 		free: modelDef.free ?? false,
 		status: "active" as const,
 		mappings: [],
-		providerDetails: providers.map((p) => adaptProviderMapping(p, modelDef.id)),
+		providerDetails: providers.map((p) =>
+			adaptProviderMapping(p, modelDef.id, modelDef.output),
+		),
 	};
 }

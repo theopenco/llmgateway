@@ -5,6 +5,9 @@ export const renamedModelRedirects: Record<string, string> = {
 	"seedream-4.0": "seedream-4-0",
 	"grok-4-fast": "grok-4-fast-reasoning",
 	"grok-4-1-fast": "grok-4-1-fast-reasoning",
+	"deepseek-v4-1-flash": "deepseek-v4.1-flash",
+	"glm-5-2": "glm-5.2",
+	"nemotron-3-5-lightning": "nemotron-3.5-lightning",
 };
 // Models that were removed before the "deactivate, never delete"
 // policy existed. Their pages are indexed, so 301 them (including any

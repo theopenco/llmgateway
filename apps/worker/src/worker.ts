@@ -35,6 +35,7 @@ import {
 	isPremiumModelAfterDiscounts,
 	log,
 	type LogInsertData,
+	type QueuedLogData,
 	lt,
 	organization,
 	resolveVerifiedOrgRecipient,
@@ -42,8 +43,9 @@ import {
 	sql,
 	tables,
 } from "@llmgateway/db";
+import { recordLogPersistLag } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
-import { hasErrorCode } from "@llmgateway/models";
+import { hasErrorCode, isGatewayWebSearch } from "@llmgateway/models";
 import {
 	assertSafeWebhookUrl,
 	calculateFees,
@@ -62,13 +64,23 @@ import {
 import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
 
 import { posthog } from "./posthog.js";
+import { refreshAirsidePayoutStatements } from "./services/airside-payouts.js";
+import { syncAirsideCarrierPrices } from "./services/airside-price-sync.js";
 import { deliverAirsideVerificationEmails } from "./services/airside-verification-emails.js";
 import { backfillPauseMs } from "./services/backfill-pacing.js";
+import {
+	BATCH_REQUEST_CONCURRENCY,
+	createBatchLoopState,
+	drainBatchRequests,
+	logBatchError,
+	runBatchLoopIteration,
+} from "./services/batches.js";
 import { processNextBenchmarkRun } from "./services/benchmark-runs.js";
 import {
 	scheduleDailyModelVerifications,
 	modelVerificationConcurrency,
 } from "./services/daily-model-verifications.js";
+import { checkFailingCredentialAlerts } from "./services/failing-credential-alerts.js";
 import {
 	runFollowUpEmailsLoop,
 	canSendFollowUp,
@@ -87,6 +99,7 @@ import {
 import { checkModelErrorRateAlerts } from "./services/model-error-rate-alerts.js";
 import { deliverModelVerificationRegressions } from "./services/model-verification-regressions.js";
 import { processNextModelVerification } from "./services/model-verifications.js";
+import { runNewModelsDigestLoop } from "./services/new-models-digest.js";
 import { processNotifications } from "./services/notifications.js";
 import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
@@ -156,6 +169,12 @@ const STALE_TOPUP_PI_LOCK_KEY = "stale_topup_pi_cancel";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
 const MODEL_ERROR_RATE_ALERTS_LOCK_KEY = "model_error_rate_alerts";
+const AIRSIDE_PAYOUTS_LOCK_KEY = "airside_payout_statements";
+const AIRSIDE_PAYOUTS_INTERVAL_SECONDS =
+	Number(process.env.AIRSIDE_PAYOUTS_INTERVAL_SECONDS) || 3600;
+const AIRSIDE_PRICE_SYNC_LOCK_KEY = "airside_price_sync";
+const AIRSIDE_PRICE_SYNC_INTERVAL_SECONDS =
+	Number(process.env.AIRSIDE_PRICE_SYNC_INTERVAL_SECONDS) || 3600;
 const ROUTING_BASELINE_BACKFILL_LOCK_KEY = "routing_baseline_backfill";
 const SOURCE_MODEL_STATS_BACKFILL_LOCK_KEY = "source_model_stats_backfill";
 const MODEL_STATS_BYOK_ERRORS_BACKFILL_LOCK_KEY =
@@ -295,6 +314,8 @@ const schema = z.object({
 	response_size: z.number(),
 	hasError: z.boolean().nullable(),
 	data_storage_cost: z.string().nullable(),
+	web_search_cost: z.number().nullable(),
+	web_search_type: z.string().nullable(),
 	prompt_tokens: z.string().nullable(),
 	completion_tokens: z.string().nullable(),
 	total_tokens: z.string().nullable(),
@@ -1184,6 +1205,8 @@ export async function batchProcessLogs(): Promise<number> {
 					response_size: log.responseSize,
 					hasError: log.hasError,
 					data_storage_cost: log.dataStorageCost,
+					web_search_cost: log.webSearchCost,
+					web_search_type: log.webSearchType,
 					prompt_tokens: log.promptTokens,
 					completion_tokens: log.completionTokens,
 					total_tokens: log.totalTokens,
@@ -1317,10 +1340,18 @@ export async function batchProcessLogs(): Promise<number> {
 					row.cost > 0 &&
 					!row.cached
 				) {
+					// A gateway-run search is paid to the search engine, not spent on
+					// the provider key.
+					const keySpend = isGatewayWebSearch(row.web_search_type)
+						? Decimal.max(
+								0,
+								new Decimal(row.cost).minus(row.web_search_cost ?? 0),
+							)
+						: new Decimal(row.cost);
 					providerKeyCosts.set(
 						row.provider_key_id,
 						(providerKeyCosts.get(row.provider_key_id) ?? new Decimal(0)).plus(
-							new Decimal(row.cost),
+							keySpend,
 						),
 					);
 				}
@@ -1352,6 +1383,21 @@ export async function batchProcessLogs(): Promise<number> {
 					const storageCost = new Decimal(row.data_storage_cost);
 					if (storageCost.greaterThan(0)) {
 						addToBucket(storageCost, false);
+					}
+				}
+
+				// A gateway-run web search runs on the platform's search account,
+				// so BYOK (api-keys) rows still pay for it from credits, like
+				// storage. Credits-mode rows already carry it in their cost.
+				if (
+					row.used_mode === "api-keys" &&
+					!row.cached &&
+					row.web_search_cost &&
+					isGatewayWebSearch(row.web_search_type)
+				) {
+					const searchCost = new Decimal(row.web_search_cost);
+					if (searchCost.greaterThan(0)) {
+						addToBucket(searchCost, false);
 					}
 				}
 
@@ -1524,6 +1570,33 @@ export async function batchProcessLogs(): Promise<number> {
 				pool.remaining = pool.remaining.minus(amount);
 			};
 
+			// Whether a referred organization has real money behind its usage: a
+			// plan, or net (refunds subtracted) paid credit purchases.
+			const hasPaidForUsage = async (
+				referredOrg: typeof organization.$inferSelect,
+			): Promise<boolean> => {
+				if (referredOrg.devPlan !== "none" || referredOrg.chatPlan !== "none") {
+					return true;
+				}
+				const [paid] = await tx
+					.select({
+						total: sql<string>`coalesce(sum(${tables.transaction.creditAmount}), 0)`,
+					})
+					.from(tables.transaction)
+					.where(
+						and(
+							eq(tables.transaction.organizationId, referredOrg.id),
+							eq(tables.transaction.status, "completed"),
+							inArray(tables.transaction.type, [
+								"credit_topup",
+								"credit_manual_payment",
+								"credit_refund",
+							]),
+						),
+					);
+				return new Decimal(paid?.total ?? "0").greaterThan(0);
+			};
+
 			for (const [orgId, buckets] of orgCosts.entries()) {
 				const totalCost = buckets.chat.plus(buckets.other);
 				if (totalCost.lessThanOrEqualTo(0)) {
@@ -1687,6 +1760,10 @@ export async function batchProcessLogs(): Promise<number> {
 				const plannedOverflowOnly =
 					org && org.devPlan !== "none" && !org.devPlanPaygEnabled;
 
+				// Regular credits that a positive balance covered; only the debit
+				// below sets it (a plan-pool overshoot is never paid for).
+				let creditsCovered = new Decimal(0);
+
 				if (remainingCost.greaterThan(0) && plannedOverflowOnly && devPool) {
 					await deductFromPlanPool(
 						orgId,
@@ -1699,12 +1776,26 @@ export async function batchProcessLogs(): Promise<number> {
 					);
 				} else if (remainingCost.greaterThan(0)) {
 					const costStr = remainingCost.toString();
-					await tx
+					const [debited] = await tx
 						.update(organization)
 						.set({
 							credits: sql`${organization.credits} - ${costStr}`,
 						})
-						.where(eq(organization.id, orgId));
+						.where(eq(organization.id, orgId))
+						.returning({ credits: organization.credits });
+
+					// The part of this debit a positive balance actually covered,
+					// derived from the row the debit left rather than the earlier
+					// unlocked read, so a concurrent write cannot inflate it.
+					if (debited) {
+						creditsCovered = Decimal.min(
+							remainingCost,
+							Decimal.max(
+								0,
+								new Decimal(debited.credits || "0").plus(remainingCost),
+							),
+						);
+					}
 
 					deductedOrgIds.push(orgId);
 
@@ -1713,15 +1804,29 @@ export async function batchProcessLogs(): Promise<number> {
 					);
 				}
 
-				// 1% referral earnings on the full charge regardless of which pool paid.
+				// 1% referral earnings, but only on spend the referred org actually
+				// paid for: what its plan pools covered plus regular credits up to
+				// the positive balance it held. Usage that pushes a balance negative
+				// or overshoots a plan cap was never paid, and an org without any
+				// paid top-up or plan earns its referrer nothing — otherwise a
+				// referrer farms credits off free or unpaid traffic.
 				const referral = await tx.query.referral.findFirst({
 					where: {
 						referredOrganizationId: { eq: orgId },
 					},
 				});
 
-				if (referral) {
-					const earnings = totalCost.times(0.01);
+				const planCovered = Decimal.max(0, totalCost.minus(remainingCost));
+				const paidCost = planCovered.plus(creditsCovered);
+
+				if (
+					referral &&
+					org &&
+					org.status === "active" &&
+					paidCost.greaterThan(0) &&
+					(await hasPaidForUsage(org))
+				) {
+					const earnings = paidCost.times(0.01);
 					const currentEarnings =
 						referralEarnings.get(referral.referrerOrganizationId) ??
 						new Decimal(0);
@@ -1794,6 +1899,22 @@ export async function batchProcessLogs(): Promise<number> {
 			// Apply referral earnings to referrer organizations
 			for (const [referrerOrgId, earnings] of referralEarnings.entries()) {
 				if (earnings.greaterThan(0)) {
+					// A blocked or high-risk referrer keeps nothing: credits it
+					// earned would otherwise stop the admin block (positive balance).
+					const referrer = await tx.query.organization.findFirst({
+						where: { id: { eq: referrerOrgId } },
+						columns: { status: true, riskFlagged: true },
+					});
+					if (
+						!referrer ||
+						referrer.status !== "active" ||
+						referrer.riskFlagged
+					) {
+						logger.info(
+							`Skipped referral earnings for inactive or flagged organization ${referrerOrgId}`,
+						);
+						continue;
+					}
 					const earningsStr = earnings.toString();
 					await tx
 						.update(organization)
@@ -2205,6 +2326,23 @@ function recordLogInsertSuccess(): void {
 	logInsertCircuit.nextAttemptAt = 0;
 }
 
+// Records each row's queue-to-commit lag and returns a log-line suffix with
+// the batch average and max.
+function recordPersistLag(enqueuedAts: number[], persistedAt: number): string {
+	if (enqueuedAts.length === 0) {
+		return "";
+	}
+	let total = 0;
+	let max = 0;
+	for (const enqueuedAt of enqueuedAts) {
+		const lagMs = Math.max(0, persistedAt - enqueuedAt);
+		recordLogPersistLag(lagMs / 1000);
+		total += lagMs;
+		max = Math.max(max, lagMs);
+	}
+	return `, lag avg ${Math.round(total / enqueuedAts.length)}ms max ${max}ms`;
+}
+
 // Returns the number of messages successfully inserted, so the drain loop can
 // decide whether to sleep (partial batch) or immediately fetch the next batch
 // (full batch, queue likely still backed up).
@@ -2225,8 +2363,12 @@ export async function processLogQueue(): Promise<number> {
 		// The gateway decides what to persist: it strips request/response payload
 		// fields before publishing for orgs that don't retain data, so the worker
 		// inserts the queued rows with no per-batch org retention lookup.
-		const logData = message.map((i) => {
-			const data = JSON.parse(i) as LogInsertData;
+		const enqueuedAts: number[] = [];
+		const logData = message.map((i): LogInsertData => {
+			const { enqueuedAt, ...data } = JSON.parse(i) as QueuedLogData;
+			if (typeof enqueuedAt === "number") {
+				enqueuedAts.push(enqueuedAt);
+			}
 			// Failed requests can still carry fractional limits into integer columns.
 			if (typeof data.maxTokens === "number") {
 				data.maxTokens = Math.ceil(data.maxTokens);
@@ -2243,10 +2385,11 @@ export async function processLogQueue(): Promise<number> {
 			try {
 				const insertStart = Date.now();
 				await db.insert(log).values(logData);
-				const insertMs = Date.now() - insertStart;
+				const persistedAt = Date.now();
+				const insertMs = persistedAt - insertStart;
 				recordLogInsertSuccess();
 				logger.info(
-					`Processed log batch: ${message.length} rows (insert ${insertMs}ms)`,
+					`Processed log batch: ${message.length} rows (insert ${insertMs}ms${recordPersistLag(enqueuedAts, persistedAt)})`,
 				);
 				return message.length; // Success, exit function
 			} catch (insertError) {
@@ -2535,6 +2678,57 @@ async function runVideoJobsLoop() {
 	} finally {
 		activeLoops--;
 		logger.info("Video jobs loop stopped");
+	}
+}
+
+// How long a stopping worker lets running batch requests finish before failing
+// them as interrupted. Requests can run up to 10 minutes, so a deployment that
+// wants no interrupted requests raises this together with its termination
+// grace period. stopWorker waits at least this long plus a margin.
+const BATCH_SHUTDOWN_DRAIN_MS =
+	(Number(process.env.BATCH_SHUTDOWN_DRAIN_SECONDS) || 10) * 1000;
+const STOP_MARGIN_MS = 5000;
+const BATCH_POLL_INTERVAL_MS =
+	(Number(process.env.BATCH_POLL_INTERVAL_SECONDS) || 2) * 1000;
+
+async function runBatchApiLoop() {
+	if (
+		process.env.HOSTED === "true" &&
+		!process.env.GATEWAY_BACKEND_URL?.trim()
+	) {
+		// Through the public load balancer the client IP header is overwritten,
+		// so batch requests would lose the creator's IP and fail IP rules.
+		logger.error(
+			"Batch API loop not started: GATEWAY_BACKEND_URL must point at the in-cluster gateway",
+		);
+		return;
+	}
+	activeLoops++;
+	logger.info(
+		`Starting batch API loop (concurrency: ${BATCH_REQUEST_CONCURRENCY})...`,
+	);
+	const state = createBatchLoopState();
+	try {
+		while (!isStopRequested()) {
+			try {
+				await runBatchLoopIteration(state);
+			} catch (error) {
+				logBatchError("loop", error);
+			}
+			await interruptibleSleep(BATCH_POLL_INTERVAL_MS);
+		}
+	} finally {
+		const interrupted = await drainBatchRequests(
+			state,
+			BATCH_SHUTDOWN_DRAIN_MS,
+		);
+		if (interrupted > 0) {
+			logger.warn(
+				`Batch API loop failed ${interrupted} interrupted request(s)`,
+			);
+		}
+		activeLoops--;
+		logger.info("Batch API loop stopped");
 	}
 }
 
@@ -3425,6 +3619,7 @@ async function runModelErrorRateAlertsLoop() {
 				if (await acquireLock(MODEL_ERROR_RATE_ALERTS_LOCK_KEY)) {
 					try {
 						await checkModelErrorRateAlerts();
+						await checkFailingCredentialAlerts();
 					} finally {
 						await releaseLock(MODEL_ERROR_RATE_ALERTS_LOCK_KEY);
 					}
@@ -3441,6 +3636,70 @@ async function runModelErrorRateAlertsLoop() {
 	} finally {
 		activeLoops--;
 		logger.info("Model error-rate alerts loop stopped");
+	}
+}
+
+async function runAirsidePriceSyncLoop() {
+	activeLoops++;
+	const interval = AIRSIDE_PRICE_SYNC_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting Airside price sync loop (interval: ${AIRSIDE_PRICE_SYNC_INTERVAL_SECONDS} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock(AIRSIDE_PRICE_SYNC_LOCK_KEY)) {
+					try {
+						await syncAirsideCarrierPrices();
+					} finally {
+						await releaseLock(AIRSIDE_PRICE_SYNC_LOCK_KEY);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in Airside price sync loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(60_000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Airside price sync loop stopped");
+	}
+}
+
+async function runAirsidePayoutsLoop() {
+	activeLoops++;
+	const interval = AIRSIDE_PAYOUTS_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting Airside payout statements loop (interval: ${AIRSIDE_PAYOUTS_INTERVAL_SECONDS} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock(AIRSIDE_PAYOUTS_LOCK_KEY)) {
+					try {
+						await refreshAirsidePayoutStatements();
+					} finally {
+						await releaseLock(AIRSIDE_PAYOUTS_LOCK_KEY);
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in Airside payout statements loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(60_000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Airside payout statements loop stopped");
 	}
 }
 
@@ -3629,7 +3888,10 @@ export async function startWorker() {
 	resetShutdown();
 	logger.info("Starting worker application...");
 
-	// Initialize providers and models sync - must complete before other stats syncs
+	// Initialize providers and models sync - must complete before other stats syncs.
+	// Counted as a loop so a shutdown during startup waits for it before
+	// closing the database pool.
+	activeLoops++;
 	try {
 		// Price alerts pause while this lock is held, so a sync that is only
 		// partly written is never reported as a price change.
@@ -3658,6 +3920,13 @@ export async function startWorker() {
 			"Error during initial sync",
 			error instanceof Error ? error : new Error(String(error)),
 		);
+	} finally {
+		activeLoops--;
+	}
+
+	if (isStopRequested()) {
+		logger.info("Stop requested during startup, not starting worker loops");
+		return;
 	}
 
 	void runHistoryStartupLoop();
@@ -3706,9 +3975,16 @@ export async function startWorker() {
 	logger.info(
 		"- API key expiration: runs every 5 minutes to disable keys whose TTL passed",
 	);
+	logger.info(
+		`- Airside payout statements: runs every ${AIRSIDE_PAYOUTS_INTERVAL_SECONDS} seconds to open and refresh last month's previews`,
+	);
+	logger.info(
+		`- Airside price sync: runs every ${AIRSIDE_PRICE_SYNC_INTERVAL_SECONDS} seconds to apply prices approved carriers publish on /v1/models`,
+	);
 
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
+	void runBatchApiLoop();
 	for (
 		let consumer = 0;
 		consumer < modelVerificationConcurrency();
@@ -3755,9 +4031,23 @@ export async function startWorker() {
 	void runMarginPayoutLoop();
 	void runNotificationsLoop();
 	void runModelErrorRateAlertsLoop();
+	void runAirsidePayoutsLoop();
+	void runAirsidePriceSyncLoop();
 	void runDataStreamsLoop();
 	void runProviderKeyModelSyncLoop();
 	void runFollowUpEmailsLoop({
+		shouldStop: isStopRequested,
+		acquireLock,
+		releaseLock,
+		interruptibleSleep,
+		registerLoop: () => {
+			activeLoops++;
+		},
+		unregisterLoop: () => {
+			activeLoops--;
+		},
+	});
+	void runNewModelsDigestLoop({
 		shouldStop: isStopRequested,
 		acquireLock,
 		releaseLock,
@@ -3781,7 +4071,7 @@ export async function stopWorker(): Promise<boolean> {
 	requestStop();
 
 	// Wait for all loops to finish by polling activeLoops counter
-	const maxWaitTime = 15000; // 15 seconds timeout
+	const maxWaitTime = Math.max(15000, BATCH_SHUTDOWN_DRAIN_MS + STOP_MARGIN_MS);
 	const pollInterval = 100; // 100ms per iteration
 	const startTime = Date.now();
 

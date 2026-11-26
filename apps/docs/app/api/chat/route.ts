@@ -1,5 +1,8 @@
 import {
 	convertToModelMessages,
+	type Experimental_DownloadFunction,
+	isFileUIPart,
+	isReasoningFileUIPart,
 	isStepCount,
 	safeValidateUIMessages,
 	streamText,
@@ -161,6 +164,15 @@ const systemPrompt = [
 	"If you cannot find the answer in the search results, say you do not know and point the user to https://docs.llmgateway.io or contact@llmgateway.io.",
 ].join("\n");
 
+// Defense in depth: never fetch a URL from a message server-side. The SDK
+// calls this on every request, with an empty list for text-only prompts.
+const refuseDownload: Experimental_DownloadFunction = async (files) => {
+	if (files.length > 0) {
+		throw new Error("Ask AI does not download message URLs");
+	}
+	return [];
+};
+
 export type SearchTool = typeof searchTool;
 
 const searchTool = tool({
@@ -241,7 +253,16 @@ export async function POST(req: Request) {
 	const validated = await safeValidateUIMessages<ChatUIMessage>({
 		messages: body?.messages,
 	});
-	if (!validated.success) {
+	// Ask AI is text-only. File parts carry arbitrary URLs that the AI SDK
+	// would fetch from inside the cluster (SSRF), so reject them outright.
+	if (
+		!validated.success ||
+		validated.data.some((message) =>
+			message.parts.some(
+				(part) => isFileUIPart(part) || isReasoningFileUIPart(part),
+			),
+		)
+	) {
 		return Response.json({ error: "Invalid conversation" }, { status: 400 });
 	}
 
@@ -274,6 +295,7 @@ export async function POST(req: Request) {
 			},
 		}),
 		toolChoice: "auto",
+		experimental_download: refuseDownload,
 	});
 
 	return result.toUIMessageStreamResponse();

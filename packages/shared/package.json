@@ -26,6 +26,10 @@
 			"import": "./dist/airside-billing.js",
 			"default": "./dist/airside-billing.js"
 		},
+		"./batch": {
+			"types": "./dist/batch.d.ts",
+			"import": "./dist/batch.js"
+		},
 		"./gcs": {
 			"types": "./dist/gcs.d.ts",
 			"import": "./dist/gcs.js",
@@ -86,10 +90,20 @@
 			"import": "./dist/api-key-hash.js",
 			"default": "./dist/api-key-hash.js"
 		},
+		"./provider-issue-alerts": {
+			"types": "./dist/provider-issue-alerts.d.ts",
+			"import": "./dist/provider-issue-alerts.js",
+			"default": "./dist/provider-issue-alerts.js"
+		},
 		"./email-unsubscribe": {
 			"types": "./dist/email-unsubscribe.d.ts",
 			"import": "./dist/email-unsubscribe.js",
 			"default": "./dist/email-unsubscribe.js"
+		},
+		"./resend-api": {
+			"types": "./dist/resend-api.d.ts",
+			"import": "./dist/resend-api.js",
+			"default": "./dist/resend-api.js"
 		},
 		"./security-txt": {
 			"types": "./dist/security-txt.d.ts",
@@ -110,6 +124,11 @@
 			"types": "./dist/random.d.ts",
 			"import": "./dist/random.js",
 			"default": "./dist/random.js"
+		},
+		"./dashboard-assistant": {
+			"types": "./dist/dashboard-assistant.d.ts",
+			"import": "./dist/dashboard-assistant.js",
+			"default": "./dist/dashboard-assistant.js"
 		},
 		"./lounge-source": {
 			"types": "./dist/lounge-source.d.ts",
@@ -190,6 +209,11 @@
 			"import": "./dist/lounge-stream.js",
 			"default": "./dist/lounge-stream.js"
 		},
+		"./ai-sdk-download": {
+			"types": "./dist/ai-sdk-download.d.ts",
+			"import": "./dist/ai-sdk-download.js",
+			"default": "./dist/ai-sdk-download.js"
+		},
 		"./lounge-tool-approval": {
 			"types": "./dist/lounge-tool-approval.d.ts",
 			"import": "./dist/lounge-tool-approval.js",
@@ -199,6 +223,11 @@
 			"types": "./dist/lounge-connectors.d.ts",
 			"import": "./dist/lounge-connectors.js",
 			"default": "./dist/lounge-connectors.js"
+		},
+		"./video-token-pricing": {
+			"types": "./dist/video-token-pricing.d.ts",
+			"import": "./dist/video-token-pricing.js",
+			"default": "./dist/video-token-pricing.js"
 		},
 		"./video-generation-config": {
 			"types": "./dist/video-generation-config.d.ts",
@@ -240,10 +269,20 @@
 			"import": "./dist/cost-breakdown.js",
 			"default": "./dist/cost-breakdown.js"
 		},
+		"./ai-crawlers": {
+			"types": "./dist/ai-crawlers.d.ts",
+			"import": "./dist/ai-crawlers.js",
+			"default": "./dist/ai-crawlers.js"
+		},
 		"./seo-title": {
 			"types": "./dist/seo-title.d.ts",
 			"import": "./dist/seo-title.js",
 			"default": "./dist/seo-title.js"
+		},
+		"./working-days": {
+			"types": "./dist/working-days.d.ts",
+			"import": "./dist/working-days.js",
+			"default": "./dist/working-days.js"
 		},
 		"./number-format": {
 			"types": "./dist/number-format.d.ts",
@@ -310,6 +349,7 @@
 		"@radix-ui/react-toggle": "1.1.10",
 		"@radix-ui/react-tooltip": "^1.2.8",
 		"@radix-ui/react-use-controllable-state": "1.2.2",
+		"@tanstack/react-virtual": "3.13.26",
 		"class-variance-authority": "0.7.1",
 		"clsx": "^2.1.1",
 		"cmdk": "^1.1.1",
@@ -319,7 +359,7 @@
 		"ipaddr.js": "2.2.0",
 		"lucide-react": "0.561.0",
 		"motion": "12.23.24",
-		"next": "16.4.3",
+		"next": "16.4.6",
 		"next-themes": "^0.4.6",
 		"pretty-bytes": "7.1.0",
 		"prism-react-renderer": "2.4.1",

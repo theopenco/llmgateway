@@ -1,0 +1,11 @@
+{
+	"title": "Troubleshooting",
+	"description": "Fix common provider errors and outages",
+	"icon": "LifeBuoy",
+	"pages": [
+		"provider-api-down",
+		"openai-429-rate-limit",
+		"anthropic-529-overloaded",
+		"gemini-429-resource-exhausted"
+	]
+}

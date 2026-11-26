@@ -81,24 +81,19 @@ export const inclusionaiModels = [
 		id: "ling-3.1-flash",
 		name: "Ling 3.1 Flash",
 		description:
-			"InclusionAI's hybrid-reasoning MoE model (560B total, 25B active) with tool calling and a 262K context window.",
+			"InclusionAI's hybrid-reasoning MoE model (560B total, 25B active) with tool calling and a 1M context window.",
 		family: "inclusionai",
-		free: true,
-		// Free upstream; Novita frequently answers "server overload".
-		stability: "unstable",
 		releasedAt: new Date("2026-10-02"),
 		providers: [
 			{
 				providerId: "novita",
 				externalId: "inclusionai/ling-3.1-flash",
-				deactivatedAt: new Date("2026-10-20"),
-				inputPrice: "0",
-				// Cache hits are reported only intermittently, so caching is left
-				// undeclared; the rate would be 0 either way.
-				outputPrice: "0",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.06e-6",
+				outputPrice: "0.9e-6",
 				requestPrice: "0",
-				contextSize: 262144,
-				maxOutput: 32768,
+				contextSize: 1000000,
+				maxOutput: 262144,
 				streaming: true,
 				reasoning: true,
 				// `none` turns thinking off; every other tier is accepted but

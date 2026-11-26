@@ -26,6 +26,7 @@ import {
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import { streamSSE } from "@/lib/pending-work.js";
+import { getClientSafetyIdentifierParams } from "@/lib/safety-identifier.js";
 import { extractAnthropicSessionId } from "@/lib/session-id.js";
 import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
@@ -428,6 +429,14 @@ const anthropicResponseSchema = z.object({
 				web_fetch_requests: z.number().optional(),
 			})
 			.optional(),
+		cost: z.number().optional().openapi({
+			description:
+				"What the request was billed, in USD at list price: the same figure as `usage.cost` on chat completions. On streams it rides on the message_delta event.",
+		}),
+		cost_details: z.record(z.string(), z.unknown()).optional().openapi({
+			description:
+				"The components of `cost`, the same object as `usage.cost_details` on chat completions.",
+		}),
 	}),
 	metadata: z.record(z.string(), z.unknown()).optional().openapi({
 		description:
@@ -1016,7 +1025,7 @@ anthropic.openapi(messages, async (c) => {
 				});
 			}
 
-			// Handle any remaining text content as a user message, preserving
+			// Handle any remaining text and documents as a user message, preserving
 			// cache_control markers the same way the generic text path below does.
 			const textBlocks = message.content.filter(
 				(block) => block.type === "text",
@@ -1026,16 +1035,30 @@ anthropic.openapi(messages, async (c) => {
 			);
 			const textContent = textBlocks.map((block) => block.text).join("");
 
-			if (hasAnyCacheControl) {
+			const hasDocument = message.content.some(
+				(block) => block.type === "document",
+			);
+
+			if (hasAnyCacheControl || hasDocument) {
 				openaiMessages.push({
 					role: "user",
-					content: textBlocks.map((block) => ({
-						type: "text",
-						text: block.text,
-						...(block.cache_control && {
-							cache_control: block.cache_control,
-						}),
-					})),
+					content: message.content.flatMap((block): unknown[] => {
+						if (block.type === "document") {
+							return [documentBlockToFilePart(block)];
+						}
+						if (block.type !== "text" || (hasDocument && !block.text)) {
+							return [];
+						}
+						return [
+							{
+								type: "text",
+								text: block.text,
+								...(block.cache_control && {
+									cache_control: block.cache_control,
+								}),
+							},
+						];
+					}),
 				});
 			} else if (textContent) {
 				openaiMessages.push({
@@ -1127,6 +1150,9 @@ anthropic.openapi(messages, async (c) => {
 								url: `data:${block.source.media_type};base64,${block.source.data}`,
 							},
 						};
+					}
+					if (block.type === "document") {
+						return documentBlockToFilePart(block);
 					}
 					return block;
 				});
@@ -1261,6 +1287,9 @@ anthropic.openapi(messages, async (c) => {
 	// Build OpenAI request
 	const openaiRequest: Record<string, unknown> = {
 		model: anthropicRequest.model,
+		...getClientSafetyIdentifierParams({
+			user: anthropicRequest.metadata?.user_id,
+		}),
 		messages: openaiMessages,
 		max_tokens: anthropicRequest.max_tokens,
 		temperature: anthropicRequest.temperature,
@@ -1485,6 +1514,8 @@ anthropic.openapi(messages, async (c) => {
 						ephemeral_5m_input_tokens: number;
 						ephemeral_1h_input_tokens: number;
 					};
+					cost?: number;
+					cost_details?: Record<string, unknown>;
 				} = {
 					input_tokens: 0,
 					output_tokens: 0,
@@ -1541,6 +1572,12 @@ anthropic.openapi(messages, async (c) => {
 										breakdown.ephemeral_1h_input_tokens ?? 0,
 								},
 							}),
+						...(typeof chunk.usage.cost === "number" && {
+							cost: chunk.usage.cost,
+						}),
+						...(chunk.usage.cost_details && {
+							cost_details: chunk.usage.cost_details,
+						}),
 					};
 				};
 
@@ -2408,6 +2445,12 @@ anthropic.openapi(messages, async (c) => {
 					},
 				}),
 			...(serverToolUseUsage && { server_tool_use: serverToolUseUsage }),
+			...(typeof openaiResponse.usage?.cost === "number" && {
+				cost: openaiResponse.usage.cost,
+			}),
+			...(openaiResponse.usage?.cost_details && {
+				cost_details: openaiResponse.usage.cost_details,
+			}),
 		},
 		...(openaiResponse.metadata &&
 			typeof openaiResponse.metadata === "object" && {
@@ -2423,6 +2466,38 @@ anthropic.openapi(messages, async (c) => {
 
 	return c.json(anthropicResponse);
 });
+
+/**
+ * Lower a document block to the internal `file` part. A url or file-id
+ * source would have the provider fetch content the gateway never saw, so only
+ * inline sources are accepted.
+ */
+function documentBlockToFilePart(block: {
+	source: { type: string; media_type?: unknown; data?: unknown };
+	title?: string | null;
+}) {
+	const { source } = block;
+	let fileData: string | undefined;
+	if (typeof source.data === "string") {
+		if (source.type === "base64" && typeof source.media_type === "string") {
+			fileData = `data:${source.media_type};base64,${source.data}`;
+		} else if (source.type === "text") {
+			fileData = `data:text/plain;base64,${Buffer.from(source.data, "utf8").toString("base64")}`;
+		}
+	}
+	if (!fileData) {
+		throw new HTTPException(400, {
+			message: `Document source type "${source.type}" is not supported. Send the document inline with a "base64" or "text" source.`,
+		});
+	}
+	return {
+		type: "file",
+		file: {
+			...(block.title && { filename: block.title }),
+			file_data: fileData,
+		},
+	};
+}
 
 interface AnthropicImageBlock {
 	type: "image";

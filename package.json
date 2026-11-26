@@ -2,6 +2,7 @@
 	"name": "llmgateway",
 	"private": true,
 	"license": "SEE LICENSE IN LICENSE",
+	"packageManager": "pnpm@10.28.1",
 	"workspaces": [
 		"apps/*",
 		"packages/*"
@@ -22,13 +23,15 @@
 		"migrations": "pnpm --filter db migrations",
 		"migrations:check": "pnpm --filter db migrations:check",
 		"migrations:lint": "pnpm --filter db migrations:lint",
+		"migrations:up": "pnpm --filter db migrations:up",
 		"prepare-codex": "mv ~/.nvm ~/.nvm-bak && export PATH=\"${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH\" && . ~/.bashrc && sudo service postgresql start && sudo service redis-server start && sleep 20 && pnpm sync",
 		"push": "pnpm push-dev && pnpm push-test",
 		"push-dev": "pnpm --filter db push",
 		"push-test": "DATABASE_URL=${TEST_DATABASE_URL:-${DATABASE_URL:-postgres://postgres:pw@localhost:5432/test}} pnpm --filter db push",
 		"seed": "pnpm --filter db seed",
 		"seed-demo": "pnpm --filter db seed-demo",
-		"setup": "pnpm build:core && docker compose down -v && docker compose up -d && pnpm wait-for-services && pnpm push-test && pnpm push-dev && pnpm seed",
+		"setup": "pnpm build:core && pnpm setup:db",
+		"setup:db": "docker compose down -v && docker compose up -d && pnpm wait-for-services && pnpm push-test && pnpm push-dev && pnpm seed",
 		"sync": "pnpm push-dev; pnpm push-test",
 		"stripe:listen": "stripe listen --api-key \"$(grep -E '^STRIPE_SECRET_KEY=' .env | head -1 | cut -d= -f2-)\" --forward-to localhost:4002/stripe/webhook",
 		"test:browser": "playwright test",
@@ -56,6 +59,8 @@
 		"commitlint": "21.2.4",
 		"concurrently": "^10.0.4",
 		"dotenv": "17.4.2",
+		"drizzle-kit": "1.0.0-rc.5",
+		"drizzle-orm": "1.0.0-rc.5",
 		"esbuild-fix-imports-plugin": "1.0.23",
 		"eslint": "^9.34.0",
 		"eslint-import-resolver-typescript": "4.4.5",
@@ -85,6 +90,8 @@
 	],
 	"pnpm": {
 		"overrides": {
+			"drizzle-kit": "$drizzle-kit",
+			"drizzle-orm": "$drizzle-orm",
 			"shiki": "3.22.0",
 			"flatted": ">=3.4.0",
 			"rollup": ">=4.59.0",
@@ -111,7 +118,7 @@
 			"fast-xml-builder@<1.1.7": "^1.1.7",
 			"uuid@<11.1.1": "^11.1.1",
 			"dompurify@<3.4.17": "^3.4.17",
-			"fast-xml-parser@<5.10.1": "^5.10.1",
+			"fast-xml-parser@<5.12.0": "^5.12.0",
 			"postcss@<8.5.18": "^8.5.18",
 			"ip-address@<10.7.4": "^10.7.4",
 			"qs@<6.16.1": "^6.16.1",
@@ -137,7 +144,8 @@
 			"@opentelemetry/propagator-jaeger@<2.9.0": "^2.9.0",
 			"sharp@<0.35.5": "^0.35.5",
 			"@babel/core@<=7.29.0": "^7.29.6",
-			"@hono/node-server@<2.1.3": "^2.1.3",
+			"@hono/node-server@<2.1.6": "^2.1.6",
+			"hono@<4.13.16": "^4.13.16",
 			"@humanfs/node@<0.16.8": "^0.16.8",
 			"@xmldom/xmldom@>=0.8 <0.8.15": "^0.8.15",
 			"fflate@<0.4.9": "^0.4.9",
@@ -157,11 +165,6 @@
 			"@hookform/resolvers": {
 				"peerDependencies": {
 					"zod": "*"
-				}
-			},
-			"drizzle-kit": {
-				"peerDependencies": {
-					"drizzle-orm": ">=1.0.0-rc.4"
 				}
 			}
 		},

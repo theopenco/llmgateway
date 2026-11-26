@@ -38,12 +38,12 @@ const STEPS = [
 	{
 		icon: ShieldCheck,
 		title: "Verify your domain",
-		body: "Sign up with your company email. Verify ownership through your API or website domain. Settle the one-time $2,500 listing fee — or a partner invite code — then submit your carrier claim for review.",
+		body: "Sign up with your company email. Verify ownership through your API or website domain. Settle the one-time $5,000 listing fee — or a partner invite code — then submit your carrier claim for review.",
 	},
 	{
 		icon: PlaneTakeoff,
 		title: "Register your fleet",
-		body: "List your models with context, capabilities and launch pricing. New listings are reviewed by the regulator before they enter service.",
+		body: "List your models, capabilities and prices. Preflight uses the same provider key as live traffic; new listings enter service after review.",
 	},
 	{
 		icon: Stamp,
@@ -101,17 +101,27 @@ const FAQ: {
 	{
 		id: "listing-cost",
 		q: "What does listing cost?",
-		a: "A one-time $2,500 listing fee per provider company, paid via Stripe during onboarding and due before your claim is approved — non-refundable, and waived with an invite code if we already work with you. No subscription, no minimum volume: once listed you only share the gateway margin you accept on traffic you win.",
+		a: "A one-time $5,000 listing fee per provider company, paid via Stripe during onboarding and due before your claim is approved — non-refundable, and waived with an invite code if we already work with you. No subscription, no minimum volume: once listed you only share the gateway margin you accept on traffic you win.",
 	},
 	{
 		id: "getting-paid",
 		q: "How do we get paid for traffic?",
-		a: "We agree one of three billing modes with you and set it up together before your carrier goes live — it is not something you pick in the console. Settings → Billing shows the mode in place; contact us to change it. In every mode we reconcile your charges against our own traffic records each month.",
+		a: "We agree one of three billing modes with you and set it up together before your carrier goes live — it is not something you pick in the console. Settings → Billing shows the mode in place; contact us to change it. In every mode we reconcile your charges against our own traffic records each month, including Airside automated test usage.",
 		points: [
 			"Pay-as-you-go: we open an account on your platform with a card on auto top-up, so usage is charged as it happens.",
 			"Payout: you issue us an API key and invoice us on the 1st for the previous month. We pay out your earnings by USD wire, weekly or monthly.",
 			"Post-billing: we open an account on your platform and you switch it to post-paid. You invoice us on the 1st for the previous month and we pay once a month.",
 		],
+	},
+	{
+		id: "provider-key",
+		q: "Do we need a separate testing key?",
+		a: "No. Airside uses your saved main provider key, managed by you or LLM Gateway, for live traffic and testing. If you previously saved a test key, it is no longer used. You do not need to remove it or resubmit your provider key.",
+	},
+	{
+		id: "test-usage",
+		q: "Does automated test usage count toward billing?",
+		a: "Yes. Preflight, benchmarks, load tests and scheduled checks when enabled consume real usage on the same provider-key account as live traffic. We record those requests as gateway inference and bill our operator project, so the usage is included on both sides for accounting, billing and reconciliation. Your agreed carrier billing mode does not change.",
 	},
 	{
 		id: "multiple-carriers",
@@ -217,7 +227,7 @@ export default function LandingPage() {
 											className="border-primary-foreground/40 h-5 w-px border-l border-dashed"
 										/>
 										<span className="font-mono text-xs font-normal tracking-widest">
-											$2,500
+											$5,000
 										</span>
 									</Link>
 								</Button>
@@ -226,7 +236,7 @@ export default function LandingPage() {
 								</Button>
 							</div>
 							<p className="text-muted-foreground mt-4 font-mono text-xs">
-								Self-serve. Verified by your email domain. One-time $2,500
+								Self-serve. Verified by your email domain. One-time $5,000
 								listing fee — you're listed once we approve your claim.
 							</p>
 						</div>
@@ -435,13 +445,13 @@ export default function LandingPage() {
 										className="border-primary-foreground/40 h-5 w-px border-l border-dashed"
 									/>
 									<span className="font-mono text-xs font-normal tracking-widest">
-										$2,500
+										$5,000
 									</span>
 								</Link>
 							</Button>
 						</div>
 						<p className="text-muted-foreground mt-4 font-mono text-xs">
-							One-time $2,500 listing fee, due before approval — after that you
+							One-time $5,000 listing fee, due before approval — after that you
 							only share margin on traffic you win.
 						</p>
 					</div>

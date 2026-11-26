@@ -1496,15 +1496,18 @@ export function transformResponseToOpenai(
 			break;
 		}
 		default: {
-			// For providers that return non-OpenAI format (e.g. Reve image generation),
+			// For providers that return non-OpenAI format (e.g. image generation),
 			// construct a proper OpenAI-compatible response when we have parsed images/content.
 			// Tencent's Hy Image frames carry `choices`, but with a `delta` instead of a message.
+			// fal responses are converted even when every image was filtered.
 			if (
 				transformedResponse &&
 				typeof transformedResponse === "object" &&
 				(transformedResponse.object === "image.chat.completion.chunk" ||
 					(!transformedResponse.choices &&
-						(images.length > 0 || content !== null)))
+						(images.length > 0 ||
+							content !== null ||
+							usedProvider === "fal-ai")))
 			) {
 				transformedResponse = {
 					id: `chatcmpl-${Date.now()}`,
@@ -1615,6 +1618,18 @@ export function transformResponseToOpenai(
 			}
 			break;
 		}
+	}
+
+	// Not every branch above writes annotations (pass-through bodies keep the
+	// upstream's, often none), so gateway-run search citations could be lost.
+	if (
+		annotations?.length &&
+		Array.isArray(transformedResponse?.choices) &&
+		transformedResponse.choices.length === 1 &&
+		transformedResponse.choices[0]?.message &&
+		!transformedResponse.choices[0].message.annotations?.length
+	) {
+		transformedResponse.choices[0].message.annotations = annotations;
 	}
 
 	// OpenAI's schema always carries `message.content` (nullable), but some

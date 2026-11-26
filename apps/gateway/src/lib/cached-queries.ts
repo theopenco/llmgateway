@@ -55,7 +55,11 @@ import {
 } from "@llmgateway/db";
 import { managedKeySelectionsTotal } from "@llmgateway/instrumentation/metrics";
 import { logger } from "@llmgateway/logger";
-import { providers, getRegionScopedDefaultRegion } from "@llmgateway/models";
+import {
+	getEffectiveCredentialRegion,
+	getRegionScopedDefaultRegion,
+	providers,
+} from "@llmgateway/models";
 import {
 	CONTENT_FILTER_SETTING_ID,
 	isProviderBaseUrlOverrideAllowed,
@@ -72,9 +76,13 @@ import {
 	getTrackedKeyMetrics,
 	isTrackedKeyHealthy,
 } from "./api-key-health.js";
-import { selectManagedProviderKey } from "./managed-key-selection.js";
+import {
+	selectManagedProviderKey,
+	selectRotatedManagedKey,
+} from "./managed-key-selection.js";
 import {
 	getRateLimitedProviderKeyIds,
+	withModelRateLimitedProviderKeyIds,
 	type ProviderKeyRateLimitExemption,
 	type ProviderKeyRateLimits,
 } from "./provider-key-rate-limit.js";
@@ -224,10 +232,12 @@ async function selectAvailableProviderKey(
 	selectionScope?: string,
 	excludedKeyIds: ReadonlySet<string> = new Set(),
 	rateLimitExemption?: ProviderKeyRateLimitExemption,
+	model?: string,
 ): Promise<ProviderKey | undefined> {
 	const rateLimited = await getRateLimitedProviderKeyIds(
 		items.filter((item) => !excludedKeyIds.has(item.id)),
 		rateLimitExemption,
+		model,
 	);
 	return selectProviderKeyWithFailover(
 		items,
@@ -270,6 +280,7 @@ export async function findApiKeyByToken(
 						inArray(apiKeyTable.tokenHash, tokenHashes),
 						ne(apiKeyTable.keyType, "end_user_customer"),
 						ne(apiKeyTable.keyType, "platform_secret"),
+						ne(apiKeyTable.keyType, "platform_publishable"),
 					),
 				)
 				.limit(1);
@@ -277,7 +288,8 @@ export async function findApiKeyByToken(
 		},
 	);
 
-	if (key) {
+	// Re-check after the cache: a stale mirror entry can predate the filter.
+	if (key && key.keyType !== "platform_publishable") {
 		return key;
 	}
 
@@ -955,7 +967,8 @@ export async function listEligibleProviderKeys(
 }
 
 /**
- * Find a provider key by organization and provider (cacheable)
+ * Find a provider key by organization and provider (cacheable). `model` is
+ * the canonical model id served, whose per-model key caps then apply.
  */
 export async function findProviderKey(
 	organizationId: string,
@@ -964,6 +977,7 @@ export async function findProviderKey(
 	excludedKeyIds?: ReadonlySet<string>,
 	filter?: (key: ProviderKey) => boolean,
 	rateLimitExemption?: ProviderKeyRateLimitExemption,
+	model?: string,
 ): Promise<ProviderKey | undefined> {
 	const eligible = await listEligibleProviderKeys(
 		organizationId,
@@ -975,6 +989,7 @@ export async function findProviderKey(
 		selectionScope,
 		excludedKeyIds,
 		rateLimitExemption,
+		model,
 	);
 }
 
@@ -1091,20 +1106,87 @@ export interface FindManagedProviderKeyOptions {
 	excludedKeyIds?: ReadonlySet<string>;
 	filter?: (key: ProviderKey) => boolean;
 	rateLimitExemption?: ProviderKeyRateLimitExemption;
+	/** Canonical model id served; the credentials' caps for it apply too. */
+	model?: string;
 	/** Availability checks never reserve a round-robin turn. */
 	advanceRoundRobin?: boolean;
+	/**
+	 * Rotate over every eligible credential on each call, whatever its
+	 * selection strategy. Gateway-internal calls (moderation) only; customer
+	 * traffic keeps the configured strategy.
+	 */
+	rotateEveryCall?: boolean;
+	/**
+	 * Organization the request serves. Selection is scoped to its dedicated
+	 * credentials when it has any; omitted means the shared fleet only.
+	 */
+	organizationId?: string;
+}
+
+interface DedicatedScope {
+	provider: string;
+	dedicatedOrganizationIds: string[] | null;
+}
+
+function isDedicatedTo(
+	key: DedicatedScope,
+	organizationId: string | undefined,
+): boolean {
+	return (
+		organizationId !== undefined &&
+		(key.dedicatedOrganizationIds?.includes(organizationId) ?? false)
+	);
 }
 
 /**
- * Every active platform-managed credential for a provider (cacheable). These
- * rows are the database-backed replacement for the `LLM_*` environment
- * variables: they are not owned by any organization and carry their own base
- * URL, project, region and other provider settings.
+ * The managed credentials an organization may use, per provider: those
+ * dedicated to it when it has any, otherwise the shared ones. A dedicated
+ * credential never serves another organization, and an organization with one
+ * never falls back to shared credentials or the provider's env vars.
+ */
+export function scopeManagedKeysToOrganization<T extends DedicatedScope>(
+	keys: T[],
+	organizationId: string | undefined,
+): T[] {
+	const dedicatedProviders = new Set(
+		keys
+			.filter((key) => isDedicatedTo(key, organizationId))
+			.map((key) => key.provider),
+	);
+	return keys.filter((key) =>
+		dedicatedProviders.has(key.provider)
+			? isDedicatedTo(key, organizationId)
+			: !key.dedicatedOrganizationIds?.length,
+	);
+}
+
+/**
+ * Whether a managed credential may serve the organization, including one that
+ * is no longer active (a reasoning pin to a key pending deletion).
+ */
+export async function managedKeyServesOrganization(
+	key: DedicatedScope,
+	organizationId: string,
+): Promise<boolean> {
+	if (key.dedicatedOrganizationIds?.length) {
+		return isDedicatedTo(key, organizationId);
+	}
+	const keys = await listManagedProviderKeys(key.provider, organizationId);
+	return !keys.some((candidate) => isDedicatedTo(candidate, organizationId));
+}
+
+/**
+ * Every active platform-managed credential for a provider the organization may
+ * use (cacheable; see {@link scopeManagedKeysToOrganization}). These rows are
+ * the database-backed replacement for the `LLM_*` environment variables: they
+ * are not owned by any organization and carry their own base URL, project,
+ * region and other provider settings.
  */
 export async function listManagedProviderKeys(
 	provider: string,
+	organizationId: string | undefined,
 ): Promise<ProviderKey[]> {
-	return await swrWrap(
+	const keys = await swrWrap(
 		`providerKey:managed:${provider}`,
 		[providerKeyTableName],
 		async () =>
@@ -1128,6 +1210,7 @@ export async function listManagedProviderKeys(
 					asc(providerKeyTable.id),
 				),
 	);
+	return scopeManagedKeysToOrganization(keys, organizationId);
 }
 
 /**
@@ -1142,8 +1225,9 @@ export async function listManagedProviderKeys(
  */
 export async function hasManagedProviderCredential(
 	provider: string,
+	organizationId: string | undefined,
 ): Promise<boolean> {
-	return (await listManagedProviderKeys(provider)).length > 0;
+	return (await listManagedProviderKeys(provider, organizationId)).length > 0;
 }
 
 /**
@@ -1159,34 +1243,45 @@ export async function findManagedProviderKey(
 	options: FindManagedProviderKeyOptions = {},
 ): Promise<ProviderKey | undefined> {
 	const candidates = await listManagedProviderKeyCandidates(provider, options);
-	if (!candidates.some((key) => key.selectionStrategy === "round_robin")) {
+	const rotateEveryCall = options.rotateEveryCall === true;
+	if (
+		!rotateEveryCall &&
+		!candidates.some((key) => key.selectionStrategy === "round_robin")
+	) {
 		const selected = await selectAvailableProviderKey(
 			candidates,
 			options.selectionScope,
 			options.excludedKeyIds,
 			options.rateLimitExemption,
+			options.model,
 		);
 		return recordManagedKeySelection(selected, options);
 	}
 	const rateLimited = await getRateLimitedProviderKeyIds(
 		candidates.filter((key) => !options.excludedKeyIds?.has(key.id)),
 		options.rateLimitExemption,
+		options.model,
 	);
-	const selected = await selectManagedProviderKey(
-		candidates,
-		{
-			provider,
-			variant: candidates[0]?.variant ?? "default",
-			region: candidates[0]?.region ?? null,
-			selectionScope: options.selectionScope,
-			excludedKeyIds: new Set([
-				...(options.excludedKeyIds ?? []),
-				...rateLimited,
-			]),
-			advanceRoundRobin: options.advanceRoundRobin,
-		},
-		(items) => selectProviderKeyWithFailover(items, options.selectionScope),
-	);
+	const selectionOptions = {
+		provider,
+		variant: candidates[0]?.variant ?? "default",
+		region: candidates[0]?.region ?? null,
+		selectionScope: options.selectionScope,
+		excludedKeyIds: new Set([
+			...(options.excludedKeyIds ?? []),
+			...rateLimited,
+		]),
+		advanceRoundRobin: options.advanceRoundRobin,
+	};
+	const selectOrdered = (items: ProviderKey[]) =>
+		selectProviderKeyWithFailover(items, options.selectionScope);
+	const selected = rotateEveryCall
+		? await selectRotatedManagedKey(candidates, selectionOptions, selectOrdered)
+		: await selectManagedProviderKey(
+				candidates,
+				selectionOptions,
+				selectOrdered,
+			);
 	return recordManagedKeySelection(selected, options);
 }
 
@@ -1199,10 +1294,13 @@ export async function listManagedProviderKeyCandidates(
 	provider: string,
 	options: Pick<
 		FindManagedProviderKeyOptions,
-		"variant" | "region" | "filter"
+		"variant" | "region" | "filter" | "organizationId"
 	> = {},
 ): Promise<ProviderKey[]> {
-	const results = await listManagedProviderKeys(provider);
+	const results = await listManagedProviderKeys(
+		provider,
+		options.organizationId,
+	);
 
 	const candidates = options.filter ? results.filter(options.filter) : results;
 	if (candidates.length === 0) {
@@ -1267,7 +1365,9 @@ export interface ManagedProviderAvailability {
 	 */
 	defaultRegionUsable: ReadonlySet<string>;
 	/**
-	 * Regions each provider has a region-pinned managed credential for. Variant-
+	 * Regions each provider has a region-pinned managed credential for, by
+	 * `getEffectiveCredentialRegion` (Alibaba's unpinned ones count as its
+	 * default region). Variant-
 	 * and model-agnostic, matching how `hasRegionSpecificEnvKey` reads the
 	 * environment: the region filter runs before either is known.
 	 */
@@ -1287,6 +1387,7 @@ function listManagedProviderScopes() {
 					id: providerKeyTable.id,
 					provider: providerKeyTable.provider,
 					variant: providerKeyTable.variant,
+					dedicatedOrganizationIds: providerKeyTable.dedicatedOrganizationIds,
 					region: providerKeyTable.region,
 					allowedModels: providerKeyTable.allowedModels,
 					maxRpm: providerKeyTable.maxRpm,
@@ -1294,6 +1395,7 @@ function listManagedProviderScopes() {
 					maxTpm: providerKeyTable.maxTpm,
 					maxTpd: providerKeyTable.maxTpd,
 					rateLimitMode: providerKeyTable.rateLimitMode,
+					modelRateLimits: providerKeyTable.modelRateLimits,
 				})
 				.from(providerKeyTable)
 				.where(
@@ -1306,25 +1408,55 @@ function listManagedProviderScopes() {
 }
 
 /**
- * Ids of every managed credential currently at one of its own caps. Lets a
- * caller that checks availability for several models read the caps once.
+ * Ids of every managed credential currently at one of its own caps, including
+ * its caps for `modelId` when given. Without a model, lets a caller that checks
+ * availability for several models read the key-wide caps once and add each
+ * model's with {@link withModelRateLimitedManagedKeyIds}.
  */
 export async function findRateLimitedManagedKeyIds(
 	rateLimitExemption?: ProviderKeyRateLimitExemption,
+	modelId?: string,
 ): Promise<Set<string>> {
 	return await getRateLimitedProviderKeyIds(
 		await listManagedProviderScopes(),
 		rateLimitExemption,
+		modelId,
 	);
 }
 
+/**
+ * Key-wide capped managed credential ids (from a model-less
+ * {@link findRateLimitedManagedKeyIds}) plus those capped for `modelId`.
+ */
+export async function withModelRateLimitedManagedKeyIds(
+	keyWideLimited: ReadonlySet<string>,
+	modelId: string,
+	rateLimitExemption?: ProviderKeyRateLimitExemption,
+): Promise<ReadonlySet<string>> {
+	return await withModelRateLimitedProviderKeyIds(
+		keyWideLimited,
+		await listManagedProviderScopes(),
+		modelId,
+		rateLimitExemption,
+	);
+}
+
+/**
+ * `rateLimitedKeyIds`, when given, replaces the cap check and must already
+ * include the credentials capped for `modelId`. `organizationId` scopes the
+ * fleet to that organization's dedicated credentials; omitted means shared only.
+ */
 export async function findManagedProviderAvailability(
 	variant?: EnvVarVariant,
 	modelId?: string,
 	rateLimitedKeyIds?: ReadonlySet<string>,
 	rateLimitExemption?: ProviderKeyRateLimitExemption,
+	organizationId?: string,
 ): Promise<ManagedProviderAvailability> {
-	const rows = await listManagedProviderScopes();
+	const rows = scopeManagedKeysToOrganization(
+		await listManagedProviderScopes(),
+		organizationId,
+	);
 
 	// A credential at one of its own caps cannot serve this request, so a
 	// provider whose every credential is capped is not advertised as usable.
@@ -1337,6 +1469,7 @@ export async function findManagedProviderAvailability(
 					)
 				: rows,
 			rateLimitExemption,
+			modelId,
 		));
 
 	const configured = new Set<string>();
@@ -1344,18 +1477,16 @@ export async function findManagedProviderAvailability(
 	const byProvider = new Map<string, typeof rows>();
 	for (const row of rows) {
 		configured.add(row.provider);
-		if (row.region) {
+		const rowRegion = getEffectiveCredentialRegion(row.provider, row.region);
+		if (rowRegion) {
 			const regions = pinnedRegions.get(row.provider);
 			if (regions) {
-				regions.add(row.region);
+				regions.add(rowRegion);
 			} else {
-				pinnedRegions.set(row.provider, new Set([row.region]));
+				pinnedRegions.set(row.provider, new Set([rowRegion]));
 			}
 		}
 		if (modelId && !providerKeyAllowsModel(row.allowedModels, modelId)) {
-			continue;
-		}
-		if (rateLimited.has(row.id)) {
 			continue;
 		}
 		const existing = byProvider.get(row.provider);
@@ -1373,19 +1504,22 @@ export async function findManagedProviderAvailability(
 		const variantMatches = candidates.filter(
 			(key) => key.variant === effectiveVariant,
 		);
-		const byVariant =
+		// Pick the variant before dropping capped credentials, as selection
+		// does, so a capped variant is not reported as served by another.
+		const byVariant = (
 			variantMatches.length > 0
 				? variantMatches
-				: candidates.filter((key) => key.variant === "default");
+				: candidates.filter((key) => key.variant === "default")
+		).filter((key) => !rateLimited.has(key.id));
 
-		if (byVariant.some((key) => !key.region)) {
+		const regions = byVariant.map((key) =>
+			getEffectiveCredentialRegion(provider, key.region),
+		);
+		if (regions.includes(null)) {
 			usable.add(provider);
 		}
 		const defaultRegion = getRegionScopedDefaultRegion(provider);
-		if (
-			defaultRegion &&
-			byVariant.some((key) => key.region === defaultRegion)
-		) {
+		if (defaultRegion && regions.includes(defaultRegion)) {
 			defaultRegionUsable.add(provider);
 		}
 	}
@@ -1412,6 +1546,7 @@ export async function findProviderKeyRateLimits(
 					maxRpd: providerKeyTable.maxRpd,
 					maxTpm: providerKeyTable.maxTpm,
 					maxTpd: providerKeyTable.maxTpd,
+					modelRateLimits: providerKeyTable.modelRateLimits,
 				})
 				.from(providerKeyTable)
 				.where(eq(providerKeyTable.id, id))
@@ -1848,7 +1983,9 @@ function recordManagedKeySelection(
 ): ProviderKey | undefined {
 	if (key && options.advanceRoundRobin !== false) {
 		managedKeySelectionsTotal.inc({
-			strategy: key.selectionStrategy ?? "ordered",
+			strategy: options.rotateEveryCall
+				? "rotated"
+				: (key.selectionStrategy ?? "ordered"),
 			attempt: options.excludedKeyIds?.size ? "retry" : "initial",
 		});
 	}

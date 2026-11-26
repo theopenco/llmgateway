@@ -5,6 +5,11 @@ date: 2026-06-07
 title: "Stripe for AI: Embeddable Payments for Your App"
 summary: Our new Payments SDK lets your end-users buy credits inside your app and pay per request for any model — billed through LLM Gateway, with your markup as margin. Here's how it works and how to ship it in ~40 lines.
 categories: ["Engineering"]
+faqs:
+  - question: "How can users pay for AI usage inside my app?"
+    answer: "With platform wallets, each of your users holds their own balance and pays for the AI they use, instead of you absorbing the model cost and reconciling it later."
+  - question: "What does the embeddable payments integration involve?"
+    answer: "Your backend mints a session with your secret key, and your frontend drops in the prebuilt widgets. The session token refreshes automatically."
 image:
   src: "/blog/embeddable-ai-credits.png"
   alt: "A digital wallet streaming credit tokens into an AI chat interface"

@@ -198,6 +198,7 @@ describe("selectSmartRoutingModel", () => {
 		it.each([
 			["no-credential", {}],
 			["compliance", { classifierAllowed: false }],
+			["no-credits", { classifierBillable: false }],
 			["single-candidate", { candidates: CANDIDATES.slice(0, 1) }],
 		])(
 			"records why the classifier was skipped: %s",
@@ -211,6 +212,17 @@ describe("selectSmartRoutingModel", () => {
 				expect(classifyRequest).not.toHaveBeenCalled();
 			},
 		);
+
+		it("never bills the classifier for an organization without credits", async () => {
+			const result = await selectSmartRoutingModel(
+				params({ classifierBillable: false }),
+			);
+
+			expect(result?.candidate.modelId).toBe("cheap");
+			expect(result?.decision?.classifierSkipped).toBe("no-credits");
+			expect(hasContentFilterCredential).not.toHaveBeenCalled();
+			expect(classifyRequest).not.toHaveBeenCalled();
+		});
 
 		it("records a failure when an attempted call produces no verdict", async () => {
 			vi.mocked(classifyRequest).mockResolvedValue(null);

@@ -8,6 +8,16 @@ export function formatUsd(value: number): string {
 	}).format(value);
 }
 
+/** A decimal USD amount string (e.g. "-12.50") to the cent. */
+export function formatUsdCents(value: string): string {
+	return new Intl.NumberFormat("en-US", {
+		style: "currency",
+		currency: "USD",
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2,
+	}).format(Number(value));
+}
+
 /** Render a per-token price string (e.g. "2e-6") as USD per million tokens. */
 export function formatPerMillion(price: string | null | undefined): string {
 	if (!price) {

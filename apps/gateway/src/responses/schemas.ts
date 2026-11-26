@@ -483,6 +483,18 @@ export const responsesRequestSchema = z
 			.optional()
 			.transform((val) => (val === null ? undefined : val)),
 		metadata: z.record(z.string(), z.string()).optional(),
+		safety_identifier: z
+			.string()
+			.max(128)
+			.nullable()
+			.optional()
+			.transform((value) => value ?? undefined),
+		// Legacy end-user identifier; logged when safety_identifier is absent.
+		// A non-string value was stripped before this field existed.
+		user: z
+			.unknown()
+			.optional()
+			.transform((value) => (typeof value === "string" ? value : undefined)),
 		top_p: z
 			.number()
 			.nullable()
@@ -508,6 +520,12 @@ export const responsesRequestSchema = z
 export type ResponsesRequest = z.infer<typeof responsesRequestSchema>;
 
 export const compactRequestSchema = z.object({
+	safety_identifier: z
+		.string()
+		.max(128)
+		.nullable()
+		.optional()
+		.transform((value) => value ?? undefined),
 	model: z.string().openapi({
 		example: "gpt-4o-mini",
 	}),

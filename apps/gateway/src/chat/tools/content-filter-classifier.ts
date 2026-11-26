@@ -1,6 +1,6 @@
 import { isProviderIdCompliant } from "@/lib/compliance.js";
 
-import { logger } from "@llmgateway/logger";
+import { logger, toError } from "@llmgateway/logger";
 
 import {
 	checkInternalContentFilter,
@@ -18,6 +18,7 @@ import {
 	type OpenAIContentFilterCheckResult,
 } from "./openai-content-filter.js";
 import {
+	buildContentFilterShadowVerdict,
 	buildGatewayContentFilterEvaluation,
 	evaluateTieredContentFilter,
 	type TieredContentFilterPlan,
@@ -106,11 +107,41 @@ export async function hasClassifierCredential(
 	}
 }
 
+/** Whether the organization's policy allows a classifier and it is configured. */
+async function isClassifierAvailable(
+	classifier: ContentFilterClassifier,
+	options: {
+		classifierAllowed: (classifier: ContentFilterClassifier) => boolean;
+	},
+): Promise<boolean> {
+	return (
+		options.classifierAllowed(classifier) &&
+		(await hasClassifierCredential(classifier))
+	);
+}
+
+/**
+ * Whether the plan's deciding classifier can produce a verdict. Without one
+ * there is no evaluation to attach shadow verdicts to.
+ */
+export async function isDecidingClassifierAvailable(options: {
+	plan: TieredContentFilterPlan;
+	classifierAllowed: (classifier: ContentFilterClassifier) => boolean;
+	existing?: ContentFilterCheckResult | null;
+}): Promise<boolean> {
+	return (
+		options.existing?.classifier === options.plan.classifier ||
+		(await isClassifierAvailable(options.plan.classifier, options))
+	);
+}
+
 interface ContentFilterRunOptions {
 	/** Whether the organization's policy permits OpenAI (image delegation). */
 	imagesAllowed: boolean;
 	/** What the internal classifier reads. Defaults to the whole conversation. */
 	internalScope?: ContentFilterInternalScope;
+	/** What OpenAI moderation reads of the text. Defaults to the latest turn. */
+	openaiScope?: ContentFilterInternalScope;
 }
 
 /**
@@ -156,49 +187,34 @@ async function runClassifierChecks(
 			messages,
 			context,
 			requestSignal,
+			{ scope: options.openaiScope },
 		);
 		return { ...result, classifier };
 	}
 
-	const textStartTime = performance.now();
+	// The image delegation runs alongside the text check, not after it, so a
+	// request with images waits for the slower of the two rather than both.
+	const [text, image] = await Promise.all([
+		runTextCheck(classifier, messages, context, requestSignal, options),
+		options.imagesAllowed &&
+		buildOpenAIContentFilterImageInputs(messages).length > 0
+			? runImageCheck(messages, context, requestSignal)
+			: null,
+	]);
 	const {
 		requestCount,
+		durationMs: classifierDurationMs,
 		...textResult
-	}: OpenAIContentFilterCheckResult & {
-		partialModerationFailed?: boolean;
-		requestCount?: number;
-	} =
-		classifier === "internal"
-			? await checkInternalContentFilter(
-					messages,
-					context,
-					requestSignal,
-					options.internalScope,
-				)
-			: await checkJevContentFilter(messages, context, requestSignal);
+	} = text;
 	const timings = {
-		classifierDurationMs: Math.round(performance.now() - textStartTime),
+		classifierDurationMs,
 		...(requestCount !== undefined ? { classifierRequests: requestCount } : {}),
 	};
 
-	// Text-only requests are the common case: skip the OpenAI credential lookup
-	// and the no-op moderation call entirely when there is no image to cover.
-	if (
-		!options.imagesAllowed ||
-		buildOpenAIContentFilterImageInputs(messages).length === 0 ||
-		!(await hasOpenAIContentFilterCredential())
-	) {
+	if (!image) {
 		return { ...textResult, ...timings, classifier };
 	}
-
-	const imageStartTime = performance.now();
-	const imageResult = await checkOpenAIContentFilter(
-		messages,
-		context,
-		requestSignal,
-		{ kinds: ["image"] },
-	);
-	const imageDurationMs = Math.round(performance.now() - imageStartTime);
+	const { durationMs: imageDurationMs, ...imageResult } = image;
 
 	// Both filters fail open by returning no results, and the delegation only
 	// runs when the request actually carries images — so an empty result on
@@ -261,20 +277,14 @@ export async function evaluateContentFilterWithClassifiers(options: {
 	classifierAllowed: (classifier: ContentFilterClassifier) => boolean;
 	/** Result already computed for this request, reused when its classifier matches. */
 	existing?: ContentFilterCheckResult | null;
-}): Promise<{
-	evaluation: GatewayContentFilterEvaluation;
-	results: ContentFilterCheckResult[];
-} | null> {
+}): Promise<ContentFilterOutcome | null> {
 	const { plan, messages, context, signal, existing } = options;
 
 	let result: ContentFilterCheckResult;
 	if (existing?.classifier === plan.classifier) {
 		result = existing;
 	} else {
-		if (
-			!options.classifierAllowed(plan.classifier) ||
-			!(await hasClassifierCredential(plan.classifier))
-		) {
+		if (!(await isClassifierAvailable(plan.classifier, options))) {
 			return null;
 		}
 		result = await runContentFilterClassifier(
@@ -285,6 +295,7 @@ export async function evaluateContentFilterWithClassifiers(options: {
 			{
 				imagesAllowed: options.imagesAllowed && plan.moderateImages,
 				internalScope: plan.internalScope,
+				openaiScope: plan.openaiScope,
 			},
 		);
 	}
@@ -292,7 +303,11 @@ export async function evaluateContentFilterWithClassifiers(options: {
 	return {
 		evaluation: buildGatewayContentFilterEvaluation(
 			plan,
-			evaluateTieredContentFilter(result.results, plan.level),
+			evaluateTieredContentFilter(
+				result.results,
+				plan.level,
+				plan.csamScoreThreshold,
+			),
 			moderationFailed(result),
 			result.durationMs,
 			{
@@ -304,4 +319,144 @@ export async function evaluateContentFilterWithClassifiers(options: {
 		),
 		results: [result],
 	};
+}
+
+interface ContentFilterOutcome {
+	evaluation: GatewayContentFilterEvaluation;
+	results: ContentFilterCheckResult[];
+}
+
+/**
+ * Run the plan's shadow classifiers over the request, in parallel and detached
+ * from the client's signal. Each runs as it would if it decided (same scope,
+ * same image delegation), so a classifier's flag rate stays comparable across
+ * setups. A shadow that cannot run for this organization, or fails, is left
+ * out; it never affects the request.
+ */
+export async function runShadowContentFilters(
+	options: Omit<
+		Parameters<typeof evaluateContentFilterWithClassifiers>[0],
+		"signal"
+	>,
+): Promise<ContentFilterCheckResult[]> {
+	const { plan, messages, context, existing } = options;
+	const settled = await Promise.allSettled(
+		plan.shadowClassifiers.map(async (classifier) => {
+			if (existing?.classifier === classifier) {
+				return existing;
+			}
+			if (!(await isClassifierAvailable(classifier, options))) {
+				return null;
+			}
+			return await runContentFilterClassifier(
+				classifier,
+				messages,
+				context,
+				undefined,
+				{
+					imagesAllowed: options.imagesAllowed && plan.moderateImages,
+					internalScope: plan.internalScope,
+					openaiScope: plan.openaiScope,
+				},
+			);
+		}),
+	);
+	const results: ContentFilterCheckResult[] = [];
+	for (const [index, outcome] of settled.entries()) {
+		if (outcome.status === "rejected") {
+			logger.warn("Shadow content filter failed", {
+				requestId: context.requestId,
+				organizationId: context.organizationId,
+				classifier: plan.shadowClassifiers[index],
+				error: toError(outcome.reason),
+			});
+		} else if (outcome.value) {
+			results.push(outcome.value);
+		}
+	}
+	return results;
+}
+
+/** Attach shadow verdicts, and their raw responses, to the deciding outcome. */
+export function withShadowVerdicts(
+	plan: TieredContentFilterPlan,
+	outcome: ContentFilterOutcome,
+	shadows: ContentFilterCheckResult[],
+): ContentFilterOutcome {
+	if (shadows.length === 0) {
+		return outcome;
+	}
+	return {
+		evaluation: {
+			...outcome.evaluation,
+			shadows: shadows.map((result) =>
+				buildContentFilterShadowVerdict(
+					plan,
+					result.classifier,
+					evaluateTieredContentFilter(
+						result.results,
+						plan.level,
+						plan.csamScoreThreshold,
+					),
+					moderationFailed(result),
+					result.durationMs,
+					{
+						classifierDurationMs: result.classifierDurationMs,
+						classifierRequests: result.classifierRequests,
+						imageDurationMs: result.imageDurationMs,
+						moderationErrors: result.errors,
+					},
+				),
+			),
+		},
+		results: [
+			...outcome.results,
+			...shadows.filter((result) => !outcome.results.includes(result)),
+		],
+	};
+}
+
+async function runTextCheck(
+	classifier: Exclude<ContentFilterClassifier, "openai">,
+	messages: BaseMessage[],
+	context: GatewayContentFilterContext,
+	requestSignal: AbortSignal | undefined,
+	options: ContentFilterRunOptions,
+): Promise<
+	OpenAIContentFilterCheckResult & {
+		partialModerationFailed?: boolean;
+		requestCount?: number;
+		durationMs: number;
+	}
+> {
+	const startTime = performance.now();
+	const result =
+		classifier === "internal"
+			? await checkInternalContentFilter(
+					messages,
+					context,
+					requestSignal,
+					options.internalScope,
+				)
+			: await checkJevContentFilter(messages, context, requestSignal);
+	return { ...result, durationMs: Math.round(performance.now() - startTime) };
+}
+
+/** OpenAI moderation of the image parts; null without an OpenAI credential. */
+async function runImageCheck(
+	messages: BaseMessage[],
+	context: GatewayContentFilterContext,
+	requestSignal: AbortSignal | undefined,
+): Promise<(OpenAIContentFilterCheckResult & { durationMs: number }) | null> {
+	if (!(await hasOpenAIContentFilterCredential())) {
+		return null;
+	}
+	const startTime = performance.now();
+	const result = await checkOpenAIContentFilter(
+		messages,
+		context,
+		requestSignal,
+		{ kinds: ["image"] },
+	);
+	return { ...result, durationMs: Math.round(performance.now() - startTime) };
 }

@@ -5,6 +5,7 @@ import * as Keychain from "react-native-keychain";
 import { getSessionToken, queryClient, setSessionToken } from "@/api/client";
 import { clearGatewayKey } from "@/api/completion";
 import { config } from "@/config";
+import { clearCallTranscriptionModel } from "@/lib/call-transcription-model";
 import { clearCanvasModel } from "@/lib/canvas-model";
 import { clearEscapeModel } from "@/lib/escape-model";
 import { clearPreferences } from "@/lib/preferences";
@@ -82,6 +83,7 @@ export async function signOut() {
 
 export async function clearSession() {
 	await clearWorkspace();
+	await clearCallTranscriptionModel();
 	await clearCanvasModel();
 	await clearEscapeModel();
 	await clearPreferences();

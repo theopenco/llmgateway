@@ -88,18 +88,20 @@ export function AudioControls({
 					/>
 				)}
 				<div className="flex flex-wrap items-center gap-2">
-					<Select value={voice} onValueChange={setVoice}>
-						<SelectTrigger size="sm" className="min-w-[130px]">
-							<SelectValue placeholder="Voice" />
-						</SelectTrigger>
-						<SelectContent>
-							{config.voices.map((v) => (
-								<SelectItem key={v} value={v}>
-									{v.charAt(0).toUpperCase() + v.slice(1)}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+					{config.voices.length > 0 && (
+						<Select value={voice} onValueChange={setVoice}>
+							<SelectTrigger size="sm" className="min-w-[130px]">
+								<SelectValue placeholder="Voice" />
+							</SelectTrigger>
+							<SelectContent>
+								{config.voices.map((v) => (
+									<SelectItem key={v} value={v}>
+										{v.charAt(0).toUpperCase() + v.slice(1)}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					)}
 					{config.availableFormats.length > 1 && (
 						<Select
 							value={audioFormat}

@@ -5,6 +5,11 @@ date: 2026-04-11
 title: "How to Choose the Right LLM for Your Use Case in 2026"
 summary: "A practical framework for picking the right model — based on task type, budget, latency requirements, and context window — instead of chasing benchmarks."
 categories: ["Guides"]
+faqs:
+  - question: "How do you choose an LLM for a use case?"
+    answer: "Weigh four factors: task complexity, cost per request, latency, and how much input the model must hold in its context window. Match simple tasks to budget models and keep frontier models for hard ones."
+  - question: "Do simple tasks need a frontier model?"
+    answer: "No. Classification, extraction, and reformatting are handled reliably by budget models at a much lower price."
 image:
   src: "/blog/how-to-choose-the-right-llm.png"
   alt: "How to Choose the Right LLM for Your Use Case in 2026"

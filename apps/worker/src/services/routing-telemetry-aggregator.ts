@@ -15,7 +15,10 @@ import {
 	ROUTING_SELECTION_REASONS,
 } from "@llmgateway/shared/routing-telemetry";
 
-import { excludeRecoveredSameProviderRegionRetry } from "./log-filters.js";
+import {
+	excludeGatewayContentFilterBlocks,
+	excludeRecoveredSameProviderRegionRetry,
+} from "./log-filters.js";
 import { formatUTCTimestamp } from "./project-stats-aggregator.js";
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -113,6 +116,7 @@ async function aggregateElections(tx: Tx, targetHour: Date) {
 				// Same predicate the mapping and model rollups apply, so a request
 				// retried onto the same provider counts as one election here too.
 				excludeRecoveredSameProviderRegionRetry(),
+				excludeGatewayContentFilterBlocks(),
 			),
 		)
 		.groupBy(usedBaseModelSql, log.usedProvider, selectionReasonSql);
@@ -195,6 +199,7 @@ async function aggregateExclusions(tx: Tx, targetHour: Date) {
 					and ${log.createdAt} < ${startUtc}::timestamp + interval '1 hour'
 					and ${log.routingMetadata} is not null
 					and ${excludeRecoveredSameProviderRegionRetry()}
+					and ${excludeGatewayContentFilterBlocks()}
 			),
 			decisions as materialized (
 				select hour_logs.model_id, decision.provider_id, decision.reasons

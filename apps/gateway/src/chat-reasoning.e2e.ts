@@ -11,6 +11,7 @@ import {
 	getTestOptions,
 	logMode,
 	reasoningEffortModels,
+	reasoningModeModels,
 	reasoningModels,
 	validateLogByRequestId,
 	validateResponse,
@@ -142,6 +143,48 @@ describe("e2e", getConcurrentTestOptions(), () => {
 
 			expect(res.status).toBe(200);
 			validateResponse(json);
+		},
+	);
+
+	test.each(reasoningModeModels)(
+		"reasoning mode $mode $model",
+		{ ...getTestOptions(), timeout: 600000 },
+		async ({ model, mode }) => {
+			const requestId = generateTestRequestId();
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-request-id": requestId,
+					"x-no-fallback": "true",
+					Authorization: `Bearer real-token`,
+				},
+				body: JSON.stringify({
+					model: model,
+					messages: [
+						{
+							role: "user",
+							content: "What is 2/3 + 1/4? Answer with the fraction only.",
+						},
+					],
+					reasoning: { mode },
+				}),
+			});
+
+			const json = await res.json();
+			if (logMode) {
+				console.log(
+					`reasoning mode ${mode} response:`,
+					JSON.stringify(json, null, 2),
+				);
+			}
+
+			expect(res.status).toBe(200);
+			validateResponse(json);
+
+			const log = await validateLogByRequestId(requestId);
+			expect(log.streamed).toBe(false);
+			expect(json.usage.completion_tokens).toBeGreaterThan(0);
 		},
 	);
 });

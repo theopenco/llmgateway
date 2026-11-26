@@ -77,33 +77,37 @@ describe("model OG data", () => {
 		},
 	);
 
-	it.each(["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
-		"uses the catalogue snapshot for %s on OpenAI",
-		async (modelId) => {
-			const result = await getModelOgData(modelId, "openai");
+	it.each([
+		"gpt-image-2.5-sunburst",
+		"gpt-image-2.5-flare",
+		"gpt-image-2.6-sunburst",
+		"gpt-image-2.6-flare",
+	])("uses the catalogue snapshot for %s on OpenAI", async (modelId) => {
+		const result = await getModelOgData(modelId, "openai");
 
-			expect(result.model?.id).toBe(modelId);
-			expect(result.model?.providers[0]?.providerId).toBe("openai");
-			expect(result.providers).toEqual([]);
-			expect(findPublicModelDefinition).not.toHaveBeenCalled();
-			expect(fetchProviders).not.toHaveBeenCalled();
-			expect(fetchModelDiscounts).toHaveBeenCalledWith(modelId, false);
-		},
-	);
+		expect(result.model?.id).toBe(modelId);
+		expect(result.model?.providers[0]?.providerId).toBe("openai");
+		expect(result.providers).toEqual([]);
+		expect(findPublicModelDefinition).not.toHaveBeenCalled();
+		expect(fetchProviders).not.toHaveBeenCalled();
+		expect(fetchModelDiscounts).toHaveBeenCalledWith(modelId, false);
+	});
 
-	it.each(["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
-		"keeps additional AirSide mappings live for %s",
-		async (modelId) => {
-			const expected = { ...liveModel, id: modelId };
-			vi.mocked(findPublicModelDefinition).mockResolvedValue(expected);
+	it.each([
+		"gpt-image-2.5-sunburst",
+		"gpt-image-2.5-flare",
+		"gpt-image-2.6-sunburst",
+		"gpt-image-2.6-flare",
+	])("keeps additional AirSide mappings live for %s", async (modelId) => {
+		const expected = { ...liveModel, id: modelId };
+		vi.mocked(findPublicModelDefinition).mockResolvedValue(expected);
 
-			const result = await getModelOgData(modelId, "mistral");
+		const result = await getModelOgData(modelId, "mistral");
 
-			expect(result.model).toBe(expected);
-			expect(result.providers).toEqual([liveProvider]);
-			expect(fetchModelDiscounts).toHaveBeenCalledWith(modelId, 60);
-		},
-	);
+		expect(result.model).toBe(expected);
+		expect(result.providers).toEqual([liveProvider]);
+		expect(fetchModelDiscounts).toHaveBeenCalledWith(modelId, 60);
+	});
 
 	it("reflects API fare updates on subsequent loads", async () => {
 		const updatedModel = {

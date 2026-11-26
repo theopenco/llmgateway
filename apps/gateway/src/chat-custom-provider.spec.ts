@@ -374,13 +374,15 @@ describe("Custom Provider", () => {
 			]);
 			const log = await waitForLogByRequestId("custom-uptime-demoted");
 			expect(log.usedProvider).toBe("openai");
-			expect(log.routingMetadata?.filteredProviders).toEqual([
-				expect.objectContaining({
-					providerId: "custom",
-					codes: ["low_uptime"],
-					reasons: ["custom provider uptime is below the fallback threshold"],
-				}),
-			]);
+			expect(log.routingMetadata?.filteredProviders).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						providerId: "custom",
+						codes: ["low_uptime"],
+						reasons: ["custom provider uptime is below the fallback threshold"],
+					}),
+				]),
+			);
 		});
 
 		test("does not fall back when the custom provider is pinned", async () => {

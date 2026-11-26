@@ -1,18 +1,18 @@
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
+import { Suspense } from "react";
 
+import { ExperimentAssignment } from "@/components/experiment-assignment";
 import { DashboardDemo } from "@/components/home/dashboard-demo";
-import { AuthLink } from "@/components/shared/auth-link";
-import { ShimmerButton } from "@/lib/components/shimmer-button";
+import { TrackedLink } from "@/components/home/tracked-link";
+import { HeroCta } from "@/components/landing/hero-cta";
+import {
+	LandingStats,
+	LandingStatsView,
+} from "@/components/landing/landing-stats";
+import { HOME_HERO_CTA_EXPERIMENT } from "@/lib/experiments";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
-
-const STATS = [
-	{ value: MARKETING_STATS.tokensRouted, label: "tokens routed" },
-	{ value: MARKETING_STATS.requestsRouted, label: "requests routed" },
-	{ value: MARKETING_STATS.models, label: "models" },
-	{ value: MARKETING_STATS.providers, label: "providers" },
-];
 
 export function LandingHero() {
 	return (
@@ -73,95 +73,39 @@ export function LandingHero() {
 								</p>
 							</div>
 
-							{/* Primary CTA - Maximum prominence */}
+							{/* Primary CTA, with the enterprise path right under it */}
 							<div className="animate-hero-enter hero-enter-delay-1 mt-8 md:mt-10 flex flex-col items-center gap-6">
 								{/* Primary CTA - ShimmerButton with glow */}
 								<div className="relative">
 									{/* Outer glow ring */}
 									<div className="absolute -inset-3 bg-blue-500/30 rounded-full blur-xl animate-pulse" />
-									<AuthLink href="/signup" className="group relative">
-										<ShimmerButton
-											background="rgb(37, 99, 235)"
-											className="shadow-2xl shadow-blue-500/25 px-10 md:px-12 py-3 md:py-4"
-										>
-											<span className="flex items-center gap-3 text-center text-xl leading-none font-bold tracking-tight whitespace-pre-wrap text-white md:text-2xl">
-												<span>Get My API Key</span>
-												<ArrowRight className="size-6 md:size-7 transition-transform group-hover:translate-x-1" />
-											</span>
-										</ShimmerButton>
-									</AuthLink>
+									<ExperimentAssignment experiment={HOME_HERO_CTA_EXPERIMENT} />
+									<HeroCta />
 								</div>
 
-								{/* Trust indicators */}
-								<div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
-									<span className="flex items-center gap-1.5">
-										<svg
-											className="size-4 text-green-500"
-											fill="currentColor"
-											viewBox="0 0 20 20"
-											aria-hidden="true"
-										>
-											<path
-												fillRule="evenodd"
-												d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-												clipRule="evenodd"
-											/>
-										</svg>
-										Bring your own keys — free forever
+								<TrackedLink
+									href="/enterprise"
+									location="home_hero"
+									cta="production_pilot"
+									className="group/pilot text-sm text-muted-foreground transition-colors hover:text-foreground"
+								>
+									Rolling out to a team?{" "}
+									<span className="font-medium text-foreground underline-offset-4 group-hover/pilot:underline">
+										Start a 30-Day Production Pilot →
 									</span>
-									<span className="flex items-center gap-1.5">
-										<svg
-											className="size-4 text-green-500"
-											fill="currentColor"
-											viewBox="0 0 20 20"
-											aria-hidden="true"
-										>
-											<path
-												fillRule="evenodd"
-												d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-												clipRule="evenodd"
-											/>
-										</svg>
-										No credit card required
-									</span>
-									<span className="flex items-center gap-1.5">
-										<svg
-											className="size-4 text-green-500"
-											fill="currentColor"
-											viewBox="0 0 20 20"
-											aria-hidden="true"
-										>
-											<path
-												fillRule="evenodd"
-												d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-												clipRule="evenodd"
-											/>
-										</svg>
-										Setup in 30 seconds
-									</span>
-								</div>
+								</TrackedLink>
 							</div>
 						</div>
 					</div>
 
 					<div className="animate-hero-enter hero-enter-delay-3">
 						<div className="mx-auto mt-8 max-w-7xl px-4 pb-16 sm:mt-12 sm:px-6 md:mt-20 md:pb-24">
-							<DashboardDemo />
-							<dl className="mt-10 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border bg-border sm:grid-cols-4">
-								{STATS.map((stat) => (
-									<div
-										key={stat.label}
-										className="flex flex-col-reverse bg-background px-5 py-4"
-									>
-										<dt className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-											{stat.label}
-										</dt>
-										<dd className="font-display text-2xl font-bold tracking-tight md:text-3xl">
-											{stat.value}
-										</dd>
-									</div>
-								))}
-							</dl>
+							<Suspense fallback={<LandingStatsView totals={undefined} />}>
+								<LandingStats />
+							</Suspense>
+							<div className="mt-10">
+								<DashboardDemo />
+							</div>
 						</div>
 					</div>
 				</div>

@@ -11,12 +11,22 @@ Open the **Notifications** bell in the dashboard header, then select **Notificat
 | API key budgets              | A regular API key reaches your selected percentage of its lifetime or recurring budget. The default threshold is 80%.                                                             |
 | Model retirements            | A model mapping you used in the last 30 days is scheduled for deprecation or deactivation within 30 days. The alert links to the model catalogue so you can choose a newer model. |
 | Model price changes          | A provider changes a model's base token, image input, request, or web search price. Choose which models count, as described below.                                                |
-| Provider issues              | A provider you used in the last 30 days has elevated upstream errors in its recent traffic.                                                                                       |
+| Provider issues              | A model you recently used has a high error rate on its provider. Choose the threshold and windows, as described below.                                                            |
 | Compliance: models available | A model your organization watches becomes routable under its [compliance policy](/features/compliance#compliance-alerts).                                                         |
 | Compliance: downgrades       | A provider, or a watched model, stops meeting your organization's compliance policy.                                                                                              |
 | Organization limits          | A seat or API key limit blocks directory sync (SCIM), an SSO sign-in, an invite, or a new API key. Sent to owners and admins.                                                     |
 
-Organization limit alerts are sent at most once per day for each kind of limit; rejected directory sync pushes are also listed in the [audit log](/features/audit-logs). Budget alerts repeat for each new recurring period, or when you change the limit or alert threshold. Unlimited keys do not trigger budget warnings. Each scheduled model retirement is announced once; ongoing provider issues produce at most one alert per day per project, or per accessible key for developers.
+Organization limit alerts are sent at most once per day for each kind of limit; rejected directory sync pushes are also listed in the [audit log](/features/audit-logs). Budget alerts repeat for each new recurring period, or when you change the limit or alert threshold. Unlimited keys do not trigger budget warnings. Each scheduled model retirement is announced once; ongoing provider issues produce at most one alert per day per affected model mapping (model, provider and region) and project, or per accessible key for developers.
+
+### Provider issue settings
+
+A provider issue alert fires when a model's error rate on a provider reaches your threshold. Choose:
+
+- **Error rate**: 10%, 20%, 30% (default) or 50% of requests.
+- **Error window**: the last 5 minutes, 15 minutes (default) or 1 hour. Shorter windows alert sooner.
+- **Usage window**: only models you used in the last 1 hour, 4 hours (default) or 24 hours are covered.
+
+The rate counts gateway traffic on credits, across all customers, that returned a provider or gateway error. Client errors (4xx caused by the request), response-cache hits, and failed attempts the gateway retried on another provider are not counted. A model needs at least 20 requests in the window before it is judged. Checks run every minute.
 
 Retirement dates apply per provider mapping. A mapping can be retired when its provider redirects requests to a newer model. Check the [model catalogue](https://llmgateway.io/models) and update your requested model before the mapping's deactivation date.
 
@@ -26,7 +36,7 @@ Model price change alerts start disabled. Under the alert, choose which models i
 - **All models**: every price change in the catalogue.
 - **Only models I choose**: the models you select, saved with **Save models**.
 
-A change on any provider of a covered model sends one alert per model, listing the old and new price for each provider and region; when more than three covered models change at once, you get one alert listing them instead. New models and providers do not send an alert, and long-context tier, peak-hour, image output, audio, and video prices and discounts are not tracked. Price change alerts describe public catalogue prices, so they do not depend on project access.
+A change on any provider of a covered model sends one alert per model, listing the old and new price for each provider and region; when more than three covered models change at once, you get one alert that groups the models under each provider's old and new price. New models and providers do not send an alert, and long-context tier, peak-hour, image output, audio, and video prices and discounts are not tracked. Price change alerts describe public catalogue prices, so they do not depend on project access.
 
 Provider alerts require at least 20 non-cached, non-client-error requests and an upstream error rate of at least 20% in the latest hourly statistics window. Stale statistics do not trigger alerts. Checks run about once a minute; these warnings are not a guarantee that every outage or budget crossing will be caught before a request fails.
 
@@ -35,3 +45,5 @@ Provider alerts require at least 20 non-cached, non-client-error requests and an
 Every other notification follows your existing project permissions. Developers receive alerts only for their own keys in assigned projects. Removed project access also removes those alerts from the inbox and prevents pending email delivery.
 
 The inbox shows your 50 most recent in-app alerts. Open an alert to follow its action, or select **Mark all as read** to clear the unread indicator. Turn off a channel in notification settings to stop future delivery through it.
+
+Alerts of the same type that are ready to email together, such as several retirements found right after you turn an alert on, arrive as one email listing each of them. Every alert email links to unsubscribe from that alert type and to your notification settings.

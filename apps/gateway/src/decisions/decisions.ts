@@ -4,11 +4,9 @@ import {
 	rateLimitHeaders,
 	standardErrorResponses,
 } from "@/lib/error-schemas.js";
+import { usageCostSchema } from "@/lib/usage-cost.js";
 
-import {
-	DECISIONS_UPSTREAM_PATH,
-	getDecisionsUpstreamPath,
-} from "@llmgateway/actions";
+import { getDecisionsUpstreamPath } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 
 import { handleDecisionRequest } from "./handle-decision-request.js";
@@ -27,7 +25,6 @@ import type {
 	DecisionRequestBody,
 } from "./typesafe-translation.js";
 import type { ServerTypes } from "@/vars.js";
-import type { ProviderId } from "@llmgateway/models";
 
 const inputTextSchema = z.object({
 	type: z.literal("input_text"),
@@ -120,7 +117,7 @@ const decisionRequestSchema = z.object({
 	}),
 	safety_identifier: z.string().max(128).nullable().optional().openapi({
 		description:
-			"Accepted for OpenAI compatibility. Upstream abuse attribution always uses LLM Gateway's opaque per-API-key identifier.",
+			"Opaque end-user identifier stored in log params.safety_identifier. Credits requests use LLM Gateway's fixed per-organization identifier upstream; BYOK requests omit it.",
 	}),
 });
 
@@ -161,6 +158,7 @@ const decisionResponseSchema = z
 				input_tokens: z.number().int(),
 				output_tokens: z.number().int(),
 				total_tokens: z.number().int(),
+				...usageCostSchema,
 			})
 			.passthrough()
 			.optional(),
@@ -201,9 +199,15 @@ function readUsage(upstream: Record<string, unknown>) {
 		upstream.usage && typeof upstream.usage === "object"
 			? (upstream.usage as Record<string, unknown>)
 			: {};
+	const details =
+		usage.input_tokens_details && typeof usage.input_tokens_details === "object"
+			? (usage.input_tokens_details as Record<string, unknown>)
+			: {};
 	return {
 		inputTokens: tokenCount(usage.input_tokens),
 		outputTokens: tokenCount(usage.output_tokens),
+		cachedTokens: tokenCount(details.cached_tokens),
+		cacheWriteTokens: tokenCount(details.cache_write_tokens),
 	};
 }
 
@@ -327,13 +331,13 @@ decisions.openapi(createDecision, async (c): Promise<any> => {
 		) => {
 			if (wireFormat === "openai") {
 				return {
-					path: DECISIONS_UPSTREAM_PATH,
+					path: getDecisionsUpstreamPath(providerId, wireFormat),
 					body: {
 						model: upstreamModel,
 						input: request.input,
 						questions: request.questions,
 						// OpenAI attributes abuse to it, so the client's value is
-						// replaced by the API key's; Airside carriers get none.
+						// replaced by the API key's; Azure and Airside carriers get none.
 						...(providerId === "openai"
 							? { safety_identifier: safetyIdentifier }
 							: {}),
@@ -343,7 +347,7 @@ decisions.openapi(createDecision, async (c): Promise<any> => {
 			const images = planTypeSafeImages(request.input);
 			const body = toTypeSafeRequest(upstreamModel, request, images.refs);
 			return {
-				path: getDecisionsUpstreamPath(providerId as ProviderId),
+				path: getDecisionsUpstreamPath(providerId, wireFormat),
 				body,
 				// Azure's System One route takes neither images nor TypeSafe's
 				// opt-ins.

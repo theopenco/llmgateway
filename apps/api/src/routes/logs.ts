@@ -220,6 +220,9 @@ const logSchema = z.object({
 	cachedInputCost: z.number().nullable().optional(),
 	cacheWriteInputCost: z.number().nullable().optional(),
 	webSearchCost: z.number().nullable().optional(),
+	webSearchEngine: z.string().nullable().optional(),
+	webSearchType: z.enum(["native", "gateway"]).nullable().optional(),
+	webSearchCount: z.number().nullable().optional(),
 	contentFilterCost: z.number().nullable().optional(),
 	imageInputTokens: z.string().nullable(),
 	audioInputTokens: z.string().nullable(),
@@ -564,7 +567,7 @@ logs.openapi(get, async (c) => {
 	}
 
 	// Get all projects associated with the user's organizations
-	const projectsQuery: any = {
+	const projects = await db.query.project.findMany({
 		where: {
 			organizationId: {
 				in: orgId ? [orgId] : organizationIds,
@@ -572,15 +575,10 @@ logs.openapi(get, async (c) => {
 			status: {
 				ne: "deleted",
 			},
+			// If projectId is provided, check it belongs to the user's organizations
+			...(projectId ? { id: { eq: projectId } } : {}),
 		},
-	};
-
-	// If projectId is provided, check if it belongs to user's organizations
-	if (projectId) {
-		projectsQuery.where.id = projectId;
-	}
-
-	const projects = await db.query.project.findMany(projectsQuery);
+	});
 
 	if (!projects.length) {
 		return c.json({
@@ -1011,7 +1009,7 @@ logs.openapi(uniqueModelsGet, async (c) => {
 	}
 
 	// Get all projects associated with the user's organizations
-	const projectsQuery: any = {
+	const projects = await db.query.project.findMany({
 		where: {
 			organizationId: {
 				in: orgId ? [orgId] : organizationIds,
@@ -1019,15 +1017,10 @@ logs.openapi(uniqueModelsGet, async (c) => {
 			status: {
 				ne: "deleted",
 			},
+			// If projectId is provided, check it belongs to the user's organizations
+			...(projectId ? { id: { eq: projectId } } : {}),
 		},
-	};
-
-	// If projectId is provided, check if it belongs to user's organizations
-	if (projectId) {
-		projectsQuery.where.id = projectId;
-	}
-
-	const projects = await db.query.project.findMany(projectsQuery);
+	});
 
 	if (!projects.length) {
 		return c.json({
@@ -1134,16 +1127,18 @@ logs.openapi(getById, async (c) => {
 	});
 	const [log] = await withNames(found);
 
+	// An inaccessible log answers exactly like a missing one, so the response
+	// never confirms that an id exists outside the caller's access.
+	const notFound = () => new HTTPException(404, { message: "Log not found" });
+
 	if (!log) {
-		throw new HTTPException(404, { message: "Log not found" });
+		throw notFound();
 	}
 
 	// Verify the user can access this log's project (RBAC-aware: developers are
 	// limited to their granted projects).
 	if (!(await userHasProjectAccess(user.id, log.projectId))) {
-		throw new HTTPException(403, {
-			message: "You don't have access to this log",
-		});
+		throw notFound();
 	}
 
 	// Within a granted project, a developer may still only read their own keys'
@@ -1153,9 +1148,7 @@ logs.openapi(getById, async (c) => {
 		scope.restrictedProjectIds.includes(log.projectId) &&
 		!scope.ownApiKeyIds.includes(log.apiKeyId)
 	) {
-		throw new HTTPException(403, {
-			message: "You don't have access to this log",
-		});
+		throw notFound();
 	}
 
 	return c.json({ log });

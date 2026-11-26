@@ -211,13 +211,13 @@ describe("fallback and error status code handling", () => {
 				baseUrl: mockServerUrl,
 			},
 			{
-				id: "provider-key-bytedance",
+				id: "provider-key-novita",
 				...encryptProviderKeyForStorage(
-					"sk-bytedance-key",
-					"provider-key-bytedance",
+					"sk-novita-key",
+					"provider-key-novita",
 					"org-id",
 				),
-				provider: "bytedance",
+				provider: "novita",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
 			},
@@ -1178,7 +1178,8 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "aws-bedrock/claude-sonnet-4-6",
+					// Converse reports errors in x-amzn headers.
+					model: "aws-bedrock/claude-sonnet-4-5",
 					messages: [{ role: "user", content: "TRIGGER_BEDROCK_HEADER_ERROR" }],
 					stream: true,
 				}),
@@ -1256,7 +1257,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "aws-bedrock/claude-opus-4-6",
+					model: "aws-bedrock/claude-sonnet-4-5",
 					messages: [{ role: "user", content: "Reply with exactly: hi" }],
 					stream: true,
 				}),
@@ -1305,7 +1306,7 @@ describe("fallback and error status code handling", () => {
 			}
 		});
 
-		test("deactivated provider falls back and sets metadata in response and DB log", async () => {
+		test("unpinned request skips the deactivated provider and logs the active one", async () => {
 			vi.useFakeTimers({ shouldAdvanceTime: true });
 			vi.setSystemTime(new Date("2026-01-20T12:00:00Z"));
 
@@ -1331,8 +1332,8 @@ describe("fallback and error status code handling", () => {
 					baseUrl: mockServerUrl,
 				});
 
-				// Request with google-ai-studio (deactivated at 2026-01-17)
-				// Should fall back to google-vertex (still active until 2026-01-27)
+				// google-ai-studio is deactivated (2026-01-17); google-vertex is
+				// still active (until 2026-01-27).
 				const res = await app.request("/v1/chat/completions", {
 					method: "POST",
 					headers: {
@@ -1340,7 +1341,7 @@ describe("fallback and error status code handling", () => {
 						Authorization: "Bearer real-token",
 					},
 					body: JSON.stringify({
-						model: "google-ai-studio/gemini-2.5-flash-preview-09-2025",
+						model: "gemini-2.5-flash-preview-09-2025",
 						messages: [
 							{
 								role: "user",
@@ -1353,10 +1354,8 @@ describe("fallback and error status code handling", () => {
 				expect(res.status).toBe(200);
 				const json = await res.json();
 
-				// Verify response metadata shows correct fallback
 				expect(json).toHaveProperty("metadata");
 				expect(json.metadata.used_provider).toBe("google-vertex");
-				// The requested provider should be cleared since it was deactivated
 				expect(json.metadata.requested_provider).toBeNull();
 
 				// Verify DB log entry
@@ -1498,7 +1497,7 @@ describe("fallback and error status code handling", () => {
 		beforeEach(async () => {
 			await setupMultiProviderKeys();
 			await setRoutingMetrics(modelId, "together-ai", 0);
-			await setRoutingMetrics(modelId, "bytedance", 100);
+			await setRoutingMetrics(modelId, "novita", 100);
 		});
 
 		test("does not reroute a 0% uptime provider when IAM only allows the requested provider", async () => {
@@ -1539,9 +1538,9 @@ describe("fallback and error status code handling", () => {
 		test("does not reroute a 0% uptime provider when IAM denies the fallback provider", async () => {
 			await insertIamRules([
 				{
-					id: "iam-deny-bytedance",
+					id: "iam-deny-novita",
 					ruleType: "deny_providers",
-					providers: ["bytedance"],
+					providers: ["novita"],
 				},
 			]);
 
@@ -1578,9 +1577,9 @@ describe("fallback and error status code handling", () => {
 					providers: ["together-ai"],
 				},
 				{
-					id: "iam-deny-bytedance-combo",
+					id: "iam-deny-novita-combo",
 					ruleType: "deny_providers",
-					providers: ["bytedance"],
+					providers: ["novita"],
 				},
 			]);
 
@@ -1632,17 +1631,6 @@ describe("fallback and error status code handling", () => {
 						"org-id",
 					),
 					provider: "alibaba",
-					organizationId: "org-id",
-					baseUrl: mockServerUrl,
-				},
-				{
-					id: "provider-key-novita",
-					...encryptProviderKeyForStorage(
-						"sk-novita-key",
-						"provider-key-novita",
-						"org-id",
-					),
-					provider: "novita",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
@@ -1859,17 +1847,6 @@ describe("fallback and error status code handling", () => {
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
-				{
-					id: "provider-key-novita",
-					...encryptProviderKeyForStorage(
-						"sk-novita-key",
-						"provider-key-novita",
-						"org-id",
-					),
-					provider: "novita",
-					organizationId: "org-id",
-					baseUrl: mockServerUrl,
-				},
 			]);
 
 			await db
@@ -1994,17 +1971,6 @@ describe("fallback and error status code handling", () => {
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
-				{
-					id: "provider-key-novita",
-					...encryptProviderKeyForStorage(
-						"sk-novita-key",
-						"provider-key-novita",
-						"org-id",
-					),
-					provider: "novita",
-					organizationId: "org-id",
-					baseUrl: mockServerUrl,
-				},
 			]);
 
 			await db
@@ -2096,15 +2062,15 @@ describe("fallback and error status code handling", () => {
 		test("direct provider selection picks the best available region", async () => {
 			await setupKeys("alibaba");
 
-			await ensureRegionalMapping("deepseek-v4-flash", "alibaba", "singapore");
-			await ensureRegionalMapping("deepseek-v4-flash", "alibaba", "cn-beijing");
+			await ensureRegionalMapping("qwen3.8-27b", "alibaba", "singapore");
+			await ensureRegionalMapping("qwen3.8-27b", "alibaba", "cn-beijing");
 
-			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
+			await setRoutingMetrics("qwen3.8-27b", "alibaba", 100, {
 				region: "singapore",
 				routingLatency: 1200,
 				routingThroughput: 10,
 			});
-			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
+			await setRoutingMetrics("qwen3.8-27b", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 900,
 				routingThroughput: 20,
@@ -2117,7 +2083,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "alibaba/deepseek-v4-flash",
+					model: "alibaba/qwen3.8-27b",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -2134,7 +2100,7 @@ describe("fallback and error status code handling", () => {
 					score.providerId === "alibaba" && score.region === "cn-beijing",
 			);
 
-			expect(logs[0].usedModel).toBe("alibaba/deepseek-v4-flash:cn-beijing");
+			expect(logs[0].usedModel).toBe("alibaba/qwen3.8-27b:cn-beijing");
 			expect(logs[0].routingMetadata?.selectionReason).toBe(
 				"direct-provider-specified",
 			);
@@ -2145,7 +2111,7 @@ describe("fallback and error status code handling", () => {
 			expect(logs[0].routingMetadata?.routing).toEqual([
 				expect.objectContaining({
 					provider: "alibaba",
-					model: "deepseek-v4-flash",
+					model: "qwen3.8-27b",
 					region: "cn-beijing",
 					status_code: 200,
 					succeeded: true,
@@ -2164,12 +2130,12 @@ describe("fallback and error status code handling", () => {
 				})
 				.where(eq(tables.providerKey.id, "provider-key-id"));
 
-			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash-0731", "alibaba", 100, {
 				region: "singapore",
 				routingLatency: 866,
 				routingThroughput: 1,
 			});
-			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
+			await setRoutingMetrics("deepseek-v4-flash-0731", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 1767,
 				routingThroughput: 0.5,
@@ -2182,7 +2148,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "alibaba/deepseek-v4-flash",
+					model: "alibaba/deepseek-v4-flash-0731",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -2211,7 +2177,7 @@ describe("fallback and error status code handling", () => {
 			expect(logs[0].routingMetadata?.routing).toEqual([
 				expect.objectContaining({
 					provider: "alibaba",
-					model: "deepseek-v4-flash",
+					model: "deepseek-v4-flash-0731",
 					region: "singapore",
 					status_code: 200,
 					succeeded: true,
@@ -2228,26 +2194,34 @@ describe("fallback and error status code handling", () => {
 
 		test("direct provider selection follows the scoped key region after failover", async () => {
 			await setupSingleProviderWithRegionalKeys("alibaba");
-			await ensureRegionalMapping("deepseek-v4-flash", "alibaba", "singapore");
-			await ensureRegionalMapping("deepseek-v4-flash", "alibaba", "cn-beijing");
+			await ensureRegionalMapping(
+				"deepseek-v4-flash-0731",
+				"alibaba",
+				"singapore",
+			);
+			await ensureRegionalMapping(
+				"deepseek-v4-flash-0731",
+				"alibaba",
+				"cn-beijing",
+			);
 
 			reportTrackedKeyError(
 				"alibaba-key-singapore",
 				500,
 				undefined,
-				"deepseek-v4-flash",
+				"deepseek-v4-flash-0731",
 			);
 			reportTrackedKeyError(
 				"alibaba-key-singapore",
 				500,
 				undefined,
-				"deepseek-v4-flash",
+				"deepseek-v4-flash-0731",
 			);
 			reportTrackedKeyError(
 				"alibaba-key-singapore",
 				500,
 				undefined,
-				"deepseek-v4-flash",
+				"deepseek-v4-flash-0731",
 			);
 
 			const res = await app.request("/v1/chat/completions", {
@@ -2257,7 +2231,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "alibaba/deepseek-v4-flash",
+					model: "alibaba/deepseek-v4-flash-0731",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -2265,11 +2239,13 @@ describe("fallback and error status code handling", () => {
 			expect(res.status).toBe(200);
 
 			const logs = await waitForLogs(1);
-			expect(logs[0].usedModel).toBe("alibaba/deepseek-v4-flash:cn-beijing");
+			expect(logs[0].usedModel).toBe(
+				"alibaba/deepseek-v4-flash-0731:cn-beijing",
+			);
 			expect(logs[0].routingMetadata?.routing).toEqual([
 				expect.objectContaining({
 					provider: "alibaba",
-					model: "deepseek-v4-flash",
+					model: "deepseek-v4-flash-0731",
 					region: "cn-beijing",
 					status_code: 200,
 					succeeded: true,
@@ -2280,16 +2256,16 @@ describe("fallback and error status code handling", () => {
 		test("provider-agnostic routing keeps regional mappings aggregated", async () => {
 			await setupKeys("alibaba");
 
-			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 99, {
+			await setRoutingMetrics("qwen3.8-27b", "alibaba", 99, {
 				routingLatency: 950,
 				routingThroughput: 15,
 			});
-			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
+			await setRoutingMetrics("qwen3.8-27b", "alibaba", 100, {
 				region: "singapore",
 				routingLatency: 1200,
 				routingThroughput: 10,
 			});
-			await setRoutingMetrics("deepseek-v4-flash", "alibaba", 100, {
+			await setRoutingMetrics("qwen3.8-27b", "alibaba", 100, {
 				region: "cn-beijing",
 				routingLatency: 900,
 				routingThroughput: 20,
@@ -2302,7 +2278,7 @@ describe("fallback and error status code handling", () => {
 					Authorization: "Bearer real-token",
 				},
 				body: JSON.stringify({
-					model: "deepseek-v4-flash",
+					model: "qwen3.8-27b",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -2450,10 +2426,10 @@ describe("fallback and error status code handling", () => {
 				expect(logs.length).toBe(1);
 
 				const log = logs[0];
-				expect(log.usedProvider).toBe("bytedance");
+				expect(log.usedProvider).toBe("novita");
 				expect(log.internalContentFilter).toBe(true);
 				expect(log.routingMetadata).toMatchObject({
-					selectedProvider: "bytedance",
+					selectedProvider: "novita",
 					contentFilterMatched: true,
 					contentFilterRerouted: true,
 					contentFilterExcludedProviders: ["together-ai"],
@@ -4110,16 +4086,16 @@ describe("fallback and error status code handling", () => {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedProvider).toBe("together-ai");
-			expect(logs.some((log) => log.usedProvider === "bytedance")).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "novita")).toBe(false);
 		});
 
 		test("non-streaming: IAM deny_providers prevents retry fallback to a denied provider", async () => {
 			await setupMultiProviderKeys();
 			await insertIamRules([
 				{
-					id: "iam-retry-deny-bytedance",
+					id: "iam-retry-deny-novita",
 					ruleType: "deny_providers",
-					providers: ["bytedance"],
+					providers: ["novita"],
 				},
 			]);
 
@@ -4140,7 +4116,7 @@ describe("fallback and error status code handling", () => {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedProvider).toBe("together-ai");
-			expect(logs.some((log) => log.usedProvider === "bytedance")).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "novita")).toBe(false);
 		});
 
 		test("non-streaming: combined IAM allow and deny rules prevent retry fallback to any disallowed provider", async () => {
@@ -4152,9 +4128,9 @@ describe("fallback and error status code handling", () => {
 					providers: ["together-ai"],
 				},
 				{
-					id: "iam-retry-deny-bytedance-combo",
+					id: "iam-retry-deny-novita-combo",
 					ruleType: "deny_providers",
-					providers: ["bytedance"],
+					providers: ["novita"],
 				},
 			]);
 
@@ -4175,7 +4151,7 @@ describe("fallback and error status code handling", () => {
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
 			expect(logs[0].usedProvider).toBe("together-ai");
-			expect(logs.some((log) => log.usedProvider === "bytedance")).toBe(false);
+			expect(logs.some((log) => log.usedProvider === "novita")).toBe(false);
 		});
 	});
 });

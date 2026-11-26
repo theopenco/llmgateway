@@ -1,0 +1,198 @@
+/* Dashboard assistant dock: a dark instrument panel whose edge glow reports
+ * what the assistant is doing. Dark in both themes, like an in-car display. */
+
+@property --assistant-glow {
+	syntax: "<color>";
+	inherits: true;
+	initial-value: oklch(0.78 0.13 205);
+}
+
+.assistant-dock {
+	--assistant-glow: oklch(0.78 0.13 205);
+	--assistant-surface: oklch(0.16 0.012 260 / 0.975);
+	transition: --assistant-glow 0.5s ease;
+}
+
+.assistant-dock[data-state="listening"] {
+	--assistant-glow: oklch(0.68 0.24 12);
+}
+
+.assistant-dock[data-state="thinking"] {
+	--assistant-glow: oklch(0.83 0.15 88);
+}
+
+.assistant-dock[data-state="acting"] {
+	--assistant-glow: oklch(0.84 0.19 158);
+}
+
+.assistant-dock[data-state="approval"] {
+	--assistant-glow: oklch(0.79 0.17 55);
+}
+
+.assistant-dock[data-state="error"] {
+	--assistant-glow: oklch(0.65 0.24 27);
+}
+
+/* The light leaking out from under the panel's top-left corner. */
+.assistant-glow {
+	position: absolute;
+	inset: -14px -10px auto -10px;
+	height: 72px;
+	background:
+		radial-gradient(
+			60% 100% at 12% 40%,
+			var(--assistant-glow),
+			transparent 70%
+		),
+		radial-gradient(
+			40% 80% at 92% 60%,
+			color-mix(in oklch, var(--assistant-glow) 55%, transparent),
+			transparent 70%
+		);
+	filter: blur(18px);
+	opacity: 0.5;
+	pointer-events: none;
+	animation: assistant-breathe 4.5s ease-in-out infinite;
+}
+
+.assistant-dock[data-state="listening"] .assistant-glow,
+.assistant-dock[data-state="thinking"] .assistant-glow,
+.assistant-dock[data-state="acting"] .assistant-glow {
+	opacity: 0.85;
+	animation-duration: 1.6s;
+}
+
+.assistant-panel {
+	position: relative;
+	background: var(--assistant-surface);
+	box-shadow:
+		0 24px 60px -18px oklch(0 0 0 / 0.65),
+		0 2px 0 0 oklch(1 0 0 / 0.04) inset;
+	backdrop-filter: blur(28px) saturate(1.4);
+}
+
+/* Hairline rim that picks up the glow colour. */
+.assistant-panel::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	padding: 1px;
+	background: linear-gradient(
+		118deg,
+		var(--assistant-glow),
+		oklch(1 0 0 / 0.1) 30%,
+		oklch(1 0 0 / 0.06) 68%,
+		color-mix(in oklch, var(--assistant-glow) 60%, transparent)
+	);
+	mask:
+		linear-gradient(#000 0 0) content-box exclude,
+		linear-gradient(#000 0 0);
+	pointer-events: none;
+}
+
+.assistant-orb {
+	background: radial-gradient(
+		circle at 35% 30%,
+		oklch(1 0 0 / 0.95),
+		var(--assistant-glow) 45%,
+		color-mix(in oklch, var(--assistant-glow) 30%, black) 100%
+	);
+	box-shadow: 0 0 14px 1px
+		color-mix(in oklch, var(--assistant-glow) 70%, transparent);
+	animation: assistant-pulse 3.2s ease-in-out infinite;
+}
+
+.assistant-thinking-bar {
+	background: linear-gradient(
+		90deg,
+		transparent,
+		var(--assistant-glow),
+		transparent
+	);
+	background-size: 40% 100%;
+	background-repeat: no-repeat;
+	animation: assistant-sweep 1.3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.assistant-rise {
+	animation: assistant-rise 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+.assistant-spotlight {
+	box-shadow:
+		0 0 0 3px oklch(0.84 0.19 158),
+		0 0 0 9px oklch(0.84 0.19 158 / 0.25),
+		0 0 0 200vmax oklch(0 0 0 / 0.42);
+	animation: assistant-ping 1.4s ease-out infinite;
+}
+
+@keyframes assistant-breathe {
+	0%,
+	100% {
+		transform: scale(1);
+		filter: blur(18px) brightness(1);
+	}
+	50% {
+		transform: scale(1.04);
+		filter: blur(18px) brightness(1.25);
+	}
+}
+
+@keyframes assistant-pulse {
+	0%,
+	100% {
+		transform: scale(1);
+		opacity: 0.9;
+	}
+	50% {
+		transform: scale(1.12);
+		opacity: 1;
+	}
+}
+
+@keyframes assistant-sweep {
+	from {
+		background-position: -40% 0;
+	}
+	to {
+		background-position: 140% 0;
+	}
+}
+
+@keyframes assistant-rise {
+	from {
+		opacity: 0;
+		transform: translateY(14px) scale(0.97);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+@keyframes assistant-ping {
+	0%,
+	100% {
+		box-shadow:
+			0 0 0 3px oklch(0.84 0.19 158),
+			0 0 0 9px oklch(0.84 0.19 158 / 0.25),
+			0 0 0 200vmax oklch(0 0 0 / 0.42);
+	}
+	50% {
+		box-shadow:
+			0 0 0 3px oklch(0.84 0.19 158),
+			0 0 0 16px oklch(0.84 0.19 158 / 0),
+			0 0 0 200vmax oklch(0 0 0 / 0.42);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.assistant-glow,
+	.assistant-orb,
+	.assistant-thinking-bar,
+	.assistant-rise,
+	.assistant-spotlight {
+		animation: none;
+	}
+}

@@ -1,6 +1,7 @@
 import {
 	BarChart3,
 	Database,
+	Gauge,
 	Headphones,
 	Key,
 	LayoutDashboard,
@@ -26,6 +27,12 @@ const features = [
 		title: "Volume-Discounted Fees",
 		description:
 			"Custom volume pricing cuts the standard 5% platform fee on credits as your usage scales.",
+	},
+	{
+		icon: Gauge,
+		title: "No Per-Minute or Spend Caps",
+		description:
+			"No per-organization requests-per-minute, spend, or top-up limits. Concurrency is capped at 2,000 in-flight requests, with a retryable 429 above that.",
 	},
 	{
 		icon: BarChart3,

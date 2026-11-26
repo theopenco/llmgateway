@@ -140,14 +140,22 @@ function DiscountCells({
 }: {
 	discount: Parameters<typeof AdjustmentCells>[0]["entry"] & {
 		discountPercent: string;
+		excludedCostTypes: string[];
 	};
 }) {
 	return (
 		<AdjustmentCells
 			entry={discount}
 			value={
-				<span className="font-medium text-green-600">
-					{formatDiscount(discount.discountPercent)} off
+				<span className="flex flex-wrap items-center gap-2">
+					<span className="font-medium text-green-600">
+						{formatDiscount(discount.discountPercent)} off
+					</span>
+					{discount.excludedCostTypes.includes("web_search") && (
+						<Badge variant="outline" className="text-muted-foreground">
+							excl. web search
+						</Badge>
+					)}
 				</span>
 			}
 		/>
@@ -490,6 +498,10 @@ export default async function DiscountsPage({
 					</li>
 					<li>
 						A 30% discount means all customers pay 70% of the original price
+					</li>
+					<li>
+						Discounts apply to every price; turn off &quot;Apply to web
+						search&quot; to bill per-search fees at full price
 					</li>
 				</ul>
 			</div>

@@ -5,6 +5,11 @@ date: 2026-04-23
 title: "LLM Gateway vs LiteLLM: An Honest Comparison"
 summary: "A straightforward comparison of LLM Gateway and LiteLLM — features, operational cost, and trade-offs — so you can pick the right one for your stack."
 categories: ["Guides"]
+faqs:
+  - question: "What is the difference between LLM Gateway and LiteLLM?"
+    answer: "Both give developers one API for many LLM providers. LiteLLM's proxy is a Python service you deploy, scale, and update yourself. LLM Gateway is available as a managed service, so there is no proxy to operate."
+  - question: "How does routing differ between LLM Gateway and LiteLLM?"
+    answer: "LiteLLM fallback is a static list you write in configuration and update as providers change. LLM Gateway's router scores providers and adapts its choice."
 image:
   src: "/blog/llm-gateway-vs-litellm.png"
   alt: "LLM Gateway vs LiteLLM: An Honest Comparison"

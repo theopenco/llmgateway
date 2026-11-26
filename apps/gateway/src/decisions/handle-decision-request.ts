@@ -13,7 +13,10 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
-import { getAvailableCredits } from "@/chat/tools/resolve-provider-context.js";
+import {
+	buildByokKeyFilter,
+	getAvailableCredits,
+} from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -67,6 +70,7 @@ import {
 	shouldRedactProviderError,
 } from "@/lib/stealth-provider-errors.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
+import { withUsageCost } from "@/lib/usage-cost.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
 
 import {
@@ -96,11 +100,21 @@ import type { Context } from "hono";
 const LOAD_BODY_TIMEOUT_MS = 30_000;
 
 /**
- * The wire format a decision mapping speaks upstream. OpenAI and every Airside
- * carrier serve the OpenAI-compatible `POST /v1/decisions`; TypeSafe and Azure
- * (Microsoft-Decision-1) speak TypeSafe's System One.
+ * The wire format a decision mapping speaks upstream. OpenAI, Azure's OpenAI
+ * models and every Airside carrier serve the OpenAI-compatible Decisions API;
+ * TypeSafe and Azure's Microsoft-Decision-1 speak TypeSafe's System One.
  */
 export type DecisionWireFormat = "openai" | "system-one";
+
+function staticDecisionWireFormat(
+	providerId: string,
+	model: ModelDefinition,
+): DecisionWireFormat {
+	return providerId === "openai" ||
+		(providerId === "azure" && model.family === "openai")
+		? "openai"
+		: "system-one";
+}
 
 interface DecisionMappingMatch {
 	mapping: ProviderModelMapping;
@@ -182,7 +196,7 @@ function staticDecisionCandidates(
 				mapping: candidate,
 				modelDef: model,
 				modelDefId: model.id,
-				wireFormat: candidate.providerId === "openai" ? "openai" : "system-one",
+				wireFormat: staticDecisionWireFormat(candidate.providerId, model),
 				airside: false,
 			});
 		}
@@ -322,6 +336,10 @@ export interface NormalizedDecisionResponse {
 	body: Record<string, unknown>;
 	inputTokens: number | null;
 	outputTokens: number | null;
+	/** Input tokens read from the prompt cache, part of `inputTokens`. */
+	cachedTokens?: number | null;
+	/** Input tokens written to the prompt cache, part of `inputTokens`. */
+	cacheWriteTokens?: number | null;
 	/** Answers kept on the log entry. */
 	logContent: unknown;
 }
@@ -347,9 +365,11 @@ export interface DecisionEndpoint {
 	unsupportedModelHint?: string;
 	/** The request carries image input. */
 	hasImageInput?: boolean;
+	/** The request asks a `box` question. */
+	hasBoxQuestion?: boolean;
 	/**
 	 * Throw an HTTPException(400) for input the provider can't take.
-	 * `safetyIdentifier` is the authenticating API key's abuse-attribution id.
+	 * `safetyIdentifier` is the organization's abuse-attribution id.
 	 */
 	buildUpstreamRequest: (
 		providerId: string,
@@ -519,13 +539,27 @@ export async function handleDecisionRequest(
 		});
 	}
 
+	if (endpoint.hasBoxQuestion) {
+		if (!decisionMapping.decisionBoxQuestions) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} does not answer box questions.`,
+			});
+		}
+		if (!endpoint.hasImageInput) {
+			throw new HTTPException(400, {
+				message: "A box question needs an image in the request.",
+			});
+		}
+	}
+
 	// Translate only once the caller is allowed to use the model, so a denied
 	// caller sees the access error rather than an input error. Translation runs
 	// before the rate-limit check, so an invalid request uses no slot.
+	const organizationSafetyIdentifier = organization.safetyIdentifier;
 	const upstreamRequest = endpoint.buildUpstreamRequest(
 		providerId,
 		upstreamModel,
-		apiKey.safetyIdentifier,
+		organizationSafetyIdentifier,
 		wireFormat,
 	);
 	let upstreamBody = upstreamRequest.body;
@@ -592,14 +626,14 @@ export async function handleDecisionRequest(
 		...(routingAttempts.length > 0 ? { routing: routingAttempts } : {}),
 	});
 
-	// The body carries the API key's safety identifier; a managed credential
-	// with forwarding turned off gets it without one.
-	const keySafetyIdentifier = apiKey.safetyIdentifier;
+	// The body carries the organization's safety identifier; a managed
+	// credential with forwarding turned off gets it without one.
 	function bodyForCredential(
 		managedKey: InferSelectModel<typeof tables.providerKey> | undefined,
 	): Record<string, unknown> {
 		if (
-			forwardedSafetyIdentifier(managedKey, keySafetyIdentifier) !== undefined
+			forwardedSafetyIdentifier(managedKey, organizationSafetyIdentifier) !==
+			undefined
 		) {
 			return upstreamBody;
 		}
@@ -644,6 +678,7 @@ export async function handleDecisionRequest(
 				{
 					selectionScope: upstreamModel,
 					variant: envVariant,
+					organizationId: project.organizationId,
 					region: undefined,
 					requiresServiceTier: false,
 					excludedEnvIndices: excludedEnvKeyIndices,
@@ -663,6 +698,7 @@ export async function handleDecisionRequest(
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (!providerKeyInner) {
 				throw new HTTPException(400, {
@@ -685,6 +721,7 @@ export async function handleDecisionRequest(
 				providerId,
 				upstreamModel,
 				excludedProviderKeyIds,
+				buildByokKeyFilter(modelDefId),
 			);
 			if (providerKeyInner) {
 				usedToken = readProviderKey(providerKeyInner);
@@ -714,8 +751,8 @@ export async function handleDecisionRequest(
 			providerKey: providerKeyInner,
 			managedKey: managedKeyInner,
 		};
-		// Azure has no fixed host: a credential names its resource, and the
-		// decision route lives on that resource's Foundry host.
+		// Azure has no fixed host: a credential names its resource, and both
+		// decision routes live on that resource's Foundry host.
 		const azureResource =
 			providerId === "azure"
 				? (providerKeyInner?.options?.azure_resource ??
@@ -724,8 +761,8 @@ export async function handleDecisionRequest(
 						variant: envVariant,
 					}))
 				: undefined;
-		// The decision route only exists on the Foundry host, so a resource wins
-		// over an Azure base URL, which points at the OpenAI-compatible surface.
+		// System One only exists on the Foundry host, so a resource wins over an
+		// Azure base URL, which points at the OpenAI-compatible surface.
 		const resolvedBaseUrl =
 			(azureResource ? toAzureFoundryBaseUrl(azureResource) : undefined) ??
 			providerKeyInner?.baseUrl ??
@@ -806,6 +843,10 @@ export async function handleDecisionRequest(
 
 	try {
 		while (true) {
+			attempt.requestBody = { ...attempt.requestBody };
+			if (attempt.providerKey) {
+				delete attempt.requestBody.safety_identifier;
+			}
 			const attemptLogId = shortid();
 			const usedApiKeyHash = getApiKeyFingerprint(attempt.usedToken);
 			const credentialSource: RoutingCredentialSource = attempt.providerKey
@@ -1228,14 +1269,41 @@ export async function handleDecisionRequest(
 			);
 			const inputPrice = pricingTier?.inputPrice ?? decisionMapping.inputPrice;
 			const priceMultiplier = new Decimal(1).minus(discount);
+			// Cache reads and writes are part of the input count. A mapping without
+			// a cache price bills them at the input rate.
+			const cachedPrice =
+				pricingTier?.cachedInputPrice ?? decisionMapping.cachedInputPrice;
+			const cacheWritePrice =
+				pricingTier?.cacheWriteInputPrice ??
+				decisionMapping.cacheWriteInputPrice;
+			const cachedTokens =
+				cachedPrice !== undefined && !estimatedInput
+					? Math.min(normalized.cachedTokens ?? 0, inputTokens)
+					: 0;
+			const cacheWriteTokens =
+				cacheWritePrice !== undefined && !estimatedInput
+					? Math.min(
+							normalized.cacheWriteTokens ?? 0,
+							inputTokens - cachedTokens,
+						)
+					: 0;
+			const uncachedTokens = inputTokens - cachedTokens - cacheWriteTokens;
+			const cachedInputCost = new Decimal(cachedPrice ?? "0")
+				.times(cachedTokens)
+				.times(priceMultiplier)
+				.toNumber();
 			const inputCost = new Decimal(inputPrice ?? "0")
-				.times(inputTokens)
+				.times(uncachedTokens)
+				.plus(new Decimal(cacheWritePrice ?? "0").times(cacheWriteTokens))
 				.times(priceMultiplier)
 				.toNumber();
 			const requestCostNum = new Decimal(decisionMapping.requestPrice ?? "0")
 				.times(priceMultiplier)
 				.toNumber();
-			const cost = new Decimal(inputCost).plus(requestCostNum).toNumber();
+			const cost = new Decimal(inputCost)
+				.plus(cachedInputCost)
+				.plus(requestCostNum)
+				.toNumber();
 
 			routingAttempts.push(
 				buildRoutingAttempt(
@@ -1275,14 +1343,14 @@ export async function handleDecisionRequest(
 						outputTokens !== null ? outputTokens.toString() : null,
 					totalTokens: (inputTokens + (outputTokens ?? 0)).toString(),
 					reasoningTokens: null,
-					cachedTokens: null,
+					cachedTokens: cachedTokens > 0 ? cachedTokens.toString() : null,
 					hasError: false,
 					streamed: false,
 					canceled: false,
 					errorDetails: null,
 					inputCost,
 					outputCost: 0,
-					cachedInputCost: 0,
+					cachedInputCost,
 					requestCost: requestCostNum,
 					webSearchCost: 0,
 					imageInputTokens: null,
@@ -1306,7 +1374,13 @@ export async function handleDecisionRequest(
 				{ retentionLevel },
 			);
 
-			return c.json(normalized.body);
+			return c.json(
+				withUsageCost(normalized.body, cost, {
+					input_cost: inputCost,
+					cached_input_cost: cachedInputCost,
+					request_cost: requestCostNum,
+				}),
+			);
 		}
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);

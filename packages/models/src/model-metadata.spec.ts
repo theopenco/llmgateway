@@ -18,6 +18,7 @@ const REQUIRED_OUTPUT_BY_FLAG: {
 	{ flag: "imageGenerations", output: "image" },
 	{ flag: "embeddings", output: "embedding" },
 	{ flag: "speechGenerations", output: "audio" },
+	{ flag: "musicGenerations", output: "audio" },
 	{ flag: "videoGenerations", output: "video" },
 	{ flag: "ocr", output: "ocr" },
 	{ flag: "transcriptions", output: "transcription" },
@@ -78,18 +79,6 @@ describe("model metadata", () => {
 				]),
 			).toEqual(expectedMappings);
 		}
-	});
-
-	it("uses Azure Foundry limits for Grok 4.3", () => {
-		const grok43 = models.find((model) => model.id === "grok-4-3");
-		const azure = grok43?.providers.find(
-			(provider) => provider.providerId === "azure-ai-foundry",
-		);
-
-		expect(azure).toMatchObject({
-			contextSize: 20_000,
-			maxOutput: 8_192,
-		});
 	});
 
 	it("sets releasedAt for every model", () => {

@@ -24,7 +24,8 @@ not evidence that a migration ran outside the normal workflow.
 - Each migration is a folder `packages/db/migrations/<YYYYMMDDHHMMSS>_<name>/` holding `migration.sql` and `snapshot.json`.
 - The migrator records each applied folder name in `drizzle.__drizzle_migrations.name` and applies every local folder whose name is missing, regardless of timestamp. A branch migration older than migrations already on `main` still runs after merge.
 - The folder name is the tracking key: never rename or delete a merged migration folder. A renamed folder runs again.
-- Each `snapshot.json` lists its parents in `prevIds`. `drizzle-kit` follows that graph, and an open leaf merges into the next generated diff, so a snapshot with a wrong parent makes `pnpm migrations` emit destructive DROPs.
+- Each `snapshot.json` (format 9) stores that migration's schema deltas, not the full schema, and lists its parents in `prevIds`. `drizzle-kit` replays that graph, and an open leaf merges into the next generated diff, so a snapshot with a wrong parent makes `pnpm migrations` emit destructive DROPs.
+- After a `drizzle-kit` upgrade, `pnpm migrations:check` may report a snapshot "is not of the latest version": run `pnpm migrations:up` and commit the converted `snapshot.json` files. It leaves `migration.sql` and folder names untouched.
 
 ## Generate migrations
 
@@ -110,7 +111,7 @@ It reports non-commutative migrations: branch migrations that touch the same obj
 2. Delete your branch's migration folder, then run `pnpm migrations --name <same name>`.
 3. Re-apply only still-required locking adaptations. Do not carry speculative fallbacks forward.
 
-Never resolve conflicts in migration SQL or snapshot JSON by hand.
+Never resolve conflicts in migration SQL or snapshot JSON by hand, and never run the `drizzle-kit generate --fix-conflicts` that `check` suggests: it deletes the conflicting migrations on both sides, including the one already merged to `main`.
 
 ## Validation
 

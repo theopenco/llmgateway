@@ -41,7 +41,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { canWrite } from "@/lib/admin-role";
+import { canReadFinancials } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
 import {
 	CARRIER_WINDOW_OPTIONS,
@@ -421,8 +421,7 @@ export function AirsideCarriersClient() {
 		{ params: { query: { window } } },
 		{ placeholderData: keepPreviousData },
 	);
-	// Margin fields are stripped from staff responses.
-	const showMargin = canWrite(useAdminRole());
+	const showMargin = canReadFinancials(useAdminRole());
 	const [sort, setSort] = useState<{ key: SortKey; order: SortOrder }>({
 		key: "routedCost",
 		order: "desc",

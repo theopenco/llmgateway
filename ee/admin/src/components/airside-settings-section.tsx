@@ -22,6 +22,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { canWrite } from "@/lib/admin-role";
 import { useAdminRole } from "@/lib/admin-role-context";
@@ -29,6 +30,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import { providerBaseUrlHasEndpointPath } from "@llmgateway/shared";
 import {
 	AIRSIDE_BILLING_MODE_DESCRIPTIONS,
 	AIRSIDE_BILLING_MODE_LABELS,
@@ -172,6 +174,7 @@ function EditDetailsDialog({
 		"/admin/airside/companies/{id}",
 	);
 	const saving = claimMutation.isPending || companyMutation.isPending;
+	const baseUrlHasEndpointPath = providerBaseUrlHasEndpointPath(baseUrl);
 
 	async function save() {
 		const trimmedName = name.trim();
@@ -230,12 +233,23 @@ function EditDetailsDialog({
 							id="airside-base-url"
 							value={baseUrl}
 							onChange={(e) => setBaseUrl(e.target.value)}
+							aria-invalid={baseUrlHasEndpointPath || undefined}
+							aria-describedby="airside-base-url-hint"
 						/>
-						{!isCustom && (
-							<p className="text-xs text-muted-foreground">
-								Used after the static provider definition is removed.
-							</p>
-						)}
+						<p
+							id="airside-base-url-hint"
+							className={
+								baseUrlHasEndpointPath
+									? "text-xs text-destructive"
+									: "text-xs text-muted-foreground"
+							}
+						>
+							{baseUrlHasEndpointPath
+								? "Remove /v1 and any endpoint path — the gateway appends /v1/chat/completions itself."
+								: "Base URL only, without /v1 — the gateway appends /v1/chat/completions itself."}
+							{!isCustom &&
+								" Used after the static provider definition is removed."}
+						</p>
 					</div>
 					{isCustom && (
 						<div className="space-y-1">
@@ -312,7 +326,10 @@ function EditDetailsDialog({
 					<Button variant="outline" onClick={() => onOpenChange(false)}>
 						Cancel
 					</Button>
-					<Button disabled={saving} onClick={() => void save()}>
+					<Button
+						disabled={saving || baseUrlHasEndpointPath}
+						onClick={() => void save()}
+					>
 						{saving ? "Saving…" : "Save"}
 					</Button>
 				</DialogFooter>
@@ -510,61 +527,41 @@ function BillingModeField({
 	);
 }
 
-function TestKeyEditor({ settings }: { settings: AirsideSettings }) {
+function AutoApproveFaresField({
+	settings,
+	editable,
+}: {
+	settings: AirsideSettings;
+	editable: boolean;
+}) {
 	const $api = useApi();
-	const [apiKey, setApiKey] = useState("");
-	const saveKey = $api.useMutation(
-		"put",
-		"/admin/airside/claims/{id}/verification-key",
-		useRefreshOnSuccess("Test key saved."),
+	const update = $api.useMutation(
+		"patch",
+		"/admin/airside/claims/{id}/settings",
+		useRefreshOnSuccess("Fare approval saved."),
 	);
-	const removeKey = $api.useMutation(
-		"delete",
-		"/admin/airside/claims/{id}/verification-key",
-		useRefreshOnSuccess("Test key removed."),
-	);
-	const path = { path: { id: settings.claimId } };
-
 	return (
-		<form
-			className="mt-2 flex max-w-md gap-2"
-			onSubmit={(e) => {
-				e.preventDefault();
-				saveKey.mutate(
-					{ params: path, body: { apiKey } },
-					{ onSuccess: () => setApiKey("") },
-				);
-			}}
-		>
-			<Input
-				type="password"
-				autoComplete="off"
-				aria-label="Test key"
-				placeholder={
-					settings.verificationKeyMasked ? "New key to replace it" : "Test key"
+		<div className="flex items-center gap-2">
+			<Switch
+				id="auto-approve-fares"
+				checked={settings.autoApproveFares}
+				disabled={!editable || update.isPending}
+				onCheckedChange={(checked) =>
+					update.mutate({
+						params: { path: { id: settings.claimId } },
+						body: { autoApproveFares: checked },
+					})
 				}
-				value={apiKey}
-				onChange={(e) => setApiKey(e.target.value)}
 			/>
-			<Button
-				type="submit"
-				size="sm"
-				disabled={!apiKey.trim() || saveKey.isPending}
+			<Label
+				htmlFor="auto-approve-fares"
+				className="text-xs font-normal text-muted-foreground"
 			>
-				{settings.verificationKeyMasked ? "Replace" : "Save"}
-			</Button>
-			{settings.verificationKeyMasked ? (
-				<Button
-					type="button"
-					size="sm"
-					variant="outline"
-					disabled={removeKey.isPending}
-					onClick={() => removeKey.mutate({ params: path })}
-				>
-					Remove
-				</Button>
-			) : null}
-		</form>
+				{settings.autoApproveFares
+					? "Automatic: filed changes and /v1/models prices apply without review"
+					: "Manual review"}
+			</Label>
+		</div>
 	);
 }
 
@@ -945,6 +942,9 @@ export function AirsideSettingsSection({
 					<SettingRow label="Billing">
 						<BillingModeField settings={settings} editable={editable} />
 					</SettingRow>
+					<SettingRow label="Fare approval">
+						<AutoApproveFaresField settings={settings} editable={editable} />
+					</SettingRow>
 					<SettingRow label="Claimed">
 						{formatDate(settings.claimedAt)}
 					</SettingRow>
@@ -999,24 +999,6 @@ export function AirsideSettingsSection({
 						<p className="whitespace-pre-wrap">{settings.customDescription}</p>
 					</SettingRow>
 				) : null}
-				<div>
-					<h3 className="text-sm font-semibold">Test key</h3>
-					<p className="text-sm">
-						{settings.verificationKeyMasked ? (
-							<>
-								<span className="font-mono text-xs">
-									{settings.verificationKeyMasked}
-								</span>{" "}
-								<span className="text-xs text-muted-foreground">
-									saved {formatDate(settings.verificationKeyUpdatedAt)}
-								</span>
-							</>
-						) : (
-							<span className="text-muted-foreground">Not set</span>
-						)}
-					</p>
-					{editable ? <TestKeyEditor settings={settings} /> : null}
-				</div>
 				<div>
 					<h3 className="text-sm font-semibold">Fares</h3>
 					<table className="mt-2 w-full text-sm">

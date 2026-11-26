@@ -41,6 +41,8 @@ In DevPass, enable **No AI training** directly under **Settings**. It uses the s
 
 Every requirement is **fail-closed**: a provider passes only if its published data policy explicitly satisfies the requirement. If an attribute is unknown for a provider, that provider is treated as non-compliant.
 
+Some models retain data on a provider that is otherwise zero-retention, for example models that require AWS human review on Bedrock. The data policy is checked per model, so **Zero data retention (ZDR)** routes those models only to providers that meet it for that model, even when the provider passes in the **Provider Impact** preview.
+
 Before enabling **Zero data retention (ZDR)**, set the organization's data retention to **Metadata Only** and disable response caching in every project. While ZDR is active, **Retain All Data** and project response caching are unavailable, gateway response caching is bypassed, provider prompt-cache markers are stripped, Responses API requests must set `store: false`, and asynchronous video generation is unavailable because video jobs require temporary output storage. Disable ZDR before turning payload retention or caching back on. ZDR is a separate Enterprise compliance policy and is unchanged by the Enterprise requirement for **Retain All Data** itself.
 
 Existing policies that use the deprecated **No prompt logging** rule continue to enforce their original provider-routing behavior. The legacy rule is no longer available for new configuration and does not enable the gateway-level ZDR controls described above.
@@ -134,6 +136,17 @@ This applies to both routing modes:
 
 Each block is recorded as a **security event** so administrators can review what was rejected and why.
 
+## Web search engines
+
+When a model without native web search gets a `web_search` tool, LLM Gateway sends the queries the model writes to a [search engine](/features/web-search#gateway-run-search). On the [single-search path](/features/web-search#gateway-run-search) (models that cannot call tools, `/v1/responses`, `n` above 1, and a few other cases listed there), a query model on Google AI Studio writes the queries from the latest turns instead. Your policies apply to both with the same rules as a provider:
+
+- **The query model**, used only on the single-search path, is checked as the Google AI Studio provider. When the policy rejects it, the gateway skips it and searches your latest user message instead.
+
+- **Perplexity** is checked as the Perplexity provider: blocking or not allowing Perplexity also stops its searches.
+- **Exa** is checked against its own data policy: it may retain queries and use them for training. Provider lists address it as `exa`, so a provider allow list blocks it.
+
+A search the policy rejects is skipped and not billed. With `tool_choice: {"type": "web_search"}`, the request fails with a `403` instead. Native web search is part of the provider serving the request, which the policy already covers.
+
 ## Custom providers
 
 [Custom providers](/features/custom-providers) point at infrastructure your organization operates itself (for example, models hosted in your own cloud account), so they have no entry in the provider catalogue and no published data policy. Under any enabled compliance policy they are therefore **blocked by default** — the same fail-closed rule that applies to catalogue providers with unknown attributes.
@@ -167,9 +180,52 @@ Create a Slack [incoming webhook](https://api.slack.com/messaging/webhooks) for 
 
 ## Safety identifiers
 
-Providers that offer an abuse-attribution identifier receive an opaque, random value that LLM Gateway generates once per API key. It contains no personal data — no email address, user id, organization name or key id — and it is the only thing that ties a report of abusive traffic back to the exact API key that sent it.
+LLM Gateway keeps **your end-user identifier** separate from **its provider-facing organization identifier**. Sending an identifier helps correlate your users’ requests in gateway logs; it does not let you choose or override the identifier sent to providers.
 
-Whether LLM Gateway forwards this identifier depends on the upstream API. Check the [providers directory](https://llmgateway.io/providers) and open a provider to see its current behavior. Any `safety_identifier` you set on a request yourself is ignored — the value is always the one derived from the API key that authenticated the request.
+### Send an end-user identifier
+
+Choose a stable, opaque value for each end user and send it in the request body:
+
+| Endpoint                                                                                       | Request field                                                                                |
+| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Chat completions (`/v1/chat/completions`)                                                      | `safety_identifier` or `user`                                                                |
+| Responses (`/v1/responses`)                                                                    | `safety_identifier` or `user`                                                                |
+| Responses compaction (`/v1/responses/compact`) and decisions (`/v1/decisions`)                 | `safety_identifier`                                                                          |
+| Native Messages (`/v1/messages`)                                                               | `metadata.user_id`                                                                           |
+| Embeddings (`/v1/embeddings`)                                                                  | `user`                                                                                       |
+| Images (`/v1/images/generations`, `/v1/images/edits`) and videos (`/v1/videos`)                | `safety_identifier` or `user`                                                                |
+| Audio (`/v1/audio/speech`, `/v1/audio/transcriptions` as a form field)                         | `safety_identifier` or `user`                                                                |
+| Moderations (`/v1/moderations`), OCR (`/v1/ocr`), rerank (`/v1/rerank`), search (`/v1/search`) | `safety_identifier` or `user`                                                                |
+| Realtime WebSocket (`/v1/realtime`)                                                            | `safety_identifier` or `user` query parameter                                                |
+| Realtime client secrets (`/v1/realtime/client_secrets`)                                        | `safety_identifier`; it replaces any value on the WebSocket URL of sessions using the secret |
+| AI SDK provider (`@ai-sdk/gateway`)                                                            | `providerOptions.gateway.user` or `providerOptions.llmgateway.safety_identifier`             |
+
+[Batch](/features/batch) request lines for chat completions, Responses, and embeddings use the same fields as those endpoints.
+
+For example, replace `your-model-id` with a model from the [models directory](https://llmgateway.io/models):
+
+```bash
+curl https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "your-model-id",
+    "messages": [{ "role": "user", "content": "Hello" }],
+    "safety_identifier": "app-user-42"
+  }'
+```
+
+Use a non-empty value of at most **128 characters**. Where both are listed, legacy `user` is used when `safety_identifier` is absent or `null`. Longer `safety_identifier` values in a JSON body are rejected; longer `user` or `metadata.user_id` values, and longer values in a form field or WebSocket query parameter, are not recorded as safety identifiers.
+
+In both credits and bring-your-own-key mode, the client value is saved in request log metadata as `params.safety_identifier`, even without debug logging. Rejections before the body is parsed, such as early rate limits, may not include it. Reuse it for the same end user when correlating traffic or reporting requests to us. It remains metadata when prompt/completion retention is disabled and is subject to [metadata retention](/features/data-retention). Do not include personal data; it is not an authentication or authorization mechanism.
+
+### What providers receive
+
+LLM Gateway generates an opaque, random identifier once per organization. It is not your organization ID, reveals no API key, and contains no personal data. Every request from the organization shares this provider-facing identifier, across all of its projects and API keys and after key rotation, even if requests carry different client `safety_identifier` values. It is not derived from your client value and cannot be overridden by it.
+
+- **Credits:** upstream APIs that support abuse attribution receive the fixed organization identifier when forwarding is enabled on the gateway-managed credential, mapped to the field or header their API expects. Your client identifier is not forwarded as their safety identifier.
+- **Bring your own key (BYOK):** neither the gateway identifier nor your client identifier is sent as a provider safety identifier.
+- **Hybrid:** the credential used on each attempt determines the behavior, including retries and fallback. An attempt using your provider key follows BYOK behavior; one using LLM Gateway’s credentials follows credits behavior.
 
 ## Access Control
 

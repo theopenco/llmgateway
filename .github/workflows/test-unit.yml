@@ -9,6 +9,7 @@ permissions:
 jobs:
   shard:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write
@@ -60,6 +61,7 @@ jobs:
   # branch ruleset requires.
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: shard
     if: always()
     steps:

@@ -6,6 +6,8 @@ interface ChatCompletionUsage {
 	total_tokens?: number;
 	prompt_tokens_details?: { cached_tokens?: number };
 	completion_tokens_details?: { reasoning_tokens?: number };
+	cost?: number;
+	cost_details?: Record<string, unknown>;
 }
 
 interface ChatCompletionResponse {
@@ -27,6 +29,9 @@ export interface CompactionUsage {
 	total_tokens: number;
 	input_tokens_details: { cached_tokens: number };
 	output_tokens_details: { reasoning_tokens: number };
+	/** What the request was billed, the same figure as chat's `usage.cost`. */
+	cost?: number;
+	cost_details?: Record<string, unknown>;
 }
 
 export interface CompactionResponse {
@@ -191,6 +196,10 @@ export function convertChatResponseToCompaction(
 			reasoning_tokens:
 				chat.usage?.completion_tokens_details?.reasoning_tokens ?? 0,
 		},
+		...(typeof chat.usage?.cost === "number" && { cost: chat.usage.cost }),
+		...(chat.usage?.cost_details && {
+			cost_details: chat.usage.cost_details,
+		}),
 	};
 
 	return {

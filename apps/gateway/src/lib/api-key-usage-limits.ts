@@ -7,6 +7,10 @@ import {
 	type ApiKey,
 } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
+import {
+	API_KEY_USAGE_LIMIT_ERROR_CODE,
+	MEMBER_BUDGET_EXCEEDED_ERROR_CODE,
+} from "@llmgateway/shared/batch";
 
 import {
 	findOrganizationById,
@@ -15,6 +19,7 @@ import {
 	getMemberPeriodSpend,
 	memberHasEffectiveProjectAccess,
 } from "./cached-queries.js";
+import { CodedHTTPException } from "./error-response.js";
 
 export function assertApiKeyWithinUsageLimits(
 	apiKey: ApiKey,
@@ -35,8 +40,9 @@ export function assertApiKeyWithinUsageLimits(
 	}
 
 	if (apiKey.usageLimit && Number(apiKey.usage) >= Number(apiKey.usageLimit)) {
-		throw new HTTPException(401, {
+		throw new CodedHTTPException(401, {
 			message: "Unauthorized: LLMGateway API key reached its usage limit.",
+			code: API_KEY_USAGE_LIMIT_ERROR_CODE,
 		});
 	}
 
@@ -46,9 +52,10 @@ export function assertApiKeyWithinUsageLimits(
 		apiKey.periodUsageLimit &&
 		Number(currentPeriod.usage) >= Number(apiKey.periodUsageLimit)
 	) {
-		throw new HTTPException(401, {
+		throw new CodedHTTPException(401, {
 			message:
 				"Unauthorized: LLMGateway API key reached its current period usage limit.",
+			code: API_KEY_USAGE_LIMIT_ERROR_CODE,
 		});
 	}
 }
@@ -151,8 +158,9 @@ export async function assertMemberWithinBudget(
 
 		for (const { source, budget } of policies) {
 			if (budget.usageLimit && lifetimeUsage >= Number(budget.usageLimit)) {
-				throw new HTTPException(403, {
+				throw new CodedHTTPException(403, {
 					message: `Member has reached their ${source} total spend budget.`,
+					code: MEMBER_BUDGET_EXCEEDED_ERROR_CODE,
 				});
 			}
 
@@ -166,8 +174,9 @@ export async function assertMemberWithinBudget(
 					now,
 				);
 				if (spend >= Number(budget.periodUsageLimit)) {
-					throw new HTTPException(403, {
+					throw new CodedHTTPException(403, {
 						message: `Member has reached their ${source} period spend budget.`,
+						code: MEMBER_BUDGET_EXCEEDED_ERROR_CODE,
 					});
 				}
 			}

@@ -30,14 +30,15 @@ By default a DevPass plan is a hard cap: once the monthly allowance is fully use
 	Overflow is **off by default** — until you enable it, nothing ever charges
 	past your subscription price. It never touches your plan allowance either:
 	credits cover only usage the plan itself wouldn't serve — spend past the
-	monthly pool, and premium usage past the weekly cap.
+	monthly pool, the daily usage cap, and premium usage past the weekly cap.
 </Callout>
 
 ## When overflow applies
 
 | Situation                                   | Overflow off (default)       | Overflow on                        |
 | ------------------------------------------- | ---------------------------- | ---------------------------------- |
-| Within the monthly allowance                | Plan credits                 | Plan credits                       |
+| Within all plan limits                      | Plan credits                 | Plan credits                       |
+| Daily usage cap reached                     | Requests rejected with `402` | Requests bill your credits balance |
 | Monthly allowance exhausted                 | Requests rejected with `402` | Requests bill your credits balance |
 | Weekly premium cap hit, allowance remaining | Reset Pass or wait           | Premium models bill your balance   |
 | Weekly premium cap hit, allowance exhausted | Requests rejected with `402` | Premium models bill your balance   |
@@ -56,6 +57,14 @@ If the allowance runs out with overflow off (or with an empty balance), the gate
 	}
 }
 ```
+
+## Daily usage cap
+
+The daily cap applies to **all models** in a rolling 24-hour window, independently of the monthly allowance and weekly premium cap. It can be reached while both other meters still show unused allowance.
+
+The dashboard Overview and Usage pages show daily usage, the reset time, and a **Daily usage cap reached** notice explaining whether requests are paused or billing pay-as-you-go credits. Overflow spending does not advance the monthly or weekly premium allowance meters, so those meters can stop below 100% while your credits balance decreases.
+
+When the daily cap rejects a request, the gateway returns `402` identifying the daily cap amount, its all-model scope, the exact UTC reset time, and how to enable overflow or top up. If multiple limits are exhausted, premium requests may receive the weekly-cap error first; with overflow enabled but both the monthly allowance and credits balance empty, the monthly-limit error takes precedence. A Reset Pass resets only the weekly premium allowance, not the daily cap. After the daily reset, requests can draw on the plan again if monthly and applicable weekly allowance remain.
 
 ## Topping up
 

@@ -188,6 +188,7 @@ export const deepseekModels = [
 			{
 				providerId: "bytedance",
 				externalId: "deepseek-v3-2-251201",
+				deactivatedAt: new Date("2026-11-11T09:00:00Z"),
 				// Base fields are the [0, 32K] prompt-length band; Ark doubles the
 				// input and output rates above it.
 				inputPrice: "0.28e-6",
@@ -379,18 +380,101 @@ export const deepseekModels = [
 			{
 				providerId: "alibaba",
 				externalId: "deepseek-v4-pro-0813",
-				inputPrice: "2.4e-6",
-				cachedInputPrice: "0.2e-6",
-				outputPrice: "4.8e-6",
+				// Busy hours are 08:00-22:00 UTC+8 (00:00-14:00 UTC) every day; cached
+				// tokens bill at 10% of input.
+				inputPrice: "1.32e-6",
+				outputPrice: "3.96e-6",
+				cachedInputPrice: "0.132e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "1.32e-6",
+						outputPrice: "3.96e-6",
+						cachedInputPrice: "0.132e-6",
+					},
+					offPeak: {
+						inputPrice: "0.66e-6",
+						outputPrice: "1.98e-6",
+						cachedInputPrice: "0.066e-6",
+					},
+					hoursUtc: [[0, 14]],
+				},
 				regions: [
 					{ id: "singapore" },
-					{ id: "eu-frankfurt" },
-					{ id: "us-virginia" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "1.272e-6",
+						outputPrice: "3.816e-6",
+						cachedInputPrice: "0.1272e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "1.272e-6",
+								outputPrice: "3.816e-6",
+								cachedInputPrice: "0.1272e-6",
+							},
+							offPeak: {
+								inputPrice: "0.636e-6",
+								outputPrice: "1.908e-6",
+								cachedInputPrice: "0.0636e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{
+						id: "us-virginia",
+						inputPrice: "1.272e-6",
+						outputPrice: "3.816e-6",
+						cachedInputPrice: "0.1272e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "1.272e-6",
+								outputPrice: "3.816e-6",
+								cachedInputPrice: "0.1272e-6",
+							},
+							offPeak: {
+								inputPrice: "0.636e-6",
+								outputPrice: "1.908e-6",
+								cachedInputPrice: "0.0636e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
 					{
 						id: "cn-beijing",
-						inputPrice: "1.65e-6",
-						cachedInputPrice: "0.138e-6",
-						outputPrice: "3.301e-6",
+						inputPrice: "1.272e-6",
+						outputPrice: "3.816e-6",
+						cachedInputPrice: "0.1272e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "1.272e-6",
+								outputPrice: "3.816e-6",
+								cachedInputPrice: "0.1272e-6",
+							},
+							offPeak: {
+								inputPrice: "0.636e-6",
+								outputPrice: "1.908e-6",
+								cachedInputPrice: "0.0636e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{
+						id: "ap-tokyo",
+						inputPrice: "1.272e-6",
+						outputPrice: "3.816e-6",
+						cachedInputPrice: "0.1272e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "1.272e-6",
+								outputPrice: "3.816e-6",
+								cachedInputPrice: "0.1272e-6",
+							},
+							offPeak: {
+								inputPrice: "0.636e-6",
+								outputPrice: "1.908e-6",
+								cachedInputPrice: "0.0636e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
 					},
 				],
 				requestPrice: "0",
@@ -622,6 +706,7 @@ export const deepseekModels = [
 			{
 				providerId: "cloudflare",
 				externalId: "@cf/deepseek-ai/deepseek-v4-pro-0813",
+				deactivatedAt: new Date("2026-11-20"),
 				inputPrice: "1.32e-6",
 				cachedInputPrice: "0.044e-6",
 				outputPrice: "3.96e-6",
@@ -717,6 +802,7 @@ export const deepseekModels = [
 			{
 				providerId: "novita",
 				externalId: "deepseek/deepseek-v4-flash-0731",
+				deactivatedAt: new Date("2026-11-17"),
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.028e-6",
 				outputPrice: "0.28e-6",
@@ -739,19 +825,85 @@ export const deepseekModels = [
 			{
 				providerId: "alibaba",
 				externalId: "deepseek-v4-flash-0731",
-				inputPrice: "0.2e-6",
-				cachedInputPrice: "0.04e-6",
-				outputPrice: "0.4e-6",
+				deactivatedAt: new Date("2026-11-17"),
+				// Busy hours are 08:00-22:00 UTC+8 (00:00-14:00 UTC) every day; cached
+				// tokens bill at 10% of input.
+				inputPrice: "0.44e-6",
+				outputPrice: "1.32e-6",
+				cachedInputPrice: "0.044e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.44e-6",
+						outputPrice: "1.32e-6",
+						cachedInputPrice: "0.044e-6",
+					},
+					offPeak: {
+						inputPrice: "0.22e-6",
+						outputPrice: "0.66e-6",
+						cachedInputPrice: "0.022e-6",
+					},
+					hoursUtc: [[0, 14]],
+				},
 				regions: [
 					{ id: "singapore" },
-					{ id: "eu-frankfurt" },
-					{ id: "us-virginia" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "0.424e-6",
+						outputPrice: "1.272e-6",
+						cachedInputPrice: "0.0424e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.424e-6",
+								outputPrice: "1.272e-6",
+								cachedInputPrice: "0.0424e-6",
+							},
+							offPeak: {
+								inputPrice: "0.212e-6",
+								outputPrice: "0.636e-6",
+								cachedInputPrice: "0.0212e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{
+						id: "us-virginia",
+						inputPrice: "0.424e-6",
+						outputPrice: "1.272e-6",
+						cachedInputPrice: "0.0424e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.424e-6",
+								outputPrice: "1.272e-6",
+								cachedInputPrice: "0.0424e-6",
+							},
+							offPeak: {
+								inputPrice: "0.212e-6",
+								outputPrice: "0.636e-6",
+								cachedInputPrice: "0.0212e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
 					{
 						id: "cn-beijing",
-						inputPrice: "0.138e-6",
-						cachedInputPrice: "0.028e-6",
-						outputPrice: "0.275e-6",
+						inputPrice: "0.424e-6",
+						outputPrice: "1.272e-6",
+						cachedInputPrice: "0.0424e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.424e-6",
+								outputPrice: "1.272e-6",
+								cachedInputPrice: "0.0424e-6",
+							},
+							offPeak: {
+								inputPrice: "0.212e-6",
+								outputPrice: "0.636e-6",
+								cachedInputPrice: "0.0212e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
 					},
+					{ id: "ap-tokyo" },
 				],
 				requestPrice: "0",
 				contextSize: 1000000,
@@ -777,9 +929,11 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "deepinfra",
-				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
-				inputPrice: "0.08e-6",
-				cachedInputPrice: "0.016e-6",
+				// The original April weights; DeepInfra lists the 0731 GA build
+				// separately as `DeepSeek-V4-Flash-0731`.
+				externalId: "deepseek-ai/DeepSeek-V4-Flash",
+				inputPrice: "0.09e-6",
+				cachedInputPrice: "0.018e-6",
 				outputPrice: "0.18e-6",
 				requestPrice: "0",
 				contextSize: 1000000,
@@ -789,16 +943,39 @@ export const deepseekModels = [
 				reasoning: true,
 				// DeepInfra keeps thinking off unless an effort is requested, and
 				// takes `none` to keep it off, exactly like its V4 Pro deployment.
-				reasoningEfforts: ["none", "low", "high", "max"],
+				reasoningEfforts: ["none", "low", "medium", "high", "max"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+			{
+				providerId: "inference.net",
+				// The original April weights; inference.net lists the 0731 GA build
+				// separately as `deepseek-v4-flash-0731`.
+				externalId: "deepseek-v4-flash",
+				inputPrice: "0.23e-6",
+				cachedInputPrice: "0.0028e-6",
+				outputPrice: "0.62e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 384000,
+				streaming: true,
+				// Never returns reasoning: `reasoning_effort`, `reasoning` and
+				// `thinking` are all accepted and ignored.
+				reasoning: false,
+				vision: false,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 			{
 				providerId: "bytedance",
 				// The GA deployment; `deepseek-v4-flash-260425` is the superseded
 				// preview.
 				externalId: "deepseek-v4-flash-ga-260731",
+				deactivatedAt: new Date("2026-11-17"),
 				inputPrice: "0.44e-6",
 				cachedInputPrice: "0.014e-6",
 				outputPrice: "1.32e-6",
@@ -869,52 +1046,9 @@ export const deepseekModels = [
 				jsonOutputSchema: true,
 			},
 			{
-				// RanoAI serves DeepSeek V4 Flash on Furiosa RNGD NPUs. The NPU
-				// deployment exposes a 1M-token context and accepts up to 393216 output
-				// tokens, rejecting 393217.
-				// Reasoning arrives as `reasoning_content` (streamed as deltas) only
-				// when `reasoning_effort` is passed explicitly — a request without it
-				// returns no reasoning at all, and "none" suppresses it.
-				// `reasoning_tokens` is reported inside completion_tokens.
-				//
-				// All four tool_choice modes are honoured, so none are declared here.
-				// The endpoint silently ignores n > 1 and returns one choice, so this
-				// mapping must not advertise supportsN.
-				// Prompt caching is automatic prefix caching — the first request
-				// misses and later ones report `cached_tokens` — priced at the
-				// `input_cache_read` rate /v1/models advertises.
-				providerId: "ranoai",
-				externalId: "deepseek-v4-flash",
-				inputPrice: "0.14e-6",
-				outputPrice: "0.28e-6",
-				cachedInputPrice: "0.028e-6",
-				requestPrice: "0",
-				contextSize: 1000000,
-				maxOutput: 393216,
-				// RanoAI serves NVFP4 weights; the catalogue's quantization union only
-				// carries the generic 4-bit float value.
-				quantization: "fp4",
-				streaming: true,
-				reasoning: true,
-				reasoningEfforts: [
-					"none",
-					"minimal",
-					"low",
-					"medium",
-					"high",
-					"xhigh",
-					"max",
-				],
-				vision: false,
-				tools: true,
-				// json_object returns valid JSON but often ignores requested fields and
-				// emits an empty object; schema-constrained output is reliable.
-				jsonOutput: false,
-				jsonOutputSchema: true,
-			},
-			{
 				providerId: "canopywave",
 				externalId: "deepseek/deepseek-v4-flash",
+				deactivatedAt: new Date("2026-11-17"),
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "0.28e-6",
@@ -948,6 +1082,7 @@ export const deepseekModels = [
 			{
 				providerId: "baidu",
 				externalId: "deepseek-v4-flash-0731",
+				deactivatedAt: new Date("2026-11-17"),
 				inputPrice: "0.44e-6",
 				cachedInputPrice: "0.014e-6",
 				outputPrice: "1.32e-6",
@@ -974,6 +1109,7 @@ export const deepseekModels = [
 			{
 				providerId: "tencent",
 				externalId: "deepseek-v4-flash-202605",
+				deactivatedAt: new Date("2026-11-17"),
 				inputPrice: "0.15e-6",
 				cachedInputPrice: "0.003e-6",
 				outputPrice: "0.6e-6",
@@ -1022,6 +1158,297 @@ export const deepseekModels = [
 			{
 				providerId: "cloudflare",
 				externalId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+				deactivatedAt: new Date("2026-11-17"),
+				inputPrice: "0.44e-6",
+				cachedInputPrice: "0.014e-6",
+				outputPrice: "1.32e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				// reasoning_effort "none" still thinks; the chat-template flag
+				// turns it off.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				chatTemplateThinkingKey: "thinking",
+				vision: false,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				// Workers AI silently drops `developer` messages.
+				supportsDeveloperRole: false,
+			},
+		],
+	},
+	{
+		id: "deepseek-v4-flash-0731",
+		name: "DeepSeek V4 Flash 0731",
+		description:
+			"The July 31 snapshot of DeepSeek V4 Flash with extended context and reasoning.",
+		family: "deepseek",
+		releasedAt: new Date("2026-07-31"),
+		providers: [
+			{
+				providerId: "novita",
+				externalId: "deepseek/deepseek-v4-flash-0731",
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.028e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 393216,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				// Novita documents no reasoning_effort tiers for this model, so none
+				// are declared; the gateway still forwards whatever the caller sends.
+				vision: false,
+				tools: true,
+				// The -0731 deployment 400s on "required" and named-function
+				// tool_choice, and silently emits no tool call at all when "required"
+				// is streamed; only "auto"/"none" behave (verified 2026-08-02).
+				supportedToolChoices: ["auto", "none"],
+				jsonOutput: true,
+			},
+			{
+				providerId: "alibaba",
+				externalId: "deepseek-v4-flash-0731",
+				// Busy hours are 08:00-22:00 UTC+8 (00:00-14:00 UTC) every day; cached
+				// tokens bill at 10% of input.
+				inputPrice: "0.44e-6",
+				outputPrice: "1.32e-6",
+				cachedInputPrice: "0.044e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.44e-6",
+						outputPrice: "1.32e-6",
+						cachedInputPrice: "0.044e-6",
+					},
+					offPeak: {
+						inputPrice: "0.22e-6",
+						outputPrice: "0.66e-6",
+						cachedInputPrice: "0.022e-6",
+					},
+					hoursUtc: [[0, 14]],
+				},
+				regions: [
+					{ id: "singapore" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "0.424e-6",
+						outputPrice: "1.272e-6",
+						cachedInputPrice: "0.0424e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.424e-6",
+								outputPrice: "1.272e-6",
+								cachedInputPrice: "0.0424e-6",
+							},
+							offPeak: {
+								inputPrice: "0.212e-6",
+								outputPrice: "0.636e-6",
+								cachedInputPrice: "0.0212e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{
+						id: "us-virginia",
+						inputPrice: "0.424e-6",
+						outputPrice: "1.272e-6",
+						cachedInputPrice: "0.0424e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.424e-6",
+								outputPrice: "1.272e-6",
+								cachedInputPrice: "0.0424e-6",
+							},
+							offPeak: {
+								inputPrice: "0.212e-6",
+								outputPrice: "0.636e-6",
+								cachedInputPrice: "0.0212e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{
+						id: "cn-beijing",
+						inputPrice: "0.424e-6",
+						outputPrice: "1.272e-6",
+						cachedInputPrice: "0.0424e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.424e-6",
+								outputPrice: "1.272e-6",
+								cachedInputPrice: "0.0424e-6",
+							},
+							offPeak: {
+								inputPrice: "0.212e-6",
+								outputPrice: "0.636e-6",
+								cachedInputPrice: "0.0212e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{ id: "ap-tokyo" },
+				],
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningMaxTokens: true,
+				// DashScope is driven through `enable_thinking`/`thinking_budget`,
+				// never `reasoning_effort`, so every tier maps onto its own native
+				// budget and is genuinely distinct; `none` disables thinking outright.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "deepinfra",
+				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
+				inputPrice: "0.08e-6",
+				cachedInputPrice: "0.016e-6",
+				outputPrice: "0.18e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				// DeepInfra keeps thinking off unless an effort is requested, and
+				// takes `none` to keep it off, exactly like its V4 Pro deployment.
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "bytedance",
+				// The GA deployment; `deepseek-v4-flash-260425` is the superseded
+				// preview.
+				externalId: "deepseek-v4-flash-ga-260731",
+				inputPrice: "0.44e-6",
+				cachedInputPrice: "0.014e-6",
+				outputPrice: "1.32e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				// `none` and `minimal` both return no reasoning at all.
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				jsonOutput: false,
+			},
+			{
+				providerId: "baidu",
+				externalId: "deepseek-v4-flash-0731",
+				inputPrice: "0.44e-6",
+				cachedInputPrice: "0.014e-6",
+				outputPrice: "1.32e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				// Qianfan ignores reasoning_effort="none"; its thinking switch works.
+				requiresDisableThinkingParam: true,
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+			},
+			{
+				providerId: "tencent",
+				// TokenHub's /v1/models names this dated Vendor Direct id
+				// "DeepSeek-V4-Flash 0731" (created 2026-07-31).
+				externalId: "deepseek-v4-flash-202605",
+				deactivatedAt: new Date("2026-12-09T16:00:00Z"),
+				inputPrice: "0.15e-6",
+				cachedInputPrice: "0.003e-6",
+				outputPrice: "0.6e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.3e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.006e-6",
+					},
+					offPeak: {
+						inputPrice: "0.15e-6",
+						outputPrice: "0.6e-6",
+						cachedInputPrice: "0.003e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDaysUtc: [0, 6],
+				},
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				// Forced tool_choice 400s with "Thinking mode does not support this
+				// tool_choice" unless thinking is disabled.
+				supportedToolChoices: ["auto", "none"],
+				supportedToolChoicesWithThinkingDisabled: ["required", "function"],
+				supportsDeveloperRole: false,
+				jsonOutput: true,
+				jsonOutputSchema: false,
+			},
+			{
+				providerId: "cloudflare",
+				externalId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+				deactivatedAt: new Date("2026-11-20"),
 				inputPrice: "0.44e-6",
 				cachedInputPrice: "0.014e-6",
 				outputPrice: "1.32e-6",
@@ -1107,6 +1534,25 @@ export const deepseekModels = [
 					"tools",
 					"reasoning_effort",
 				],
+			},
+			{
+				providerId: "deepinfra",
+				externalId: "deepseek-ai/DeepSeek-V4-Flash-Vision-Exp",
+				inputPrice: "0.44e-6",
+				// DeepInfra lists a cache-read rate but never reports cache hits
+				// for this model (cached_tokens stays 0), so caching is undeclared.
+				outputPrice: "1.32e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 262144,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 		],
 	},
@@ -1225,17 +1671,17 @@ export const deepseekModels = [
 				externalId: "deepseek-v4.1-flash",
 				inputPrice: "0.3e-6",
 				outputPrice: "1.2e-6",
-				cachedInputPrice: "0.03e-6",
+				cachedInputPrice: "0.006e-6",
 				peakPricing: {
 					peak: {
 						inputPrice: "0.3e-6",
 						outputPrice: "1.2e-6",
-						cachedInputPrice: "0.03e-6",
+						cachedInputPrice: "0.006e-6",
 					},
 					offPeak: {
 						inputPrice: "0.15e-6",
 						outputPrice: "0.6e-6",
-						cachedInputPrice: "0.015e-6",
+						cachedInputPrice: "0.003e-6",
 					},
 					hoursUtc: [[0, 14]],
 				},
@@ -1245,17 +1691,17 @@ export const deepseekModels = [
 						id: "eu-frankfurt",
 						inputPrice: "0.283e-6",
 						outputPrice: "1.131e-6",
-						cachedInputPrice: "0.0283e-6",
+						cachedInputPrice: "0.006e-6",
 						peakPricing: {
 							peak: {
 								inputPrice: "0.283e-6",
 								outputPrice: "1.131e-6",
-								cachedInputPrice: "0.0283e-6",
+								cachedInputPrice: "0.006e-6",
 							},
 							offPeak: {
 								inputPrice: "0.141e-6",
 								outputPrice: "0.565e-6",
-								cachedInputPrice: "0.0141e-6",
+								cachedInputPrice: "0.003e-6",
 							},
 							hoursUtc: [[0, 14]],
 						},
@@ -1264,17 +1710,17 @@ export const deepseekModels = [
 						id: "us-virginia",
 						inputPrice: "0.283e-6",
 						outputPrice: "1.131e-6",
-						cachedInputPrice: "0.0283e-6",
+						cachedInputPrice: "0.006e-6",
 						peakPricing: {
 							peak: {
 								inputPrice: "0.283e-6",
 								outputPrice: "1.131e-6",
-								cachedInputPrice: "0.0283e-6",
+								cachedInputPrice: "0.006e-6",
 							},
 							offPeak: {
 								inputPrice: "0.141e-6",
 								outputPrice: "0.565e-6",
-								cachedInputPrice: "0.0141e-6",
+								cachedInputPrice: "0.003e-6",
 							},
 							hoursUtc: [[0, 14]],
 						},
@@ -1283,17 +1729,36 @@ export const deepseekModels = [
 						id: "cn-beijing",
 						inputPrice: "0.283e-6",
 						outputPrice: "1.131e-6",
-						cachedInputPrice: "0.0283e-6",
+						cachedInputPrice: "0.006e-6",
 						peakPricing: {
 							peak: {
 								inputPrice: "0.283e-6",
 								outputPrice: "1.131e-6",
-								cachedInputPrice: "0.0283e-6",
+								cachedInputPrice: "0.006e-6",
 							},
 							offPeak: {
 								inputPrice: "0.141e-6",
 								outputPrice: "0.565e-6",
-								cachedInputPrice: "0.0141e-6",
+								cachedInputPrice: "0.003e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{
+						id: "ap-tokyo",
+						inputPrice: "0.283e-6",
+						outputPrice: "1.131e-6",
+						cachedInputPrice: "0.006e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.283e-6",
+								outputPrice: "1.131e-6",
+								cachedInputPrice: "0.006e-6",
+							},
+							offPeak: {
+								inputPrice: "0.141e-6",
+								outputPrice: "0.565e-6",
+								cachedInputPrice: "0.003e-6",
 							},
 							hoursUtc: [[0, 14]],
 						},
@@ -1442,6 +1907,26 @@ export const deepseekModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 			},
+			{
+				providerId: "inference.net",
+				externalId: "deepseek-v4.1-flash",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.007e-6",
+				outputPrice: "1e-6",
+				requestPrice: "0",
+				contextSize: 1040000,
+				maxOutput: 393216,
+				maxTemperature: 1.5,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsAssistantPrefill: false,
+			},
 		],
 	},
 	{
@@ -1574,20 +2059,99 @@ export const deepseekModels = [
 				externalId: "deepseek-v4.1-flash-1017",
 				inputPrice: "0.3e-6",
 				outputPrice: "1.2e-6",
-				cachedInputPrice: "0.03e-6",
+				cachedInputPrice: "0.006e-6",
 				peakPricing: {
 					peak: {
 						inputPrice: "0.3e-6",
 						outputPrice: "1.2e-6",
-						cachedInputPrice: "0.03e-6",
+						cachedInputPrice: "0.006e-6",
 					},
 					offPeak: {
 						inputPrice: "0.15e-6",
 						outputPrice: "0.6e-6",
-						cachedInputPrice: "0.015e-6",
+						cachedInputPrice: "0.003e-6",
 					},
 					hoursUtc: [[0, 14]],
 				},
+				regions: [
+					{ id: "singapore" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "0.283e-6",
+						outputPrice: "1.131e-6",
+						cachedInputPrice: "0.006e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.283e-6",
+								outputPrice: "1.131e-6",
+								cachedInputPrice: "0.006e-6",
+							},
+							offPeak: {
+								inputPrice: "0.141e-6",
+								outputPrice: "0.565e-6",
+								cachedInputPrice: "0.003e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{
+						id: "us-virginia",
+						inputPrice: "0.283e-6",
+						outputPrice: "1.131e-6",
+						cachedInputPrice: "0.006e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.283e-6",
+								outputPrice: "1.131e-6",
+								cachedInputPrice: "0.006e-6",
+							},
+							offPeak: {
+								inputPrice: "0.141e-6",
+								outputPrice: "0.565e-6",
+								cachedInputPrice: "0.003e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{
+						id: "cn-beijing",
+						inputPrice: "0.283e-6",
+						outputPrice: "1.131e-6",
+						cachedInputPrice: "0.006e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.283e-6",
+								outputPrice: "1.131e-6",
+								cachedInputPrice: "0.006e-6",
+							},
+							offPeak: {
+								inputPrice: "0.141e-6",
+								outputPrice: "0.565e-6",
+								cachedInputPrice: "0.003e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+					{
+						id: "ap-tokyo",
+						inputPrice: "0.283e-6",
+						outputPrice: "1.131e-6",
+						cachedInputPrice: "0.006e-6",
+						peakPricing: {
+							peak: {
+								inputPrice: "0.283e-6",
+								outputPrice: "1.131e-6",
+								cachedInputPrice: "0.006e-6",
+							},
+							offPeak: {
+								inputPrice: "0.141e-6",
+								outputPrice: "0.565e-6",
+								cachedInputPrice: "0.003e-6",
+							},
+							hoursUtc: [[0, 14]],
+						},
+					},
+				],
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 393216,
@@ -1707,6 +2271,25 @@ export const deepseekModels = [
 				supportsAssistantPrefill: false,
 			},
 			{
+				providerId: "fireworks",
+				externalId: "accounts/fireworks/models/deepseek-v4p1-flash-1017",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.006e-6",
+				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				serviceTiers: ["priority"],
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsAssistantPrefill: false,
+			},
+			{
 				providerId: "baidu",
 				externalId: "deepseek-v4.1-flash-1017",
 				inputPrice: "0.28e-6",
@@ -1763,6 +2346,48 @@ export const deepseekModels = [
 				jsonOutputSchema: true,
 				// Workers AI silently drops `developer` messages.
 				supportsDeveloperRole: false,
+			},
+			{
+				providerId: "mistral",
+				externalId: "deepseek-v4-1-flash-1017",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.007e-6",
+				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				maxTemperature: 1.5,
+				streaming: true,
+				reasoning: true,
+				// Mistral rejects "minimal" and "medium" for this model.
+				reasoningEfforts: ["none", "low", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsDeveloperRole: false,
+			},
+			{
+				providerId: "vertex-openai",
+				externalId: "deepseek-ai/deepseek-v4.1-flash-1017-maas",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.006e-6",
+				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["minimal", "low", "medium", "high", "max"],
+				vision: true,
+				requiresBase64Images: true,
+				tools: true,
+				// "none" leaks the model's raw tool-call markup into content.
+				supportedToolChoices: ["auto", "required", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				regions: [{ id: "global" }],
 			},
 		],
 	},

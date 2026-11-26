@@ -59,7 +59,12 @@ const blog = defineCollection({
 		date: z.string(),
 		updatedAt: z.string().optional(),
 		author: z
-			.object({ name: z.string(), url: z.string().url().optional() })
+			.object({
+				name: z.string(),
+				url: z.string().url().optional(),
+				// Shown on the author's /blog/author page.
+				bio: z.string().optional(),
+			})
 			.optional(),
 		title: z.string(),
 		summary: z.string(),

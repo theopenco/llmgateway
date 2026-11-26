@@ -1,0 +1,116 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "9d65e332-bcfe-4820-bd4a-72a69117f4af",
+  "prevIds": [
+    "1e5c346d-d51f-4cba-91bb-67eed4d081c8",
+    "2e1ed220-1cf7-40a6-bb8d-70ea8cb31cd7"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "notification_preference",
+        "issue_window_minutes"
+      ],
+      "writes": [
+        "s|col|public.notification_preference.issue_window_minutes",
+        "n|col|public.notification_preference.issue_window_minutes",
+        "e|col|public.notification_preference.issue_window_minutes"
+      ],
+      "reads": [
+        "n|tbl|public.notification_preference",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "notification_preference",
+        "issue_error_rate_percent"
+      ],
+      "writes": [
+        "s|col|public.notification_preference.issue_error_rate_percent",
+        "n|col|public.notification_preference.issue_error_rate_percent",
+        "e|col|public.notification_preference.issue_error_rate_percent"
+      ],
+      "reads": [
+        "n|tbl|public.notification_preference",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "notification_preference",
+        "issue_usage_hours"
+      ],
+      "writes": [
+        "s|col|public.notification_preference.issue_usage_hours",
+        "n|col|public.notification_preference.issue_usage_hours",
+        "e|col|public.notification_preference.issue_usage_hours"
+      ],
+      "reads": [
+        "n|tbl|public.notification_preference",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "notification_preference",
+        "name": "issue_window_minutes",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "15",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "notification_preference",
+        "name": "issue_error_rate_percent",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "30",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "notification_preference",
+        "name": "issue_usage_hours",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "4",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

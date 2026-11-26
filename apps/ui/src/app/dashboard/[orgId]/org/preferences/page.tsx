@@ -5,6 +5,7 @@ import { NotificationChannelsSettings } from "@/components/settings/notification
 import { OrganizationIdSettings } from "@/components/settings/organization-id-settings";
 import { OrganizationLogoSettings } from "@/components/settings/organization-logo-settings";
 import { OrganizationNameSettings } from "@/components/settings/organization-name-settings";
+import { OrganizationWebSearchSettings } from "@/components/settings/organization-web-search-settings";
 import {
 	Card,
 	CardContent,
@@ -65,6 +66,18 @@ export default function PreferencesPage() {
 						</CardHeader>
 						<CardContent>
 							<NotificationChannelsSettings />
+						</CardContent>
+					</Card>
+					<Card>
+						<CardHeader>
+							<CardTitle>Web Search</CardTitle>
+							<CardDescription>
+								The search engine LLM Gateway runs for models whose provider has
+								no native web search.
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<OrganizationWebSearchSettings />
 						</CardContent>
 					</Card>
 					<Card className="border-destructive/20">

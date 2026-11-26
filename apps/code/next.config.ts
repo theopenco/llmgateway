@@ -13,6 +13,13 @@ const nextConfig: NextConfig = {
 	reactCompiler: true,
 	experimental: {
 		agentUpgrade: "latest",
+		// Barrel entry points re-exporting dozens of modules; rewrite to direct
+		// imports so dev compiles and cold starts skip the unused ones.
+		optimizePackageImports: [
+			"@llmgateway/models",
+			"@llmgateway/shared",
+			"@llmgateway/shared/components",
+		],
 		serverSourceMaps: true,
 	},
 	async redirects() {

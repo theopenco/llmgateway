@@ -135,9 +135,8 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 	});
 
 	it("should serve cached API key data when Postgres connection is terminated (using select builder)", async () => {
-		// NOTE: This test uses the regular select() query builder because
-		// the relational query API (db.query.table.findFirst) does NOT use the cache
-		// in Drizzle ORM. Only db.select().from() queries are cached.
+		// NOTE: This test uses the select() query builder, the only API that the
+		// exported cdb client exposes (CacheableDb omits db.query).
 
 		// Step 1: Create a working pool and prime the cache
 		const workingPool = new Pool({
@@ -155,7 +154,7 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 			cache: sharedCache,
 		});
 
-		// Prime the cache by making a query using the select builder (NOT relational query API)
+		// Prime the cache by making a query using the select builder
 		const firstQueryResults = await workingCdb
 			.select()
 			.from(apiKey)
@@ -208,11 +207,10 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 		}
 	});
 
-	it("IMPORTANT: relational query API (db.query.table) does NOT use cache - Postgres required", async () => {
-		// This test documents the critical limitation:
-		// The relational query API (db.query.table.findFirst()) does NOT go through
-		// Drizzle's cache layer. This means even with a configured cache, these queries
-		// will ALWAYS hit Postgres.
+	it("relational query API (db.query.table) is cached with the all strategy", async () => {
+		// Since drizzle-orm 1.0.0-rc.5, relational queries go through the cache
+		// too. cdb omits db.query, but a cdb.transaction's tx exposes it, so a
+		// relational read inside one is served from Redis unless it opts out.
 
 		const workingPool = new Pool({
 			connectionString:
@@ -229,7 +227,7 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 			cache: sharedCache,
 		});
 
-		// Make a relational query to "prime" the cache (but it won't actually cache)
+		// Prime the cache with a relational query
 		const firstQuery = await workingCdb.query.apiKey.findFirst({
 			where: {
 				tokenHash: { eq: testApiKeyHash },
@@ -253,13 +251,23 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 			cache: sharedCache,
 		});
 
-		// This WILL FAIL because relational queries don't use the cache
+		// Served from Redis although Postgres is unreachable
+		const cachedQuery = await brokenCdb.query.apiKey.findFirst({
+			where: {
+				tokenHash: { eq: testApiKeyHash },
+				status: { eq: "active" },
+			},
+		});
+		expect(cachedQuery?.id).toBe(firstQuery?.id);
+
+		// Opting out bypasses the cache and needs Postgres
 		await expect(
 			brokenCdb.query.apiKey.findFirst({
 				where: {
 					tokenHash: { eq: testApiKeyHash },
 					status: { eq: "active" },
 				},
+				withCache: false,
 			}),
 		).rejects.toThrow();
 

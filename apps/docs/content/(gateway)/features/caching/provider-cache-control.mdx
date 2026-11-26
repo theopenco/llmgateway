@@ -94,7 +94,7 @@ When [Smart Routing](/features/routing) selects a provider for a large prompt (�
 
 Some providers — most notably **Anthropic** — also support _explicit_ cache control, where you mark specific content blocks as cacheable using a `cache_control` field. This gives you precise control over what gets cached and lets you opt into longer cache lifetimes than the default.
 
-Explicit caching is provider- and model-specific — the [models page](https://llmgateway.io/models) shows which models support prompt caching. Claude models take `cache_control` markers with a `5m` (default) or `1h` TTL wherever they are served, including Anthropic, AWS Bedrock, and the Vertex and Azure Anthropic endpoints. On AWS Bedrock, `1h` is only forwarded for models priced for it; an unsupported `1h` hint is silently downgraded to the default `5m`. Alibaba accepts `cache_control` on its OpenAI-compatible surface with a fixed 5-minute lifetime (a `1h` TTL is normalized away before forwarding).
+Explicit caching is provider- and model-specific — the [models page](https://llmgateway.io/models) shows which models support prompt caching. Claude models take `cache_control` markers with a `5m` (default) or `1h` TTL wherever they are served, including Anthropic, AWS Bedrock, and the Vertex and Azure Anthropic endpoints. On Claude models that AWS Bedrock serves through its Converse API, `1h` is only forwarded for models priced for it; an unsupported `1h` hint is silently downgraded to the default `5m`. Alibaba accepts `cache_control` on its OpenAI-compatible surface with a fixed 5-minute lifetime (a `1h` TTL is normalized away before forwarding).
 
 To mark content as cacheable, send the message content as an array of blocks and add a `cache_control` field to the block you want to cache:
 
@@ -178,7 +178,9 @@ Anthropic requires cache breakpoints with longer TTLs to appear before shorter o
 - A `ttl: "1h"` marker only on the **system** prompt does not disable automatic injection, since 5-minute breakpoints after it still satisfy the ordering rule.
 - Explicit markers that use the default 5-minute TTL coexist with automatic injection (capped at 4 breakpoints total per Anthropic's limit). Your markers take priority: automatic injection only uses the breakpoints your request leaves free.
 
-This section describes the default **Automatic** mode. In **Client-managed** mode there is no injection to reconcile — your markers are forwarded exactly as sent, whatever their TTL.
+This section describes the default **Automatic** mode. In **Client-managed** mode there is no injection to reconcile — your markers are forwarded as sent, whatever their TTL.
+
+In both modes, if your own markers break the ordering rule (a 5-minute marker before a `ttl: "1h"` one), LLM Gateway drops the 5-minute markers that come before the last `ttl: "1h"` marker instead of sending a request Anthropic would reject.
 
 <Callout type="warning">
 	Cache writes are billed at a premium (typically 1.25x for 5m and 2x for 1h on

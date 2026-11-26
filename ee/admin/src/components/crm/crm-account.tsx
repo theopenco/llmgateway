@@ -521,18 +521,22 @@ function ActivityFeed({
 										) : null}
 										{item.a.subject}
 									</p>
-									<button
-										type="button"
-										aria-label="Delete"
-										onClick={() =>
-											m.deleteActivity.mutate({
-												params: { path: { activityId: item.a.id } },
-											})
-										}
-										className="opacity-0 transition group-hover:opacity-100"
-									>
-										<Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-rose-600" />
-									</button>
+									{/* An inquiry's follow-up is its record of being answered;
+									    the API refuses to delete it. */}
+									{item.a.externalRef?.startsWith("lead:") ? null : (
+										<button
+											type="button"
+											aria-label="Delete"
+											onClick={() =>
+												m.deleteActivity.mutate({
+													params: { path: { activityId: item.a.id } },
+												})
+											}
+											className="opacity-0 transition group-hover:opacity-100"
+										>
+											<Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-rose-600" />
+										</button>
+									)}
 								</div>
 								{item.a.body ? (
 									<p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">

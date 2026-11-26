@@ -1,30 +1,8 @@
-import {
-	ArrowUpRight,
-	BadgeCheck,
-	BarChart3,
-	Bell,
-	FileSearch,
-	GitBranch,
-	Lock,
-	Paintbrush,
-	ShieldCheck,
-	Users,
-} from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 
+import { enterpriseFeatureIcons } from "@/components/enterprise/feature-icons";
 import { enterpriseFeatures } from "@/lib/enterprise-features";
-
-const iconMap = {
-	"shield-check": ShieldCheck,
-	"badge-check": BadgeCheck,
-	"git-branch": GitBranch,
-	audit: FileSearch,
-	bell: Bell,
-	lock: Lock,
-	paintbrush: Paintbrush,
-	chart: BarChart3,
-	users: Users,
-} as const;
 
 const accentMap: Record<string, string> = {
 	indigo: "from-indigo-500/20 to-indigo-500/0 text-indigo-400",
@@ -62,7 +40,8 @@ export function EnterpriseCapabilities() {
 						</span>
 					</span>
 					<h2 className="text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl text-balance">
-						Nine capabilities your security team will actually approve
+						{enterpriseFeatures.length} capabilities your security team will
+						actually approve
 					</h2>
 					<p className="text-lg text-muted-foreground leading-relaxed text-balance">
 						The pieces that turn LLM Gateway from a developer tool into an
@@ -74,7 +53,7 @@ export function EnterpriseCapabilities() {
 
 				<div className="grid gap-px bg-border rounded-2xl overflow-hidden border border-border lg:grid-cols-3 md:grid-cols-2">
 					{enterpriseFeatures.map((feature) => {
-						const Icon = iconMap[feature.iconName];
+						const Icon = enterpriseFeatureIcons[feature.iconName];
 						return (
 							<Link
 								key={feature.slug}

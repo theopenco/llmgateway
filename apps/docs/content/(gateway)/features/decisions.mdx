@@ -34,6 +34,14 @@ Foundry with the deployment name `Decision-1`, then add the Azure key and
 resource in LLMGateway. The gateway calls the resource's Foundry host
 (`https://<resource>.services.ai.azure.com`).
 
+`gpt-6-luna-decisions` is also served by Azure. With your own Azure key, deploy
+`gpt-6-luna` under the deployment name `gpt-6-luna` in a region where Azure
+enables decisions for it; the same deployment then serves chat and decisions.
+Not every region does (East US 2 serves chat but rejects decisions), so check
+Microsoft's
+[Decisions API guide](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/decisions)
+before deploying.
+
 Browse all decision models on the
 [models page](https://llmgateway.io/models?filters=1).
 
@@ -118,9 +126,21 @@ curl -X POST "https://api.llmgateway.io/v1/decisions" \
 			"confidence": 0.88
 		}
 	],
-	"usage": { "input_tokens": 318, "output_tokens": 0, "total_tokens": 318 }
+	"usage": {
+		"input_tokens": 318,
+		"output_tokens": 0,
+		"total_tokens": 318,
+		"cost": 0.0000318,
+		"cost_details": {
+			"input_cost": 0.0000318,
+			"request_cost": 0,
+			"total_cost": 0.0000318
+		}
+	}
 }
 ```
+
+`usage.cost` is what the request was billed in USD (see [Cost Breakdown](/features/cost-breakdown)).
 
 ## OpenAI SDK
 
@@ -204,7 +224,9 @@ request fits TypeSafe's body limit; TypeSafe rejects images under 280 or over
 `/v1/systemone` is TypeSafe's request format and serves Jev only. It will be
 deprecated in favor of `/v1/decisions`, and new decision models ship on
 `/v1/decisions` only. Jev works on both, at the same price, so you can move
-without changing models.
+without changing models. The exception is Jev 1.14's
+[`box` questions](/features/system-one#bounding-boxes), which OpenAI's format
+has no type for: keep those on `/v1/systemone`.
 
 | `/v1/systemone`                   | `/v1/decisions`                                         |
 | --------------------------------- | ------------------------------------------------------- |

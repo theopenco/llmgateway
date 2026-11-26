@@ -127,6 +127,85 @@ describe("admin discount and routing multiplier editing", () => {
 		});
 	});
 
+	it("round-trips excluded cost types on global discounts", async () => {
+		const created = await request("/admin/discounts", "POST", {
+			provider: "google-vertex",
+			discountPercent: 50,
+			excludedCostTypes: ["web_search", "web_search"],
+		});
+		expect(created.status).toBe(201);
+		const { id, excludedCostTypes } = await created.json();
+		expect(excludedCostTypes).toEqual(["web_search"]);
+
+		const list = await request("/admin/discounts", "GET");
+		expect((await list.json()).discounts).toEqual([
+			expect.objectContaining({ id, excludedCostTypes: ["web_search"] }),
+		]);
+
+		// Omitted on update keeps the stored exclusions.
+		const kept = await request(`/admin/discounts/${id}`, "PUT", {
+			provider: "google-vertex",
+			discountPercent: 40,
+		});
+		expect(await kept.json()).toMatchObject({
+			discountPercent: "0.4000",
+			excludedCostTypes: ["web_search"],
+		});
+
+		const cleared = await request(`/admin/discounts/${id}`, "PUT", {
+			provider: "google-vertex",
+			discountPercent: 40,
+			excludedCostTypes: [],
+		});
+		expect(await cleared.json()).toMatchObject({ excludedCostTypes: [] });
+
+		const invalid = await request(`/admin/discounts/${id}`, "PUT", {
+			provider: "google-vertex",
+			discountPercent: 40,
+			excludedCostTypes: ["tokens"],
+		});
+		expect(invalid.status).toBe(400);
+	});
+
+	it("round-trips excluded cost types on organization discounts", async () => {
+		const created = await request(
+			`/admin/organizations/${ORG_ID}/discounts`,
+			"POST",
+			{ provider: "google-vertex", discountPercent: 50 },
+		);
+		const { id, excludedCostTypes } = await created.json();
+		expect(excludedCostTypes).toEqual([]);
+
+		const updated = await request(
+			`/admin/organizations/${ORG_ID}/discounts/${id}`,
+			"PUT",
+			{
+				provider: "google-vertex",
+				discountPercent: 50,
+				excludedCostTypes: ["web_search"],
+			},
+		);
+		expect(await updated.json()).toMatchObject({
+			excludedCostTypes: ["web_search"],
+		});
+
+		const all = await request("/admin/discounts/organizations", "GET");
+		expect((await all.json()).discounts).toEqual([
+			expect.objectContaining({ id, excludedCostTypes: ["web_search"] }),
+		]);
+
+		const audit = await db.query.auditLog.findFirst({
+			where: {
+				organizationId: { eq: ORG_ID },
+				action: { eq: "discount.update" },
+			},
+		});
+		expect(audit?.metadata).toMatchObject({
+			before: { excludedCostTypes: [] },
+			after: { excludedCostTypes: ["web_search"] },
+		});
+	});
+
 	it("updates a routing score multiplier", async () => {
 		const created = await request("/admin/routing-score-multipliers", "POST", {
 			provider: "openai",

@@ -184,10 +184,10 @@ export default function DecisionsPageClient({
 	selectedItemIdRef.current = selectedItemId;
 	const activeItemsRef = useRef<DecisionGalleryItem[]>(activeItems);
 	activeItemsRef.current = activeItems;
-	// Saves whose row has not shown up in the history list yet: local
-	// placeholder id → database id. State rather than a ref so the hand-over
-	// effect re-runs when a save lands after the refetch already resolved.
-	const [pendingSaves, setPendingSaves] = useState<Map<string, string>>(
+	// Saved runs: local placeholder id → database id. Entries are kept so a
+	// saved run keeps its gallery key and is not remounted (re-animating its
+	// bars) when its history row replaces the local placeholder.
+	const [savedRuns, setSavedRuns] = useState<Map<string, string>>(
 		() => new Map(),
 	);
 
@@ -200,6 +200,21 @@ export default function DecisionsPageClient({
 		useDecisionHistoryItem(
 			selectedListItem?.inputImageCount ? selectedListItem.id : null,
 		);
+
+	// A local run is handed over once its history row has loaded. Hide it in
+	// the same render so it never shows next to its row in the sidebar.
+	const visibleActiveItems = useMemo(() => {
+		const historyIds = new Set(historyData?.items.map((item) => item.id));
+		return activeItems.filter((item) => {
+			const dbId = savedRuns.get(item.id);
+			return dbId === undefined || !historyIds.has(dbId);
+		});
+	}, [activeItems, historyData, savedRuns]);
+	const galleryItemKeys = useMemo(() => {
+		const keys = new Map<string, string>();
+		savedRuns.forEach((dbId, localId) => keys.set(dbId, localId));
+		return keys;
+	}, [savedRuns]);
 
 	const galleryItems = useMemo<DecisionGalleryItem[]>(() => {
 		const historical: DecisionGalleryItem[] = (historyData?.items ?? []).map(
@@ -218,19 +233,19 @@ export default function DecisionsPageClient({
 				models: item.models.map((m) => ({ ...m, isLoading: false })),
 			}),
 		);
-		return [...activeItems, ...historical];
-	}, [activeItems, historyData, selectedDetail]);
+		return [...visibleActiveItems, ...historical];
+	}, [visibleActiveItems, historyData, selectedDetail]);
 
 	const displayItems = useMemo<DecisionGalleryItem[]>(() => {
-		if (activeItems.length > 0) {
-			return activeItems;
+		if (visibleActiveItems.length > 0) {
+			return visibleActiveItems;
 		}
 		if (selectedItemId) {
 			const item = galleryItems.find((i) => i.id === selectedItemId);
 			return item ? [item] : [];
 		}
 		return [];
-	}, [activeItems, selectedItemId, galleryItems]);
+	}, [visibleActiveItems, selectedItemId, galleryItems]);
 
 	// Auto-save completed active items to DB then remove from local state
 	useEffect(() => {
@@ -270,7 +285,7 @@ export default function DecisionsPageClient({
 			})
 				.then((data) => {
 					const newId = data.item.id;
-					setPendingSaves((prev) => new Map(prev).set(item.id, newId));
+					setSavedRuns((prev) => new Map(prev).set(item.id, newId));
 					// Only follow the saved run if the user is still looking at it
 					// and has not started a newer run since.
 					const stillOnScreen =
@@ -295,26 +310,16 @@ export default function DecisionsPageClient({
 		}
 	}, [activeItems, saveDecisionHistory]);
 
+	// Drop handed-over runs from local state; they are already hidden.
 	useEffect(() => {
-		if (pendingSaves.size === 0 || !historyData) {
+		if (visibleActiveItems.length === activeItems.length) {
 			return;
 		}
-		const localIds = new Set<string>();
-		pendingSaves.forEach((dbId, localId) => {
-			if (historyData.items.some((i) => i.id === dbId)) {
-				localIds.add(localId);
-			}
-		});
-		if (localIds.size === 0) {
-			return;
-		}
-		setActiveItems((prev) => prev.filter((i) => !localIds.has(i.id)));
-		setPendingSaves((prev) => {
-			const next = new Map(prev);
-			localIds.forEach((localId) => next.delete(localId));
-			return next;
-		});
-	}, [historyData, pendingSaves]);
+		const visibleIds = new Set(visibleActiveItems.map((item) => item.id));
+		setActiveItems((prev) =>
+			prev.filter((item) => !savedRuns.has(item.id) || visibleIds.has(item.id)),
+		);
+	}, [activeItems, visibleActiveItems, savedRuns]);
 
 	const returnUrl = useMemo(() => {
 		const search = searchParams.toString();
@@ -859,6 +864,7 @@ export default function DecisionsPageClient({
 								<div className="max-w-6xl mx-auto">
 									<DecisionsGallery
 										items={displayItems}
+										itemKeys={galleryItemKeys}
 										comparisonMode={comparisonMode}
 										onScenarioClick={handleLoadScenario}
 									/>

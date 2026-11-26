@@ -25,6 +25,7 @@ import {
 	getContentFilterViolations,
 } from "@/lib/admin-content-filter";
 import { getContentFilterSettings } from "@/lib/admin-settings";
+import { contentFilterModelLabel } from "@/lib/content-filter-model";
 import {
 	MIN_SAMPLED_FOR_RATE,
 	type ContentFilterViolationsGroupBy,
@@ -131,6 +132,9 @@ function isFocused(
 // usedModel is stored as "<provider>/<model>", and the provider already has its
 // own column here, so drop the redundant prefix to keep the row scannable.
 function shortModelName(usedModel: string, usedProvider: string): string {
+	if (!usedModel) {
+		return contentFilterModelLabel(usedModel);
+	}
 	const prefix = `${usedProvider}/`;
 	return usedModel.startsWith(prefix)
 		? usedModel.slice(prefix.length)
@@ -251,11 +255,18 @@ export default async function ContentFilterPage({
 						</p>
 					</div>
 				</div>
-				<Button asChild variant="outline" size="sm">
-					<Link href={`/content-filter/errors?window=${window}`}>
-						Moderation errors
-					</Link>
-				</Button>
+				<div className="flex flex-wrap items-center gap-2">
+					<Button asChild variant="outline" size="sm">
+						<Link href={`/content-filter/classifiers?window=${window}`}>
+							Classifier comparison
+						</Link>
+					</Button>
+					<Button asChild variant="outline" size="sm">
+						<Link href={`/content-filter/errors?window=${window}`}>
+							Moderation errors
+						</Link>
+					</Button>
+				</div>
 			</header>
 
 			<Card>
@@ -506,7 +517,8 @@ export default async function ContentFilterPage({
 																key={`${m.usedProvider}/${m.usedModel}`}
 																className="whitespace-nowrap"
 															>
-																{m.usedModel} ({formatNumber(m.violationCount)})
+																{contentFilterModelLabel(m.usedModel)} (
+																{formatNumber(m.violationCount)})
 															</span>
 														))}
 													</div>

@@ -1,0 +1,57 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "31fb6e18-7066-4a56-a4bf-b736a68a32dc",
+  "prevIds": [
+    "5dd10bca-76c2-484b-859c-d2057ccb6f1e"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "transaction",
+        "transaction_credit_topup_payment_intent_unique"
+      ],
+      "writes": [
+        "s|idx|public.transaction_credit_topup_payment_intent_unique",
+        "n|idx|public.transaction_credit_topup_payment_intent_unique",
+        "e|idx|public.transaction_credit_topup_payment_intent_unique",
+        "n|rel|public.transaction_credit_topup_payment_intent_unique"
+      ],
+      "reads": [
+        "n|tbl|public.transaction",
+        "n|sch|public",
+        "n|col|public.transaction.stripe_payment_intent_id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "transaction",
+        "name": "transaction_credit_topup_payment_intent_unique",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "stripe_payment_intent_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": "\"type\" = 'credit_topup' AND \"status\" = 'completed'",
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    }
+  ]
+}

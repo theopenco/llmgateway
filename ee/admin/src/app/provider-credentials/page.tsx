@@ -6,7 +6,7 @@ import {
 	getProviderCredentialCatalog,
 	getProviderCredentials,
 } from "@/lib/admin-provider-credentials";
-import { parseErrorWindow } from "@/lib/provider-key-error-window";
+import { resolveCredentialPeriod } from "@/lib/provider-key-usage-window";
 
 function SignInPrompt() {
 	return (
@@ -31,11 +31,19 @@ function SignInPrompt() {
 export default async function ProviderCredentialsPage({
 	searchParams,
 }: {
-	searchParams: Promise<{ deleted?: string; errors?: string }>;
+	searchParams: Promise<{
+		deleted?: string;
+		period?: string;
+		errors?: string;
+		usage?: string;
+	}>;
 }) {
-	const { deleted, errors } = await searchParams;
+	const params = await searchParams;
 	const [credentialsData, catalogData] = await Promise.all([
-		getProviderCredentials(deleted === "1", parseErrorWindow(errors)),
+		getProviderCredentials(
+			params.deleted === "1",
+			resolveCredentialPeriod(params),
+		),
 		getProviderCredentialCatalog(),
 	]);
 

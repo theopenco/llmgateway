@@ -20,7 +20,7 @@ Area-specific rules live in skills under `.agents/skills`. Load the matching ski
 | `frontend`            | Next.js apps: API client, data fetching, navigation, dashboard routes, formatting                |
 | `infrastructure`      | Production hosting and hostnames, deploy ordering, client IP and country                         |
 | `legal-pages`         | Terms, privacy policy, and product supplemental terms                                            |
-| `pull-request`        | Opening and updating PRs, screenshots, stacked PRs, CI e2e                                       |
+| `pull-request`        | Opening and updating PRs, screenshots, stacked PRs                                               |
 | `model-benchmarks`    | Model and mapping benchmarks                                                                     |
 | `changelog`           | Changelog entries                                                                                |
 | `blog`                | Marketing blog posts                                                                             |
@@ -41,7 +41,7 @@ Run all `pnpm` commands from the repository root, not from app directories.
 - `pnpm build` - Build everything. ALWAYS run a full build after finishing a feature.
 - `pnpm clean` - Clean build artifacts and cache directories
 - `pnpm test:unit` / `pnpm test:e2e` - Unit (`*.spec.ts`) and e2e (`*.e2e.ts`) tests. Run unit tests after adding features, ALWAYS against the worktree's own isolated database (`local-stack` skill); details in the `testing` skill.
-- New or edited model mappings: ALWAYS run e2e locally, scoped to exactly those mappings (`TEST_MODELS="<provider>/<model>" FULL_MODE=true pnpm test:e2e`), before opening the PR or enabling auto-merge. NEVER run unscoped e2e for them, locally or in CI (`/e2e` runs every model and bills real provider spend). Without local credentials, dispatch the e2e workflow with `test_models` set to the same mappings and `full_mode` on. Unscoped CI e2e is only for generic gateway code changes whose effect across models needs checking.
+- New or edited model mappings: whenever their credentials are available, ALWAYS run e2e locally, scoped to exactly those mappings (`TEST_MODELS="<provider>/<model>" FULL_MODE=true pnpm test:e2e`), before opening the PR or enabling auto-merge. NEVER run unscoped e2e for them: it runs every model and bills real provider spend.
 
 To build a single app, ALWAYS use a Turbo filter (`turbo run build --filter=<app>`). NEVER use `pnpm --filter <app> build`: it skips rebuilding workspace dependencies and compiles against stale `dist/` artifacts.
 
@@ -102,7 +102,7 @@ When creating a package in `packages/`, copy `package.json`, `tsconfig.json`, `.
 - Always use top-level `import`, never `require`. Dynamic imports are allowed only in frontend code (`next/dynamic` code splitting, lazy-loaded heavy client libraries, `content-collections`) and in tests; backend code uses static imports.
 - Apply DRY principles; when a helper exists in one app, extract it into a shared package instead of copying it.
 - Do not add caching or memoization around `process.env` reads unless there is a measured hot-path need.
-- Always use pnpm for package management.
+- Always use pnpm for package management. When bumping pnpm, update both `.tool-versions` and `packageManager` in the root `package.json`; Dependabot reads only `packageManager` and otherwise regenerates the lockfile with a newer pnpm that CI rejects.
 - Security gating is enforced server-side; UI gates are UX only.
 - Hash or HMAC with an existing deployment secret — `getApiKeyHashSecret()` from `@llmgateway/shared/api-key-hash`, with a domain-separation prefix. New secrets come from required env vars with no default value.
 - Do all money math with `Decimal` from `decimal.js`.
@@ -117,6 +117,7 @@ NEVER put internal or private information into anything published to this public
 
 ### Git and pull requests
 
+- Before starting any task, including read-only analysis, run `git fetch origin` and work from `origin/main` (or the PR branch): a stale checkout gives a wrong model catalogue, schema, and code. Branch new work off `origin/main`; read current state with `git show origin/main:<path>` when the checkout is shared and behind.
 - Use conventional commit format for commits and PR titles. Count the PR title before creating or editing it: at most 50 characters, `type(scope): ` included.
 - Do not `--amend` commits after pushing. Force-push only feature branches, never main.
 - When checking out an existing PR or remote branch, set its upstream (`gh pr checkout <n>`, or `git checkout -B <branch> FETCH_HEAD && git branch --set-upstream-to=origin/<branch>`).
@@ -124,7 +125,8 @@ NEVER put internal or private information into anything published to this public
 - Resolve `pnpm-lock.yaml` conflicts by running `pnpm install`.
 - Never force-merge a PR (`gh pr merge --admin`, bypassing required checks or reviews). Merge only when every required check is green, or enable auto-merge and let it land.
 - Load the `pull-request` skill before every `gh pr create` or `gh pr edit`; do not write a PR from memory. The body follows `.github/pull_request_template.md`: Summary, Verification and a filled-in Rollback, with Database migration deleted when there is none.
-- After opening or pushing to a PR, wait for CodeRabbit, then fix every failed pre-merge check and every finding, or resolve it with a one-line reason, before handing off. Docstring Coverage is CodeRabbit's default, not a repo rule; ignore it.
+- After opening or pushing to a PR, wait for CodeRabbit, then fix every failed pre-merge check before handing off.
+- Open review feedback (CodeRabbit or human) blocks the merge. Address every item: implement the fix and push, or dismiss it with a one-line reason, then resolve the thread. Docstring Coverage is CodeRabbit's default, not a repo rule; ignore it.
 - Write pull request links in full (`https://github.com/theopenco/llmgateway/pull/<n>`) in every PR status, summary and handoff, never as a bare `#<n>`; a commit hash does not replace the PR link.
 - PRs are ready for review (not drafts) unless the user asks otherwise, and their title and description always reflect the final scope. Split independently reviewable layers into native stacked PRs with `gh stack`.
 - Review is layered, not a single gate: self-review before the PR (`pull-request` skill), CodeRabbit on every PR, a maintainer review requested on `risk: high` (`pr-risk`), then the merge queue. `REVIEW.md` is the brief every reviewer loads; when a finding repeats, fix it at the source (ESLint rule, skill line, `REVIEW.md`) instead of re-explaining it.

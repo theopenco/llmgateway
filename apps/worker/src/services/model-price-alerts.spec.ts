@@ -195,7 +195,9 @@ describe("model price alerts", () => {
 			title: "Price changes for 5 models",
 			href: "/models",
 		});
-		expect(notifications[0].message).toContain("Model A");
+		expect(notifications[0].message).toBe(
+			"New prices are in effect. Price Provider: input $1.00 → $2.00 per 1M tokens for Model A, Model C, Model D, Model E. Price Provider (eu): input $3.00 → $2.00 per 1M tokens for Model B. Compare current prices in the model catalogue.",
+		);
 	});
 
 	it("records first-seen prices silently, then notifies opted-in users once per change", async () => {
@@ -352,6 +354,9 @@ describe("model price alerts", () => {
 			to: "owner@example.com",
 			subject: "Price change for Model A",
 		});
+		expect(send.mock.calls[0][0].text).toContain(
+			"/dashboard/price-org/org/notifications",
+		);
 		expect(
 			(await db.query.notification.findFirst())?.emailSentAt,
 		).not.toBeNull();

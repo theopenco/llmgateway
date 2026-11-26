@@ -27,7 +27,7 @@ describe("getOrCreateChatOrg", () => {
 
 	afterEach(deleteAll);
 
-	test("concurrent first calls migrate the balance into one chat org", async () => {
+	test("concurrent first calls create one chat org and leave DevPass credits", async () => {
 		const responses = await Promise.all(
 			Array.from({ length: 8 }, () =>
 				app.request("/playground/chat-org", { headers: { Cookie: cookie } }),
@@ -41,19 +41,18 @@ describe("getOrCreateChatOrg", () => {
 		});
 		const chatOrgs = memberships.filter((m) => m.organization?.kind === "chat");
 		expect(chatOrgs).toHaveLength(1);
-		expect(new Decimal(chatOrgs[0].organization!.credits).toString()).toBe(
+		expect(new Decimal(chatOrgs[0].organization!.credits).toString()).toBe("0");
+
+		const devpassOrg = memberships.find(
+			(m) => m.organization?.kind === "devpass",
+		);
+		expect(new Decimal(devpassOrg!.organization!.credits).toString()).toBe(
 			"250",
 		);
-
-		const total = memberships.reduce(
-			(sum, m) => sum.plus(m.organization?.credits ?? 0),
-			new Decimal(0),
-		);
-		expect(total.toString()).toBe("250");
 
 		const gifts = await db.query.transaction.findMany({
 			where: { type: { eq: "credit_gift" } },
 		});
-		expect(gifts).toHaveLength(2);
+		expect(gifts).toHaveLength(0);
 	});
 });

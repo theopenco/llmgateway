@@ -1,6 +1,7 @@
 import { HTTPException } from "hono/http-exception";
 
 import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
+import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
 	assertApiKeyWithinUsageLimits,
@@ -25,6 +26,7 @@ import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 import { forwardedSafetyIdentifier } from "@/lib/safety-identifier.js";
 
 import { readProviderKey } from "@llmgateway/actions";
+import { providerKeyAllowsModel } from "@llmgateway/db";
 import { getRequestedModelAlias } from "@llmgateway/models";
 
 import {
@@ -61,6 +63,8 @@ export interface RealtimePreflightInput {
 	 */
 	intent?: string;
 	clientIp?: string;
+	/** The caller's end-user identifier, only logged as params.safety_identifier. */
+	clientSafetyIdentifier?: string;
 	/** Secret minting checks availability without selecting an upstream account. */
 	advanceRoundRobin?: boolean;
 }
@@ -107,6 +111,8 @@ export interface RealtimePreflightResult {
 	 * can re-evaluate IP-scoped IAM rules.
 	 */
 	clientIp: string | undefined;
+	/** The caller's end-user identifier, logged on every row of the session. */
+	clientSafetyIdentifier: string | undefined;
 	/**
 	 * Stable, privacy-preserving identifier forwarded upstream via the
 	 * OpenAI-Safety-Identifier header; undefined when the managed credential
@@ -225,8 +231,9 @@ async function runRealtimePreflightInner(
 				: `Realtime model not found: ${input.requestedModel}`,
 		);
 	}
-	// Transcription sessions speak the OpenAI realtime protocol end to end;
-	// the Gemini session implementation has no transcription-only mode.
+	// Transcription sessions speak the OpenAI realtime protocol end to end
+	// (ElevenLabs its own); the Gemini session implementation has no
+	// transcription-only mode.
 	if (
 		sessionType === "transcription" &&
 		match.mapping.providerId === "google-ai-studio"
@@ -390,7 +397,9 @@ async function runRealtimePreflightInner(
 			providerId as Provider,
 			{
 				selectionScope: match.modelId,
+				model: match.modelId,
 				variant: envVariant,
+				organizationId: project.organizationId,
 				region: undefined,
 				requiresServiceTier: false,
 				advanceRoundRobin: input.advanceRoundRobin,
@@ -417,6 +426,8 @@ async function runRealtimePreflightInner(
 			project.organizationId,
 			providerId,
 			match.modelId,
+			undefined,
+			buildByokKeyFilter(match.modelId),
 		);
 		if (!providerKey) {
 			throw new RealtimeConnectError(
@@ -434,6 +445,8 @@ async function runRealtimePreflightInner(
 			project.organizationId,
 			providerId,
 			match.modelId,
+			undefined,
+			buildByokKeyFilter(match.modelId),
 		);
 		if (providerKey) {
 			upstreamToken = readProviderKey(providerKey);
@@ -451,8 +464,10 @@ async function runRealtimePreflightInner(
 
 	// Only the official provider endpoint is supported for realtime v1: a BYOK
 	// custom base URL (proxy) would silently bypass the metering-critical event
-	// contract this service depends on.
-	if (providerKey?.baseUrl) {
+	// contract this service depends on. An Azure base URL is the alternative to
+	// a resource name for addressing the customer's own Azure endpoint, so it is
+	// allowed there.
+	if (providerKey?.baseUrl && match.mapping.providerId !== "azure") {
 		throw new RealtimeConnectError(
 			400,
 			"custom_base_url_unsupported",
@@ -481,11 +496,16 @@ async function runRealtimePreflightInner(
 		// Only an organization-owned BYOK key means the org pays the provider
 		// directly. A platform-managed credential still bills as credits.
 		usedMode: providerKey ? "api-keys" : "credits",
-		allowedTranscriptionModelIds,
+		// The session pins transcription on the same upstream credential, so only
+		// models that credential may serve are offered.
+		allowedTranscriptionModelIds: allowedTranscriptionModelIds.filter((id) =>
+			providerKeyAllowsModel((providerKey ?? managedKey)?.allowedModels, id),
+		),
 		clientIp: input.clientIp,
+		clientSafetyIdentifier: input.clientSafetyIdentifier,
 		safetyIdentifier: forwardedSafetyIdentifier(
 			managedKey,
-			apiKey.safetyIdentifier,
+			organization.safetyIdentifier,
 		),
 	};
 }

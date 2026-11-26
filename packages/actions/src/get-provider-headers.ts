@@ -110,7 +110,6 @@ export function getProviderHeaders(
 				"Content-Type": "application/json",
 			};
 		case "azure":
-		case "azure-ai-foundry":
 			return {
 				...requestIdHeader,
 				"api-key": token,
@@ -127,14 +126,6 @@ export function getProviderHeaders(
 			return {
 				...requestIdHeader,
 				"xi-api-key": token,
-			};
-		case "ranoai":
-			return {
-				...requestIdHeader,
-				Authorization: `Bearer ${token}`,
-				// RanoAI serves compressed responses that Node can receive as raw
-				// bytes, so request an uncompressed body for reliable JSON/SSE parsing.
-				"Accept-Encoding": "identity",
 			};
 		case "openai":
 		case "inference.net":

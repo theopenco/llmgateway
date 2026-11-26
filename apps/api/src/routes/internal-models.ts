@@ -17,6 +17,7 @@ import { createRoute } from "@/utils/create-route.js";
 
 import {
 	getEffectiveProviders,
+	DISCOUNT_EXCLUDABLE_COST_TYPES,
 	and,
 	avgEffectiveTtftSql,
 	db,
@@ -32,6 +33,8 @@ import {
 	tables,
 } from "@llmgateway/db";
 import {
+	BATCH_ENDPOINTS,
+	getBatchEndpoints,
 	models as modelDefinitions,
 	providers as providerDefinitions,
 	type PeakPricing,
@@ -168,7 +171,10 @@ const modelProviderMappingSchema = z.object({
 	realtimeTranscription: z.boolean().nullable(),
 	realtimeTranscriptionTurnDetection: z.boolean().nullable(),
 	supportedVoices: z.array(z.string()).nullable(),
+	batchEndpoints: z.array(z.enum(BATCH_ENDPOINTS)).nullable(),
 	discount: z.string().nullable(),
+	/** Cost types the discount leaves at full price (e.g. "web_search"). */
+	discountExcludedCostTypes: z.array(z.enum(DISCOUNT_EXCLUDABLE_COST_TYPES)),
 	stability: z.enum(["stable", "beta", "unstable", "experimental"]).nullable(),
 	supportedParameters: z.array(z.string()).nullable(),
 	supportedVideoSizes: z.array(z.string()).nullable(),
@@ -288,13 +294,14 @@ internalModels.openapi(getModelsRoute, async (c) => {
 					?.providers.find(
 						(provider) => provider.providerId === mapping.providerId,
 					) ?? null;
+			const publicDiscount =
+				mapping.deactivatedAt && mapping.deactivatedAt <= now
+					? null
+					: getPublicDiscount(mapping.providerId, model.id);
 			return {
 				...mapping,
-				discount:
-					mapping.deactivatedAt && mapping.deactivatedAt <= now
-						? null
-						: (getPublicDiscount(mapping.providerId, model.id)
-								?.discountPercent ?? null),
+				discount: publicDiscount?.discountPercent ?? null,
+				discountExcludedCostTypes: publicDiscount?.excludedCostTypes ?? [],
 				quantization:
 					mapping.source === "airside"
 						? mapping.quantization
@@ -320,6 +327,19 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				realtimeTranscriptionTurnDetection:
 					sharedMapping?.realtimeTranscriptionTurnDetection ?? null,
 				supportedVoices: sharedMapping?.supportedVoices ?? null,
+				batchEndpoints: getBatchEndpoints(
+					{
+						providerId: mapping.providerId,
+						deprecatedAt: mapping.deprecatedAt,
+						deactivatedAt: mapping.deactivatedAt,
+						streaming: sharedMapping?.streaming ?? mapping.streaming,
+						realtime: sharedMapping?.realtime,
+						realtimeTranscription: sharedMapping?.realtimeTranscription,
+						embeddings: sharedMapping?.embeddings,
+					},
+					{ output: model.output },
+					now,
+				),
 				imageOutputPrice:
 					sharedMapping?.imageOutputPrice !== undefined
 						? String(sharedMapping.imageOutputPrice)

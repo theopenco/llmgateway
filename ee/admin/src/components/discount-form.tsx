@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
 	Dialog,
 	DialogContent,
@@ -44,7 +45,14 @@ interface TargetOptions {
 	mappings: ProviderModelMapping[];
 }
 
-type AdjustmentValues = TargetData & { value: number };
+/** Flat fees a discount can leave at full price (see DISCOUNT_EXCLUDABLE_COST_TYPES). */
+type ExcludableCostType = "web_search";
+
+type AdjustmentValues = TargetData & {
+	value: number;
+	/** Discounts only; omitted for routing multipliers. */
+	excludedCostTypes?: ExcludableCostType[];
+};
 
 /** An existing row as returned by the API; values are stored as decimals. */
 interface ExistingAdjustment extends TargetData {
@@ -90,6 +98,7 @@ function AdjustmentForm({
 	const [value, setValue] = useState("");
 	const [reason, setReason] = useState("");
 	const [expiresAt, setExpiresAt] = useState("");
+	const [applyToWebSearch, setApplyToWebSearch] = useState(true);
 	const isEdit = initial !== undefined;
 
 	const filteredMappings = useMemo(
@@ -134,6 +143,9 @@ function AdjustmentForm({
 		setValue(initial ? String(initial.value) : "");
 		setReason(initial?.reason ?? "");
 		setExpiresAt(initial?.expiresAt ? toDateTimeLocal(initial.expiresAt) : "");
+		setApplyToWebSearch(
+			!(initial?.excludedCostTypes ?? []).includes("web_search"),
+		);
 		setError(null);
 		resetSubmit();
 	};
@@ -166,6 +178,11 @@ function AdjustmentForm({
 				value: parsedValue,
 				reason: reason || null,
 				expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+				...(isDiscount && {
+					excludedCostTypes: applyToWebSearch
+						? []
+						: (["web_search"] satisfies ExcludableCostType[]),
+				}),
 			},
 			() => setOpen(false),
 		);
@@ -310,6 +327,28 @@ function AdjustmentForm({
 						</p>
 					</div>
 
+					{isDiscount && (
+						<div className="flex items-start gap-3">
+							<Checkbox
+								id="discount-apply-web-search"
+								checked={applyToWebSearch}
+								onCheckedChange={(checked) =>
+									setApplyToWebSearch(checked === true)
+								}
+							/>
+							<div className="space-y-1">
+								<Label htmlFor="discount-apply-web-search">
+									Apply to web search
+								</Label>
+								<p className="text-xs text-muted-foreground">
+									When off, per-search fees are billed at full price. Token
+									prices, including cache reads and writes, are always
+									discounted.
+								</p>
+							</div>
+						</div>
+					)}
+
 					<div className="space-y-2">
 						<Label htmlFor={`${kind}-reason`}>Reason (optional)</Label>
 						<Input
@@ -358,7 +397,10 @@ interface DiscountFormProps extends TargetOptions {
 	/** Targets an organization discount; omitted for a global discount. */
 	orgId?: string;
 	/** Edits this discount; omitted to create a new one. */
-	discount?: ExistingAdjustment & { discountPercent: string };
+	discount?: ExistingAdjustment & {
+		discountPercent: string;
+		excludedCostTypes: ExcludableCostType[];
+	};
 }
 
 export function DiscountForm({

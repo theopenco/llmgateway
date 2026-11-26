@@ -41,6 +41,11 @@ const chat = (): BaseMessage[] => [
 	{ role: "user", content: "Tell me a joke." },
 ];
 
+// Claude Opus 4.7 is on Bedrock's Messages API; aws-bedrock here exercises
+// the Converse cache points, which Claude Sonnet 4.5 still uses.
+const modelFor = (provider: ProviderId) =>
+	provider === "aws-bedrock" ? "claude-sonnet-4-5" : "claude-opus-4-7";
+
 async function prepare(
 	provider: ProviderId,
 	messages: BaseMessage[],
@@ -51,9 +56,9 @@ async function prepare(
 ) {
 	return (await prepareRequestBody(
 		provider,
-		"claude-opus-4-7",
+		modelFor(provider),
 		null,
-		"claude-opus-4-7",
+		modelFor(provider),
 		messages,
 		false,
 		undefined,
@@ -330,7 +335,7 @@ describe("automatic cache duration", () => {
 			expect(messages).toEqual(before);
 			// Retrying against a different mapping must re-evaluate support.
 			const mapping = models
-				.find((model) => model.id === "claude-opus-4-7")!
+				.find((model) => model.id === modelFor(provider))!
 				.providers.find((entry) => entry.providerId === provider)!;
 			const unsupported = await prepare(
 				provider,

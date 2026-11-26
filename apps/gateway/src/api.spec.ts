@@ -19,7 +19,7 @@ import { GATEWAY_CONTENT_FILTER_MESSAGE } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { lowerMidConversationBlocks } from "./anthropic/content-blocks.js";
-import { app } from "./app.js";
+import { app, healthChecker } from "./app.js";
 import {
 	getTrackedKeyMetrics,
 	isTrackedKeyHealthy,
@@ -44,16 +44,25 @@ describe("api", () => {
 		mockServerUrl = harness.mockServerUrl;
 	});
 
-	test("/", async () => {
+	test("/ answers without touching dependencies", async () => {
 		const res = await app.request("/");
 		expect(res.status).toBe(200);
 		const data = await res.json();
 		expect(data).toHaveProperty("message", "OK");
 		expect(data).toHaveProperty("version");
-		expect(data).toHaveProperty("health");
-		expect(data.health).toHaveProperty("status");
-		expect(data.health).toHaveProperty("redis");
-		expect(data.health).toHaveProperty("database");
+		expect(data).not.toHaveProperty("health");
+	});
+
+	test("/ answers 503 until the startup check has passed", async () => {
+		const isReady = vi.spyOn(healthChecker, "isReady").mockReturnValue(false);
+		try {
+			const res = await app.request("/");
+			expect(res.status).toBe(503);
+			expect(await res.json()).not.toHaveProperty("version");
+		} finally {
+			isReady.mockRestore();
+		}
+		expect((await app.request("/")).status).toBe(200);
 	});
 
 	test("/livez answers without touching dependencies", async () => {
@@ -2506,7 +2515,7 @@ describe("api", () => {
 					Authorization: "Bearer real-token-devpass-no-training-route",
 				},
 				body: JSON.stringify({
-					model: "deepseek-v4-flash",
+					model: "deepseek-v4-flash-0731",
 					messages: [{ role: "user", content: "Use no-training routing" }],
 				}),
 			});
@@ -5300,13 +5309,14 @@ describe("api", () => {
 		expect(Array.isArray(json.data)).toBe(true);
 		expect(json.data[0]).toHaveProperty("embedding");
 		expect(Array.isArray(json.data[0].embedding)).toBe(true);
-		expect(json.usage).toEqual({
+		expect(json.usage).toMatchObject({
 			prompt_tokens: inputText.length,
 			total_tokens: inputText.length,
 		});
 
 		const logs = await waitForLogs(1);
 		const embeddingLog = logs.find((log) => log.requestId === requestId);
+		expect(json.usage.cost).toBe(Number(embeddingLog?.cost));
 
 		expect(embeddingLog).toBeTruthy();
 		expect(embeddingLog?.usedModel).toBe("openai/text-embedding-3-small");
@@ -5479,7 +5489,7 @@ describe("api", () => {
 					Authorization: "Bearer real-token-spend-cap",
 				},
 				body: JSON.stringify({
-					model: "gpt-4o-mini",
+					model: "openai/gpt-4o-mini",
 					messages: [{ role: "user", content: "Hello!" }],
 				}),
 			});
@@ -7145,8 +7155,9 @@ describe("api", () => {
 
 				const body = JSON.parse(String(init?.body ?? "{}"));
 				expect(body.model).toBe("omni-moderation-latest");
-				expect(typeof body.input).toBe("string");
-				expect(body.input).toContain("I want to attack someone.");
+				expect(body.input).toEqual([
+					expect.stringContaining("I want to attack someone."),
+				]);
 
 				return new Response(
 					JSON.stringify({
@@ -9380,7 +9391,7 @@ describe("api", () => {
 				Authorization: `Bearer real-token`,
 			},
 			body: JSON.stringify({
-				model: "gpt-4o-mini",
+				model: "openai/gpt-4o-mini",
 				messages: [
 					{
 						role: "user",
@@ -9650,7 +9661,7 @@ describe("api", () => {
 		expect(logs[0].sessionId).toBe("pi-session-42");
 	});
 
-	test("Deactivated provider falls back to active provider", async () => {
+	test("Pinned deactivated provider is rejected instead of rerouted", async () => {
 		// Use fake timers to set the date between the two deactivation dates:
 		// google-ai-studio deactivatedAt: 2026-01-17
 		// google-vertex deactivatedAt: 2026-01-27
@@ -9682,8 +9693,8 @@ describe("api", () => {
 				baseUrl: mockServerUrl,
 			});
 
-			// Request with google-ai-studio (deactivated at 2026-01-17)
-			// Should fall back to google-vertex (still active until 2026-01-27)
+			// google-ai-studio (deactivated 2026-01-17) must not reroute to
+			// google-vertex (still active until 2026-01-27).
 			const res = await app.request("/v1/chat/completions", {
 				method: "POST",
 				headers: {
@@ -9701,13 +9712,11 @@ describe("api", () => {
 				}),
 			});
 
-			expect(res.status).toBe(200);
+			expect(res.status).toBe(410);
 			const json = await res.json();
-			expect(json).toHaveProperty("choices.[0].message.content");
-			// Verify it routed to google-vertex, not google-ai-studio
-			expect(json.metadata.used_provider).toBe("google-vertex");
-			// The requested provider should be cleared since it was deactivated
-			expect(json.metadata.requested_provider).toBeNull();
+			expect(json.error.message).toContain(
+				"Provider google-ai-studio no longer serves model gemini-2.5-flash-preview-09-2025",
+			);
 		} finally {
 			vi.useRealTimers();
 			if (originalGoogleCloudProject !== undefined) {
@@ -11447,7 +11456,8 @@ describe("api", () => {
 						"x-no-fallback": "true",
 					},
 					body: JSON.stringify({
-						model: "aws-bedrock/claude-opus-4-8",
+						// Still served through Converse.
+						model: "aws-bedrock/claude-sonnet-4-5",
 						messages: [{ role: "user", content: "Trigger a refusal" }],
 					}),
 				});

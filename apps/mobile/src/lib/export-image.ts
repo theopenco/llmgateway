@@ -11,7 +11,9 @@ export async function exportImage(
 			? "jpg"
 			: image.mediaType === "image/webp"
 				? "webp"
-				: "png";
+				: image.mediaType === "image/svg+xml"
+					? "svg"
+					: "png";
 	await exportFile(
 		{ base64: image.base64, name: `image.${extension}` },
 		action,

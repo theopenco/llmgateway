@@ -1,43 +1,14 @@
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import { models, providers } from "@llmgateway/models";
-import { CUSTOM_PROVIDER_NAME_REGEX } from "@llmgateway/shared";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import type { ProviderCompliancePolicy } from "@llmgateway/models";
 
-const catalogueProviderIds = new Set<string>(
-	providers.map((provider) => provider.id),
-);
-
-const catalogueModelIds = new Set<string>(models.map((model) => model.id));
-
-const customProviderRefRegex = new RegExp(
-	`^custom:${CUSTOM_PROVIDER_NAME_REGEX.source.slice(1, -1)}$`,
-);
-
-const customModelRefRegex = new RegExp(
-	`^${CUSTOM_PROVIDER_NAME_REGEX.source.slice(1, -1)}/.+$`,
-);
-
-const complianceProviderRefSchema = z
-	.string()
-	.max(256)
-	.refine(
-		(ref) => catalogueProviderIds.has(ref) || customProviderRefRegex.test(ref),
-		{ message: "Unknown provider" },
-	);
-
-const complianceModelRefSchema = z
-	.string()
-	.max(256)
-	.refine(
-		(ref) => catalogueModelIds.has(ref) || customModelRefRegex.test(ref),
-		{
-			message: "Unknown model",
-		},
-	);
+// Refs outside the catalogue are kept: Airside-only and retired providers or
+// models must not block saving the rest of the policy. A blocked ref that
+// matches nothing has no effect; an allowed one admits nothing.
+const complianceRefSchema = z.string().trim().min(1).max(256);
 
 export const providerCompliancePolicySchema = z.object({
 	enabled: z.boolean(),
@@ -55,10 +26,10 @@ export const providerCompliancePolicySchema = z.object({
 			z.string().regex(/^[A-Z]{2}$/, "Use an ISO 3166-1 alpha-2 country code"),
 		)
 		.optional(),
-	blockedProviders: z.array(complianceProviderRefSchema).max(500).optional(),
-	allowedProviders: z.array(complianceProviderRefSchema).max(500).optional(),
-	blockedModels: z.array(complianceModelRefSchema).max(500).optional(),
-	allowedModels: z.array(complianceModelRefSchema).max(500).optional(),
+	blockedProviders: z.array(complianceRefSchema).max(500).optional(),
+	allowedProviders: z.array(complianceRefSchema).max(500).optional(),
+	blockedModels: z.array(complianceRefSchema).max(500).optional(),
+	allowedModels: z.array(complianceRefSchema).max(500).optional(),
 });
 
 export function assertEnterpriseForCompliancePolicy(

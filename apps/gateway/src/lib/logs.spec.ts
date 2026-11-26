@@ -86,6 +86,27 @@ describe("getUnifiedFinishReason", () => {
 		).toBe(UnifiedFinishReason.LENGTH_LIMIT);
 	});
 
+	it("maps aws-bedrock Anthropic Messages and OpenAI-shaped finish reasons", () => {
+		expect(getUnifiedFinishReason("end_turn", "aws-bedrock")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("stop_sequence", "aws-bedrock")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("max_tokens", "aws-bedrock")).toBe(
+			UnifiedFinishReason.LENGTH_LIMIT,
+		);
+		expect(getUnifiedFinishReason("tool_use", "aws-bedrock")).toBe(
+			UnifiedFinishReason.TOOL_CALLS,
+		);
+		expect(getUnifiedFinishReason("stop", "aws-bedrock")).toBe(
+			UnifiedFinishReason.COMPLETED,
+		);
+		expect(getUnifiedFinishReason("tool_calls", "aws-bedrock")).toBe(
+			UnifiedFinishReason.TOOL_CALLS,
+		);
+	});
+
 	it("maps Google AI Studio finish reasons correctly (original Google format)", () => {
 		expect(getUnifiedFinishReason("STOP", "google-ai-studio")).toBe(
 			UnifiedFinishReason.COMPLETED,
@@ -414,3 +435,22 @@ describe("calculateDataStorageCost", () => {
 		expect(cost).toBe("0.01");
 	});
 });
+
+describe.each(["anthropic", "vertex-anthropic", "azure-anthropic"])(
+	"normalized finish reasons for %s",
+	(provider) => {
+		it.each([
+			["stop", UnifiedFinishReason.COMPLETED],
+			["length", UnifiedFinishReason.LENGTH_LIMIT],
+			["tool_calls", UnifiedFinishReason.TOOL_CALLS],
+			["content_filter", UnifiedFinishReason.CONTENT_FILTER],
+		] as const)("maps %s to %s", (reason, expected) => {
+			expect(getUnifiedFinishReason(reason, provider)).toBe(expected);
+		});
+		it("keeps unrecognized reasons unknown", () => {
+			expect(getUnifiedFinishReason("unexpected_reason", provider)).toBe(
+				UnifiedFinishReason.UNKNOWN,
+			);
+		});
+	},
+);

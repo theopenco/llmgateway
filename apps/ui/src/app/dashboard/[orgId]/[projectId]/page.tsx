@@ -6,7 +6,7 @@ import { getOrganizations } from "@/lib/server-api";
 import { createServerQuery } from "@/lib/server-query";
 import { getTimeZonePreference } from "@/lib/timezone-server";
 
-import { formatDayKey, shiftDayKey } from "@llmgateway/shared";
+import { thisWeekDayKeyRange } from "@llmgateway/shared";
 
 export default async function Dashboard({
 	params,
@@ -25,9 +25,9 @@ export default async function Dashboard({
 	// Bucket and default the range in the user's display zone, the same key the
 	// client query builds, so it picks up this prefetch instead of refetching.
 	const { timeZone } = await getTimeZonePreference();
-	const todayKey = formatDayKey(new Date(), timeZone);
-	const fromParam = searchParamsData?.from ?? shiftDayKey(todayKey, -6);
-	const toParam = searchParamsData?.to ?? todayKey;
+	const defaults = thisWeekDayKeyRange(new Date(), timeZone);
+	const fromParam = searchParamsData?.from ?? defaults.from;
+	const toParam = searchParamsData?.to ?? defaults.to;
 
 	const orgsDataPromise = getOrganizations();
 

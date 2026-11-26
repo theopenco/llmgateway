@@ -30,10 +30,28 @@ import {
 	isInAlertAudience,
 	orgAlertAudience,
 } from "@llmgateway/shared/organization-roles";
+import {
+	DEFAULT_PROVIDER_ISSUE_SETTINGS,
+	PROVIDER_ISSUE_ERROR_RATE_PERCENTS,
+	PROVIDER_ISSUE_USAGE_HOURS,
+	PROVIDER_ISSUE_WINDOW_MINUTES,
+} from "@llmgateway/shared/provider-issue-alerts";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const notifications = new OpenAPIHono<ServerTypes>();
+
+/** An integer from `values`, published as an OpenAPI enum. */
+function oneOf(values: readonly number[]) {
+	return z
+		.number()
+		.int()
+		.refine((value) => values.includes(value), {
+			message: `Must be one of ${values.join(", ")}`,
+		})
+		.openapi({ enum: [...values] });
+}
+
 /**
  * One row of the combined preferences screen. `inApp` and `budgetThreshold`
  * are null for the email-only categories, which have no notification feed
@@ -48,6 +66,16 @@ const preferenceSchema = z.object({
 	modelScope: z.enum(notificationModelScopes).nullable().optional(),
 	/** Models covered when `modelScope` is "selected". */
 	modelIds: z.array(z.string().min(1).max(200)).max(500).nullable().optional(),
+	/** Provider issue alerts: error-rate window; null for every other category. */
+	issueWindowMinutes: oneOf(PROVIDER_ISSUE_WINDOW_MINUTES)
+		.nullable()
+		.optional(),
+	/** Provider issue alerts: error rate that triggers an alert. */
+	issueErrorRatePercent: oneOf(PROVIDER_ISSUE_ERROR_RATE_PERCENTS)
+		.nullable()
+		.optional(),
+	/** Provider issue alerts: how recently a mapping must have been used. */
+	issueUsageHours: oneOf(PROVIDER_ISSUE_USAGE_HOURS).nullable().optional(),
 });
 const notificationSchema = z.object({
 	id: z.string(),
@@ -179,10 +207,15 @@ notifications.openapi(
 						budgetThreshold: null,
 						modelScope: null,
 						modelIds: null,
+						issueWindowMinutes: null,
+						issueErrorRatePercent: null,
+						issueUsageHours: null,
 					};
 				}
 				const row = saved.find((p) => p.type === category);
 				const priceChange = category === "model_price_change";
+				const issue = category === "provider_issue";
+				const issueSettings = { ...DEFAULT_PROVIDER_ISSUE_SETTINGS, ...row };
 				return {
 					category,
 					inApp: row?.inApp ?? orgAlertTypes.has(category),
@@ -193,6 +226,11 @@ notifications.openapi(
 						category === "budget" ? (row?.budgetThreshold ?? 80) : null,
 					modelScope: priceChange ? (row?.modelScope ?? "used") : null,
 					modelIds: priceChange ? (row?.modelIds ?? []) : null,
+					issueWindowMinutes: issue ? issueSettings.issueWindowMinutes : null,
+					issueErrorRatePercent: issue
+						? issueSettings.issueErrorRatePercent
+						: null,
+					issueUsageHours: issue ? issueSettings.issueUsageHours : null,
 				};
 			}),
 		});
@@ -233,6 +271,15 @@ notifications.openapi(
 			value.category === "model_price_change"
 				? (value.modelScope ?? undefined)
 				: undefined;
+		// Omitted fields keep the saved value (or the column default).
+		const issueSettings =
+			value.category === "provider_issue"
+				? {
+						issueWindowMinutes: value.issueWindowMinutes ?? undefined,
+						issueErrorRatePercent: value.issueErrorRatePercent ?? undefined,
+						issueUsageHours: value.issueUsageHours ?? undefined,
+					}
+				: {};
 		// Unknown ids are dropped rather than rejected: a saved model can be
 		// removed from the catalogue later, and every save sends the list back.
 		let modelIds: string[] | undefined;
@@ -272,6 +319,7 @@ notifications.openapi(
 					budgetThreshold: value.budgetThreshold ?? 80,
 					modelScope,
 					modelIds,
+					...issueSettings,
 				})
 				.onConflictDoUpdate({
 					target: [notificationPreference.userId, notificationPreference.type],
@@ -281,6 +329,7 @@ notifications.openapi(
 						budgetThreshold: value.budgetThreshold ?? 80,
 						modelScope,
 						modelIds,
+						...issueSettings,
 					},
 				});
 		}

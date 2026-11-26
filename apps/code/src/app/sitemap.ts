@@ -5,11 +5,20 @@ import type { MetadataRoute } from "next";
 export default function sitemap(): MetadataRoute.Sitemap {
 	const baseUrl = "https://devpass.llmgateway.io";
 
+	const languages = { en: baseUrl, ko: `${baseUrl}/ko`, "x-default": baseUrl };
+
 	const staticPages: MetadataRoute.Sitemap = [
 		{
 			url: baseUrl,
 			changeFrequency: "weekly",
 			priority: 1,
+			alternates: { languages },
+		},
+		{
+			url: `${baseUrl}/ko`,
+			changeFrequency: "weekly",
+			priority: 0.9,
+			alternates: { languages },
 		},
 		{
 			url: `${baseUrl}/coding-models`,

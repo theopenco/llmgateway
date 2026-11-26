@@ -1,3 +1,5 @@
+import { compileUserRegex, escapeRegex } from "@/rules/safe-regex.js";
+
 import type { BlockedTermsRuleConfig, GuardrailAction } from "@llmgateway/db";
 
 export interface BlockedTermsResult {
@@ -38,14 +40,11 @@ export function checkBlockedTerms(
 				break;
 			}
 			case "regex": {
-				try {
-					const regex = new RegExp(term, config.caseSensitive ? "g" : "gi");
-					const found = content.match(regex);
-					if (found) {
-						matches.push(...found);
-					}
-				} catch {
-					// Invalid regex, skip
+				// Same ReDoS guard as custom regex rules.
+				const regex = compileUserRegex(term, config.caseSensitive ? "g" : "gi");
+				const found = regex ? content.match(regex) : null;
+				if (found) {
+					matches.push(...found.filter(Boolean));
 				}
 				break;
 			}
@@ -57,8 +56,4 @@ export function checkBlockedTerms(
 		matches,
 		action,
 	};
-}
-
-function escapeRegex(str: string): string {
-	return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

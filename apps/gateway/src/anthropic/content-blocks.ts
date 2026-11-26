@@ -40,6 +40,13 @@ const anthropicKnownContentBlockSchema = z.union([
 			data: z.string(),
 		}),
 	}),
+	// PDF and plain-text documents. Lowering turns the base64 and text sources
+	// into an internal `file` part and rejects the rest.
+	z.object({
+		type: z.literal("document"),
+		source: z.object({ type: z.string() }).passthrough(),
+		title: z.string().nullish(),
+	}),
 	z.object({
 		type: z.literal("tool_use"),
 		id: z.string(),
@@ -137,6 +144,7 @@ export const anthropicToolChangeBlockSchema = z.object({
 const KNOWN_CONTENT_BLOCK_TYPES = new Set([
 	"text",
 	"image",
+	"document",
 	"tool_use",
 	"tool_result",
 	"thinking",

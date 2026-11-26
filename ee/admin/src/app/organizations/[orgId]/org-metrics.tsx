@@ -12,6 +12,7 @@ import {
 import { useSearchParams } from "next/navigation";
 
 import { TokenTimeRangeToggle } from "@/components/token-time-range-toggle";
+import { UsageBreakdownSelector } from "@/components/usage-breakdown-selector";
 import {
 	UsageModeSelector,
 	useUsageMode,
@@ -170,13 +171,14 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 						{new Date(metrics.endDate).toLocaleDateString()})
 					</p>
 				</div>
-				<div className="grid gap-3 sm:grid-cols-2 sm:items-end">
+				<div className="flex flex-wrap items-end gap-3">
 					<div className="space-y-1.5">
 						<span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
 							Traffic
 						</span>
 						<UsageModeSelector compact />
 					</div>
+					<UsageBreakdownSelector scope="organization" />
 					<div className="space-y-1.5">
 						<span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
 							Window

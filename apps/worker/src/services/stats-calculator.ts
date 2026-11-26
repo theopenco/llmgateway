@@ -36,7 +36,11 @@ import { getLogRetentionCutoff } from "@llmgateway/shared/log-retention";
 
 import { calculateContentFilterErrorStatsForHour } from "./content-filter-error-stats-aggregator.js";
 import { calculateContentFilterStatsForHour } from "./content-filter-stats-aggregator.js";
-import { excludeRecoveredSameProviderRegionRetry } from "./log-filters.js";
+import {
+	excludeAirsideInference,
+	excludeGatewayContentFilterBlocks,
+	excludeRecoveredSameProviderRegionRetry,
+} from "./log-filters.js";
 import { formatUTCTimestamp } from "./project-stats-aggregator.js";
 import { calculateRoutingTelemetryForHour } from "./routing-telemetry-aggregator.js";
 
@@ -632,6 +636,8 @@ async function calculateModelHistoryForMinute(
 				gte(log.createdAt, roundedTargetMinute),
 				lt(log.createdAt, minuteEnd),
 				excludeRecoveredSameProviderRegionRetry(),
+				excludeAirsideInference(),
+				excludeGatewayContentFilterBlocks(),
 			),
 		)
 		.groupBy(usedBaseModelSql, log.usedMode);
@@ -997,6 +1003,8 @@ async function calculateHistoryForMinute(
 				gte(log.createdAt, roundedTargetMinute),
 				lt(log.createdAt, minuteEnd),
 				excludeRecoveredSameProviderRegionRetry(),
+				excludeAirsideInference(),
+				excludeGatewayContentFilterBlocks(),
 			),
 		)
 		.groupBy(usedBaseModelSql, log.usedProvider, usedRegionSql, log.usedMode);

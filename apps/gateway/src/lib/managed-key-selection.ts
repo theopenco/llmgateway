@@ -136,29 +136,64 @@ export async function selectManagedProviderKey<T extends ManagedKey>(
 		if (stage !== pool) {
 			return selectOrdered(eligible);
 		}
-		if (options.advanceRoundRobin === false || eligible.length === 1) {
-			return eligible[0];
-		}
-		const key = poolKey(pool, options);
-		const state = selectionContext.getStore();
-		let order = state?.get(key);
-		if (!order) {
-			order = rotatePool(eligible, key, options.provider);
-			state?.set(key, order);
-		}
-		const selection = await order;
-		if (selection.kind === "ordered") {
-			return selectOrdered(eligible);
-		}
-		for (const id of selection.ids) {
-			const item = eligible.find((candidate) => candidate.id === id);
-			if (item) {
-				return item;
-			}
-		}
-		// A previously unhealthy member may recover during this request.
-		return eligible[0];
+		return await selectFromPool(eligible, pool, options, selectOrdered, true);
 	}
 	// Match the existing last resort when every permitted key is unhealthy.
 	return selectOrdered(available);
+}
+
+/**
+ * Every key in one round-robin pool, whatever its selection strategy, with the
+ * cursor advanced on every call rather than once per request. For
+ * gateway-internal calls (moderation) that should spread over all credentials
+ * while customer traffic keeps each key's configured strategy.
+ */
+export async function selectRotatedManagedKey<T extends ManagedKey>(
+	items: T[],
+	options: SelectionOptions,
+	selectOrdered: (items: T[]) => T | undefined,
+): Promise<T | undefined> {
+	const available = items.filter(
+		(item) => !options.excludedKeyIds.has(item.id),
+	);
+	const eligible = available.filter((item) =>
+		isTrackedKeyHealthy(item.id, options.selectionScope),
+	);
+	if (eligible.length === 0) {
+		return selectOrdered(available);
+	}
+	return await selectFromPool(eligible, items, options, selectOrdered, false);
+}
+
+async function selectFromPool<T extends ManagedKey>(
+	eligible: T[],
+	pool: T[],
+	options: SelectionOptions,
+	selectOrdered: (items: T[]) => T | undefined,
+	turnPerRequest: boolean,
+): Promise<T | undefined> {
+	if (options.advanceRoundRobin === false || eligible.length === 1) {
+		return eligible[0];
+	}
+	const key = poolKey(pool, options);
+	const state = turnPerRequest ? selectionContext.getStore() : undefined;
+	let order = state?.get(key);
+	if (!order) {
+		// Per-call turns rotate over the whole pool and take the next eligible
+		// key, so exclusions that change between calls cannot starve a key.
+		order = rotatePool(turnPerRequest ? eligible : pool, key, options.provider);
+		state?.set(key, order);
+	}
+	const selection = await order;
+	if (selection.kind === "ordered") {
+		return selectOrdered(eligible);
+	}
+	for (const id of selection.ids) {
+		const item = eligible.find((candidate) => candidate.id === id);
+		if (item) {
+			return item;
+		}
+	}
+	// A previously unhealthy member may recover during this request.
+	return eligible[0];
 }

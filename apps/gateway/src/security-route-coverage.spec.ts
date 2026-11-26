@@ -28,6 +28,9 @@ const publicRoutes = [
 	"GET /oauth/authorize",
 	"POST /oauth/register",
 	"POST /oauth/token",
+	// Authenticated by the OAuth credential they act on.
+	"POST /oauth/revoke",
+	"DELETE /oauth/register/:client_id",
 ];
 const readRoutes = [
 	"GET /v1/key",
@@ -37,7 +40,24 @@ const readRoutes = [
 	"GET /v1/videos/:video_id",
 	"GET /v1/videos/:video_id/content",
 	"GET /v1/videos/logs/:log_id/content",
+	// Read-only asset access requires a job-scoped bearer signature.
+	"GET /v1/video-assets/jobs/:video_id/content",
 	...[1, 2, 3, 4].map((version) => `GET /v${version}/ai/config`),
+];
+// Batch management: key-authenticated (regular keys, IP rules) and scoped to
+// the key's project. The requests a batch runs are later sent to the
+// inference paths below as the creating key, so every inference boundary
+// still applies to them.
+const batchRoutes = [
+	"GET /v1/files",
+	"POST /v1/files",
+	"GET /v1/files/:file_id",
+	"DELETE /v1/files/:file_id",
+	"GET /v1/files/:file_id/content",
+	"GET /v1/batches",
+	"POST /v1/batches",
+	"GET /v1/batches/:batch_id",
+	"POST /v1/batches/:batch_id/cancel",
 ];
 const headers = {
 	Authorization: "Bearer security-coverage-token",
@@ -72,11 +92,13 @@ describe("complete gateway route inventory", () => {
 		const classified = [
 			...publicRoutes,
 			...readRoutes,
+			...batchRoutes,
+			...internalInferenceRoutes,
 			...inferencePaths.map((route) => `POST ${route.path}`),
 			"ALL /mcp",
 		].sort();
 		expect(actual).toEqual(classified);
-		expect(actual).toHaveLength(48);
+		expect(actual).toHaveLength(61);
 	});
 
 	test("tracks the separate realtime upgrade and internal-only metrics router", () => {
@@ -243,6 +265,56 @@ describe("all inference path security boundaries", () => {
 		},
 	);
 
+	function batchRequest(route: string, authenticated = true) {
+		const [method, template] = route.split(" ");
+		const path = template
+			.replace(":file_id", "file-missing")
+			.replace(":batch_id", "batch_missing");
+		const auth = authenticated ? headers : {};
+		if (route === "POST /v1/files") {
+			const form = new FormData();
+			form.append("purpose", "batch");
+			form.append("file", new File(["{}"], "batch.jsonl"));
+			return app.request(path, { method, headers: auth, body: form });
+		}
+		if (route === "POST /v1/batches") {
+			return app.request(path, {
+				method,
+				headers: { ...auth, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					input_file_id: "file-missing",
+					endpoint: "/v1/chat/completions",
+					completion_window: "24h",
+				}),
+			});
+		}
+		return app.request(path, { method, headers: auth });
+	}
+
+	test.each(batchRoutes)("%s rejects missing credentials", async (route) => {
+		const response = await batchRequest(route, false);
+		expect(response.status, await response.text()).toBe(401);
+		expect(upstreamCalls).toBe(0);
+	});
+
+	describe.each(["key", "member", "team"] as const)(
+		"%s trusted-IP boundary for batch management",
+		(scope) => {
+			test.each(batchRoutes)(
+				"%s denies a caller outside the configured CIDRs",
+				async (route) => {
+					await installIamRule(scope, {
+						ruleType: "allow_ip_cidrs",
+						ruleValue: { ipCidrs: ["192.0.2.0/24"] },
+					});
+					const response = await batchRequest(route);
+					expect(response.status, await response.text()).toBe(403);
+					expect(upstreamCalls).toBe(0);
+				},
+			);
+		},
+	);
+
 	test.each([
 		{
 			name: "chat",
@@ -331,3 +403,7 @@ async function installIamRule(
 			.values({ id: "coverage-rule", teamId: "coverage-team", ...rule });
 	}
 }
+const internalInferenceRoutes = [
+	// Signed snapshots have dedicated IAM, credits, replay and IP request tests.
+	"POST /v1/internal/airside/inference",
+];

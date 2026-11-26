@@ -11,7 +11,7 @@ import type {
 	ProviderId,
 } from "@llmgateway/models";
 
-const SAFETY_IDENTIFIER = "org_2f1c9d4a6b7e4f1080a3c5d9e7b21f34";
+const SAFETY_IDENTIFIER = "org_0123456789abcdef0123456789abcdef";
 
 async function prepare(options: {
 	provider: ProviderId;

@@ -44,6 +44,8 @@ interface SocialAuthButtonsProps {
 	 * dialog asks the user whether they want to create a new account.
 	 */
 	requestSignUp?: boolean;
+	/** Render an "Or" divider below the buttons, for pages that list them first. */
+	dividerAfter?: boolean;
 }
 
 export function SocialAuthButtons({
@@ -53,6 +55,7 @@ export function SocialAuthButtons({
 	errorCallbackPath,
 	newUserCallbackPath,
 	requestSignUp,
+	dividerAfter,
 }: SocialAuthButtonsProps) {
 	const router = useRouter();
 	const { signIn } = useAuth();
@@ -227,6 +230,16 @@ export function SocialAuthButtons({
 					</Button>
 				)}
 			</div>
+			{dividerAfter && (
+				<div className="relative">
+					<div className="absolute inset-0 flex items-center">
+						<span className="w-full border-t" />
+					</div>
+					<div className="relative flex justify-center text-xs uppercase">
+						<span className="bg-background px-2 text-muted-foreground">Or</span>
+					</div>
+				</div>
+			)}
 		</>
 	);
 }

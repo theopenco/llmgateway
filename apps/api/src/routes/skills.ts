@@ -10,6 +10,7 @@ import {
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 import { db, tables, eq, and } from "@llmgateway/db";
+import { deferDownloadsToGateway } from "@llmgateway/shared/ai-sdk-download";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
@@ -404,6 +405,7 @@ skills.openapi(generateSkill, async (c) => {
 	});
 
 	const result = await generateText({
+		experimental_download: deferDownloadsToGateway,
 		model: llmgateway.chat(SKILL_GENERATION_MODEL),
 		system: SKILL_CREATOR_SYSTEM,
 		prompt,

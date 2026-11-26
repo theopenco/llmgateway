@@ -132,7 +132,10 @@ export default function FilingsPage() {
 											<RelativeDate date={filing.createdAt} />
 										</TableCell>
 										<TableCell className="text-muted-foreground max-w-56 truncate text-xs">
-											{filing.reviewNote ?? filing.note ?? "—"}
+											{(filing.autoApproved ? filing.note : null) ??
+												filing.reviewNote ??
+												filing.note ??
+												"—"}
 										</TableCell>
 									</TableRow>
 								))}

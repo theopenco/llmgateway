@@ -1,7 +1,11 @@
 import { raceClientAbort } from "@/lib/client-abort.js";
 
 import { logger } from "@llmgateway/logger";
-import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
+import { isProviderUrlGuardEnabled } from "@llmgateway/shared";
+import {
+	assertSafeUserContentUrl,
+	fetchSafeUserUrl,
+} from "@llmgateway/shared/url-safety-node";
 
 import type { ImageObject } from "./types.js";
 
@@ -59,10 +63,13 @@ async function fetchImageWithRetry(
 				}
 				urlValidated = true;
 			}
-			const response = await fetch(url, {
-				redirect: "error",
-				signal: controller.signal,
-			});
+			// Connect-time address check closes the DNS-rebinding window left
+			// by the validation above (GHSA-qxx2-285f-5fm3).
+			const init = { redirect: "error" as const, signal: controller.signal };
+			const response =
+				isProviderUrlGuardEnabled() && !url.startsWith("data:")
+					? await fetchSafeUserUrl(url, init)
+					: await fetch(url, init);
 			if (response.ok) {
 				const contentType = response.headers.get("content-type") ?? "image/png";
 				const buffer = await readImageResponse(response, controller.signal);

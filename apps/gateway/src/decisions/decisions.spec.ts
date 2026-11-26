@@ -2,10 +2,13 @@ import { describe, expect, test } from "vitest";
 
 import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
-import { waitForLogs } from "@/test-utils/test-helpers.js";
+import {
+	getOrganizationSafetyIdentifier,
+	waitForLogs,
+} from "@/test-utils/test-helpers.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { cdb, db, eq, tables } from "@llmgateway/db";
+import { cdb, db, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const QUESTIONS = [
@@ -119,14 +122,46 @@ describe("decisions", () => {
 		// Image data never lands in the stored request summary.
 		expect(JSON.stringify(log?.messages)).toContain("[image]");
 		expect(JSON.stringify(log?.messages)).not.toContain("iVBORw0KGgo");
-		// The client's safety_identifier is replaced by the API key's.
-		const [apiKey] = await db
-			.select({ safetyIdentifier: tables.apiKey.safetyIdentifier })
-			.from(tables.apiKey)
-			.where(eq(tables.apiKey.id, "token-id-decisions-openai"));
-		expect(apiKey?.safetyIdentifier).toMatch(/^key_[0-9a-f]{32}$/);
+		// BYOK requests retain client attribution locally, but send none upstream.
+		expect(log?.upstreamRequest).not.toHaveProperty("safety_identifier");
+		expect(log?.params).toMatchObject({
+			safety_identifier: "client-controlled",
+		});
+	});
+
+	test("/v1/decisions forwards the organization safety_identifier on credits", async () => {
+		await seedApiKey("decisions-safety-on");
+		await harness.setProjectMode("credits");
+		await cdb.insert(tables.providerKey).values({
+			id: "managed-decisions-safety-on",
+			provider: "openai",
+			...encryptProviderKeyForStorage(
+				"openai-token",
+				"managed-decisions-safety-on",
+				null,
+			),
+			managed: true,
+			organizationId: null,
+			config: { baseUrl: harness.mockServerUrl },
+		});
+
+		const res = await postDecision("decisions-safety-on", {
+			model: "gpt-6-luna-decisions",
+			input: [
+				{
+					role: "user",
+					content: [{ type: "input_text", text: "Billing question." }],
+				},
+			],
+			questions: QUESTIONS,
+			safety_identifier: "client-controlled",
+		});
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "openai/gpt-6-luna-decisions");
 		expect(log?.upstreamRequest).toMatchObject({
-			safety_identifier: apiKey?.safetyIdentifier,
+			safety_identifier: await getOrganizationSafetyIdentifier("org-id"),
 		});
 	});
 
@@ -254,6 +289,86 @@ describe("decisions", () => {
 			state: "Checkout is down for all EU customers since 09:00.",
 		});
 		expect(Number(log?.cost)).toBeCloseTo(441 * 0.042e-6, 12);
+	});
+
+	test("/v1/decisions serves gpt-6-luna-decisions via Azure's OpenAI route", async () => {
+		await seedApiKey("decisions-azure-luna");
+		await seedProviderKey("decisions-azure-luna", "azure");
+
+		const res = await postDecision("decisions-azure-luna", {
+			model: "azure/gpt-6-luna-decisions",
+			input: "Our integration returns 500s.",
+			questions: QUESTIONS,
+			safety_identifier: "client-controlled",
+		});
+
+		const json = await res.json();
+		expect(res.status, JSON.stringify(json)).toBe(200);
+		expect(json.model).toBe("azure/gpt-6-luna-decisions");
+		expect(json.answers).toEqual([
+			expect.objectContaining({
+				type: "choice",
+				name: "department",
+				choice: "billing",
+			}),
+			{ type: "predicate", name: "urgency", probability: 0.92 },
+			expect.objectContaining({ type: "score", name: "severity", score: 2 }),
+		]);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "azure/gpt-6-luna-decisions");
+		expect(log?.hasError).toBe(false);
+		expect(log?.apiOrigin).toBe("decisions");
+		expect(log?.usedModelMapping).toBe("gpt-6-luna");
+		// The OpenAI body is forwarded as-is, not translated to System One.
+		expect(log?.upstreamRequest).toMatchObject({
+			model: "gpt-6-luna",
+			input: "Our integration returns 500s.",
+		});
+		expect(log?.upstreamRequest).not.toHaveProperty("state");
+		expect(log?.upstreamRequest).not.toHaveProperty("safety_identifier");
+		expect(Number(log?.cost)).toBeCloseTo(300 * 0.11e-6, 12);
+	});
+
+	test("/v1/decisions bills Azure prompt-cache reads and writes at their own rates", async () => {
+		await seedApiKey("decisions-azure-cache");
+		await seedProviderKey("decisions-azure-cache", "azure");
+
+		const res = await postDecision("decisions-azure-cache", {
+			model: "azure/gpt-6-luna-decisions",
+			input: "CACHE_HIT Our integration returns 500s.",
+			questions: QUESTIONS,
+		});
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "azure/gpt-6-luna-decisions");
+		expect(log?.cachedTokens).toBe("200");
+		// 200 cached reads, 50 cache writes and 50 uncached input tokens.
+		const cachedCost = 200 * 0.011e-6;
+		const writeCost = 50 * 0.1375e-6;
+		const uncachedCost = 50 * 0.11e-6;
+		expect(Number(log?.cachedInputCost)).toBeCloseTo(cachedCost, 12);
+		expect(Number(log?.cost)).toBeCloseTo(
+			cachedCost + writeCost + uncachedCost,
+			12,
+		);
+	});
+
+	test("/v1/decisions bills cached input at the input rate when the mapping has no cache price", async () => {
+		await seedApiKey("decisions-openai-cache");
+		await seedProviderKey("decisions-openai-cache", "openai");
+
+		const res = await postDecision("decisions-openai-cache", {
+			model: "openai/gpt-6-luna-decisions",
+			input: "CACHE_HIT Our integration returns 500s.",
+			questions: QUESTIONS,
+		});
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const log = logs.find((l) => l.usedModel === "openai/gpt-6-luna-decisions");
+		expect(Number(log?.cost)).toBeCloseTo(300 * 0.1e-6, 12);
 	});
 
 	test("/v1/decisions reports an invalid Azure resource as a 400", async () => {

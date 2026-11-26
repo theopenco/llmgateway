@@ -11,7 +11,10 @@ export function UnauthorizedView({
 	resource = "organization",
 }: UnauthorizedViewProps) {
 	return (
-		<div className="flex min-h-screen flex-col items-center justify-center gap-4 text-center px-4">
+		<div
+			data-unauthorized
+			className="flex min-h-screen flex-col items-center justify-center gap-4 text-center px-4"
+		>
 			<ShieldAlert className="h-12 w-12 text-muted-foreground" />
 			<div className="space-y-1">
 				<h1 className="text-2xl font-bold">Unauthorized</h1>

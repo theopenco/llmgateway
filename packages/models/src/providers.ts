@@ -1,10 +1,11 @@
 /**
  * Placeholder inside a `regionConfig.endpointMap` entry for a region whose
  * host is not a fixed domain but is derived from a per-credential workspace
- * identifier. Alibaba's Frankfurt region is only reachable through the
- * workspace-dedicated `{WorkspaceId}.eu-central-1.maas.aliyuncs.com` host —
- * it has no shared DashScope domain — so the endpoint can only be completed
- * once the credential's workspace id is known.
+ * identifier. Alibaba's Frankfurt, Hong Kong and Tokyo regions are only
+ * reachable through a workspace-dedicated
+ * `{WorkspaceId}.<region>.maas.aliyuncs.com` host — they have no shared
+ * DashScope domain — so the endpoint can only be completed once the
+ * credential's workspace id is known.
  */
 export const REGION_WORKSPACE_ID_PLACEHOLDER = "{workspaceId}";
 
@@ -45,7 +46,7 @@ export interface ProviderRegionConfig {
 	endpointMap: Record<string, string>;
 	/**
 	 * Base URL to use for a workspace-scoped region when no workspace id is
-	 * configured. Alibaba's Frankfurt region has such a shared entry point, so
+	 * configured. Alibaba's workspace-scoped regions have such an entry point, so
 	 * the region stays usable from an API key alone; the workspace-dedicated
 	 * host remains the better path because the shared one is documented as
 	 * trial-only (1000 RPM, no SLA, "not recommended for production").
@@ -245,7 +246,7 @@ export interface ProviderDefinition {
 	name: string;
 	description: string;
 	/**
-	 * Whether LLM Gateway forwards its opaque per-API-key safety identifier
+	 * Whether LLM Gateway forwards its opaque per-organization safety identifier
 	 * to this provider. Informational only; request preparation does not use it.
 	 */
 	forwardsSafetyIdentifier: boolean;
@@ -258,7 +259,10 @@ export interface ProviderDefinition {
 	env: ProviderEnvConfig;
 	// Whether the provider supports request cancellation
 	cancellation?: boolean;
-	/** The gateway can forward Anthropic server-side safeguard review on this provider. */
+	/**
+	 * The gateway can forward Anthropic server-side safeguard review on this
+	 * provider's Claude mappings.
+	 */
 	anthropicSafeguards?: boolean;
 	// Color used for UI representation (hex code)
 	color?: string;
@@ -274,9 +278,6 @@ export interface ProviderDefinition {
 	apiKeyInstructions?: string;
 	// Learn more URL for API key creation
 	learnMore?: string;
-	// Priority weight for routing (default: 1). Lower values deprioritize the provider.
-	// e.g., 0.8 means 20% lower priority (score multiplied by 1/0.8 = 1.25)
-	priority?: number;
 	// Whether requests that match the gateway content filter should avoid this provider
 	// when an alternative provider is available.
 	contentFilter?: boolean;
@@ -569,8 +570,8 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
+			promptLogging: true,
+			retentionPeriod: "90 days",
 			soc2: 2,
 			iso27001: true,
 			gdpr: true,
@@ -603,7 +604,6 @@ export const providers: ProviderDefinition[] = [
 		website: "https://cloud.google.com/vertex-ai",
 		statusPageUrl: "https://status.cloud.google.com",
 		announcement: null,
-		priority: 0.2,
 		regionConfig: {
 			optionsKey: "vertex_openai_region",
 			defaultRegion: "global",
@@ -620,8 +620,8 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
+			promptLogging: true,
+			retentionPeriod: "90 days",
 			soc2: 2,
 			iso27001: true,
 			gdpr: true,
@@ -664,7 +664,6 @@ export const providers: ProviderDefinition[] = [
 		website: "https://cloud.google.com/vertex-ai",
 		statusPageUrl: "https://status.cloud.google.com",
 		announcement: null,
-		priority: 0.2,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/cloud-privacy-notice",
 		usagePolicyUrl:
@@ -673,8 +672,8 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
+			promptLogging: true,
+			retentionPeriod: "90 days",
 			soc2: 2,
 			iso27001: true,
 			gdpr: true,
@@ -707,7 +706,6 @@ export const providers: ProviderDefinition[] = [
 		website: null,
 		statusPageUrl: null,
 		announcement: null,
-		priority: 0.9,
 		termsUrl: null,
 		privacyPolicyUrl: null,
 		legalEntity: null,
@@ -828,7 +826,6 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
-		priority: 1.2,
 	},
 	{
 		id: "alibaba",
@@ -861,24 +858,30 @@ export const providers: ProviderDefinition[] = [
 				{ id: "eu-frankfurt", label: "EU (Frankfurt)" },
 				{ id: "us-virginia", label: "US (Virginia)" },
 				{ id: "cn-beijing", label: "China (Beijing)" },
+				{ id: "cn-hongkong", label: "China (Hong Kong)" },
+				{ id: "ap-tokyo", label: "Japan (Tokyo)" },
 			],
 			endpointMap: {
 				singapore: "https://dashscope-intl.aliyuncs.com",
-				// Frankfurt is the one Model Studio region with no shared DashScope
-				// domain: `dashscope-eu`/`dashscope-de` do not exist and aliasing
-				// another region's host would silently execute EU-designated traffic
-				// elsewhere. It is served only by the workspace-dedicated host, whose
-				// workspace id comes from the credential (see the placeholder docs).
+				// Frankfurt, Hong Kong and Tokyo have no shared DashScope domain, and
+				// aliasing another region's host would silently execute traffic
+				// elsewhere. They are served only by the workspace-dedicated host,
+				// whose workspace id comes from the credential (see the placeholder
+				// docs).
 				"eu-frankfurt": `https://${REGION_WORKSPACE_ID_PLACEHOLDER}.eu-central-1.maas.aliyuncs.com`,
 				"us-virginia": "https://dashscope-us.aliyuncs.com",
 				"cn-beijing": "https://dashscope.aliyuncs.com",
+				"cn-hongkong": `https://${REGION_WORKSPACE_ID_PLACEHOLDER}.cn-hongkong.maas.aliyuncs.com`,
+				"ap-tokyo": `https://${REGION_WORKSPACE_ID_PLACEHOLDER}.ap-northeast-1.maas.aliyuncs.com`,
 			},
 			endpointFallbackMap: {
-				// Resolves the workspace from the API key, so Frankfurt still works
-				// without one being configured. Alibaba caps it at 1000 RPM with no
-				// SLA and advises against production use, so a credential that
+				// Resolves the workspace from the API key, so these regions still
+				// work without one being configured. Alibaba caps it at 1000 RPM with
+				// no SLA and advises against production use, so a credential that
 				// supplies a workspace id gets the dedicated host instead.
 				"eu-frankfurt": "https://trial.eu-central-1.maas.aliyuncs.com",
+				"cn-hongkong": "https://trial.cn-hongkong.maas.aliyuncs.com",
+				"ap-tokyo": "https://trial.ap-northeast-1.maas.aliyuncs.com",
 			},
 		},
 		termsUrl:
@@ -1016,8 +1019,8 @@ export const providers: ProviderDefinition[] = [
 				region: "LLM_AWS_BEDROCK_REGION",
 			},
 		},
-		priority: 2,
 		cancellation: true,
+		anthropicSafeguards: true,
 		color: "#FF9900",
 		website: "https://aws.amazon.com/bedrock",
 		statusPageUrl: "https://health.aws.amazon.com/health/status",
@@ -1132,7 +1135,6 @@ export const providers: ProviderDefinition[] = [
 				region: "LLM_AWS_MANTLE_REGION",
 			},
 		},
-		priority: 2,
 		cancellation: true,
 		color: "#FF9900",
 		website: "https://aws.amazon.com/bedrock",
@@ -1217,7 +1219,6 @@ export const providers: ProviderDefinition[] = [
 		apiKeyInstructions:
 			"The resource name can be found in your Azure base URL: https://<resource-name>.openai.azure.com",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
-		priority: 2,
 		serviceTiers: [
 			{
 				id: "priority",
@@ -1227,45 +1228,6 @@ export const providers: ProviderDefinition[] = [
 					"Premium low-latency tier at a 100% premium. Requires a Global Standard or Data Zone (US) deployment.",
 			},
 		],
-		termsUrl: "https://www.microsoft.com/licensing/terms",
-		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
-		usagePolicyUrl: "https://www.microsoft.com/en-us/legal/terms-of-use",
-		legalEntity: "Microsoft Corporation",
-		headquarters: "US",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-			soc2: 2,
-			iso27001: true,
-			gdpr: true,
-		},
-	},
-	{
-		id: "azure-ai-foundry",
-		name: "Azure AI Foundry (Legacy)",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Legacy Azure Model Inference API. Use Azure with the AI Foundry deployment type.",
-		env: {
-			required: {
-				apiKey: "LLM_AZURE_AI_FOUNDRY_API_KEY",
-				resource: "LLM_AZURE_AI_FOUNDRY_RESOURCE",
-			},
-			optional: {
-				apiVersion: "LLM_AZURE_AI_FOUNDRY_API_VERSION",
-			},
-		},
-		cancellation: true,
-		color: "#0078D4",
-		website: "https://azure.microsoft.com/en-us/products/ai-foundry",
-		statusPageUrl: "https://status.ai.azure.com",
-		announcement:
-			"Legacy mappings retire on 2026-11-07. Use Azure with the AI Foundry deployment type.",
-		apiKeyInstructions:
-			"The resource name can be found in your Azure AI Foundry base URL: https://<resource-name>.services.ai.azure.com",
-		learnMore: "https://docs.llmgateway.io/integrations/azure",
-		priority: 1.5,
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
 		usagePolicyUrl: "https://www.microsoft.com/en-us/legal/terms-of-use",
@@ -1346,7 +1308,6 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
-		priority: 1.2,
 	},
 	{
 		id: "moonshot",
@@ -1374,7 +1335,6 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: "0 days",
 		},
-		priority: 1.2,
 	},
 	{
 		id: "baidu",
@@ -1425,18 +1385,27 @@ export const providers: ProviderDefinition[] = [
 		website: "https://perplexity.ai",
 		statusPageUrl: "https://status.perplexity.com",
 		announcement: null,
-		termsUrl: "https://www.perplexity.ai/hub/legal/terms-of-service",
+		termsUrl:
+			"https://www.perplexity.ai/hub/legal/perplexity-api-terms-of-service",
 		privacyPolicyUrl: "https://www.perplexity.ai/hub/legal/privacy-policy",
 		usagePolicyUrl: "https://www.perplexity.ai/hub/legal/aup",
 		legalEntity: "Perplexity AI, Inc.",
 		headquarters: "US",
+		// The API terms rule out training; zero data retention needs a written
+		// agreement with Perplexity.
 		dataPolicy: {
 			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
+			promptLogging: null,
+			retentionPeriod: "varies by API and model; ZDR by written agreement",
 			soc2: 2,
 			gdpr: true,
 		},
+		additionalLinks: [
+			{
+				desc: "API privacy and data retention",
+				link: "https://docs.perplexity.ai/guides/privacy-security",
+			},
+		],
 	},
 	{
 		id: "nebius",
@@ -1663,7 +1632,6 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: true,
 			retentionPeriod: null,
 		},
-		priority: 1.2,
 	},
 	{
 		id: "meta",
@@ -1840,37 +1808,11 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "reve",
-		name: "Reve",
-		forwardsSafetyIdentifier: false,
-		description:
-			"Reve's image generation models with native 4K resolution and code-based controllable image creation.",
-		env: {
-			required: {
-				apiKey: "LLM_REVE_API_KEY",
-			},
-		},
-		cancellation: false,
-		color: "#1a1a2e",
-		website: "https://reve.com",
-		statusPageUrl: "https://status.reve.com",
-		announcement: null,
-		termsUrl:
-			"https://help.reve.com/hc/en-us/articles/46731550696468-Terms-of-service",
-		privacyPolicyUrl:
-			"https://help.reve.com/hc/en-us/articles/46731763484692-Privacy-policy",
-		usagePolicyUrl:
-			"https://help.reve.com/hc/en-us/articles/46731490142484-Usage-policy",
-		legalEntity: "Reve AI, Inc.",
-		headquarters: "US",
-		dataPolicy: null,
-	},
-	{
 		id: "elevenlabs",
 		name: "ElevenLabs",
 		forwardsSafetyIdentifier: false,
 		description:
-			"ElevenLabs provides lifelike, low-latency text-to-speech models in 70+ languages.",
+			"ElevenLabs provides lifelike, low-latency text-to-speech and speech-to-text models in 70+ languages.",
 		env: {
 			required: {
 				apiKey: "LLM_ELEVENLABS_API_KEY",
@@ -1942,33 +1884,6 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
-		id: "ranoai",
-		name: "RanoAI",
-		forwardsSafetyIdentifier: false,
-		description:
-			"RanoAI serves open-weight large language models on Furiosa RNGD NPU hardware via an OpenAI-compatible inference API.",
-		env: {
-			required: {
-				apiKey: "LLM_RANOAI_API_KEY",
-			},
-		},
-		cancellation: true,
-		color: "#000000",
-		website: "https://ranoai.com",
-		statusPageUrl: null,
-		announcement: null,
-		termsUrl: "https://ranoai.com/terms",
-		privacyPolicyUrl: "https://ranoai.com/privacy",
-		usagePolicyUrl: "https://ranoai.com/terms",
-		legalEntity: "Always With You, LLC",
-		headquarters: "US",
-		dataPolicy: {
-			apiTraining: false,
-			promptLogging: false,
-			retentionPeriod: "0 days",
-		},
-	},
-	{
 		id: "tencent",
 		name: "Tencent Cloud",
 		forwardsSafetyIdentifier: false,
@@ -2000,7 +1915,6 @@ export const providers: ProviderDefinition[] = [
 			promptLogging: false,
 			retentionPeriod: null,
 		},
-		priority: 1.2,
 	},
 	{
 		id: "atria",
@@ -2145,6 +2059,19 @@ export function getRegionScopedDefaultRegion(
 		return undefined;
 	}
 	return regionConfig.defaultRegion;
+}
+
+/**
+ * The region a platform credential actually serves. A provider with no global
+ * region (Alibaba) sends an unpinned credential's traffic to its default
+ * region, so such a credential is treated as pinned there; elsewhere an
+ * unpinned credential stays region-agnostic (null).
+ */
+export function getEffectiveCredentialRegion(
+	providerId: ProviderId | string,
+	region: string | null | undefined,
+): string | null {
+	return region || getRegionScopedDefaultRegion(providerId) || null;
 }
 
 /**
@@ -2469,6 +2396,22 @@ export function getProviderComplianceFailures(
 	];
 }
 
+/** Data-policy fields a single model mapping can override on its provider. */
+export type MappingDataPolicy = Partial<
+	Pick<ProviderDataPolicy, "apiTraining" | "promptLogging" | "retentionPeriod">
+>;
+
+/** `provider` with a mapping's data-policy overrides layered on top. */
+export function withMappingDataPolicy(
+	provider: ProviderDefinition,
+	override: MappingDataPolicy | undefined,
+): ProviderDefinition {
+	if (!override || !provider.dataPolicy) {
+		return provider;
+	}
+	return { ...provider, dataPolicy: { ...provider.dataPolicy, ...override } };
+}
+
 export interface ModelMappingAvailability {
 	providerId: string;
 	deprecatedAt?: Date | null;
@@ -2484,6 +2427,50 @@ export function isLiveMapping(
 		(mapping.deprecatedAt && mapping.deprecatedAt <= now) ||
 		(mapping.deactivatedAt && mapping.deactivatedAt <= now)
 	);
+}
+
+export const BATCH_ENDPOINTS = [
+	"/v1/chat/completions",
+	"/v1/responses",
+	"/v1/embeddings",
+] as const;
+
+export type BatchEndpoint = (typeof BATCH_ENDPOINTS)[number];
+
+export interface BatchEndpointMapping extends ModelMappingAvailability {
+	streaming?: boolean | "only" | null;
+	realtime?: boolean | null;
+	realtimeTranscription?: boolean | null;
+	embeddings?: boolean | null;
+}
+
+/**
+ * Batch API endpoints that can run a mapping's requests. Batches replay each
+ * line as a non-streaming request, so realtime and streaming-only mappings run
+ * none. /v1/responses bridges every request to chat completions, so it accepts
+ * every chat model.
+ */
+export function getBatchEndpoints(
+	mapping: BatchEndpointMapping,
+	model: { output?: readonly string[] | null },
+	now: Date = new Date(),
+): BatchEndpoint[] {
+	if (
+		!isLiveMapping(mapping, now) ||
+		mapping.realtime ||
+		mapping.realtimeTranscription ||
+		mapping.streaming === "only"
+	) {
+		return [];
+	}
+	const output = model.output;
+	if (output?.includes("embedding")) {
+		return mapping.embeddings ? ["/v1/embeddings"] : [];
+	}
+	if (!output || output.length === 0 || output.includes("text")) {
+		return ["/v1/chat/completions", "/v1/responses"];
+	}
+	return [];
 }
 
 /**
@@ -2594,11 +2581,16 @@ export function countryCodeToFlag(code: string): string {
 		.replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt(0)));
 }
 
-const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+// Created on first use: Hermes (the iOS app) has no Intl.DisplayNames.
+let regionNames: Intl.DisplayNames | null | undefined;
 
 /** English name for an ISO 3166-1 alpha-2 country code. */
 export function countryName(code: string): string {
-	return PROVIDER_COUNTRY_NAMES[code] ?? regionNames.of(code) ?? code;
+	regionNames ??=
+		typeof Intl.DisplayNames === "function"
+			? new Intl.DisplayNames(["en"], { type: "region" })
+			: null;
+	return PROVIDER_COUNTRY_NAMES[code] ?? regionNames?.of(code) ?? code;
 }
 
 /** Distinct provider-headquarters countries, sorted by name. */

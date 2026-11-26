@@ -5,6 +5,11 @@ date: 2026-05-15
 title: "Embeddings on LLM Gateway: One API for Vectors and Chat"
 summary: "Generate vectors for semantic search, clustering, and RAG through the same gateway you already use for chat. OpenAI-compatible, drop-in, and tracked alongside your model spend."
 categories: ["Product"]
+faqs:
+  - question: "Does LLM Gateway support embeddings?"
+    answer: "Yes. If you already use the OpenAI SDK against LLM Gateway, embeddings work without code changes, through the same client you use for chat."
+  - question: "How are embedding requests tracked?"
+    answer: "Embedding requests appear in the same activity log as chat traffic, with the same per-request cost breakdown."
 image:
   src: "/blog/embeddings-support.png"
   alt: "Embeddings on LLM Gateway — turn meaning into vectors"

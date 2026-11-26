@@ -13,6 +13,7 @@ import {
 	type ApiKeysScope,
 } from "@/components/api-keys/api-keys-list";
 import { CreateApiKeyDialog } from "@/components/api-keys/create-api-key-dialog";
+import { useApiKeyTools } from "@/components/api-keys/use-api-key-tools";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import { useApi } from "@/lib/fetch-client";
@@ -20,7 +21,7 @@ import { extractOrgAndProjectFromPath } from "@/lib/navigation-utils";
 
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
-import type { ApiKeyUsagePeriod } from "@/components/api-keys/api-key-usage-period";
+import type { ApiKeyUsageQuery } from "@/components/api-keys/api-key-usage-period";
 import type { Project } from "@/lib/types";
 
 /**
@@ -30,11 +31,11 @@ import type { Project } from "@/lib/types";
 export function ApiKeysClient({
 	scope: scopeType,
 	initialData,
-	initialPeriod,
+	initialUsageQuery,
 }: {
 	scope: ApiKeysScope["type"];
 	initialData: ApiKeysResponse | undefined;
-	initialPeriod: ApiKeyUsagePeriod;
+	initialUsageQuery: ApiKeyUsageQuery;
 }) {
 	const pathname = usePathname();
 	const { selectedOrganization } = useDashboardNavigation();
@@ -87,7 +88,7 @@ export function ApiKeysClient({
 				query: {
 					...apiKeysScopeQuery(scope),
 					filter: "all",
-					period: initialPeriod,
+					...initialUsageQuery,
 				},
 			},
 		},
@@ -105,6 +106,12 @@ export function ApiKeysClient({
 		: false;
 	const canCreate =
 		scope.type === "project" ? !!scope.project : scope.projects.length > 0;
+
+	useApiKeyTools({
+		project: scope.type === "project" ? scope.project : null,
+		apiKeys: apiKeysData?.apiKeys,
+		canCreate: !createDisabled,
+	});
 
 	// The API enforces this; the notice only avoids a generic load error.
 	if (
@@ -157,7 +164,7 @@ export function ApiKeysClient({
 				<ApiKeysList
 					scope={scope}
 					initialData={initialData}
-					initialPeriod={initialPeriod}
+					initialUsageQuery={initialUsageQuery}
 				/>
 			</div>
 		</div>
