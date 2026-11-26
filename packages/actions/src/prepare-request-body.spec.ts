@@ -2603,6 +2603,49 @@ describe("prepareRequestBody - OpenAI explicit prompt caching", () => {
 		// is a caching strategy we forward rather than override.
 		expect(requestBody.prompt_cache_options).toEqual({ mode: "implicit" });
 	});
+
+	test.each([false, true])(
+		"forces explicit mode on aws-mantle when provider cache writes are disabled (responses=%s)",
+		async (useResponsesApi) => {
+			const requestBody = (await prepareOpenAITextRequest({
+				provider: "aws-mantle",
+				model: "gpt-6.2-sol",
+				region: "us-east-1",
+				useResponsesApi,
+				messages: explicitCacheMessages,
+				providerCacheControlMode: "off",
+			})) as any;
+
+			expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
+			expect(requestBody.prompt_cache_key).toBeUndefined();
+			const firstPart = useResponsesApi
+				? requestBody.input[0].content[0]
+				: requestBody.messages[0].content[0];
+			expect(firstPart.prompt_cache_breakpoint).toBeUndefined();
+		},
+	);
+
+	test("leaves aws-mantle caching untouched when provider cache writes are allowed", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "aws-mantle",
+			model: "gpt-6.2-sol",
+			region: "us-east-1",
+			messages: explicitCacheMessages,
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toBeUndefined();
+	});
+
+	test("does not force explicit mode on aws-mantle models without explicit caching", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "aws-mantle",
+			model: "gpt-5.5",
+			region: "us-east-1",
+			providerCacheControlMode: "off",
+		})) as any;
+
+		expect(requestBody.prompt_cache_options).toBeUndefined();
+	});
 });
 
 describe("prepareRequestBody - OpenAI service tiers", () => {
