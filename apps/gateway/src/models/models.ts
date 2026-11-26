@@ -225,7 +225,18 @@ const modelSchema = z.object({
 				.optional(),
 			json_output: z.boolean().optional(),
 			structured_outputs: z.boolean().optional(),
-			web_search: z.boolean().optional(),
+			web_search: z.boolean().optional().openapi({
+				description:
+					"Whether a web_search tool works on this mapping, through the provider's native search or a gateway-run search.",
+			}),
+			web_search_native: z.boolean().optional().openapi({
+				description:
+					"Whether the provider runs the search itself (native web search). When false and web_search is true, LLM Gateway runs the search with your organization's search engine.",
+			}),
+			web_search_forced_only: z.boolean().optional().openapi({
+				description:
+					'Whether native search on this mapping only runs when the request requires it with tool_choice: {"type": "web_search"}. A merely offered web_search tool is routed to another mapping.',
+			}),
 			verbosity: z.boolean().optional(),
 			reasoning: z.boolean(),
 			reasoning_efforts: z.array(reasoningEffortSchema).optional().openapi({
@@ -831,6 +842,9 @@ function serializeProviderMapping(
 		json_output: provider.jsonOutput,
 		structured_outputs: provider.jsonOutputSchema,
 		web_search: supportsWebSearch(provider),
+		web_search_native: provider.webSearch === true,
+		web_search_forced_only:
+			provider.webSearch === true && provider.webSearchForcedOnly === true,
 		verbosity: provider.verbosity,
 		reasoning: provider.reasoning ?? false,
 		reasoning_efforts: provider.reasoningEfforts,
