@@ -1028,7 +1028,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 	const describeAttempt = (
 		current: EmbeddingAttempt,
-		upstreamClientRequestId?: string,
+		upstreamClientRequestId?: string | null,
 	) => {
 		const usedApiKeyHash = getApiKeyFingerprint(current.usedToken);
 		// BYOK only when the organization's own key served the attempt; a
