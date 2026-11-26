@@ -127,6 +127,7 @@ export function parseProviderResponse(
 	let promptTokens = null;
 	let completionTokens = null;
 	let totalTokens = null;
+	let toolUsePromptTokens = 0;
 	let reasoningTokens = null;
 	let cachedTokens = null;
 	let cacheCreationTokens = null;
@@ -717,11 +718,10 @@ export function parseProviderResponse(
 
 			// Calculate totalTokens
 			// (tool-use prompt tokens, e.g. Google Search grounding, count on top)
+			toolUsePromptTokens = json.usageMetadata?.toolUsePromptTokenCount ?? 0;
 			if (promptTokens !== null) {
 				totalTokens =
-					promptTokens +
-					(completionTokens ?? 0) +
-					(json.usageMetadata?.toolUsePromptTokenCount ?? 0);
+					promptTokens + (completionTokens ?? 0) + toolUsePromptTokens;
 			}
 			break;
 		}
@@ -1640,11 +1640,14 @@ export function parseProviderResponse(
 		reasoningContent = null;
 	}
 
+	// Tool-use prompt tokens sit outside prompt + completion + reasoning, so keep
+	// them out of the reasoning-consistency check (otherwise toolUse == reasoning
+	// would double-count reasoning into completionTokens)
 	completionTokens = normalizeCompletionTokens(
 		promptTokens,
 		completionTokens,
 		reasoningTokens,
-		totalTokens,
+		totalTokens === null ? null : totalTokens - toolUsePromptTokens,
 	);
 
 	return {
