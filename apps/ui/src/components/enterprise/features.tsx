@@ -56,7 +56,7 @@ const features = [
 		icon: Database,
 		title: "Full Data Retention",
 		description:
-			"Store full request and response payloads, not just metadata, for 30 days.",
+			"Store full request and response payloads, not just metadata, for as long as you choose. Retention is fully up to you.",
 	},
 	{
 		icon: Headphones,

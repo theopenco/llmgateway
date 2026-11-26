@@ -86,7 +86,7 @@ export function PricingPlans() {
 				"Up to 100 seats, more on request",
 				"Prioritized feature requests",
 				"On-boarding assistance",
-				"Full request & response retention (30 days)",
+				"Full request & response retention, as long as you choose",
 				"24/7 premium support",
 				"Chat-App (incl. whitelabel)",
 				"Single Sign-On (SSO)",
