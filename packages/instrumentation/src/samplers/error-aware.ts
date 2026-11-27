@@ -1,25 +1,18 @@
+import { ROOT_CONTEXT, SpanStatusCode } from "@opentelemetry/api";
 import { SamplingDecision } from "@opentelemetry/sdk-trace-base";
 
 import type { Attributes, Context, SpanKind, Link } from "@opentelemetry/api";
-import type { Sampler, SamplingResult } from "@opentelemetry/sdk-trace-base";
-
-// Error detection patterns (hoisted to avoid per-call allocation)
-const ERROR_NAME_PATTERNS = [
-	/error/i,
-	/exception/i,
-	/fail/i,
-	/timeout/i,
-	/abort/i,
-];
+import type {
+	ReadableSpan,
+	Sampler,
+	SamplingResult,
+} from "@opentelemetry/sdk-trace-base";
 
 export class ErrorAwareSampler implements Sampler {
-	private normalSampler: Sampler;
-	private errorSampler: Sampler;
-
-	public constructor(normalSampler: Sampler, errorSampler: Sampler) {
-		this.normalSampler = normalSampler;
-		this.errorSampler = errorSampler;
-	}
+	public constructor(
+		private readonly normalSampler: Sampler,
+		private readonly errorSampler: Sampler,
+	) {}
 
 	public shouldSample(
 		context: Context,
@@ -29,12 +22,7 @@ export class ErrorAwareSampler implements Sampler {
 		attributes: Attributes,
 		links: Link[],
 	): SamplingResult {
-		// Check if this span is likely to be an error span based on attributes
-		// This is a heuristic approach since we can't know the final status at sampling time
-		const isLikelyError = this.isLikelyErrorSpan(attributes, spanName);
-
-		const sampler = isLikelyError ? this.errorSampler : this.normalSampler;
-		const result = sampler.shouldSample(
+		const normal = this.normalSampler.shouldSample(
 			context,
 			traceId,
 			spanName,
@@ -42,35 +30,41 @@ export class ErrorAwareSampler implements Sampler {
 			attributes,
 			links,
 		);
-
-		// Add metadata to indicate which sampling strategy was used
-		if (result.decision === SamplingDecision.RECORD_AND_SAMPLED) {
-			return {
-				...result,
-				attributes: {
-					...result.attributes,
-					"sampling.strategy": isLikelyError ? "error" : "normal",
-				},
-			};
-		}
-
-		return result;
+		const error = this.errorSampler.shouldSample(
+			context,
+			traceId,
+			spanName,
+			spanKind,
+			attributes,
+			links,
+		);
+		return {
+			decision: Math.max(normal.decision, error.decision),
+			attributes: { "sampling.strategy": "final-status" },
+		};
 	}
 
-	private isLikelyErrorSpan(attributes: Attributes, spanName: string): boolean {
-		// Check for HTTP error status codes
-		const httpStatus = attributes["http.status_code"];
-		if (httpStatus && typeof httpStatus === "number" && httpStatus >= 400) {
+	public shouldExport(span: ReadableSpan): boolean {
+		if (span.attributes["sampling.forced"] === true) {
 			return true;
 		}
-
-		// Check for likely error indicator set by middleware
-		if (attributes["sampling.likely_error"]) {
-			return true;
-		}
-
-		// Check for error-related span names
-		return ERROR_NAME_PATTERNS.some((pattern) => pattern.test(spanName));
+		const status =
+			span.attributes["http.response.status_code"] ??
+			span.attributes["http.status_code"];
+		const isError =
+			span.status.code === SpanStatusCode.ERROR ||
+			(typeof status === "number" && status >= 400);
+		const sampler = isError ? this.errorSampler : this.normalSampler;
+		return (
+			sampler.shouldSample(
+				ROOT_CONTEXT,
+				span.spanContext().traceId,
+				span.name,
+				span.kind,
+				span.attributes,
+				span.links,
+			).decision === SamplingDecision.RECORD_AND_SAMPLED
+		);
 	}
 
 	public toString(): string {
