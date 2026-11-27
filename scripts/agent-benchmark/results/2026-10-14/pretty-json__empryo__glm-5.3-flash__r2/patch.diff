@@ -1,0 +1,106 @@
+diff --git a/.gitignore b/.gitignore
+index 087d731..b5c2a7b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -138,3 +138,4 @@ out
+ # Claude Code local files
+ CLAUDE.local.md
+ settings.local.json
++.empryo
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..f5dd2a7 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -119,4 +119,69 @@ describe('JSON pretty by Middleware', () => {
+     const jsonSeqRes = await app.request('http://localhost/json-seq')
+     expect(await jsonSeqRes.text()).toBe('{"message":"Hono!"}')
+   })
++
++  it('Should pass through responses with a JSON content-type but no parseable body', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/204', (c) => c.body(null, 204, { 'Content-Type': 'application/json' }))
++    app.get('/304', (c) => c.body(null, 304, { 'Content-Type': 'application/json' }))
++    app.get('/empty', (c) => c.body('', 200, { 'Content-Type': 'application/json' }))
++    app.get('/invalid', (c) => c.body('not json', 200, { 'Content-Type': 'application/json' }))
++
++    const res204 = await app.request('http://localhost/204')
++    expect(res204.status).toBe(204)
++    expect(await res204.text()).toBe('')
++
++    const res304 = await app.request('http://localhost/304')
++    expect(res304.status).toBe(304)
++    expect(await res304.text()).toBe('')
++
++    const emptyRes = await app.request('http://localhost/empty')
++    expect(emptyRes.status).toBe(200)
++    expect(await emptyRes.text()).toBe('')
++
++    const invalidRes = await app.request('http://localhost/invalid')
++    expect(invalidRes.status).toBe(200)
++    expect(await invalidRes.text()).toBe('not json')
++  })
++
++  it('Should pass through when the response body was already consumed', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.use('*', async (c, next) => {
++      await next()
++      await c.res.text()
++    })
++    app.get('/', (c) => c.json({ message: 'Hono!' }))
++
++    const res = await app.request('http://localhost/')
++    expect(res.status).toBe(200)
++  })
++
++  it('Should remove Content-Length when prettifying and keep it when passing through', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/json', (c) =>
++      c.newResponse(JSON.stringify({ message: 'Hono!' }), 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '20',
++      })
++    )
++    app.get('/invalid', (c) =>
++      c.newResponse('not json', 200, {
++        'Content-Type': 'application/json',
++        'Content-Length': '8',
++      })
++    )
++
++    const jsonRes = await app.request('http://localhost/json')
++    expect(jsonRes.headers.get('Content-Length')).toBeNull()
++    expect(await jsonRes.text()).toBe(`{
++  "message": "Hono!"
++}`)
++
++    const invalidRes = await app.request('http://localhost/invalid')
++    expect(invalidRes.headers.get('Content-Length')).toBe('8')
++    expect(await invalidRes.text()).toBe('not json')
++  })
+ })
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..d66a969 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -51,9 +51,14 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+     const pretty = options?.force || c.req.query(targetQuery) || c.req.query(targetQuery) === ''
+     await next()
+     const contentType = c.res.headers.get('Content-Type')
+-    if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
+-    }
++if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
++        try {
++          const obj = await c.res.clone().json()
++          c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++          c.res.headers.delete('Content-Length')
++        } catch {
++          // Body is not valid JSON (empty, malformed, or already consumed) - pass through unchanged.
++        }
++      }
+   }
+ }

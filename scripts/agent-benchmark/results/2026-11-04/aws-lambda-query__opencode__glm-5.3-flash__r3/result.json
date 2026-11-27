@@ -1,0 +1,43 @@
+{
+  "runId": "aws-lambda-query__opencode__glm-5.3-flash__r3",
+  "task": "aws-lambda-query",
+  "agent": "opencode",
+  "model": "glm-5.3-flash",
+  "gatewayId": "fireworks/glm-5.3-flash",
+  "rep": 3,
+  "startedAt": "2026-11-04T19:13:04.839Z",
+  "code": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 79738,
+  "passed": true,
+  "tests": "46 passed",
+  "patchLines": 37,
+  "agentVersion": "1.18.29",
+  "agentConfig": {
+    "$schema": "https://opencode.ai/config.json",
+    "provider": {
+      "llmgateway": {
+        "options": {
+          "apiKey": "{env:LLMGATEWAY_API_KEY}"
+        },
+        "models": {
+          "fireworks/glm-5.3-flash": {
+            "name": "GLM 5.3 Flash",
+            "tool_call": true,
+            "reasoning": true
+          }
+        }
+      }
+    },
+    "model": "llmgateway/fireworks/glm-5.3-flash",
+    "small_model": "llmgateway/fireworks/glm-5.3-flash",
+    "permission": {
+      "edit": "allow",
+      "bash": "allow",
+      "webfetch": "allow"
+    },
+    "autoupdate": false,
+    "share": "disabled"
+  }
+}

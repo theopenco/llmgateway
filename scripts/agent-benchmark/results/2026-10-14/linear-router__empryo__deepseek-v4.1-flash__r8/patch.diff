@@ -1,0 +1,64 @@
+diff --git a/.gitignore b/.gitignore
+index 087d731..b5c2a7b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -138,3 +138,4 @@ out
+ # Claude Code local files
+ CLAUDE.local.md
+ settings.local.json
++.empryo
+diff --git a/src/router/linear-router/router.test.ts b/src/router/linear-router/router.test.ts
+index ed8404b..af3b452 100644
+--- a/src/router/linear-router/router.test.ts
++++ b/src/router/linear-router/router.test.ts
+@@ -77,4 +77,24 @@ describe('LinearRouter', () => {
+       expect(res.length).toBe(0)
+     })
+   })
++
++  describe('Empty path segment', () => {
++    let router: LinearRouter<string>
++
++    beforeEach(() => {
++      router = new LinearRouter<string>()
++      router.add('GET', '/u/:id/posts', 'GET /u/:id/posts')
++    })
++
++    it('GET /u//posts', () => {
++      const [res] = router.match('GET', '/u//posts')
++      expect(res.length).toBe(0)
++    })
++
++    it('GET /u/123/posts', () => {
++      const [res] = router.match('GET', '/u/123/posts')
++      expect(res.length).toBe(1)
++      expect(res[0][1]).toEqual({ id: '123' })
++    })
++  })
+ })
+diff --git a/src/router/linear-router/router.ts b/src/router/linear-router/router.ts
+index acee5c1..b65ce5c 100644
+--- a/src/router/linear-router/router.ts
++++ b/src/router/linear-router/router.ts
+@@ -109,13 +109,16 @@ export class LinearRouter<T> implements Router<T> {
+                 value = restPath.slice(...match.indices[0])
+                 pos += match.indices[0][1] + 1
+               } else {
+-                let endValuePos = path.indexOf('/', pos + 1)
+-                if (endValuePos === -1) {
+-                  if (pos + 1 === path.length) {
++let endValuePos = path.indexOf('/', pos + 1)
++                  if (endValuePos === -1) {
++                    if (pos + 1 === path.length) {
++                      continue ROUTES_LOOP
++                    }
++                    endValuePos = path.length
++                  } else if (endValuePos === pos + 1) {
++                    // empty segment, e.g. `/u//posts` must not match `/u/:id/posts`
+                     continue ROUTES_LOOP
+                   }
+-                  endValuePos = path.length
+-                }
+                 value = path.slice(pos + 1, endValuePos)
+                 pos = endValuePos
+               }

@@ -1,0 +1,43 @@
+{
+  "runId": "linear-router__opencode__fable-5.1__r9",
+  "task": "linear-router",
+  "agent": "opencode",
+  "model": "fable-5.1",
+  "gatewayId": "anthropic/claude-fable-5-1",
+  "rep": 9,
+  "startedAt": "2026-11-04T21:23:52.640Z",
+  "code": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 65670,
+  "passed": true,
+  "tests": "91 passed | 15 skipped",
+  "patchLines": 26,
+  "agentVersion": "1.18.29",
+  "agentConfig": {
+    "$schema": "https://opencode.ai/config.json",
+    "provider": {
+      "llmgateway": {
+        "options": {
+          "apiKey": "{env:LLMGATEWAY_API_KEY}"
+        },
+        "models": {
+          "anthropic/claude-fable-5-1": {
+            "name": "Claude Fable 5.1",
+            "tool_call": true,
+            "reasoning": true
+          }
+        }
+      }
+    },
+    "model": "llmgateway/anthropic/claude-fable-5-1",
+    "small_model": "llmgateway/anthropic/claude-fable-5-1",
+    "permission": {
+      "edit": "allow",
+      "bash": "allow",
+      "webfetch": "allow"
+    },
+    "autoupdate": false,
+    "share": "disabled"
+  }
+}

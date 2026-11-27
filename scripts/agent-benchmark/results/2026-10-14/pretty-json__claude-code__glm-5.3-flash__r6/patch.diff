@@ -1,0 +1,104 @@
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..4e7614b 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -119,4 +119,67 @@ describe('JSON pretty by Middleware', () => {
+     const jsonSeqRes = await app.request('http://localhost/json-seq')
+     expect(await jsonSeqRes.text()).toBe('{"message":"Hono!"}')
+   })
++
++  describe('bodies that cannot be parsed as JSON pass through unchanged', () => {
++    const app = new Hono()
++
++    app.use('*', prettyJSON({ force: true }))
++
++    app.get('/204', (c) => c.body(null, 204, { 'Content-Type': 'application/json' }))
++    app.get('/304', (c) => c.body(null, 304, { 'Content-Type': 'application/json' }))
++    app.get('/empty', (c) => c.body('', 200, { 'Content-Type': 'application/json' }))
++    app.get('/invalid', (c) =>
++      c.body('not json', 200, { 'Content-Type': 'application/json', 'Content-Length': '8' })
++    )
++
++    const cases: [string, number, string][] = [
++      ['204', 204, ''],
++      ['304', 304, ''],
++      ['empty', 200, ''],
++      ['invalid', 200, 'not json'],
++    ]
++
++    it.each(cases)('GET /%s passes through with the original body and status', async (path, status, body) => {
++      const res = await app.request(`http://localhost/${path}`)
++      expect(res.status).toBe(status)
++      expect(await res.text()).toBe(body)
++    })
++
++    it('preserves Content-Length when the body is not parseable JSON', async () => {
++      const res = await app.request('http://localhost/invalid')
++      expect(res.headers.get('Content-Length')).toBe('8')
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++    })
++
++    it('does not turn a bodyless 204 into an error', async () => {
++      const res = await app.request('http://localhost/204')
++      expect(res.status).toBe(204)
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++    })
++
++    it('passes through a response whose body was already consumed by another middleware', async () => {
++      const consumedApp = new Hono()
++      consumedApp.use('*', prettyJSON({ force: true }))
++      consumedApp.get('/consumed', async (c) => {
++        const original = new Response('{"message":"Hono!"}', {
++          headers: { 'Content-Type': 'application/json' },
++        })
++        await original.text()
++        return original
++      })
++      const res = await consumedApp.request('http://localhost/consumed')
++      expect(res.status).toBe(200)
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++      expect(res.bodyUsed).toBe(true)
++    })
++  })
++
++  it('removes the original Content-Length when it prettifies the body', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', (c) => c.body('{"message":"Hono!"}', 200, { 'Content-Type': 'application/json' }))
++
++    const res = await app.request('http://localhost/')
++    expect(res.headers.get('Content-Length')).toBeNull()
++  })
+ })
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..e19b145 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -52,8 +52,25 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+     await next()
+     const contentType = c.res.headers.get('Content-Type')
+     if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++      let text: string
++      try {
++        text = await c.res.text()
++      } catch {
++        // Body already consumed or unreadable — pass the response through unchanged
++        return
++      }
++
++      const status = c.res.status
++      const statusText = c.res.statusText
++      const headers = new Headers(c.res.headers)
++      try {
++        const prettyText = JSON.stringify(JSON.parse(text), null, options?.space ?? 2)
++        headers.delete('Content-Length')
++        c.res = new Response(prettyText, { status, statusText, headers })
++      } catch {
++        // Not valid JSON (empty, malformed, or a bodyless status) — restore the original body
++        c.res = new Response(text || null, { status, statusText, headers })
++      }
+     }
+   }
+ }

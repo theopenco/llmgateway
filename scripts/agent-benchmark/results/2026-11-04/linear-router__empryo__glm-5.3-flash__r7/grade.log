@@ -1,0 +1,180 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.9 [39m[90m$BENCH_HOME/runs/2026-11-04/linear-router__empryo__glm-5.3-flash__r7/repo[39m
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mComplex[2m > [22m[2mParameter with {.*} regexp
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mMulti match[2m > [22m[2m`params` per a handler[2m > [22m[2mGET /entry/123/show
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a label[2m > [22m[2mGET /abc
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a label[2m > [22m[2mGET /abc/sub
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a pattern label[2m > [22m[2mGET /abc
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a pattern label[2m > [22m[2mGET /reverse/abc in reverse registration order
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a pattern label[2m > [22m[2mPOST /all/abc with ALL middleware
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a pattern label[2m > [22m[2mGET /posts/2024/comments with nested braces
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a pattern label[2m > [22m[2mGET /files/foo/detail with regexp meta characters
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a pattern label[2m > [22m[2mGET /user/123/profile with the default pattern
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing wildcard after a pattern label[2m > [22m[2mGET /user/123/profile with the default pattern in reverse registration order
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mCapture regex pattern has trailing wildcard[2m > [22m[2mGET /foo/bar/file.html
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mCapture regex param with trailing wildcard on empty remainder[2m > [22m[2mGET /123
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mCapture regex param with trailing wildcard and sibling route[2m > [22m[2mGET /regex-abc/123/ghi
+[22m[39mSkip: UnsupportedPath
+
+[90mstdout[2m | src/router/linear-router/router.test.ts[2m > [22m[2mLinearRouter[2m > [22m[2mCommon[2m > [22m[2mTrailing slash[2m > [22m[2mGET /book/
+[22m[39mSkip: LinearRouter allows trailing slashes
+
+ [31m❯[39m [30m[45m main [49m[39m src/router/linear-router/router.test.ts [2m([22m[2m103 tests[22m[2m | [22m[31m1 failed[39m[2m | [22m[33m15 skipped[39m[2m)[22m[32m 18[2mms[22m[39m
+         [32m✓[39m GET, post hello[32m 1[2mms[22m[39m
+         [32m✓[39m Reserved words and named parameter[32m 0[2mms[22m[39m
+         [32m✓[39m Reserved words and wildcard[32m 0[2mms[22m[39m
+         [32m✓[39m Reserved words and optional named parameter[32m 0[2mms[22m[39m
+         [32m✓[39m Named Param[32m 0[2mms[22m[39m
+         [32m✓[39m Wildcard[32m 0[2mms[22m[39m
+         [32m✓[39m Default[32m 0[2mms[22m[39m
+         [32m✓[39m Regexp[32m 0[2mms[22m[39m
+         [2m[90m↓[39m[22m Parameter with {.*} regexp[32m 1[2mms[22m[39m
+         [32m✓[39m /*[32m 0[2mms[22m[39m
+         [32m✓[39m middleware -> handler[32m 0[2mms[22m[39m
+         [32m✓[39m handler -> fallback[32m 0[2mms[22m[39m
+           [32m✓[39m GET /[32m 0[2mms[22m[39m
+           [32m✓[39m GET /entry/123[32m 0[2mms[22m[39m
+           [32m✓[39m GET /entry/123/comment/456[32m 0[2mms[22m[39m
+           [32m✓[39m POST /entry[32m 0[2mms[22m[39m
+           [32m✓[39m DELETE /entry[32m 0[2mms[22m[39m
+           [2m[90m↓[39m[22m GET /entry/123/show[32m 0[2mms[22m[39m
+         [32m✓[39m hierarchy[32m 0[2mms[22m[39m
+         [32m✓[39m self[32m 0[2mms[22m[39m
+         [32m✓[39m parent[32m 0[2mms[22m[39m
+         [32m✓[39m child[32m 0[2mms[22m[39m
+         [32m✓[39m GET /page[32m 0[2mms[22m[39m
+         [32m✓[39m top[32m 0[2mms[22m[39m
+         [32m✓[39m Under a certain path[32m 0[2mms[22m[39m
+         [32m✓[39m GET /assets[32m 0[2mms[22m[39m
+         [32m✓[39m GET /assets-v2[32m 0[2mms[22m[39m
+         [32m✓[39m GET /assets/app.js[32m 0[2mms[22m[39m
+         [32m✓[39m GET /asset[32m 0[2mms[22m[39m
+         [32m✓[39m associates /assets* before /assets/app.js[32m 0[2mms[22m[39m
+         [32m✓[39m associates /assets/app.js before /assets*[32m 0[2mms[22m[39m
+         [32m✓[39m GET /path[32m 0[2mms[22m[39m
+         [32m✓[39m GET /path/to/file[32m 0[2mms[22m[39m
+         [32m✓[39m GET /pathfoo[32m 0[2mms[22m[39m
+         [2m[90m↓[39m[22m GET /abc[32m 0[2mms[22m[39m
+         [2m[90m↓[39m[22m GET /abc/sub[32m 0[2mms[22m[39m
+         [2m[90m↓[39m[22m GET /abc[32m 0[2mms[22m[39m
+         [2m[90m↓[39m[22m GET /reverse/abc in reverse registration order[32m 0[2mms[22m[39m
+         [2m[90m↓[39m[22m POST /all/abc with ALL middleware[32m 0[2mms[22m[39m
+         [2m[90m↓[39m[22m GET /posts/2024/comments with nested braces[32m 0[2mms[22m[39m
+         [2m[90m↓[39m[22m GET /files/foo/detail with regexp meta characters[32m 0[2mms[22m[39m
+         [2m[90m↓[39m[22m GET /user/123/profile with the default pattern[32m 0[2mms[22m[39m
+         [2m[90m↓[39m[22m GET /user/123/profile with the default pattern in reverse registration order[32m 0[2mms[22m[39m
+         [32m✓[39m GET /a/x/b[32m 0[2mms[22m[39m
+         [32m✓[39m GET /a/x/b/c[32m 0[2mms[22m[39m
+         [32m✓[39m GET /a/x/bz[32m 0[2mms[22m[39m
+         [32m✓[39m GET /api/animals/dog[32m 0[2mms[22m[39m
+         [32m✓[39m GET /api/animals[32m 0[2mms[22m[39m
+         [32m✓[39m GET /v1/123/abc[32m 0[2mms[22m[39m
+         [32m✓[39m GET /v1/123[32m 0[2mms[22m[39m
+         [32m✓[39m GET /v1[32m 0[2mms[22m[39m
+         [32m✓[39m GET, all hello[32m 0[2mms[22m[39m
+           [32m✓[39m GET /[32m 0[2mms[22m[39m
+           [32m✓[39m GET /long/prefix[32m 0[2mms[22m[39m
+           [32m✓[39m GET /long/prefix/test[32m 0[2mms[22m[39m
+           [32m✓[39m GET /[32m 0[2mms[22m[39m
+           [32m✓[39m GET /long/prefix[32m 0[2mms[22m[39m
+           [32m✓[39m GET /long/prefix/test[32m 0[2mms[22m[39m
+         [32m✓[39m GET /js/main.js[32m 0[2mms[22m[39m
+         [32m✓[39m GET /js/chunk/123.js[32m 0[2mms[22m[39m
+         [32m✓[39m GET /js/chunk/nest/123.js[32m 0[2mms[22m[39m
+         [32m✓[39m GET /foo/bar/file.html[32m 0[2mms[22m[39m
+         [32m✓[39m GET /foo/bar/baz/file.html[32m 0[2mms[22m[39m
+         [32m✓[39m GET /a/b/c/d/file.html[32m 0[2mms[22m[39m
+         [2m[90m↓[39m[22m GET /foo/bar/file.html[32m 0[2mms[22m[39m
+         [2m[90m↓[39m[22m GET /123[32m 0[2mms[22m[39m
+         [2m[90m↓[39m[22m GET /regex-abc/123/ghi[32m 0[2mms[22m[39m
+         [32m✓[39m GET /part1/middle-b/latest[32m 0[2mms[22m[39m
+         [32m✓[39m GET /part1/middle-b/end-c/latest[32m 0[2mms[22m[39m
+         [32m✓[39m GET /foo/bar/contents[32m 0[2mms[22m[39m
+         [32m✓[39m GET /foo/bar/contents/123[32m 0[2mms[22m[39m
+         [32m✓[39m GET /$/hono[32m 0[2mms[22m[39m
+         [32m✓[39m GET /()/hono[32m 0[2mms[22m[39m
+         [32m✓[39m GET /users/hono[32m 0[2mms[22m[39m
+         [32m✓[39m GET /users/hono/posts[32m 0[2mms[22m[39m
+         [32m✓[39m GET /book[32m 0[2mms[22m[39m
+         [2m[90m↓[39m[22m GET /book/[32m 0[2mms[22m[39m
+         [32m✓[39m GET /u/42/posts[32m 0[2mms[22m[39m
+[31m         [31m×[31m GET /u//posts does not match with an empty param[39m[32m 5[2mms[22m[39m
+         [32m✓[39m GET /hey[32m 0[2mms[22m[39m
+         [32m✓[39m GET www1.example.com/hello[32m 0[2mms[22m[39m
+         [32m✓[39m GET www2.example.com/hello[32m 0[2mms[22m[39m
+         [32m✓[39m GET /hello[32m 0[2mms[22m[39m
+         [32m✓[39m get /foo[32m 0[2mms[22m[39m
+         [32m✓[39m Should return /x and star[32m 0[2mms[22m[39m
+         [32m✓[39m Should return /x and star[32m 0[2mms[22m[39m
+         [32m✓[39m Should return star1, star2, and bar[32m 0[2mms[22m[39m
+         [32m✓[39m Should return wildcard, star2 and bar[32m 0[2mms[22m[39m
+           [32m✓[39m GET /foo/bar[32m 0[2mms[22m[39m
+           [32m✓[39m GET /foo/baz[32m 0[2mms[22m[39m
+           [32m✓[39m GET /foo/qux[32m 0[2mms[22m[39m
+           [32m✓[39m GET /foo/bar[32m 0[2mms[22m[39m
+           [32m✓[39m GET /foo/baz[32m 0[2mms[22m[39m
+           [32m✓[39m GET /foo/qux[32m 0[2mms[22m[39m
+           [32m✓[39m GET /foo/bar[32m 0[2mms[22m[39m
+           [32m✓[39m GET /foo/baz[32m 0[2mms[22m[39m
+           [32m✓[39m GET /foo/qux[32m 0[2mms[22m[39m
+           [32m✓[39m GET request[32m 0[2mms[22m[39m
+         [32m✓[39m UNKNOWN_METHOD /[32m 0[2mms[22m[39m
+         [32m✓[39m UNKNOWN_METHOD /all[32m 0[2mms[22m[39m
+         [32m✓[39m GET /entry/123/show[32m 0[2mms[22m[39m
+       [32m✓[39m GET /book/[32m 0[2mms[22m[39m
+       [32m✓[39m GET /products/list[32m 0[2mms[22m[39m
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m87 passed[39m[22m[2m | [22m[33m15 skipped[39m[90m (103)[39m
+[2m   Start at [22m 20:42:54
+[2m   Duration [22m 268ms[2m (transform 65ms, setup 0ms, import 79ms, tests 18ms, environment 0ms)[22m
+
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m [30m[45m main [49m[39m src/router/linear-router/router.test.ts[2m > [22mLinearRouter[2m > [22mCommon[2m > [22mEmpty path segment[2m > [22mGET /u//posts does not match with an empty param
+[31m[1mAssertionError[22m: expected 1 to be +0 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 1[39m
+
+[36m [2m❯[22m src/router/common.case.test.ts:[2m894:28[22m[39m
+    [90m892|[39m       [34mit[39m([32m'GET /u//posts does not match with an empty param'[39m[33m,[39m () [33m=>[39m {
+    [90m893|[39m         [35mconst[39m res [33m=[39m [34mmatch[39m([32m'GET'[39m[33m,[39m [32m'/u//posts'[39m)
+    [90m894|[39m         [34mexpect[39m(res[33m.[39mlength)[33m.[39m[34mtoBe[39m([34m0[39m)
+    [90m   |[39m                            [31m^[39m
+    [90m895|[39m       })
+    [90m896|[39m     })
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+

@@ -1,0 +1,44 @@
+diff --git a/src/router/linear-router/router.test.ts b/src/router/linear-router/router.test.ts
+index ed8404b..f188550 100644
+--- a/src/router/linear-router/router.test.ts
++++ b/src/router/linear-router/router.test.ts
+@@ -78,3 +78,18 @@ describe('LinearRouter', () => {
+     })
+   })
+ })
++describe('LinearRouter route parameters', () => {
++  it.each(['/u//posts', '/u//posts/'])('rejects an empty parameter in %s', (path) => {
++    const router = new LinearRouter<string>()
++    router.add('GET', '/u/:id/posts', 'posts')
++
++    expect(router.match('GET', path)).toEqual([[]])
++  })
++
++  it.each(['/u/123/posts', '/u/123/posts/'])('matches a non-empty parameter in %s', (path) => {
++    const router = new LinearRouter<string>()
++    router.add('GET', '/u/:id/posts', 'posts')
++
++    expect(router.match('GET', path)).toEqual([[['posts', { id: '123' }]]])
++  })
++})
+diff --git a/src/router/linear-router/router.ts b/src/router/linear-router/router.ts
+index acee5c1..06743e7 100644
+--- a/src/router/linear-router/router.ts
++++ b/src/router/linear-router/router.ts
+@@ -110,12 +110,12 @@ export class LinearRouter<T> implements Router<T> {
+                 pos += match.indices[0][1] + 1
+               } else {
+                 let endValuePos = path.indexOf('/', pos + 1)
+-                if (endValuePos === -1) {
+-                  if (pos + 1 === path.length) {
++                  if (endValuePos === -1) {
++                    endValuePos = path.length
++                  }
++                  if (pos + 1 === endValuePos) {
+                     continue ROUTES_LOOP
+                   }
+-                  endValuePos = path.length
+-                }
+                 value = path.slice(pos + 1, endValuePos)
+                 pos = endValuePos
+               }

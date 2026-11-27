@@ -1,0 +1,115 @@
+diff --git a/.gitignore b/.gitignore
+index 087d731..b5c2a7b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -138,3 +138,4 @@ out
+ # Claude Code local files
+ CLAUDE.local.md
+ settings.local.json
++.empryo
+diff --git a/src/middleware/pretty-json/index.test.ts b/src/middleware/pretty-json/index.test.ts
+index 70b44b6..2505f7b 100644
+--- a/src/middleware/pretty-json/index.test.ts
++++ b/src/middleware/pretty-json/index.test.ts
+@@ -119,4 +119,74 @@ describe('JSON pretty by Middleware', () => {
+     const jsonSeqRes = await app.request('http://localhost/json-seq')
+     expect(await jsonSeqRes.text()).toBe('{"message":"Hono!"}')
+   })
++
++  it('Should remove Content-Length when prettifying', async () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/', () => {
++      const body = '{"message":"Hono!"}'
++      return new Response(body, {
++        headers: { 'Content-Type': 'application/json', 'Content-Length': String(body.length) },
++      })
++    })
++
++    const res = await app.request('http://localhost/')
++    expect(res.status).toBe(200)
++    expect(res.headers.get('Content-Length')).toBeNull()
++    expect(await res.text()).toBe(`{
++  "message": "Hono!"
++}`)
++  })
++
++  describe('Should pass through JSON responses whose body cannot be parsed', () => {
++    const app = new Hono()
++    app.use('*', prettyJSON({ force: true }))
++    app.get('/204', () => {
++      return new Response(null, { status: 204, headers: { 'Content-Type': 'application/json' } })
++    })
++    app.get('/304', () => {
++      return new Response(null, { status: 304, headers: { 'Content-Type': 'application/json' } })
++    })
++    app.get('/empty', () => {
++      return new Response('', {
++        headers: { 'Content-Type': 'application/json', 'Content-Length': '0' },
++      })
++    })
++    app.get('/invalid', () => {
++      return new Response('not json', {
++        status: 502,
++        headers: { 'Content-Type': 'application/json', 'Content-Length': '8' },
++      })
++    })
++    app.use('/used', async (c, next) => {
++      await next()
++      await c.res.text()
++    })
++    app.get('/used', (c) => c.json({ message: 'Hono!' }))
++
++    it.each([
++      ['/204', 204, ''],
++      ['/304', 304, ''],
++      ['/empty', 200, ''],
++      ['/invalid', 502, 'not json'],
++    ])('%s', async (path, status, body) => {
++      const res = await app.request(`http://localhost${path}`)
++      expect(res.status).toBe(status)
++      expect(res.headers.get('Content-Type')).toBe('application/json')
++      expect(await res.text()).toBe(body)
++    })
++
++    it('preserves Content-Length', async () => {
++      expect((await app.request('http://localhost/invalid')).headers.get('Content-Length')).toBe(
++        '8'
++      )
++      expect((await app.request('http://localhost/empty')).headers.get('Content-Length')).toBe('0')
++    })
++
++    it('already-read body', async () => {
++      const res = await app.request('http://localhost/used')
++      expect(res.status).toBe(200)
++      expect(res.bodyUsed).toBe(true)
++    })
++  })
+ })
+diff --git a/src/middleware/pretty-json/index.ts b/src/middleware/pretty-json/index.ts
+index bc1a9b9..3a26be6 100644
+--- a/src/middleware/pretty-json/index.ts
++++ b/src/middleware/pretty-json/index.ts
+@@ -52,8 +52,20 @@ export const prettyJSON = (options?: PrettyOptions): MiddlewareHandler => {
+     await next()
+     const contentType = c.res.headers.get('Content-Type')
+     if (pretty && contentType && jsonContentTypeRegex.test(contentType)) {
+-      const obj = await c.res.json()
+-      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), c.res)
++      const res = c.res
++      if (!res.body || res.bodyUsed) {
++        return
++      }
++      const buffer = await res.arrayBuffer()
++      let obj: unknown
++      try {
++        obj = JSON.parse(new TextDecoder().decode(buffer))
++      } catch {
++        c.res = new Response(buffer, res)
++        return
++      }
++      c.res = new Response(JSON.stringify(obj, null, options?.space ?? 2), res)
++      c.res.headers.delete('Content-Length')
+     }
+   }
+ }

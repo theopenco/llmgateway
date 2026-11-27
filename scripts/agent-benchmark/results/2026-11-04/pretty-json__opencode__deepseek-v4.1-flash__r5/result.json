@@ -1,0 +1,43 @@
+{
+  "runId": "pretty-json__opencode__deepseek-v4.1-flash__r5",
+  "task": "pretty-json",
+  "agent": "opencode",
+  "model": "deepseek-v4.1-flash",
+  "gatewayId": "fireworks/deepseek-v4.1-flash",
+  "rep": 5,
+  "startedAt": "2026-11-04T20:04:52.091Z",
+  "code": 0,
+  "signal": null,
+  "timedOut": false,
+  "wallMs": 85351,
+  "passed": true,
+  "tests": "12 passed",
+  "patchLines": 66,
+  "agentVersion": "1.18.29",
+  "agentConfig": {
+    "$schema": "https://opencode.ai/config.json",
+    "provider": {
+      "llmgateway": {
+        "options": {
+          "apiKey": "{env:LLMGATEWAY_API_KEY}"
+        },
+        "models": {
+          "fireworks/deepseek-v4.1-flash": {
+            "name": "DeepSeek V4.1 Flash",
+            "tool_call": true,
+            "reasoning": true
+          }
+        }
+      }
+    },
+    "model": "llmgateway/fireworks/deepseek-v4.1-flash",
+    "small_model": "llmgateway/fireworks/deepseek-v4.1-flash",
+    "permission": {
+      "edit": "allow",
+      "bash": "allow",
+      "webfetch": "allow"
+    },
+    "autoupdate": false,
+    "share": "disabled"
+  }
+}
