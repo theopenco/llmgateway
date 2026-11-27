@@ -14,11 +14,38 @@ const ROLE_RANK: Record<OrgRole, number> = {
 	owner: 4,
 };
 
+// Only owners can grant owner. Tokens issued before minting became owner-only
+// may belong to an admin, so an owner mapping applies in full only when a
+// current owner issued the active token.
+async function isScimTokenOwnerIssued(
+	organizationId: string,
+): Promise<boolean> {
+	const token = await db.query.scimToken.findFirst({
+		where: {
+			organizationId: { eq: organizationId },
+			status: { eq: "active" },
+		},
+		columns: { createdBy: true },
+	});
+	if (!token?.createdBy) {
+		return false;
+	}
+	const issuer = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: token.createdBy },
+			organizationId: { eq: organizationId },
+		},
+		columns: { role: true },
+	});
+	return issuer?.role === "owner";
+}
+
 // Recompute an org member's role from their SCIM group memberships and the
 // org's group->role mappings. The highest-precedence mapped role wins, but a
 // mapping only raises a member above their manual role (source "sso") and the
 // member returns to that manual role when it no longer applies. Manual roles
-// survive directory sync, and owners are never auto-demoted.
+// survive directory sync, and owners are never auto-demoted. An owner mapping
+// is capped at admin unless an owner issued the org's SCIM token.
 //
 // Returns the {old,new} role change when it updated the membership, or null
 // when nothing changed, so callers (e.g. SCIM) can audit the transition.
@@ -80,6 +107,13 @@ export async function recomputeUserRole(
 		membership.roleAssignmentSource === "sso"
 			? (membership.manualRole ?? "developer")
 			: membership.role;
+	if (
+		mappedRole === "owner" &&
+		manualRole !== "owner" &&
+		!(await isScimTokenOwnerIssued(organizationId))
+	) {
+		mappedRole = "admin";
+	}
 	const raised =
 		mappedRole !== null && ROLE_RANK[mappedRole] > ROLE_RANK[manualRole];
 	const targetRole = raised && mappedRole ? mappedRole : manualRole;

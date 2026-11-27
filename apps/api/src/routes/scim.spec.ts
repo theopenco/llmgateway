@@ -44,10 +44,12 @@ function scimHeaders(extra: Record<string, string> = {}) {
 }
 
 describe("scim audit logging", () => {
+	let sessionCookie: string;
+
 	beforeEach(async () => {
 		// createTestUser seeds `test-user-id`; it is the SCIM token's creator and
 		// therefore the audit-log actor for IdP-initiated syncs.
-		await createTestUser();
+		sessionCookie = await createTestUser();
 
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
@@ -525,6 +527,91 @@ describe("scim audit logging", () => {
 			columns: { role: true },
 		});
 		expect(membership?.role).toBe("admin");
+	});
+
+	async function pushOwnersGroup(email: string): Promise<string> {
+		await db.insert(tables.ssoRoleMapping).values({
+			organizationId: ORG_ID,
+			groupName: "Owners",
+			role: "owner",
+		});
+		const id = await provisionUser(email);
+		const response = await app.request("/scim/v2/Groups", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				displayName: "Owners",
+				members: [{ value: id }],
+			}),
+		});
+		expect(response.status).toBe(201);
+		return id;
+	}
+
+	test("an owner mapping grants owner through an owner-issued token", async () => {
+		const id = await pushOwnersGroup("olive@example.com");
+
+		expect((await getMembership(id))?.role).toBe("owner");
+	});
+
+	test("an owner mapping is capped at admin for an admin-issued token", async () => {
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "admin" })
+			.where(eq(tables.userOrganization.userId, "test-user-id"));
+
+		const id = await pushOwnersGroup("oscar@example.com");
+
+		expect((await getMembership(id))?.role).toBe("admin");
+		// The token issuer cannot promote themselves either.
+		const group = await db.query.scimGroup.findFirst({
+			where: { organizationId: { eq: ORG_ID } },
+			columns: { id: true },
+		});
+		const patched = await app.request(`/scim/v2/Groups/${group?.id}`, {
+			method: "PATCH",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+				Operations: [
+					{ op: "add", path: "members", value: [{ value: "test-user-id" }] },
+				],
+			}),
+		});
+		expect(patched.status).toBeLessThan(300);
+		expect(
+			await db.query.scimGroupMember.findFirst({
+				where: { userId: { eq: "test-user-id" } },
+			}),
+		).toBeDefined();
+		expect((await getMembership("test-user-id"))?.role).toBe("admin");
+	});
+
+	test("only owners can generate a SCIM token", async () => {
+		const mint = async () =>
+			await app.request("/sso/scim", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: sessionCookie },
+				body: JSON.stringify({ organizationId: ORG_ID }),
+			});
+
+		expect((await mint()).status).toBe(201);
+
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "admin" })
+			.where(eq(tables.userOrganization.userId, "test-user-id"));
+		const before = await db.query.scimToken.findFirst({
+			where: { organizationId: { eq: ORG_ID }, status: { eq: "active" } },
+			columns: { id: true },
+		});
+
+		expect((await mint()).status).toBe(403);
+		const after = await db.query.scimToken.findFirst({
+			where: { organizationId: { eq: ORG_ID }, status: { eq: "active" } },
+			columns: { id: true },
+		});
+		expect(after?.id).toBe(before?.id);
 	});
 
 	test("manual roles survive a SCIM update without role mappings", async () => {
