@@ -709,7 +709,11 @@ async function recomputeUserAccess(
 		},
 		columns: { teamId: true },
 	});
-	const roleChange = await applyUserRole(userId, organizationId);
+	const roleChange = await applyUserRole(
+		userId,
+		organizationId,
+		c.get("scimActorUserId"),
+	);
 	await applyUserTeam(userId, organizationId);
 	const after = await db.query.userOrganization.findFirst({
 		where: {

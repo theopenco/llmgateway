@@ -1280,7 +1280,18 @@ sso.openapi(generateScim, async (c) => {
 
 	const { organizationId, ssoProviderId } = c.req.valid("json");
 
-	await assertEnterpriseOrgAccess(user.id, organizationId);
+	const { role: callerRole } = await assertEnterpriseOrgAccess(
+		user.id,
+		organizationId,
+	);
+
+	// The token writes group memberships, and an owner mapping turns those into
+	// the owner role, which admins can't grant.
+	if (callerRole !== "owner") {
+		throw new HTTPException(403, {
+			message: "Only owners can generate a SCIM token",
+		});
+	}
 
 	// One active token per org: rotating replaces the previous one so the IdP
 	// only ever needs the latest secret.

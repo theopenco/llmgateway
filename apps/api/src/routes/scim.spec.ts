@@ -5,6 +5,7 @@ import {
 	EnterpriseSeatLimitError,
 	withEnterpriseSeatForOrganization,
 } from "@/lib/enterprise-seats.js";
+import { recomputeUserRole } from "@/lib/sso-roles.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
@@ -12,6 +13,15 @@ import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type * as EnterpriseSeats from "@/lib/enterprise-seats.js";
+import type * as SsoRoles from "@/lib/sso-roles.js";
+
+vi.mock("@/lib/sso-roles.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof SsoRoles>();
+	return {
+		...actual,
+		recomputeUserRole: vi.fn(actual.recomputeUserRole),
+	};
+});
 
 vi.mock("@/lib/enterprise-seats.js", async (importOriginal) => {
 	const actual = await importOriginal<typeof EnterpriseSeats>();
@@ -44,10 +54,12 @@ function scimHeaders(extra: Record<string, string> = {}) {
 }
 
 describe("scim audit logging", () => {
+	let sessionCookie: string;
+
 	beforeEach(async () => {
 		// createTestUser seeds `test-user-id`; it is the SCIM token's creator and
 		// therefore the audit-log actor for IdP-initiated syncs.
-		await createTestUser();
+		sessionCookie = await createTestUser();
 
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
@@ -525,6 +537,203 @@ describe("scim audit logging", () => {
 			columns: { role: true },
 		});
 		expect(membership?.role).toBe("admin");
+	});
+
+	async function pushOwnersGroup(email: string): Promise<string> {
+		await db.insert(tables.ssoRoleMapping).values({
+			organizationId: ORG_ID,
+			groupName: "Owners",
+			role: "owner",
+		});
+		const id = await provisionUser(email);
+		const response = await app.request("/scim/v2/Groups", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				displayName: "Owners",
+				members: [{ value: id }],
+			}),
+		});
+		expect(response.status).toBe(201);
+		return id;
+	}
+
+	test("an owner mapping grants owner through an owner-issued token", async () => {
+		const id = await pushOwnersGroup("olive@example.com");
+
+		expect((await getMembership(id))?.role).toBe("owner");
+	});
+
+	test("an owner mapping is capped at admin for an admin-issued token", async () => {
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "admin" })
+			.where(eq(tables.userOrganization.userId, "test-user-id"));
+
+		const id = await pushOwnersGroup("oscar@example.com");
+
+		expect((await getMembership(id))?.role).toBe("admin");
+		// The token issuer cannot promote themselves either.
+		const group = await db.query.scimGroup.findFirst({
+			where: { organizationId: { eq: ORG_ID } },
+			columns: { id: true },
+		});
+		const patched = await app.request(`/scim/v2/Groups/${group?.id}`, {
+			method: "PATCH",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+				Operations: [
+					{ op: "add", path: "members", value: [{ value: "test-user-id" }] },
+				],
+			}),
+		});
+		expect(patched.status).toBeLessThan(300);
+		expect(
+			await db.query.scimGroupMember.findFirst({
+				where: { userId: { eq: "test-user-id" } },
+			}),
+		).toBeDefined();
+		expect((await getMembership("test-user-id"))?.role).toBe("admin");
+	});
+
+	test("an owner mapping is capped while any active token is not owner-issued", async () => {
+		await db.insert(tables.user).values({
+			id: "scim-admin-issuer",
+			name: "Admin Issuer",
+			email: "admin-issuer@example.com",
+			emailVerified: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "scim-admin-issuer",
+			organizationId: ORG_ID,
+			role: "admin",
+		});
+		await db.insert(tables.scimToken).values({
+			tokenHash: getApiKeyFingerprint("scim_second_active_token"),
+			maskedToken: "scim_seco...oken",
+			organizationId: ORG_ID,
+			createdBy: "scim-admin-issuer",
+		});
+
+		const id = await pushOwnersGroup("otto@example.com");
+
+		expect((await getMembership(id))?.role).toBe("admin");
+	});
+
+	test("an owner mapping is capped for a request from a rotated non-owner token", async () => {
+		const id = await provisionUser("orla@example.com");
+		await db.insert(tables.user).values({
+			id: "scim-old-issuer",
+			name: "Old Issuer",
+			email: "old-issuer@example.com",
+			emailVerified: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "scim-old-issuer",
+			organizationId: ORG_ID,
+			role: "admin",
+		});
+		await db.insert(tables.ssoRoleMapping).values({
+			organizationId: ORG_ID,
+			groupName: "Owners",
+			role: "owner",
+		});
+		await db.insert(tables.scimGroup).values({
+			id: "owners-group",
+			organizationId: ORG_ID,
+			displayName: "Owners",
+		});
+		await db
+			.insert(tables.scimGroupMember)
+			.values({ scimGroupId: "owners-group", userId: id });
+
+		// The only active token is owner-issued, as after a mid-request rotation.
+		await recomputeUserRole(id, ORG_ID, "scim-old-issuer");
+		expect((await getMembership(id))?.role).toBe("admin");
+
+		await recomputeUserRole(id, ORG_ID, "test-user-id");
+		expect((await getMembership(id))?.role).toBe("owner");
+	});
+
+	test("SCIM requests pass their token issuer to the role check", async () => {
+		await db.insert(tables.user).values({
+			id: "scim-new-issuer",
+			name: "New Issuer",
+			email: "new-issuer@example.com",
+			emailVerified: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "scim-new-issuer",
+			organizationId: ORG_ID,
+			role: "admin",
+		});
+		await db.insert(tables.ssoRoleMapping).values({
+			organizationId: ORG_ID,
+			groupName: "Owners",
+			role: "owner",
+		});
+		const id = await provisionUser("opal@example.com");
+		vi.mocked(recomputeUserRole).mockClear();
+		// The request authenticates with a token issued by a non-owner, which is
+		// rotated to an owner-issued one before the role check runs.
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "admin" })
+			.where(eq(tables.userOrganization.userId, "test-user-id"));
+		vi.mocked(recomputeUserRole).mockImplementationOnce(async (...args) => {
+			await db
+				.update(tables.userOrganization)
+				.set({ role: "owner" })
+				.where(eq(tables.userOrganization.userId, "scim-new-issuer"));
+			await db
+				.update(tables.scimToken)
+				.set({ createdBy: "scim-new-issuer" })
+				.where(eq(tables.scimToken.organizationId, ORG_ID));
+			const actual =
+				await vi.importActual<typeof SsoRoles>("@/lib/sso-roles.js");
+			return await actual.recomputeUserRole(...args);
+		});
+
+		const response = await app.request("/scim/v2/Groups", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				displayName: "Owners",
+				members: [{ value: id }],
+			}),
+		});
+
+		expect(response.status).toBe(201);
+		expect(recomputeUserRole).toHaveBeenCalledWith(id, ORG_ID, "test-user-id");
+		expect((await getMembership(id))?.role).toBe("admin");
+	});
+
+	test("only owners can generate a SCIM token", async () => {
+		const mint = async () =>
+			await app.request("/sso/scim", {
+				method: "POST",
+				headers: { "Content-Type": "application/json", Cookie: sessionCookie },
+				body: JSON.stringify({ organizationId: ORG_ID }),
+			});
+
+		expect((await mint()).status).toBe(201);
+
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "admin" })
+			.where(eq(tables.userOrganization.userId, "test-user-id"));
+		const before = await db.query.scimToken.findFirst({
+			where: { organizationId: { eq: ORG_ID }, status: { eq: "active" } },
+			columns: { id: true },
+		});
+
+		expect((await mint()).status).toBe(403);
+		const after = await db.query.scimToken.findFirst({
+			where: { organizationId: { eq: ORG_ID }, status: { eq: "active" } },
+			columns: { id: true },
+		});
+		expect(after?.id).toBe(before?.id);
 	});
 
 	test("manual roles survive a SCIM update without role mappings", async () => {

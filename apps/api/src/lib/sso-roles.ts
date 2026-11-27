@@ -14,17 +14,65 @@ const ROLE_RANK: Record<OrgRole, number> = {
 	owner: 4,
 };
 
+// Only owners can grant owner. Tokens issued before minting became owner-only
+// may belong to an admin, so an owner mapping applies in full only when a
+// current owner issued the active token.
+async function isScimTokenOwnerIssued(
+	organizationId: string,
+	requestIssuerId?: string | null,
+): Promise<boolean> {
+	// Rotation is not atomic, so check every active token, not whichever row
+	// comes back first.
+	const tokens = await db.query.scimToken.findMany({
+		where: {
+			organizationId: { eq: organizationId },
+			status: { eq: "active" },
+		},
+		columns: { createdBy: true },
+	});
+	if (!tokens.length) {
+		return false;
+	}
+	// A SCIM request may outlive its token, so its issuer is checked as well.
+	const issuerIds = [
+		...new Set([
+			...tokens.map((token) => token.createdBy),
+			...(requestIssuerId === undefined ? [] : [requestIssuerId]),
+		]),
+	];
+	for (const issuerId of issuerIds) {
+		if (!issuerId) {
+			return false;
+		}
+		const issuer = await db.query.userOrganization.findFirst({
+			where: {
+				userId: { eq: issuerId },
+				organizationId: { eq: organizationId },
+			},
+			columns: { role: true },
+		});
+		if (issuer?.role !== "owner") {
+			return false;
+		}
+	}
+	return true;
+}
+
 // Recompute an org member's role from their SCIM group memberships and the
 // org's group->role mappings. The highest-precedence mapped role wins, but a
 // mapping only raises a member above their manual role (source "sso") and the
 // member returns to that manual role when it no longer applies. Manual roles
-// survive directory sync, and owners are never auto-demoted.
+// survive directory sync, and owners are never auto-demoted. An owner mapping
+// is capped at admin unless an owner issued the org's SCIM token.
+//
+// `scimIssuerId` is the issuer of the token authenticating a SCIM request.
 //
 // Returns the {old,new} role change when it updated the membership, or null
 // when nothing changed, so callers (e.g. SCIM) can audit the transition.
 export async function recomputeUserRole(
 	userId: string,
 	organizationId: string,
+	scimIssuerId?: string | null,
 ): Promise<RoleChange | null> {
 	const membership = await db.query.userOrganization.findFirst({
 		where: {
@@ -80,6 +128,13 @@ export async function recomputeUserRole(
 		membership.roleAssignmentSource === "sso"
 			? (membership.manualRole ?? "developer")
 			: membership.role;
+	if (
+		mappedRole === "owner" &&
+		manualRole !== "owner" &&
+		!(await isScimTokenOwnerIssued(organizationId, scimIssuerId))
+	) {
+		mappedRole = "admin";
+	}
 	const raised =
 		mappedRole !== null && ROLE_RANK[mappedRole] > ROLE_RANK[manualRole];
 	const targetRole = raised && mappedRole ? mappedRole : manualRole;
