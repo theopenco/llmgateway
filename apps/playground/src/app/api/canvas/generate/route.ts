@@ -67,7 +67,7 @@ export async function POST(req: Request) {
 		},
 	});
 
-	const selectedModel = model || "anthropic/claude-sonnet-4-20250514";
+	const selectedModel = model || "anthropic/claude-sonnet-5-5";
 
 	const result = streamText({
 		experimental_download: deferDownloadsToGateway,
