@@ -39,6 +39,34 @@ function mockInvoiceLists(opts: {
 }
 
 describe("voidPendingCycleRenewalInvoices", () => {
+	test("cleans every page of pending invoices", async () => {
+		stripeMock.invoices.list.mockImplementation(
+			async ({
+				status,
+				starting_after,
+			}: {
+				status: string;
+				starting_after?: string;
+			}) => ({
+				data:
+					status === "draft"
+						? []
+						: [
+								{
+									id: starting_after ? "in_second" : "in_first",
+									status: "open",
+									billing_reason: "subscription_cycle",
+								},
+							],
+				has_more: status === "open" && !starting_after,
+			}),
+		);
+		await voidPendingCycleRenewalInvoices(SUB_ID);
+		expect(stripeMock.invoices.voidInvoice.mock.calls).toEqual([
+			["in_first"],
+			["in_second"],
+		]);
+	});
 	beforeEach(() => {
 		stripeMock.invoices.list.mockReset();
 		stripeMock.invoices.finalizeInvoice.mockReset();

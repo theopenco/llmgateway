@@ -214,24 +214,27 @@ describe("admin refund execution", () => {
 		);
 	});
 
-	test("rejects an amount above what is left to refund", async () => {
-		const payment = await seedTransaction();
-		const organization = (await db.query.organization.findFirst({
-			where: { id: { eq: ORG_ID } },
-		}))!;
+	test.each([80, 0.001, 0.004, 0.015])(
+		"rejects invalid refund amount %s",
+		async (amount) => {
+			const payment = await seedTransaction();
+			const organization = (await db.query.organization.findFirst({
+				where: { id: { eq: ORG_ID } },
+			}))!;
 
-		await expect(
-			executeAdminRefund({
-				organization,
-				transaction: payment,
-				adminUserId: "test-user-id",
-				amount: 80,
-				refundedAmount: new Decimal("25"),
-				reason: "requested_by_customer",
-			}),
-		).rejects.toThrow("between $0.01 and $75.00");
-		expect(stripeMock.refunds.create).not.toHaveBeenCalled();
-	});
+			await expect(
+				executeAdminRefund({
+					organization,
+					transaction: payment,
+					adminUserId: "test-user-id",
+					amount,
+					refundedAmount: new Decimal("25"),
+					reason: "requested_by_customer",
+				}),
+			).rejects.toThrow("between $0.01 and $75.00");
+			expect(stripeMock.refunds.create).not.toHaveBeenCalled();
+		},
+	);
 
 	test("records an audit log entry for the refund", async () => {
 		const payment = await seedTransaction();

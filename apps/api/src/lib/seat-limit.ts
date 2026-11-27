@@ -7,12 +7,6 @@ export function resolveSeatLimit(
 	plan: string | null | undefined,
 	seats: number | null | undefined,
 ): number {
-	if (
-		plan === "enterprise" &&
-		!hasOrganizationEnterpriseAccess(organizationId, plan)
-	) {
-		return 5;
-	}
 	if (seats !== null && seats !== undefined) {
 		return seats;
 	}

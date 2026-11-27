@@ -12,6 +12,7 @@ import {
 	assertOrganizationNotHighRisk,
 	flagUserIfAbusiveIp,
 	isUserHighRisk,
+	syncUserRiskFlagToOrganizations,
 } from "./account-risk.js";
 
 const abusiveIp = "5.6.7.8";
@@ -78,6 +79,44 @@ async function createMember(options: {
 }
 
 describe("flagUserIfAbusiveIp", () => {
+	test("retries organization sync for an already flagged user", async () => {
+		await createMember({
+			userId: "risk-user",
+			organizationId: "risk-org",
+			email: "risk@example.com",
+		});
+		await db
+			.update(tables.user)
+			.set({ riskStatus: "flagged" })
+			.where(eq(tables.user.id, "risk-user"));
+		await flagUserIfAbusiveIp({
+			userId: "risk-user",
+			source: "email_verification",
+			headers: null,
+		});
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: "risk-org" } },
+		});
+		expect(organization?.riskFlagged).toBe(true);
+	});
+	test("does not re-flag an organization once the user is approved", async () => {
+		await createMember({
+			userId: "risk-user",
+			organizationId: "risk-org",
+			email: "risk@example.com",
+		});
+		await db
+			.update(tables.user)
+			.set({ riskStatus: "approved" })
+			.where(eq(tables.user.id, "risk-user"));
+		// A sync that read "flagged" before the approval landed must be a no-op.
+		const flagged = await syncUserRiskFlagToOrganizations("risk-user");
+		expect(flagged).toEqual([]);
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: "risk-org" } },
+		});
+		expect(organization?.riskFlagged).toBe(false);
+	});
 	beforeEach(async () => {
 		process.env.ABUSE_IPDB_API_KEY = "test-abuse-key";
 		await deleteAll();

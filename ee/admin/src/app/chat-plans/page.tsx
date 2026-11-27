@@ -355,7 +355,7 @@ export default async function ChatPlansPage({
 		"",
 	) as UtilFilter;
 	const marginNegative = params?.marginNegative === "true";
-	const showChurned = params?.showChurned === "true";
+	const showChurned = status === "churned" || params?.showChurned === "true";
 	const limit = 25;
 	const offset = (page - 1) * limit;
 
@@ -370,7 +370,7 @@ export default async function ChatPlansPage({
 				status: status || undefined,
 				utilization: utilization || undefined,
 				marginNegative: marginNegative || undefined,
-				showChurned,
+				showChurned: showChurned || undefined,
 				sortBy,
 				sortOrder,
 			},

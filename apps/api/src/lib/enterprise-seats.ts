@@ -9,6 +9,27 @@ type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 const ENTERPRISE_SEAT_LOCK_ID = 4_547_101_761;
 
+export class DeletedOrganizationError extends Error {
+	constructor(readonly organizationId: string) {
+		super("Cannot join a deleted organization");
+		this.name = "DeletedOrganizationError";
+	}
+}
+
+/**
+ * Serializes membership changes with account teardown for one organization.
+ * An advisory lock rather than the organization row lock, so teardown can wait
+ * on Stripe without blocking unrelated writes to the row (e.g. billing).
+ */
+export async function lockOrganizationMembership(
+	tx: DbTransaction,
+	organizationId: string,
+): Promise<void> {
+	await tx.execute(
+		sql`SELECT pg_advisory_xact_lock(hashtext(${`org-membership:${organizationId}`}))`,
+	);
+}
+
 export class EnterpriseSeatLimitError extends Error {
 	constructor(
 		readonly maxSeats: number,
@@ -73,8 +94,10 @@ async function withSeatLock<T>(
 	resolveCandidates: (tx: DbTransaction) => Promise<string[]>,
 	mutation: (tx: DbTransaction) => Promise<T>,
 	license: EnterpriseLicenseStatus,
+	beforeSeatLock?: (tx: DbTransaction) => Promise<void>,
 ): Promise<T> {
 	return await db.transaction(async (tx) => {
+		await beforeSeatLock?.(tx);
 		await tx.execute(
 			sql`SELECT pg_advisory_xact_lock(${ENTERPRISE_SEAT_LOCK_ID})`,
 		);
@@ -107,6 +130,18 @@ export async function withEnterpriseSeatForOrganization<T>(
 		},
 		mutation,
 		license,
+		// Taken before the global seat lock so waiting on a teardown of this org
+		// never stalls joins to other orgs.
+		async (tx) => {
+			await lockOrganizationMembership(tx, organizationId);
+			const organization = await tx.query.organization.findFirst({
+				where: { id: { eq: organizationId } },
+				columns: { status: true },
+			});
+			if (organization?.status === "deleted") {
+				throw new DeletedOrganizationError(organizationId);
+			}
+		},
 	);
 }
 

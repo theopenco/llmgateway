@@ -123,7 +123,7 @@ async function main(): Promise<void> {
 	let invoicesScanned = 0;
 	for await (const invoice of stripe.invoices.list({
 		limit: 100,
-		...(created ? { created } : {}),
+		...(created?.lte ? { created: { lte: created.lte } } : {}),
 		expand: ["data.payments"],
 	})) {
 		invoicesScanned += 1;
