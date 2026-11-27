@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 
 import { createServerApiClient } from "@/lib/server-api";
+import { inspectShareImage } from "@/lib/share-image";
 
 import { isProviderUrlGuardEnabled } from "@llmgateway/shared";
 import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
@@ -473,18 +474,7 @@ export default async function ShareOgImage({ params }: OgImageProps) {
 			? await loadShareImage(preview.imageUrl)
 			: null;
 
-		// Rendering is awaited here so a failure reaches the fallback below
-		// instead of resetting the connection mid-stream.
-		const image = await new ImageResponse(
-			imageUrl ? (
-				<ImagePreview preview={{ ...preview, imageUrl }} />
-			) : (
-				<TextPreview preview={{ ...preview, imageUrl: null }} />
-			),
-			size,
-		).arrayBuffer();
-
-		return new Response(image, { headers });
+		return new Response(await renderPreview(preview, imageUrl), { headers });
 	} catch (error) {
 		console.error("Error generating share OpenGraph image:", error);
 		return new ImageResponse(
@@ -515,14 +505,52 @@ export default async function ShareOgImage({ params }: OgImageProps) {
 		);
 	}
 }
+
+// Re-encodes the bytes under the type they actually are, or drops them when
+// their header is malformed or too large to decode (see inspectShareImage).
+function toSafeDataUrl(bytes: Buffer): string | null {
+	const info = inspectShareImage(bytes);
+	return info
+		? `data:${info.mediaType};base64,${bytes.toString("base64")}`
+		: null;
+}
+
+// Rendering is awaited so a failure falls back instead of resetting the
+// connection mid-stream. An image the renderer still rejects degrades to the
+// text card rather than the generic error card.
+async function renderPreview(
+	preview: SharePreview,
+	imageUrl: string | null,
+): Promise<ArrayBuffer> {
+	if (imageUrl) {
+		try {
+			return await new ImageResponse(
+				<ImagePreview preview={{ ...preview, imageUrl }} />,
+				size,
+			).arrayBuffer();
+		} catch (error) {
+			console.warn(
+				"Share OpenGraph image rejected the shared image:",
+				error instanceof Error ? error.message : String(error),
+			);
+		}
+	}
+	return await new ImageResponse(
+		<TextPreview preview={{ ...preview, imageUrl: null }} />,
+		size,
+	).arrayBuffer();
+}
+
 // Share snapshots carry client-supplied image URLs, and the renderer would
 // fetch an <img src> from this server. Only an inline image or a guarded
 // download reaches it; anything else falls back to the text card.
 async function loadShareImage(url: string): Promise<string | null> {
 	if (url.startsWith("data:")) {
-		return INLINE_IMAGE_RE.test(url) && url.length <= MAX_SHARE_IMAGE_BYTES * 2
-			? url
-			: null;
+		const prefix = INLINE_IMAGE_RE.exec(url)?.[0];
+		if (!prefix || url.length > MAX_SHARE_IMAGE_BYTES * 2) {
+			return null;
+		}
+		return toSafeDataUrl(Buffer.from(url.slice(prefix.length), "base64"));
 	}
 
 	try {
@@ -561,7 +589,7 @@ async function loadShareImage(url: string): Promise<string | null> {
 			}
 			chunks.push(value);
 		}
-		return `data:${mediaType};base64,${Buffer.concat(chunks).toString("base64")}`;
+		return toSafeDataUrl(Buffer.concat(chunks));
 	} catch {
 		return null;
 	}
