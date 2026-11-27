@@ -13,6 +13,15 @@ import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type * as EnterpriseSeats from "@/lib/enterprise-seats.js";
+import type * as SsoRoles from "@/lib/sso-roles.js";
+
+vi.mock("@/lib/sso-roles.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof SsoRoles>();
+	return {
+		...actual,
+		recomputeUserRole: vi.fn(actual.recomputeUserRole),
+	};
+});
 
 vi.mock("@/lib/enterprise-seats.js", async (importOriginal) => {
 	const actual = await importOriginal<typeof EnterpriseSeats>();
@@ -645,6 +654,59 @@ describe("scim audit logging", () => {
 
 		await recomputeUserRole(id, ORG_ID, "test-user-id");
 		expect((await getMembership(id))?.role).toBe("owner");
+	});
+
+	test("SCIM requests pass their token issuer to the role check", async () => {
+		await db.insert(tables.user).values({
+			id: "scim-new-issuer",
+			name: "New Issuer",
+			email: "new-issuer@example.com",
+			emailVerified: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "scim-new-issuer",
+			organizationId: ORG_ID,
+			role: "admin",
+		});
+		await db.insert(tables.ssoRoleMapping).values({
+			organizationId: ORG_ID,
+			groupName: "Owners",
+			role: "owner",
+		});
+		const id = await provisionUser("opal@example.com");
+		vi.mocked(recomputeUserRole).mockClear();
+		// The request authenticates with a token issued by a non-owner, which is
+		// rotated to an owner-issued one before the role check runs.
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "admin" })
+			.where(eq(tables.userOrganization.userId, "test-user-id"));
+		vi.mocked(recomputeUserRole).mockImplementationOnce(async (...args) => {
+			await db
+				.update(tables.userOrganization)
+				.set({ role: "owner" })
+				.where(eq(tables.userOrganization.userId, "scim-new-issuer"));
+			await db
+				.update(tables.scimToken)
+				.set({ createdBy: "scim-new-issuer" })
+				.where(eq(tables.scimToken.organizationId, ORG_ID));
+			const actual =
+				await vi.importActual<typeof SsoRoles>("@/lib/sso-roles.js");
+			return await actual.recomputeUserRole(...args);
+		});
+
+		const response = await app.request("/scim/v2/Groups", {
+			method: "POST",
+			headers: scimHeaders(),
+			body: JSON.stringify({
+				displayName: "Owners",
+				members: [{ value: id }],
+			}),
+		});
+
+		expect(response.status).toBe(201);
+		expect(recomputeUserRole).toHaveBeenCalledWith(id, ORG_ID, "test-user-id");
+		expect((await getMembership(id))?.role).toBe("admin");
 	});
 
 	test("only owners can generate a SCIM token", async () => {
