@@ -44,9 +44,11 @@ export interface ProjectMappingEntry {
 	totalTokens: number;
 	inputTokens: number;
 	cachedTokens: number;
+	cacheWriteTokens: number;
 	outputTokens: number;
 	inputCost: number;
 	cachedInputCost: number;
+	cacheWriteInputCost: number;
 	outputCost: number;
 }
 
