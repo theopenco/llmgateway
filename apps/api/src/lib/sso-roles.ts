@@ -19,6 +19,7 @@ const ROLE_RANK: Record<OrgRole, number> = {
 // current owner issued the active token.
 async function isScimTokenOwnerIssued(
 	organizationId: string,
+	requestIssuerId?: string | null,
 ): Promise<boolean> {
 	// Rotation is not atomic, so check every active token, not whichever row
 	// comes back first.
@@ -29,10 +30,16 @@ async function isScimTokenOwnerIssued(
 		},
 		columns: { createdBy: true },
 	});
-	const issuerIds = [...new Set(tokens.map((token) => token.createdBy))];
-	if (!issuerIds.length) {
+	if (!tokens.length) {
 		return false;
 	}
+	// A SCIM request may outlive its token, so its issuer is checked as well.
+	const issuerIds = [
+		...new Set([
+			...tokens.map((token) => token.createdBy),
+			...(requestIssuerId === undefined ? [] : [requestIssuerId]),
+		]),
+	];
 	for (const issuerId of issuerIds) {
 		if (!issuerId) {
 			return false;
@@ -58,11 +65,14 @@ async function isScimTokenOwnerIssued(
 // survive directory sync, and owners are never auto-demoted. An owner mapping
 // is capped at admin unless an owner issued the org's SCIM token.
 //
+// `scimIssuerId` is the issuer of the token authenticating a SCIM request.
+//
 // Returns the {old,new} role change when it updated the membership, or null
 // when nothing changed, so callers (e.g. SCIM) can audit the transition.
 export async function recomputeUserRole(
 	userId: string,
 	organizationId: string,
+	scimIssuerId?: string | null,
 ): Promise<RoleChange | null> {
 	const membership = await db.query.userOrganization.findFirst({
 		where: {
@@ -121,7 +131,7 @@ export async function recomputeUserRole(
 	if (
 		mappedRole === "owner" &&
 		manualRole !== "owner" &&
-		!(await isScimTokenOwnerIssued(organizationId))
+		!(await isScimTokenOwnerIssued(organizationId, scimIssuerId))
 	) {
 		mappedRole = "admin";
 	}

@@ -5,6 +5,7 @@ import {
 	EnterpriseSeatLimitError,
 	withEnterpriseSeatForOrganization,
 } from "@/lib/enterprise-seats.js";
+import { recomputeUserRole } from "@/lib/sso-roles.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
@@ -609,6 +610,41 @@ describe("scim audit logging", () => {
 		const id = await pushOwnersGroup("otto@example.com");
 
 		expect((await getMembership(id))?.role).toBe("admin");
+	});
+
+	test("an owner mapping is capped for a request from a rotated non-owner token", async () => {
+		const id = await provisionUser("orla@example.com");
+		await db.insert(tables.user).values({
+			id: "scim-old-issuer",
+			name: "Old Issuer",
+			email: "old-issuer@example.com",
+			emailVerified: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "scim-old-issuer",
+			organizationId: ORG_ID,
+			role: "admin",
+		});
+		await db.insert(tables.ssoRoleMapping).values({
+			organizationId: ORG_ID,
+			groupName: "Owners",
+			role: "owner",
+		});
+		await db.insert(tables.scimGroup).values({
+			id: "owners-group",
+			organizationId: ORG_ID,
+			displayName: "Owners",
+		});
+		await db
+			.insert(tables.scimGroupMember)
+			.values({ scimGroupId: "owners-group", userId: id });
+
+		// The only active token is owner-issued, as after a mid-request rotation.
+		await recomputeUserRole(id, ORG_ID, "scim-old-issuer");
+		expect((await getMembership(id))?.role).toBe("admin");
+
+		await recomputeUserRole(id, ORG_ID, "test-user-id");
+		expect((await getMembership(id))?.role).toBe("owner");
 	});
 
 	test("only owners can generate a SCIM token", async () => {
