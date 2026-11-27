@@ -20,24 +20,35 @@ const ROLE_RANK: Record<OrgRole, number> = {
 async function isScimTokenOwnerIssued(
 	organizationId: string,
 ): Promise<boolean> {
-	const token = await db.query.scimToken.findFirst({
+	// Rotation is not atomic, so check every active token, not whichever row
+	// comes back first.
+	const tokens = await db.query.scimToken.findMany({
 		where: {
 			organizationId: { eq: organizationId },
 			status: { eq: "active" },
 		},
 		columns: { createdBy: true },
 	});
-	if (!token?.createdBy) {
+	const issuerIds = [...new Set(tokens.map((token) => token.createdBy))];
+	if (!issuerIds.length) {
 		return false;
 	}
-	const issuer = await db.query.userOrganization.findFirst({
-		where: {
-			userId: { eq: token.createdBy },
-			organizationId: { eq: organizationId },
-		},
-		columns: { role: true },
-	});
-	return issuer?.role === "owner";
+	for (const issuerId of issuerIds) {
+		if (!issuerId) {
+			return false;
+		}
+		const issuer = await db.query.userOrganization.findFirst({
+			where: {
+				userId: { eq: issuerId },
+				organizationId: { eq: organizationId },
+			},
+			columns: { role: true },
+		});
+		if (issuer?.role !== "owner") {
+			return false;
+		}
+	}
+	return true;
 }
 
 // Recompute an org member's role from their SCIM group memberships and the

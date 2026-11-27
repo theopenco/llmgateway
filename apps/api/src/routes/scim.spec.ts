@@ -587,6 +587,30 @@ describe("scim audit logging", () => {
 		expect((await getMembership("test-user-id"))?.role).toBe("admin");
 	});
 
+	test("an owner mapping is capped while any active token is not owner-issued", async () => {
+		await db.insert(tables.user).values({
+			id: "scim-admin-issuer",
+			name: "Admin Issuer",
+			email: "admin-issuer@example.com",
+			emailVerified: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "scim-admin-issuer",
+			organizationId: ORG_ID,
+			role: "admin",
+		});
+		await db.insert(tables.scimToken).values({
+			tokenHash: getApiKeyFingerprint("scim_second_active_token"),
+			maskedToken: "scim_seco...oken",
+			organizationId: ORG_ID,
+			createdBy: "scim-admin-issuer",
+		});
+
+		const id = await pushOwnersGroup("otto@example.com");
+
+		expect((await getMembership(id))?.role).toBe("admin");
+	});
+
 	test("only owners can generate a SCIM token", async () => {
 		const mint = async () =>
 			await app.request("/sso/scim", {
