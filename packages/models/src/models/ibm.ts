@@ -27,6 +27,10 @@ export const ibmModels = [
 				tools: true,
 				supportedToolChoices: ["auto", "none", "function"],
 				jsonOutput: true,
+				// DeepInfra deprecates this model on 2026-12-03 and then silently
+				// redirects requests to Qwen/Qwen3.5-9B, so stop routing to it on
+				// that date instead of serving a different model under this id.
+				deactivatedAt: new Date("2026-12-03"),
 			},
 		],
 	},
