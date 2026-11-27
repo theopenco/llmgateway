@@ -141,6 +141,9 @@ export const tencentModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "tencent/Hy4-preview",
+				// DeepInfra retires this model on 2026-11-27 and silently
+				// redirects requests to tencent/Hy4 afterwards.
+				deactivatedAt: new Date("2026-11-27"),
 				inputPrice: "0.834e-6",
 				cachedInputPrice: "0.042e-6",
 				outputPrice: "2.501e-6",
