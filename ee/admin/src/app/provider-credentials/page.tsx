@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { PortraitCredentialsCard } from "@/components/portrait-credentials-card";
 import { ProviderCredentialsManager } from "@/components/provider-credentials-manager";
 import { Button } from "@/components/ui/button";
 import {
@@ -72,6 +73,8 @@ export default async function ProviderCredentialsPage({
 				envSource={catalogData.envSource}
 				envPublishedAt={catalogData.envPublishedAt}
 			/>
+
+			<PortraitCredentialsCard />
 		</div>
 	);
 }

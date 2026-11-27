@@ -4938,6 +4938,15 @@ export const auditLogActions = [
 	"data_stream.delete",
 	"data_stream.replay",
 	"data_stream.settings_update",
+	// Seedance real-person portraits (BytePlus asset library)
+	"portrait.verification_start",
+	"portrait.verify",
+	"portrait.delete",
+	"portrait_asset.create",
+	"portrait_asset.import",
+	"portrait_asset.delete",
+	"provider_key.asset_credentials_update",
+	"provider_key.asset_credentials_delete",
 	// Subscription
 	"subscription.create",
 	"subscription.cancel",
@@ -5035,6 +5044,8 @@ export const auditLogResourceTypes = [
 	"notification_channel",
 	"compliance_alert",
 	"data_stream",
+	"portrait",
+	"portrait_asset",
 	"subscription",
 	"payment_method",
 	"payment",
@@ -8680,5 +8691,123 @@ export const batchRequest = snakeCase.table(
 		index("batch_request_in_progress_idx")
 			.on(table.claimedUntil)
 			.where(sql`${table.status} = 'in_progress'`),
+	],
+);
+
+export const portraitCredentialSources = ["platform", "byok"] as const;
+export type PortraitCredentialSource =
+	(typeof portraitCredentialSources)[number];
+
+// BytePlus access key pair for the ModelArk Assets API (real-person
+// verification and the private asset library), attached to a ByteDance
+// provider key: an organization's BYOK key or a managed credential. The pair
+// must belong to the same BytePlus account as the key's API key, because an
+// asset can only be used by inference on the account that owns it.
+export const providerKeyAssetCredential = snakeCase.table(
+	"provider_key_asset_credential",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerKeyId: text()
+			.notNull()
+			.unique()
+			.references(() => providerKey.id, { onDelete: "cascade" }),
+		// NULL for a managed credential.
+		organizationId: text().references(() => organization.id, {
+			onDelete: "cascade",
+		}),
+		accessKeyIdMasked: text().notNull(),
+		// JSON { accessKeyId, secretAccessKey }, encrypted with the provider-key
+		// keyring under the "<id>:asset-credentials" row scope.
+		credentialsCiphertext: text().notNull(),
+		// BytePlus IAM project the assets live in; inference must run in it.
+		projectName: text().notNull().default("default"),
+		region: text().notNull().default("ap-southeast-1"),
+	},
+	(table) => [
+		index("provider_key_asset_credential_organization_id_idx").on(
+			table.organizationId,
+		),
+	],
+);
+
+// One verified real person in a BytePlus private asset library (an upstream
+// "asset group"). The group lives in the BytePlus account behind the bound
+// credential, so every asset in it is only usable through that credential.
+export const portraitGroup = snakeCase.table(
+	"portrait_group",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		createdBy: text().references(() => user.id, { onDelete: "set null" }),
+		name: text().notNull(),
+		// "byok": the organization's own ByteDance key (providerKeyId).
+		// "platform": a managed credential of LLM Gateway's (providerKeyId).
+		// NULL only once that key row was hard-deleted; the portrait is then
+		// unusable but kept so its upstream group can still be cleaned up.
+		credentialSource: text({ enum: portraitCredentialSources }).notNull(),
+		providerKeyId: text().references(() => providerKey.id, {
+			onDelete: "set null",
+		}),
+		projectName: text().notNull().default("default"),
+		status: text({
+			enum: ["pending_verification", "active", "failed", "deleted"],
+		})
+			.notNull()
+			.default("pending_verification"),
+		upstreamGroupId: text(),
+		// BytedToken of the pending verification session, encrypted with the
+		// provider-key keyring under the "<id>:verification" row scope.
+		verificationTokenCiphertext: text(),
+		verifiedAt: timestamp(),
+		lastError: text(),
+	},
+	(table) => [
+		index("portrait_group_organization_id_idx").on(table.organizationId),
+		index("portrait_group_provider_key_id_idx").on(table.providerKeyId),
+	],
+);
+
+export const portraitAsset = snakeCase.table(
+	"portrait_asset",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		groupId: text()
+			.notNull()
+			.references(() => portraitGroup.id, { onDelete: "cascade" }),
+		createdBy: text().references(() => user.id, { onDelete: "set null" }),
+		name: text(),
+		assetType: text({ enum: ["image", "video", "audio"] }).notNull(),
+		upstreamAssetId: text().notNull(),
+		status: text({ enum: ["processing", "active", "failed", "deleted"] })
+			.notNull()
+			.default("processing"),
+		lastError: text(),
+	},
+	(table) => [
+		index("portrait_asset_organization_id_idx").on(table.organizationId),
+		uniqueIndex("portrait_asset_group_id_upstream_asset_id_idx").on(
+			table.groupId,
+			table.upstreamAssetId,
+		),
 	],
 );
