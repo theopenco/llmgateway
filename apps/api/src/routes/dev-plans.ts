@@ -3748,25 +3748,35 @@ async function resolveDevPassPaymentMethodId(
 }
 
 // Finds the PaymentIntent a Reset Pass purchase attempt created, if any.
-// Listing is strongly consistent (unlike search), and the customer's most
-// recent intents cover any attempt the dashboard can still be retrying.
+// Listing is strongly consistent (unlike search); every page is read so an
+// old attempt is still found.
 async function findResetPassPaymentIntent(
 	stripeCustomerId: string,
 	organizationId: string,
 	purchaseId: string,
 ): Promise<Stripe.PaymentIntent | null> {
-	const { data } = await getStripe().paymentIntents.list({
-		customer: stripeCustomerId,
-		limit: 100,
-	});
-	return (
-		data.find(
+	let startingAfter: string | undefined;
+	for (;;) {
+		const page = await getStripe().paymentIntents.list({
+			customer: stripeCustomerId,
+			limit: 100,
+			...(startingAfter && { starting_after: startingAfter }),
+		});
+		const match = page.data.find(
 			(intent) =>
 				intent.metadata?.kind === "dev_plan_reset_pass" &&
 				intent.metadata.organizationId === organizationId &&
 				intent.metadata.purchaseId === purchaseId,
-		) ?? null
-	);
+		);
+		if (match) {
+			return match;
+		}
+		const last = page.data.at(-1);
+		if (!page.has_more || !last) {
+			return null;
+		}
+		startingAfter = last.id;
+	}
 }
 
 async function chargeResetPass(
@@ -3851,7 +3861,8 @@ async function chargeResetPass(
 		// A parameter mismatch means an earlier request with this key already
 		// completed with other details (the plan changed since), and Stripe
 		// replays a 5xx to every retry of the key. Either way, report what
-		// that attempt left behind; with no PaymentIntent nothing was charged.
+		// that attempt left behind. Without a PaymentIntent the outcome stays
+		// unconfirmed, since Stripe can still create it during reconciliation.
 		// Anything else (configuration, outage, programming errors) is
 		// rethrown to the global error handler.
 		const idempotencyMismatch =
@@ -3873,9 +3884,9 @@ async function chargeResetPass(
 			idempotencyMismatch,
 			statusCode: stripeErr?.statusCode,
 		});
-		throw new HTTPException(402, {
+		throw new HTTPException(409, {
 			message:
-				"This purchase attempt did not go through and you were not charged. Try again.",
+				"We couldn't confirm this purchase yet. Retry in a few minutes; you won't be charged twice.",
 		});
 	}
 }

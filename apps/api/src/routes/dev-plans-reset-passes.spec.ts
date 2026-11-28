@@ -755,7 +755,7 @@ describe("reset pass purchase", () => {
 		expect(txs[0].stripePaymentIntentId).toBe("pi_original");
 	});
 
-	it("reports not charged when a mismatched key left no PaymentIntent", async () => {
+	it("keeps the outcome unconfirmed when a mismatched key left no PaymentIntent", async () => {
 		await insertOrg();
 		stripeMock.paymentIntents.create.mockRejectedValueOnce(
 			Object.assign(new Error("Keys for idempotent requests"), {
@@ -766,9 +766,34 @@ describe("reset pass purchase", () => {
 		);
 
 		const res = await purchaseRequest(token, PURCHASE_ID);
-		expect(res.status).toBe(402);
-		expect((await res.json()).message).toContain("not charged");
+		expect(res.status).toBe(409);
+		expect((await res.json()).message).toContain("couldn't confirm");
 		expect((await getOrg()).devPlanResetPassesPro).toBe(0);
+	});
+
+	it("finds the original attempt beyond the first page of intents", async () => {
+		await insertOrg();
+		stripeMock.paymentIntents.list
+			.mockResolvedValueOnce({
+				data: [
+					paymentIntentFixture({
+						id: "pi_newer",
+						metadata: { ...attemptMetadata, purchaseId: "other-attempt" },
+					}),
+				],
+				has_more: true,
+			})
+			.mockResolvedValueOnce({
+				data: [paymentIntentFixture({ id: "pi_original_page_2" })],
+				has_more: false,
+			});
+
+		const res = await purchaseRequest(token, PURCHASE_ID);
+		expect(res.status).toBe(200);
+		expect(stripeMock.paymentIntents.list).toHaveBeenLastCalledWith(
+			expect.objectContaining({ starting_after: "pi_newer" }),
+		);
+		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
 	});
 
 	it("recovers a charge behind a cached Stripe 500", async () => {
@@ -790,7 +815,7 @@ describe("reset pass purchase", () => {
 		expect((await getOrg()).devPlanResetPassesPro).toBe(1);
 	});
 
-	it("releases the attempt after a cached Stripe 500 that charged nothing", async () => {
+	it("keeps the attempt unconfirmed after a cached Stripe 500 with no intent", async () => {
 		await insertOrg();
 		stripeMock.paymentIntents.create.mockRejectedValue(
 			Object.assign(new Error("An unknown error occurred"), {
@@ -800,8 +825,8 @@ describe("reset pass purchase", () => {
 		);
 
 		const res = await purchaseRequest(token, PURCHASE_ID);
-		expect(res.status).toBe(402);
-		expect((await res.json()).message).toContain("not charged");
+		expect(res.status).toBe(409);
+		expect((await res.json()).message).toContain("couldn't confirm");
 		expect((await getOrg()).devPlanResetPassesPro).toBe(0);
 	});
 
