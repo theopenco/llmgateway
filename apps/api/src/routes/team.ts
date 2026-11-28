@@ -328,16 +328,17 @@ async function computeMemberSpend(
 		keysByUser.set(key.createdBy, entry);
 	}
 
-	const now = new Date();
+	interface SpendPeriod {
+		durationValue: number;
+		durationUnit: (typeof apiKeyPeriodDurationUnits)[number];
+	}
+	const periodsByUser = new Map<string, Map<string, SpendPeriod>>();
+	const keyIdsByPeriod = new Map<
+		string,
+		{ period: SpendPeriod; keyIds: string[] }
+	>();
 	for (const member of members) {
-		const keys = keysByUser.get(member.userId);
-		const uniquePeriods = new Map<
-			string,
-			{
-				durationValue: number;
-				durationUnit: (typeof apiKeyPeriodDurationUnits)[number];
-			}
-		>();
+		const uniquePeriods = new Map<string, SpendPeriod>();
 		for (const budget of member.budgets) {
 			if (
 				budget &&
@@ -354,36 +355,63 @@ async function computeMemberSpend(
 				);
 			}
 		}
+		periodsByUser.set(member.userId, uniquePeriods);
 
+		const keyIds = keysByUser.get(member.userId)?.keyIds ?? [];
+		if (keyIds.length === 0) {
+			continue;
+		}
+		for (const [periodKey, period] of uniquePeriods) {
+			const entry = keyIdsByPeriod.get(periodKey) ?? { period, keyIds: [] };
+			entry.keyIds.push(...keyIds);
+			keyIdsByPeriod.set(periodKey, entry);
+		}
+	}
+
+	const flooredHour = new Date();
+	flooredHour.setMinutes(0, 0, 0);
+	const usageByPeriod = new Map<string, Map<string, number>>();
+	await Promise.all(
+		[...keyIdsByPeriod].map(async ([periodKey, { period, keyIds }]) => {
+			const windowStart = addApiKeyPeriodDuration(
+				flooredHour,
+				-period.durationValue,
+				period.durationUnit,
+			);
+			// Match the gateway's getMemberPeriodSpend window: exactly the
+			// period's worth of hourly buckets ending at the current hour.
+			windowStart.setHours(windowStart.getHours() + 1);
+			const rows = await db
+				// cost is float4; SUM(real) accumulates in float4 too, so cast first.
+				.select({
+					apiKeyId: tables.apiKeyHourlyStats.apiKeyId,
+					total: sql<string>`coalesce(sum(cast(${tables.apiKeyHourlyStats.cost} as double precision)), 0)`,
+				})
+				.from(tables.apiKeyHourlyStats)
+				.where(
+					and(
+						inArray(tables.apiKeyHourlyStats.apiKeyId, keyIds),
+						gte(tables.apiKeyHourlyStats.hourTimestamp, windowStart),
+					),
+				)
+				.groupBy(tables.apiKeyHourlyStats.apiKeyId);
+			usageByPeriod.set(
+				periodKey,
+				new Map(rows.map((row) => [row.apiKeyId, Number(row.total)])),
+			);
+		}),
+	);
+
+	for (const member of members) {
+		const keys = keysByUser.get(member.userId);
 		const currentPeriods: z.infer<typeof memberSpendSchema>["currentPeriods"] =
 			[];
-		for (const period of uniquePeriods.values()) {
-			let usage = 0;
-			if (keys?.keyIds.length) {
-				const flooredHour = new Date(now);
-				flooredHour.setMinutes(0, 0, 0);
-				const windowStart = addApiKeyPeriodDuration(
-					flooredHour,
-					-period.durationValue,
-					period.durationUnit,
-				);
-				// Match the gateway's getMemberPeriodSpend window: exactly the
-				// period's worth of hourly buckets ending at the current hour.
-				windowStart.setHours(windowStart.getHours() + 1);
-				const rows = await db
-					// cost is float4; SUM(real) accumulates in float4 too, so cast first.
-					.select({
-						total: sql<string>`coalesce(sum(cast(${tables.apiKeyHourlyStats.cost} as double precision)), 0)`,
-					})
-					.from(tables.apiKeyHourlyStats)
-					.where(
-						and(
-							inArray(tables.apiKeyHourlyStats.apiKeyId, keys.keyIds),
-							gte(tables.apiKeyHourlyStats.hourTimestamp, windowStart),
-						),
-					);
-				usage = Number(rows[0]?.total ?? 0);
-			}
+		for (const [periodKey, period] of periodsByUser.get(member.userId) ?? []) {
+			const totals = usageByPeriod.get(periodKey);
+			const usage = (keys?.keyIds ?? []).reduce(
+				(sum, keyId) => sum + (totals?.get(keyId) ?? 0),
+				0,
+			);
 			currentPeriods.push({ ...period, usage });
 		}
 		spendByUser.set(member.userId, {
@@ -394,6 +422,43 @@ async function computeMemberSpend(
 	}
 
 	return spendByUser;
+}
+
+// Caller must be an owner/admin of a non-personal org.
+async function requireTeamManager(
+	userId: string,
+	organizationId: string,
+	forbiddenMessage: string,
+) {
+	const userOrganization = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: userId },
+			organizationId: { eq: organizationId },
+		},
+		with: { organization: true },
+	});
+
+	if (!userOrganization) {
+		throw new HTTPException(403, {
+			message: "You do not have access to this organization",
+		});
+	}
+
+	if (
+		userOrganization.organization?.kind === "devpass" ||
+		userOrganization.organization?.kind === "chat"
+	) {
+		throw new HTTPException(403, {
+			message:
+				"Team management is not available for personal organizations. Please create a regular organization to invite team members.",
+		});
+	}
+
+	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
+		throw new HTTPException(403, { message: forbiddenMessage });
+	}
+
+	return userOrganization;
 }
 
 const updateMemberSchema = z.object({
@@ -772,36 +837,11 @@ team.openapi(addMember, async (c) => {
 	const { organizationId } = c.req.param();
 	const { email, role, projectIds } = c.req.valid("json");
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: {
-				eq: authUser.id,
-			},
-			organizationId: {
-				eq: organizationId,
-			},
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	if (!userOrganization) {
-		throw new HTTPException(403, {
-			message: "You do not have access to this organization",
-		});
-	}
-
-	// Block team management for personal orgs (dev plan only)
-	if (
-		userOrganization.organization?.kind === "devpass" ||
-		userOrganization.organization?.kind === "chat"
-	) {
-		throw new HTTPException(403, {
-			message:
-				"Team management is not available for personal organizations. Please create a regular organization to invite team members.",
-		});
-	}
+	const userOrganization = await requireTeamManager(
+		authUser.id,
+		organizationId,
+		"Only owners and admins can add members",
+	);
 
 	// Project-scoped access is an Enterprise feature.
 	if (
@@ -844,12 +884,6 @@ team.openapi(addMember, async (c) => {
 	if (currentMembers.length + pendingInvites.length >= memberLimit) {
 		throw new HTTPException(403, {
 			message: `Your organization has reached the maximum of ${memberLimit} team members. Contact us at contact@llmgateway.io to unlock more seats.`,
-		});
-	}
-
-	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
-		throw new HTTPException(403, {
-			message: "Only owners and admins can add members",
 		});
 	}
 
@@ -1092,42 +1126,11 @@ team.openapi(updateMember, async (c) => {
 	const { organizationId, memberId } = c.req.param();
 	const { role, projectIds } = c.req.valid("json");
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: {
-				eq: authUser.id,
-			},
-			organizationId: {
-				eq: organizationId,
-			},
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	if (!userOrganization) {
-		throw new HTTPException(403, {
-			message: "You do not have access to this organization",
-		});
-	}
-
-	// Block team management for personal orgs (dev plan only)
-	if (
-		userOrganization.organization?.kind === "devpass" ||
-		userOrganization.organization?.kind === "chat"
-	) {
-		throw new HTTPException(403, {
-			message:
-				"Team management is not available for personal organizations. Please create a regular organization to invite team members.",
-		});
-	}
-
-	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
-		throw new HTTPException(403, {
-			message: "Only owners and admins can update member roles",
-		});
-	}
+	const userOrganization = await requireTeamManager(
+		authUser.id,
+		organizationId,
+		"Only owners and admins can update member roles",
+	);
 
 	// Project-scoped access is an Enterprise feature.
 	if (
@@ -1327,6 +1330,52 @@ function normalizeLimit(value: string | null): string | null {
 	return trimmed;
 }
 
+function parseBudgetBody(body: z.infer<typeof updateBudgetSchema>) {
+	const usageLimit = normalizeLimit(body.usageLimit);
+	const periodUsageLimit = normalizeLimit(body.periodUsageLimit);
+
+	// Period config is all-or-nothing: a limit needs a duration and vice versa.
+	const hasPeriodParts =
+		periodUsageLimit !== null ||
+		body.periodUsageDurationValue !== null ||
+		body.periodUsageDurationUnit !== null;
+
+	if (hasPeriodParts) {
+		if (
+			periodUsageLimit === null ||
+			body.periodUsageDurationValue === null ||
+			body.periodUsageDurationUnit === null
+		) {
+			throw new HTTPException(400, {
+				message:
+					"A period spend limit requires both a duration value and unit.",
+			});
+		}
+		if (
+			!isValidApiKeyPeriodDuration(
+				body.periodUsageDurationValue,
+				body.periodUsageDurationUnit,
+			)
+		) {
+			throw new HTTPException(400, {
+				message: "Invalid period duration.",
+			});
+		}
+	}
+
+	return {
+		maxApiKeys: body.maxApiKeys,
+		usageLimit,
+		periodUsageLimit,
+		periodUsageDurationValue: hasPeriodParts
+			? body.periodUsageDurationValue
+			: null,
+		periodUsageDurationUnit: hasPeriodParts
+			? body.periodUsageDurationUnit
+			: null,
+	};
+}
+
 const updateMemberBudget = createRoute({
 	method: "patch",
 	path: "/{organizationId}/members/{memberId}/budget",
@@ -1369,42 +1418,11 @@ team.openapi(updateMemberBudget, async (c) => {
 	const { organizationId, memberId } = c.req.param();
 	const body = c.req.valid("json");
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: {
-				eq: authUser.id,
-			},
-			organizationId: {
-				eq: organizationId,
-			},
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	if (!userOrganization) {
-		throw new HTTPException(403, {
-			message: "You do not have access to this organization",
-		});
-	}
-
-	// Block team management for personal orgs (dev plan only)
-	if (
-		userOrganization.organization?.kind === "devpass" ||
-		userOrganization.organization?.kind === "chat"
-	) {
-		throw new HTTPException(403, {
-			message:
-				"Team management is not available for personal organizations. Please create a regular organization to invite team members.",
-		});
-	}
-
-	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
-		throw new HTTPException(403, {
-			message: "Only owners and admins can update member budgets",
-		});
-	}
+	const userOrganization = await requireTeamManager(
+		authUser.id,
+		organizationId,
+		"Only owners and admins can update member budgets",
+	);
 
 	const targetMember = await db.query.userOrganization.findFirst({
 		where: {
@@ -1440,49 +1458,7 @@ team.openapi(updateMemberBudget, async (c) => {
 		});
 	}
 
-	const usageLimit = normalizeLimit(body.usageLimit);
-	const periodUsageLimit = normalizeLimit(body.periodUsageLimit);
-
-	// Period config is all-or-nothing: a limit needs a duration and vice versa.
-	const hasPeriodParts =
-		periodUsageLimit !== null ||
-		body.periodUsageDurationValue !== null ||
-		body.periodUsageDurationUnit !== null;
-
-	if (hasPeriodParts) {
-		if (
-			periodUsageLimit === null ||
-			body.periodUsageDurationValue === null ||
-			body.periodUsageDurationUnit === null
-		) {
-			throw new HTTPException(400, {
-				message:
-					"A period spend limit requires both a duration value and unit.",
-			});
-		}
-		if (
-			!isValidApiKeyPeriodDuration(
-				body.periodUsageDurationValue,
-				body.periodUsageDurationUnit,
-			)
-		) {
-			throw new HTTPException(400, {
-				message: "Invalid period duration.",
-			});
-		}
-	}
-
-	const nextBudget = {
-		maxApiKeys: body.maxApiKeys,
-		usageLimit,
-		periodUsageLimit,
-		periodUsageDurationValue: hasPeriodParts
-			? body.periodUsageDurationValue
-			: null,
-		periodUsageDurationUnit: hasPeriodParts
-			? body.periodUsageDurationUnit
-			: null,
-	};
+	const nextBudget = parseBudgetBody(body);
 
 	const [updatedMember] = await cdb
 		.update(tables.userOrganization)
@@ -1600,77 +1576,19 @@ team.openapi(updateDefaultDeveloperBudget, async (c) => {
 	const { organizationId } = c.req.param();
 	const body = c.req.valid("json");
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: { eq: authUser.id },
-			organizationId: { eq: organizationId },
-		},
-		with: { organization: true },
-	});
+	const userOrganization = await requireTeamManager(
+		authUser.id,
+		organizationId,
+		"Only owners and admins can update the default developer budget",
+	);
 
-	if (!userOrganization) {
-		throw new HTTPException(403, {
-			message: "You do not have access to this organization",
-		});
-	}
-
-	if (
-		userOrganization.organization?.kind === "devpass" ||
-		userOrganization.organization?.kind === "chat"
-	) {
-		throw new HTTPException(403, {
-			message:
-				"Team management is not available for personal organizations. Please create a regular organization to invite team members.",
-		});
-	}
-
-	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
-		throw new HTTPException(403, {
-			message: "Only owners and admins can update the default developer budget",
-		});
-	}
-
-	const usageLimit = normalizeLimit(body.usageLimit);
-	const periodUsageLimit = normalizeLimit(body.periodUsageLimit);
-
-	const hasPeriodParts =
-		periodUsageLimit !== null ||
-		body.periodUsageDurationValue !== null ||
-		body.periodUsageDurationUnit !== null;
-
-	if (hasPeriodParts) {
-		if (
-			periodUsageLimit === null ||
-			body.periodUsageDurationValue === null ||
-			body.periodUsageDurationUnit === null
-		) {
-			throw new HTTPException(400, {
-				message:
-					"A period spend limit requires both a duration value and unit.",
-			});
-		}
-		if (
-			!isValidApiKeyPeriodDuration(
-				body.periodUsageDurationValue,
-				body.periodUsageDurationUnit,
-			)
-		) {
-			throw new HTTPException(400, {
-				message: "Invalid period duration.",
-			});
-		}
-	}
-
+	const budget = parseBudgetBody(body);
 	const nextDefaults = {
-		defaultDeveloperMaxApiKeys: body.maxApiKeys,
-		defaultDeveloperUsageLimit: usageLimit,
-		defaultDeveloperPeriodUsageLimit: periodUsageLimit,
-		defaultDeveloperPeriodUsageDurationValue: hasPeriodParts
-			? body.periodUsageDurationValue
-			: null,
-		defaultDeveloperPeriodUsageDurationUnit: hasPeriodParts
-			? body.periodUsageDurationUnit
-			: null,
+		defaultDeveloperMaxApiKeys: budget.maxApiKeys,
+		defaultDeveloperUsageLimit: budget.usageLimit,
+		defaultDeveloperPeriodUsageLimit: budget.periodUsageLimit,
+		defaultDeveloperPeriodUsageDurationValue: budget.periodUsageDurationValue,
+		defaultDeveloperPeriodUsageDurationUnit: budget.periodUsageDurationUnit,
 	};
 
 	await cdb
@@ -1737,42 +1655,11 @@ team.openapi(removeMember, async (c) => {
 
 	const { organizationId, memberId } = c.req.param();
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: {
-				eq: authUser.id,
-			},
-			organizationId: {
-				eq: organizationId,
-			},
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	if (!userOrganization) {
-		throw new HTTPException(403, {
-			message: "You do not have access to this organization",
-		});
-	}
-
-	// Block team management for personal orgs (dev plan only)
-	if (
-		userOrganization.organization?.kind === "devpass" ||
-		userOrganization.organization?.kind === "chat"
-	) {
-		throw new HTTPException(403, {
-			message:
-				"Team management is not available for personal organizations. Please create a regular organization to invite team members.",
-		});
-	}
-
-	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
-		throw new HTTPException(403, {
-			message: "Only owners and admins can remove members",
-		});
-	}
+	const userOrganization = await requireTeamManager(
+		authUser.id,
+		organizationId,
+		"Only owners and admins can remove members",
+	);
 
 	const targetMember = await db.query.userOrganization.findFirst({
 		where: {
@@ -1878,41 +1765,11 @@ async function requireMemberIamAccess(
 	organizationId: string,
 	memberId: string,
 ) {
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: {
-				eq: authUserId,
-			},
-			organizationId: {
-				eq: organizationId,
-			},
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	if (!userOrganization) {
-		throw new HTTPException(403, {
-			message: "You do not have access to this organization",
-		});
-	}
-
-	if (
-		userOrganization.organization?.kind === "devpass" ||
-		userOrganization.organization?.kind === "chat"
-	) {
-		throw new HTTPException(403, {
-			message:
-				"Team management is not available for personal organizations. Please create a regular organization to invite team members.",
-		});
-	}
-
-	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
-		throw new HTTPException(403, {
-			message: "Only owners and admins can manage member IAM rules",
-		});
-	}
+	const userOrganization = await requireTeamManager(
+		authUserId,
+		organizationId,
+		"Only owners and admins can manage member IAM rules",
+	);
 
 	const targetMember = await db.query.userOrganization.findFirst({
 		where: {

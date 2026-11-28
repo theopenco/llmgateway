@@ -128,7 +128,7 @@ function hourTimestamps(start: Date): string[] {
 	return buckets;
 }
 
-const bucketExpr = sql<string>`to_char(${stats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
+const bucketExpr = sql<string>`to_char(${stats.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 const lastSeenAt = max(stats.lastSeenAt);
 // The sample belonging to the latest hour in the group.
 const lastMessage = sql<string>`(array_agg(${stats.lastMessage} order by ${stats.lastSeenAt} desc))[1]`;

@@ -9,7 +9,6 @@ import {
 	modelVerificationSchema,
 	listingDeclaresPromptCaching,
 	pendingFiledCapabilities,
-	resolveVerificationCredential,
 	serializeVerification,
 	serializeVerificationHistoryEntry,
 	verificationActors,
@@ -181,9 +180,7 @@ adminModelVerifications.openapi(queueVerification, async (c) => {
 		providerCompanyId = model.providerCompanyId;
 	}
 
-	// Carrier verification uses the same managed credential as serving traffic.
 	const claim = await activeProviderClaim(target.providerId);
-	const credential = await resolveVerificationCredential(target, claim);
 	// The worker resolves a custom carrier's endpoint from its claim, which it
 	// finds through the run's company; a live mapping carries none of its own.
 	providerCompanyId ??= claim?.providerCompanyId ?? null;
@@ -197,7 +194,6 @@ adminModelVerifications.openapi(queueVerification, async (c) => {
 			target,
 
 			requestedBy: user?.id ?? null,
-			credentialSource: credential.credentialSource,
 		});
 	} catch (error) {
 		if (isUniqueViolation(error)) {

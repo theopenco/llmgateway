@@ -178,9 +178,17 @@ function runTests(
 		};
 	}
 	const lines = fixture.tests.map((test) => {
-		let failure: string;
+		let failure = "";
 		try {
-			failure = test.check(exports, files, loadModule);
+			runInNewContext(
+				"check()",
+				{
+					check: () => {
+						failure = test.check(exports, files, loadModule);
+					},
+				},
+				{ timeout: 1000 },
+			);
 		} catch (error) {
 			failure = error instanceof Error ? error.message : String(error);
 		}

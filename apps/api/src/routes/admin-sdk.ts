@@ -207,7 +207,7 @@ adminSdk.openapi(getSdkOverview, async (c) => {
 	const since = windowMs === null ? null : new Date(Date.now() - windowMs);
 	const modeCondition = mode === "all" ? undefined : eq(walletTable.mode, mode);
 
-	const topUpRows = await db
+	const topUpQuery = db
 		.select({
 			organizationId: ledger.organizationId,
 			grossPaid: sql<string>`COALESCE(SUM(CAST(${ledger.grossPaid} AS NUMERIC)), 0)`,
@@ -234,7 +234,7 @@ adminSdk.openapi(getSdkOverview, async (c) => {
 		.groupBy(ledger.organizationId);
 
 	// Bonus credited into wallets and wallet balance drained by gateway usage.
-	const flowRows = await db
+	const flowQuery = db
 		.select({
 			organizationId: ledger.organizationId,
 			bonusCredited: sql<string>`COALESCE(SUM(CAST(${ledger.amount} AS NUMERIC)) FILTER (WHERE ${ledger.type} = 'bonus'), 0)`,
@@ -247,7 +247,7 @@ adminSdk.openapi(getSdkOverview, async (c) => {
 		.groupBy(ledger.organizationId);
 
 	// Wallet state is point-in-time, so it is never windowed.
-	const walletRows = await db
+	const walletQuery = db
 		.select({
 			organizationId: walletTable.organizationId,
 			walletBalance: sql<string>`COALESCE(SUM(CAST(${walletTable.balance} AS NUMERIC)), 0)`,
@@ -259,7 +259,7 @@ adminSdk.openapi(getSdkOverview, async (c) => {
 		.where(modeCondition)
 		.groupBy(walletTable.organizationId);
 
-	const endCustomerRows = await db
+	const endCustomerQuery = db
 		.select({
 			organizationId: tables.endCustomer.organizationId,
 			endCustomers: sql<number>`COUNT(*)::int`,
@@ -272,7 +272,7 @@ adminSdk.openapi(getSdkOverview, async (c) => {
 	// ledger, not the wallet ledger. `end_user_bonus` carries a negative
 	// creditAmount when the org funds a bonus and a positive one when a refund
 	// claws it back, so the net funded amount is the negated sum.
-	const transactionRows = await db
+	const transactionQuery = db
 		.select({
 			organizationId: tables.transaction.organizationId,
 			bonusFunded: sql<string>`COALESCE(-SUM(CAST(${tables.transaction.creditAmount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.type} = 'end_user_bonus'), 0)`,
@@ -293,7 +293,7 @@ adminSdk.openapi(getSdkOverview, async (c) => {
 
 	// Projects allowed to mint end-user sessions, and the markup/bonus they are
 	// configured with.
-	const projectRows = await db
+	const projectQuery = db
 		.select({
 			organizationId: tables.project.organizationId,
 			sdkProjects: sql<number>`COUNT(*)::int`,
@@ -311,6 +311,60 @@ adminSdk.openapi(getSdkOverview, async (c) => {
 			),
 		)
 		.groupBy(tables.project.organizationId);
+
+	const recentQuery = db
+		.select({
+			id: ledger.id,
+			createdAt: ledger.createdAt,
+			organizationId: ledger.organizationId,
+			organizationName: tables.organization.name,
+			endCustomerId: ledger.endCustomerId,
+			endCustomerExternalId: tables.endCustomer.externalId,
+			mode: walletTable.mode,
+			grossPaid: ledger.grossPaid,
+			platformFee: ledger.platformFee,
+			developerMargin: ledger.developerMargin,
+			netCredited: ledger.netCredited,
+			refunded: sql<boolean>`${isRefunded}`,
+			stripePaymentIntentId: ledger.stripePaymentIntentId,
+		})
+		.from(ledger)
+		.innerJoin(walletTable, eq(walletTable.id, ledger.walletId))
+		.innerJoin(
+			tables.organization,
+			eq(tables.organization.id, ledger.organizationId),
+		)
+		.innerJoin(
+			tables.endCustomer,
+			eq(tables.endCustomer.id, ledger.endCustomerId),
+		)
+		.where(
+			and(
+				eq(ledger.type, "topup"),
+				since ? gte(ledger.createdAt, since) : undefined,
+				modeCondition,
+			),
+		)
+		.orderBy(desc(ledger.createdAt))
+		.limit(25);
+
+	const [
+		topUpRows,
+		flowRows,
+		walletRows,
+		endCustomerRows,
+		transactionRows,
+		projectRows,
+		recentRows,
+	] = await Promise.all([
+		topUpQuery,
+		flowQuery,
+		walletQuery,
+		endCustomerQuery,
+		transactionQuery,
+		projectQuery,
+		recentQuery,
+	]);
 
 	const byOrg = new Map<string, SdkTotals & { lastTopUpAt: string | null }>();
 	const ensure = (organizationId: string) => {
@@ -419,42 +473,6 @@ adminSdk.openapi(getSdkOverview, async (c) => {
 			b[sortBy] - a[sortBy] ||
 			a.organizationName.localeCompare(b.organizationName),
 	);
-
-	const recentRows = await db
-		.select({
-			id: ledger.id,
-			createdAt: ledger.createdAt,
-			organizationId: ledger.organizationId,
-			organizationName: tables.organization.name,
-			endCustomerId: ledger.endCustomerId,
-			endCustomerExternalId: tables.endCustomer.externalId,
-			mode: walletTable.mode,
-			grossPaid: ledger.grossPaid,
-			platformFee: ledger.platformFee,
-			developerMargin: ledger.developerMargin,
-			netCredited: ledger.netCredited,
-			refunded: sql<boolean>`${isRefunded}`,
-			stripePaymentIntentId: ledger.stripePaymentIntentId,
-		})
-		.from(ledger)
-		.innerJoin(walletTable, eq(walletTable.id, ledger.walletId))
-		.innerJoin(
-			tables.organization,
-			eq(tables.organization.id, ledger.organizationId),
-		)
-		.innerJoin(
-			tables.endCustomer,
-			eq(tables.endCustomer.id, ledger.endCustomerId),
-		)
-		.where(
-			and(
-				eq(ledger.type, "topup"),
-				since ? gte(ledger.createdAt, since) : undefined,
-				modeCondition,
-			),
-		)
-		.orderBy(desc(ledger.createdAt))
-		.limit(25);
 
 	return c.json({
 		totals,

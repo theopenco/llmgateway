@@ -6,7 +6,7 @@ import { invalidatePublicResponse } from "@/lib/public-response-cache.js";
 import { modelRatingsCacheKey } from "@/routes/public-model-ratings.js";
 import { createRoute } from "@/utils/create-route.js";
 
-import { and, db, eq, inArray, sql, tables } from "@llmgateway/db";
+import { and, db, eq, rootModelIdSql, sql, tables } from "@llmgateway/db";
 import { models as modelDefinitions } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
@@ -17,45 +17,26 @@ export const modelRatings = new OpenAPIHono<ServerTypes>();
 // allowed to rate it, to keep ratings tied to genuine usage.
 const MINIMUM_REQUESTS_TO_RATE = 100;
 
-// Counts how many requests a user has made on a given model across all the
-// organizations they belong to. Uses the persisted hourly model stats rollups
-// rather than raw logs, since raw logs are subject to data-retention cleanup.
-// The model name may be stored as "provider/model" or just "model", so we match
-// the model portion.
+// Counts the requests made on a model through API keys the user created. Uses
+// the persisted hourly rollups rather than raw logs, since raw logs are subject
+// to data-retention cleanup.
 async function getModelRequestCount(
 	userId: string,
 	modelId: string,
 ): Promise<number> {
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: { userId },
-		columns: { organizationId: true },
-	});
-	const organizationIds = userOrgs.map((o) => o.organizationId);
-	if (organizationIds.length === 0) {
-		return 0;
-	}
-
-	const projects = await db.query.project.findMany({
-		where: { organizationId: { in: organizationIds } },
-		columns: { id: true },
-	});
-	const projectIds = projects.map((p) => p.id);
-	if (projectIds.length === 0) {
-		return 0;
-	}
-
 	const [result] = await db
 		.select({
-			value: sql<number>`COALESCE(SUM(${tables.projectHourlyModelStats.requestCount}), 0)`,
+			value: sql<number>`COALESCE(SUM(${tables.apiKeyHourlyModelStats.requestCount}), 0)`,
 		})
-		.from(tables.projectHourlyModelStats)
+		.from(tables.apiKeyHourlyModelStats)
+		.innerJoin(
+			tables.apiKey,
+			eq(tables.apiKey.id, tables.apiKeyHourlyModelStats.apiKeyId),
+		)
 		.where(
 			and(
-				inArray(tables.projectHourlyModelStats.projectId, projectIds),
-				sql`CASE WHEN ${tables.projectHourlyModelStats.usedModel} LIKE '%/%'
-					THEN SPLIT_PART(SPLIT_PART(${tables.projectHourlyModelStats.usedModel}, '/', 2), ':', 1)
-					ELSE SPLIT_PART(${tables.projectHourlyModelStats.usedModel}, ':', 1)
-				END = ${modelId}`,
+				eq(tables.apiKey.createdBy, userId),
+				eq(rootModelIdSql(tables.apiKeyHourlyModelStats.usedModel), modelId),
 			),
 		);
 

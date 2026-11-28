@@ -835,7 +835,20 @@ export async function listCalendarEvents(
 	range: { from: Date; to: Date },
 	options: { q?: string } = {},
 ): Promise<CrmCalendarEvent[]> {
-	const token = await gmailAccessToken(row);
+	return await listCalendarEventsWithToken(
+		row,
+		await gmailAccessToken(row),
+		range,
+		options,
+	);
+}
+
+async function listCalendarEventsWithToken(
+	row: CrmIntegrationRow,
+	token: string,
+	range: { from: Date; to: Date },
+	options: { q?: string },
+): Promise<CrmCalendarEvent[]> {
 	const items: z.infer<typeof calendarEventSchema>[] = [];
 	let pageToken: string | undefined;
 	for (let page = 0; page < CALENDAR_MAX_PAGES; page++) {
@@ -1024,10 +1037,16 @@ export async function listCalendarMeetings(
 	range: { from: Date; to: Date },
 ): Promise<CrmCalendarEvent[]> {
 	const wanted = new Set(emails.map((e) => e.toLowerCase()));
+	if (wanted.size === 0) {
+		return [];
+	}
+	const token = await gmailAccessToken(row);
 	const lists = await Promise.all(
 		[...wanted]
 			.slice(0, 15)
-			.map((email) => listCalendarEvents(row, range, { q: email })),
+			.map((email) =>
+				listCalendarEventsWithToken(row, token, range, { q: email }),
+			),
 	);
 	const seen = new Set<string>();
 	return lists.flat().filter((event) => {

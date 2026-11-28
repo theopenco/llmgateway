@@ -42,6 +42,17 @@ function looksLikeAwsSecret(value: string, before: string): boolean {
  */
 const ASSIGNED_VALUE = `["']?\\s*[=:]\\s*(?:"([^"\\n]{8,})"|'([^'\\n]{8,})'|([^\\s'",;]{8,}))`;
 
+// The password runs to the authority's last `@`, so an unescaped `@` inside it
+// is not mistaken for the end of a placeholder.
+const CONNECTION_PASSWORD = /^[^:]+:\/\/[^\s:@/]*:([^\s/?#]+)@/;
+
+const CONNECTION_PASSWORD_PLACEHOLDER =
+	/^(?:\$\{[^}]*\}|\$[A-Z_][A-Z0-9_]*|\{\{[^}]*\}\}|<[^<>]+>|%\([^)]*\)s|[*xX]+|changeme|password)$/;
+
+function isConnectionPasswordPlaceholder(password: string): boolean {
+	return CONNECTION_PASSWORD_PLACEHOLDER.test(password);
+}
+
 const SECRET_DETECTORS: Detector[] = [
 	{
 		id: "private_key",
@@ -142,8 +153,11 @@ const SECRET_DETECTORS: Detector[] = [
 		label: "Connection String",
 		replacement: SECRET_REPLACEMENT,
 		pattern:
-			/\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/[^\s:@/]+:[^\s:@/]+@[^\s]+/i,
-		validate: (value) => !isPlaceholderSecret(value.split(":")[2] ?? ""),
+			/\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/[^\s:@/]*:[^\s:@/]+@[^\s]+/i,
+		validate: (value) =>
+			!isConnectionPasswordPlaceholder(
+				CONNECTION_PASSWORD.exec(value)?.[1] ?? "",
+			),
 	},
 	{
 		id: "aws_secret_access_key",

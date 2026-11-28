@@ -63,14 +63,6 @@ export const tokenUsage = new Histogram({
 	registers: [metricsRegistry],
 });
 
-// Gauge for tracking concurrent in-flight requests
-export const requestsInFlight = new Gauge({
-	name: "chat_completion_requests_in_flight",
-	help: "Number of chat completion requests currently being processed",
-	labelNames: ["model", "provider"] as const,
-	registers: [metricsRegistry],
-});
-
 // Gauge for tracking in-flight inference requests across the whole gateway pod
 // (used by the backpressure middleware to shed load above a configured cap).
 // Only inference endpoints are counted; cheap metadata routes are exempt.
@@ -196,20 +188,6 @@ export function recordChatCompletionMetrics(metrics: ChatCompletionMetrics) {
 	if (cachedTokens !== undefined && cachedTokens > 0) {
 		tokenUsage.labels(model, provider, "cached").observe(cachedTokens);
 	}
-}
-
-/**
- * Record that a request has started (for tracking in-flight requests)
- */
-export function recordRequestStarted(model: string, provider: string) {
-	requestsInFlight.labels(model, provider).inc();
-}
-
-/**
- * Record that a request has completed (for tracking in-flight requests)
- */
-export function recordRequestCompleted(model: string, provider: string) {
-	requestsInFlight.labels(model, provider).dec();
 }
 
 /**

@@ -153,6 +153,7 @@ describe("admin content filter errors", () => {
 		expect(
 			body.series.filter((p: { kind: string }) => p.kind === "upstream_4xx"),
 		).toHaveLength(2);
+		expect(body.bucketTimestamps).toContain(body.series[0].bucket);
 	});
 
 	test("filters by kind", async () => {

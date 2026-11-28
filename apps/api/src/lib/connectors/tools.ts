@@ -240,57 +240,70 @@ async function withConnection<T>(
 	}
 }
 
+const MAX_CONNECTOR_TOOLS = 500;
+
+function tooManyConnectorTools() {
+	return new HTTPException(502, {
+		message: "Too many connector tools. Select fewer connectors.",
+	});
+}
+
 export async function listConnectorTools(
 	userId: string,
 	ids: LoungeConnectorId[],
 ): Promise<ConnectorTool[]> {
-	const tools: ConnectorTool[] = [];
-	for (const id of ids) {
-		await withConnection(userId, id, async ({ client }) => {
-			if (client) {
-				let cursor: string | undefined;
-				const cursors = new Set<string>();
-				do {
-					const result = await client.listTools({
-						params: cursor ? { cursor } : undefined,
-						options: { timeout: 60_000 },
-					});
-					for (const definition of result.tools) {
-						if (!/^[a-zA-Z0-9_-]{1,48}$/.test(definition.name)) {
-							continue;
-						}
-						tools.push({
-							connectorId: id,
-							name: definition.name,
-							description: definition.description ?? definition.name,
-							inputSchema: definition.inputSchema,
+	const perConnector = await Promise.all(
+		ids.map((id) =>
+			withConnection(userId, id, async ({ client }) => {
+				const found: ConnectorTool[] = [];
+				if (client) {
+					let cursor: string | undefined;
+					const cursors = new Set<string>();
+					do {
+						const result = await client.listTools({
+							params: cursor ? { cursor } : undefined,
+							options: { timeout: 60_000 },
 						});
-					}
-					cursor = result.nextCursor;
-					if (cursor) {
-						if (cursors.has(cursor) || cursors.size >= 20) {
-							throw new HTTPException(502, {
-								message: "The connector returned too many tool pages",
+						for (const definition of result.tools) {
+							if (!/^[a-zA-Z0-9_-]{1,48}$/.test(definition.name)) {
+								continue;
+							}
+							found.push({
+								connectorId: id,
+								name: definition.name,
+								description: definition.description ?? definition.name,
+								inputSchema: definition.inputSchema,
 							});
 						}
-						cursors.add(cursor);
-					}
-					if (tools.length > 500) {
-						throw new HTTPException(502, {
-							message: "Too many connector tools. Select fewer connectors.",
-						});
-					}
-				} while (cursor);
-			} else if (id in nativeTools) {
-				const definitions = nativeTools[id as keyof typeof nativeTools];
-				tools.push(
-					...definitions.map((definition) => ({
-						connectorId: id,
-						...definition,
-					})),
-				);
-			}
-		});
+						cursor = result.nextCursor;
+						if (cursor) {
+							if (cursors.has(cursor) || cursors.size >= 20) {
+								throw new HTTPException(502, {
+									message: "The connector returned too many tool pages",
+								});
+							}
+							cursors.add(cursor);
+						}
+						if (found.length > MAX_CONNECTOR_TOOLS) {
+							throw tooManyConnectorTools();
+						}
+					} while (cursor);
+				} else if (id in nativeTools) {
+					const definitions = nativeTools[id as keyof typeof nativeTools];
+					found.push(
+						...definitions.map((definition) => ({
+							connectorId: id,
+							...definition,
+						})),
+					);
+				}
+				return found;
+			}),
+		),
+	);
+	const tools = perConnector.flat();
+	if (tools.length > MAX_CONNECTOR_TOOLS) {
+		throw tooManyConnectorTools();
 	}
 	return tools;
 }

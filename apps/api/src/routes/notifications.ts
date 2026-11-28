@@ -358,16 +358,18 @@ notifications.openapi(
 	}),
 	async (c) => {
 		const filter = await visibility(c.get("user")!.id);
-		const items = await db
-			.select()
-			.from(notification)
-			.where(filter)
-			.orderBy(sql`${notification.createdAt} DESC`)
-			.limit(50);
-		const [count] = await db
-			.select({ value: sql<number>`count(*)::int` })
-			.from(notification)
-			.where(and(filter, isNull(notification.readAt)));
+		const [items, [count]] = await Promise.all([
+			db
+				.select()
+				.from(notification)
+				.where(filter)
+				.orderBy(sql`${notification.createdAt} DESC`)
+				.limit(50),
+			db
+				.select({ value: sql<number>`count(*)::int` })
+				.from(notification)
+				.where(and(filter, isNull(notification.readAt))),
+		]);
 		return c.json({
 			notifications: items.map((item) => ({
 				id: item.id,

@@ -29,13 +29,17 @@ import type { ServerTypes } from "@/vars.js";
 export const publicContact = new OpenAPIHono<ServerTypes>();
 
 const contactFormSchema = z.object({
-	name: z.string().min(2, "Name must be at least 2 characters").optional(),
+	name: z
+		.string()
+		.min(2, "Name must be at least 2 characters")
+		.max(200)
+		.optional(),
 	email: z.string().email("Invalid email address"),
-	country: z.string().min(1, "Please select a country").optional(),
-	size: z.string().min(1, "Please select company size"),
+	country: z.string().min(1, "Please select a country").max(100).optional(),
+	size: z.string().min(1, "Please select company size").max(100),
 	deployment: z.enum(["self_host", "cloud", "not_sure"]).optional(),
 	message: z.string().max(5000).optional(),
-	honeypot: z.string().optional(),
+	honeypot: z.string().max(1000).optional(),
 	timestamp: z.number().optional(),
 });
 
@@ -59,6 +63,8 @@ const contactResponseSchema = z.object({
 
 const RATE_LIMIT_MAX = 3;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60; // 1 hour
+// Stored submissions (rejected ones included) one client can create per hour.
+const STORED_SUBMISSIONS_PER_HOUR = 20;
 // Confirmation emails one mailbox can be sent per day.
 const CONFIRMATIONS_PER_EMAIL_PER_DAY = 3;
 const DAY_SECONDS = 24 * 60 * 60;
@@ -193,6 +199,25 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 	const ipAddress = getClientIpFromContext(c);
 	const userAgent = c.req.header("User-Agent") ?? null;
 
+	// Use IP when available; fall back to email so unknown-IP requests don't
+	// share a single rate-limit bucket that any client can exhaust.
+	const rateLimitKey = ipAddress ?? `email:${validatedData.email}`;
+	const withinStorageLimit = await consumeRateLimit(
+		`contact_storage_rate_limit:${rateLimitKey}`,
+		STORED_SUBMISSIONS_PER_HOUR,
+		RATE_LIMIT_WINDOW_SECONDS,
+	);
+	if (!withinStorageLimit) {
+		return c.json(
+			{
+				success: false,
+				message:
+					"Too many submissions. Please try again later (max 3 per hour)",
+			},
+			429,
+		);
+	}
+
 	let submission: { id: string };
 	try {
 		const [inserted] = await db
@@ -251,11 +276,7 @@ publicContact.openapi(submitEnterpriseContact, async (c) => {
 		}
 	}
 
-	// Use IP when available; fall back to email so unknown-IP requests don't
-	// share a single rate-limit bucket that any client can exhaust.
-	const rateLimitKey = ipAddress ?? `email:${validatedData.email}`;
-	const canSubmit = await checkRateLimit(rateLimitKey);
-	if (!canSubmit) {
+	if (!(await checkRateLimit(rateLimitKey))) {
 		await updateSubmissionStatus(submission.id, "rejected", "rate_limited");
 		return c.json(
 			{

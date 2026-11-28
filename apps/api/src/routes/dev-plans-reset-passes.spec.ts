@@ -30,6 +30,7 @@ const stripeMock = vi.hoisted(() => ({
 	paymentIntents: {
 		create: vi.fn(),
 		retrieve: vi.fn(),
+		list: vi.fn(),
 	},
 	refunds: {
 		list: vi.fn(),
@@ -56,6 +57,13 @@ const ORG_ID = "test-reset-pass-org";
 const SUBSCRIPTION_ID = "sub_reset_pass";
 const originalMultiplier = process.env.DEV_PLAN_CREDITS_MULTIPLIER;
 const PRO_PASS_CENTS = DEV_PLAN_RESET_PASS_PRICES.pro * 100;
+const PURCHASE_ID = "reset-pass-attempt-original";
+const attemptMetadata = {
+	organizationId: ORG_ID,
+	kind: "dev_plan_reset_pass",
+	devPlan: "pro",
+	purchaseId: PURCHASE_ID,
+};
 
 // With multiplier 3 the pro weekly premium limit is 79 * 3 * 0.12 = $28.44, so
 // a partially-used week (e.g. $5) is always strictly below the limit.
@@ -119,14 +127,17 @@ function redeemRequest(
 	});
 }
 
-function purchaseRequest(token?: string) {
+function purchaseRequest(
+	token?: string,
+	purchaseId: string = crypto.randomUUID(),
+) {
 	return app.request("/dev-plans/reset-pass/purchase", {
 		method: "POST",
 		headers: {
 			...(token ? { Cookie: token } : {}),
 			"Content-Type": "application/json",
 		},
-		body: JSON.stringify({}),
+		body: JSON.stringify({ purchaseId }),
 	});
 }
 
@@ -143,11 +154,7 @@ function paymentIntentFixture(
 		status: "succeeded",
 		amount,
 		amount_received: amount,
-		metadata: overrides.metadata ?? {
-			organizationId: ORG_ID,
-			kind: "dev_plan_reset_pass",
-			devPlan: "pro",
-		},
+		metadata: overrides.metadata ?? attemptMetadata,
 	} as unknown as Stripe.PaymentIntent;
 }
 
@@ -435,6 +442,7 @@ describe("reset pass purchase", () => {
 				metadata: params.metadata,
 			}),
 		);
+		stripeMock.paymentIntents.list.mockResolvedValue({ data: [] });
 	});
 
 	afterEach(async () => {
@@ -564,6 +572,11 @@ describe("reset pass purchase", () => {
 					devPlan: "pro",
 				}),
 			}),
+			expect.objectContaining({
+				idempotencyKey: expect.stringMatching(
+					new RegExp(`^dev-plan-reset-pass:${ORG_ID}:`),
+				),
+			}),
 		);
 
 		const org = await getOrg();
@@ -582,6 +595,254 @@ describe("reset pass purchase", () => {
 		expect(txs[0].stripePaymentIntentId).toBe("pi_reset_live");
 	});
 
+	it("forwards the purchaseId to Stripe as an org-scoped idempotency key", async () => {
+		await insertOrg();
+
+		const purchaseId = "reset-pass-attempt-1";
+		const first = await purchaseRequest(token, purchaseId);
+		expect(first.status).toBe(200);
+		const second = await purchaseRequest(token, purchaseId);
+		expect(second.status).toBe(200);
+
+		expect(stripeMock.paymentIntents.create).toHaveBeenCalledTimes(2);
+		for (const call of stripeMock.paymentIntents.create.mock.calls) {
+			expect(call[1]).toEqual({
+				idempotencyKey: `dev-plan-reset-pass:${ORG_ID}:${purchaseId}`,
+			});
+		}
+
+		// Stripe collapses both requests into the same PaymentIntent, so the
+		// pass is granted once.
+		const org = await getOrg();
+		expect(org.devPlanResetPassesPro).toBe(1);
+		const txs = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txs).toHaveLength(1);
+	});
+
+	it("rejects a purchase without a purchaseId", async () => {
+		await insertOrg();
+
+		const res = await app.request("/dev-plans/reset-pass/purchase", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({}),
+		});
+		expect(res.status).toBe(400);
+		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+	});
+
+	it("rejects a bodyless purchase instead of charging with a fallback key", async () => {
+		await insertOrg();
+
+		const res = await app.request("/dev-plans/reset-pass/purchase", {
+			method: "POST",
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(400);
+		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+	});
+
+	it("stamps the purchaseId on the PaymentIntent metadata", async () => {
+		await insertOrg();
+
+		const res = await purchaseRequest(token, "reset-pass-attempt-meta");
+		expect(res.status).toBe(200);
+		expect(stripeMock.paymentIntents.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				metadata: expect.objectContaining({
+					purchaseId: "reset-pass-attempt-meta",
+				}),
+			}),
+			expect.anything(),
+		);
+	});
+
+	it("reports the original charge on retry instead of charging again after a plan change", async () => {
+		// The first attempt charged on Pro, then its response was lost and
+		// the org moved to Lite. The retry must not charge the Lite price.
+		await insertOrg({ devPlan: "lite" });
+		stripeMock.paymentIntents.list.mockResolvedValue({
+			data: [
+				paymentIntentFixture({
+					id: "pi_other_attempt",
+					metadata: { ...attemptMetadata, purchaseId: "other-attempt" },
+				}),
+				paymentIntentFixture({ id: "pi_original" }),
+			],
+		});
+
+		const res = await purchaseRequest(token, PURCHASE_ID);
+		expect(res.status).toBe(200);
+		expect(await res.json()).toMatchObject({
+			success: true,
+			amount: DEV_PLAN_RESET_PASS_PRICES.pro,
+		});
+		expect(stripeMock.paymentIntents.list).toHaveBeenCalledWith(
+			expect.objectContaining({ customer: "cus_reset_pass" }),
+		);
+		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+
+		const org = await getOrg();
+		expect(org.devPlanResetPassesPro).toBe(1);
+		expect(org.devPlanResetPassesLite).toBe(0);
+		const txs = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txs).toHaveLength(1);
+		expect(txs[0].stripePaymentIntentId).toBe("pi_original");
+	});
+
+	it("replays a declined original attempt as 402 without charging", async () => {
+		await insertOrg();
+		stripeMock.paymentIntents.list.mockResolvedValue({
+			data: [
+				{
+					...paymentIntentFixture({ id: "pi_declined" }),
+					status: "requires_payment_method",
+					amount_received: 0,
+				},
+			],
+		});
+
+		const res = await purchaseRequest(token, PURCHASE_ID);
+		expect(res.status).toBe(402);
+		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+		expect((await getOrg()).devPlanResetPassesPro).toBe(0);
+	});
+
+	it("keeps the attempt pending while the original charge is processing", async () => {
+		await insertOrg();
+		stripeMock.paymentIntents.list.mockResolvedValue({
+			data: [
+				{
+					...paymentIntentFixture({ id: "pi_processing" }),
+					status: "processing",
+				},
+			],
+		});
+
+		const res = await purchaseRequest(token, PURCHASE_ID);
+		expect(res.status).toBe(409);
+		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+		expect((await getOrg()).devPlanResetPassesPro).toBe(0);
+	});
+
+	it("resolves an idempotency parameter mismatch to the original charge", async () => {
+		await insertOrg();
+		stripeMock.paymentIntents.list
+			.mockResolvedValueOnce({ data: [] })
+			.mockResolvedValueOnce({
+				data: [paymentIntentFixture({ id: "pi_original" })],
+			});
+		stripeMock.paymentIntents.create.mockRejectedValueOnce(
+			Object.assign(new Error("Keys for idempotent requests"), {
+				type: "StripeIdempotencyError",
+				code: "idempotency_error",
+				statusCode: 400,
+			}),
+		);
+
+		const res = await purchaseRequest(token, PURCHASE_ID);
+		expect(res.status).toBe(200);
+		const org = await getOrg();
+		expect(org.devPlanResetPassesPro).toBe(1);
+		const txs = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txs).toHaveLength(1);
+		expect(txs[0].stripePaymentIntentId).toBe("pi_original");
+	});
+
+	it("keeps the outcome unconfirmed when a mismatched key left no PaymentIntent", async () => {
+		await insertOrg();
+		stripeMock.paymentIntents.create.mockRejectedValueOnce(
+			Object.assign(new Error("Keys for idempotent requests"), {
+				type: "StripeIdempotencyError",
+				code: "idempotency_error",
+				statusCode: 400,
+			}),
+		);
+
+		const res = await purchaseRequest(token, PURCHASE_ID);
+		expect(res.status).toBe(409);
+		expect((await res.json()).message).toContain("couldn't confirm");
+		expect((await getOrg()).devPlanResetPassesPro).toBe(0);
+	});
+
+	it("finds the original attempt beyond the first page of intents", async () => {
+		await insertOrg();
+		stripeMock.paymentIntents.list
+			.mockResolvedValueOnce({
+				data: [
+					paymentIntentFixture({
+						id: "pi_newer",
+						metadata: { ...attemptMetadata, purchaseId: "other-attempt" },
+					}),
+				],
+				has_more: true,
+			})
+			.mockResolvedValueOnce({
+				data: [paymentIntentFixture({ id: "pi_original_page_2" })],
+				has_more: false,
+			});
+
+		const res = await purchaseRequest(token, PURCHASE_ID);
+		expect(res.status).toBe(200);
+		expect(stripeMock.paymentIntents.list).toHaveBeenLastCalledWith(
+			expect.objectContaining({ starting_after: "pi_newer" }),
+		);
+		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+	});
+
+	it("recovers a charge behind a cached Stripe 500", async () => {
+		await insertOrg();
+		stripeMock.paymentIntents.list
+			.mockResolvedValueOnce({ data: [] })
+			.mockResolvedValueOnce({
+				data: [paymentIntentFixture({ id: "pi_behind_500" })],
+			});
+		stripeMock.paymentIntents.create.mockRejectedValueOnce(
+			Object.assign(new Error("An unknown error occurred"), {
+				type: "StripeAPIError",
+				statusCode: 500,
+			}),
+		);
+
+		const res = await purchaseRequest(token, PURCHASE_ID);
+		expect(res.status).toBe(200);
+		expect((await getOrg()).devPlanResetPassesPro).toBe(1);
+	});
+
+	it("keeps the attempt unconfirmed after a cached Stripe 500 with no intent", async () => {
+		await insertOrg();
+		stripeMock.paymentIntents.create.mockRejectedValue(
+			Object.assign(new Error("An unknown error occurred"), {
+				type: "StripeAPIError",
+				statusCode: 500,
+			}),
+		);
+
+		const res = await purchaseRequest(token, PURCHASE_ID);
+		expect(res.status).toBe(409);
+		expect((await res.json()).message).toContain("couldn't confirm");
+		expect((await getOrg()).devPlanResetPassesPro).toBe(0);
+	});
+
+	it("keeps the outcome unknown when Stripe is unreachable", async () => {
+		await insertOrg();
+		stripeMock.paymentIntents.create.mockRejectedValueOnce(
+			Object.assign(new Error("Connection reset"), {
+				type: "StripeConnectionError",
+			}),
+		);
+
+		const res = await purchaseRequest(token, PURCHASE_ID);
+		expect(res.status).toBe(500);
+		expect(stripeMock.paymentIntents.list).toHaveBeenCalledTimes(1);
+	});
+
 	it("falls back to the customer's default payment method", async () => {
 		await insertOrg();
 		stripeMock.subscriptions.retrieve.mockRejectedValue(
@@ -592,6 +853,7 @@ describe("reset pass purchase", () => {
 		expect(res.status).toBe(200);
 		expect(stripeMock.paymentIntents.create).toHaveBeenCalledWith(
 			expect.objectContaining({ payment_method: "pm_from_customer" }),
+			expect.objectContaining({ idempotencyKey: expect.any(String) }),
 		);
 	});
 

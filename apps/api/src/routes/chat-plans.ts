@@ -369,6 +369,9 @@ chatPlans.openapi(resume, async (c) => {
 			success: true,
 		});
 	} catch (error) {
+		if (error instanceof HTTPException) {
+			throw error;
+		}
 		logger.error(
 			"Stripe chat plan resume error",
 			error instanceof Error ? error : new Error(String(error)),

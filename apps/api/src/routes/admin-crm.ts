@@ -484,7 +484,9 @@ adminCrm.openapi(getAccount, async (c) => {
 		keyCounts,
 		daily,
 		topModels,
+		revenueTotals,
 		transactions,
+		recentPayments,
 		activities,
 	] = await Promise.all([
 		userIds.length
@@ -602,6 +604,20 @@ adminCrm.openapi(getAccount, async (c) => {
 			: [],
 		orgIds.length
 			? db
+					.select({
+						lifetime: sql<string>`COALESCE(SUM(${tables.transaction.amount}) FILTER (WHERE ${tables.transaction.status} = 'completed'), 0)`,
+						last90d: sql<string>`COALESCE(SUM(${tables.transaction.amount}) FILTER (WHERE ${tables.transaction.status} = 'completed' AND ${gte(tables.transaction.createdAt, new Date(ninetyAgo))}), 0)`,
+					})
+					.from(tables.transaction)
+					.where(
+						and(
+							inArray(tables.transaction.organizationId, orgIds),
+							inArray(tables.transaction.type, [...REVENUE_TYPES]),
+						),
+					)
+			: [],
+		orgIds.length
+			? db
 					.select()
 					.from(tables.transaction)
 					.where(
@@ -611,6 +627,21 @@ adminCrm.openapi(getAccount, async (c) => {
 						),
 					)
 					.orderBy(desc(tables.transaction.createdAt))
+					.limit(12)
+			: [],
+		orgIds.length
+			? db
+					.select()
+					.from(tables.transaction)
+					.where(
+						and(
+							inArray(tables.transaction.organizationId, orgIds),
+							inArray(tables.transaction.type, [...REVENUE_TYPES]),
+							eq(tables.transaction.status, "completed"),
+						),
+					)
+					.orderBy(desc(tables.transaction.createdAt))
+					.limit(20)
 			: [],
 		db
 			.select()
@@ -632,7 +663,6 @@ adminCrm.openapi(getAccount, async (c) => {
 		};
 	});
 
-	const completed = transactions.filter((t) => t.status === "completed");
 	const amountOf = (t: (typeof transactions)[number]) => Number(t.amount ?? 0);
 
 	const people = emails.map((email) => {
@@ -743,7 +773,7 @@ adminCrm.openapi(getAccount, async (c) => {
 			detail: m.email,
 		});
 	}
-	for (const t of completed.slice(0, 20)) {
+	for (const t of recentPayments) {
 		timeline.push({
 			at: t.createdAt.toISOString(),
 			kind: "payment",
@@ -823,11 +853,9 @@ adminCrm.openapi(getAccount, async (c) => {
 			})),
 		},
 		revenue: {
-			lifetime: completed.reduce((s, t) => s + amountOf(t), 0),
-			last90d: completed
-				.filter((t) => t.createdAt.getTime() >= ninetyAgo)
-				.reduce((s, t) => s + amountOf(t), 0),
-			transactions: transactions.slice(0, 12).map((t) => ({
+			lifetime: Number(revenueTotals[0]?.lifetime ?? 0),
+			last90d: Number(revenueTotals[0]?.last90d ?? 0),
+			transactions: transactions.map((t) => ({
 				id: t.id,
 				createdAt: t.createdAt.toISOString(),
 				type: t.type,

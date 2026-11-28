@@ -2825,7 +2825,7 @@ airside.openapi(queueNewModelVerification, async (c) => {
 		});
 		claim.pendingProviderKeyId = refreshed!.pendingProviderKeyId;
 	}
-	const credential = await resolveVerificationCredential(target, claim);
+	await resolveVerificationCredential(target, claim);
 	let verification: ModelVerificationRow;
 	try {
 		verification = await db.transaction(async (tx) => {
@@ -2859,7 +2859,6 @@ airside.openapi(queueNewModelVerification, async (c) => {
 					target,
 
 					requestedBy: user.id,
-					credentialSource: credential.credentialSource,
 				},
 				tx,
 			);
@@ -2978,7 +2977,7 @@ airside.openapi(queueExistingModelVerification, async (c) => {
 		},
 		await listingDeclaresPromptCaching(model.id),
 	);
-	const credential = await resolveVerificationCredential(target, claim);
+	await resolveVerificationCredential(target, claim);
 	let verification: ModelVerificationRow;
 	try {
 		verification = await enqueueModelVerification({
@@ -2987,7 +2986,6 @@ airside.openapi(queueExistingModelVerification, async (c) => {
 			target,
 
 			requestedBy: user.id,
-			credentialSource: credential.credentialSource,
 		});
 	} catch (error) {
 		if (isUniqueViolation(error)) {
@@ -3437,9 +3435,10 @@ airside.openapi(importCatalogueModels, async (c) => {
 		// the interface view restores them.
 		const mapping = found as ProviderModelMapping;
 		// A listing carries one flat price pair. A catalogue mapping with
-		// context-length bands or per-region rates cannot be represented by
-		// one, and importing it anyway would bill every request outside the
-		// base band at the wrong rate — so those stay on the catalogue.
+		// context-length bands, per-region rates or peak-hour rates cannot be
+		// represented by one, and importing it anyway would bill every request
+		// outside the base band at the wrong rate — so those stay on the
+		// catalogue. Per-image and per-second prices carry over to listings.
 		const apiFormat = mapping.apiFormat ?? "provider-native";
 		if (
 			listed.has(model.id) ||
@@ -3451,7 +3450,8 @@ airside.openapi(importCatalogueModels, async (c) => {
 			!mapping.inputPrice ||
 			!mapping.outputPrice ||
 			(mapping.pricingTiers?.length ?? 0) > 0 ||
-			(mapping.regions?.length ?? 0) > 0
+			(mapping.regions?.length ?? 0) > 0 ||
+			mapping.peakPricing
 		) {
 			skipped.push(model.id);
 			continue;
@@ -4420,47 +4420,47 @@ airside.openapi(statsRoute, async (c) => {
 	// malformed request is not the provider's error.
 	const errorSum = sql<number>`COALESCE(SUM(${mph.gatewayErrorCount} + ${mph.upstreamErrorCount}), 0)::int`;
 
-	const [totalsRow] = await db
-		.select({
-			requestCount: sql<number>`COALESCE(SUM(${mph.requestCount}), 0)::int`,
-			errorCount: errorSum,
-			cacheCount: sql<number>`COALESCE(SUM(${mph.cacheCount}), 0)::int`,
-			inputTokens: sql<number>`COALESCE(SUM(${mph.inputTokens}), 0)::float8`,
-			outputTokens: sql<number>`COALESCE(SUM(${mph.outputTokens}), 0)::float8`,
-			totalTokens: sql<number>`COALESCE(SUM(${mph.totalTokens}), 0)::float8`,
-			cost: sql<number>`COALESCE(SUM(${mph.cost}), 0)::float8`,
-		})
-		.from(mph)
-		.where(whereClause);
-
-	const byModelRows = await db
-		.select({
-			providerId: mph.usedProvider,
-			model: mph.usedModel,
-			requestCount: sql<number>`SUM(${mph.requestCount})::int`,
-			errorCount: errorSum,
-			inputTokens: sql<number>`SUM(${mph.inputTokens})::float8`,
-			outputTokens: sql<number>`SUM(${mph.outputTokens})::float8`,
-			cost: sql<number>`SUM(${mph.cost})::float8`,
-		})
-		.from(mph)
-		.where(whereClause)
-		.groupBy(mph.usedProvider, mph.usedModel)
-		.orderBy(desc(sql`SUM(${mph.cost})`));
-
 	const dayExpr = sql<string>`date_trunc('day', ${mph.hourTimestamp})`;
-	const dailyRows = await db
-		.select({
-			day: dayExpr,
-			requestCount: sql<number>`SUM(${mph.requestCount})::int`,
-			errorCount: errorSum,
-			outputTokens: sql<number>`SUM(${mph.outputTokens})::float8`,
-			cost: sql<number>`SUM(${mph.cost})::float8`,
-		})
-		.from(mph)
-		.where(whereClause)
-		.groupBy(dayExpr)
-		.orderBy(dayExpr);
+	const [[totalsRow], byModelRows, dailyRows] = await Promise.all([
+		db
+			.select({
+				requestCount: sql<number>`COALESCE(SUM(${mph.requestCount}), 0)::int`,
+				errorCount: errorSum,
+				cacheCount: sql<number>`COALESCE(SUM(${mph.cacheCount}), 0)::int`,
+				inputTokens: sql<number>`COALESCE(SUM(${mph.inputTokens}), 0)::float8`,
+				outputTokens: sql<number>`COALESCE(SUM(${mph.outputTokens}), 0)::float8`,
+				totalTokens: sql<number>`COALESCE(SUM(${mph.totalTokens}), 0)::float8`,
+				cost: sql<number>`COALESCE(SUM(${mph.cost}), 0)::float8`,
+			})
+			.from(mph)
+			.where(whereClause),
+		db
+			.select({
+				providerId: mph.usedProvider,
+				model: mph.usedModel,
+				requestCount: sql<number>`SUM(${mph.requestCount})::int`,
+				errorCount: errorSum,
+				inputTokens: sql<number>`SUM(${mph.inputTokens})::float8`,
+				outputTokens: sql<number>`SUM(${mph.outputTokens})::float8`,
+				cost: sql<number>`SUM(${mph.cost})::float8`,
+			})
+			.from(mph)
+			.where(whereClause)
+			.groupBy(mph.usedProvider, mph.usedModel)
+			.orderBy(desc(sql`SUM(${mph.cost})`)),
+		db
+			.select({
+				day: dayExpr,
+				requestCount: sql<number>`SUM(${mph.requestCount})::int`,
+				errorCount: errorSum,
+				outputTokens: sql<number>`SUM(${mph.outputTokens})::float8`,
+				cost: sql<number>`SUM(${mph.cost})::float8`,
+			})
+			.from(mph)
+			.where(whereClause)
+			.groupBy(dayExpr)
+			.orderBy(dayExpr),
+	]);
 
 	return c.json({
 		days,

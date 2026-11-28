@@ -6,7 +6,10 @@ import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
-import { processPendingVideoJobs } from "./video-jobs.js";
+import {
+	processPendingVideoJobs,
+	processPendingWebhookDeliveries,
+} from "./video-jobs.js";
 
 const projectId = "video-billing-project";
 const organizationId = "video-billing-org";
@@ -1205,3 +1208,52 @@ test.each(staleErrorCases)(
 	"stale poll error (terminal=$terminalError) cannot overwrite $target billing",
 	testStalePollError,
 );
+
+test("concurrent webhook delivery runs POST a due delivery once", async () => {
+	vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "true");
+	try {
+		await createJob();
+		const callbackUrl = "https://example.com/concurrent-webhook";
+		await db
+			.update(tables.videoJob)
+			.set({
+				status: "completed",
+				callbackUrl,
+				callbackSecret: "test-secret",
+				callbackStatus: "pending",
+			})
+			.where(eq(tables.videoJob.id, jobId));
+		await db.insert(tables.webhookDeliveryLog).values({
+			videoJobId: jobId,
+			eventId: "evt_concurrent_delivery",
+			eventType: "video.completed",
+			targetUrl: callbackUrl,
+			attempt: 1,
+			status: "pending",
+			nextRetryAt: new Date(Date.now() - 1000),
+		});
+		fetchMock.mockImplementation(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			return new Response("ok", { status: 200 });
+		});
+
+		await Promise.all([
+			processPendingWebhookDeliveries(),
+			processPendingWebhookDeliveries(),
+		]);
+
+		const posts = fetchMock.mock.calls.filter(
+			([url]) => String(url) === callbackUrl,
+		);
+		expect(posts).toHaveLength(1);
+		const deliveries = await db.query.webhookDeliveryLog.findMany({
+			where: { videoJobId: jobId },
+		});
+		expect(deliveries).toHaveLength(1);
+		expect(deliveries[0]).toMatchObject({ attempt: 1, status: "delivered" });
+		const job = await db.query.videoJob.findFirst({ where: { id: jobId } });
+		expect(job?.callbackStatus).toBe("delivered");
+	} finally {
+		vi.unstubAllEnvs();
+	}
+});

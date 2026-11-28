@@ -175,8 +175,9 @@ export async function executeAdminRefund({
 	}
 
 	const remaining = new Decimal(eligibility.refundableAmount);
-	const refundAmount = amount === undefined ? remaining : new Decimal(amount);
-	if (!refundAmount.gt(0) || refundAmount.gt(remaining)) {
+	const refundAmount =
+		amount === undefined ? remaining : new Decimal(amount).toDecimalPlaces(2);
+	if (refundAmount.lt(0.01) || refundAmount.gt(remaining)) {
 		throw new HTTPException(400, {
 			message: `Refund amount must be between $0.01 and $${remaining.toFixed(2)}`,
 		});

@@ -16,7 +16,7 @@ import {
 	projectHourlyStats,
 	sql,
 } from "@llmgateway/db";
-import { FIRST_USAGE_YEAR } from "@llmgateway/shared";
+import { FIRST_USAGE_YEAR, usedModelBaseId } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -130,13 +130,6 @@ organizationWrapped.openapi(getWrapped, async (c) => {
 		200,
 	);
 });
-
-/** `provider/model[:region]` → `model`. */
-function modelIdOf(usedModel: string): string {
-	const slash = usedModel.indexOf("/");
-	const model = slash === -1 ? usedModel : usedModel.slice(slash + 1);
-	return model.split(":")[0];
-}
 
 function percent(part: number, whole: number): number {
 	return whole > 0 ? (part / whole) * 100 : 0;
@@ -313,7 +306,7 @@ export async function loadWrapped(
 			continue;
 		}
 		const tokens = Number(row.totalTokens) || 0;
-		const modelId = modelIdOf(row.usedModel);
+		const modelId = usedModelBaseId(row.usedModel);
 		const model = modelTotals.get(modelId) ?? { totalTokens: 0, requests: 0 };
 		model.totalTokens += tokens;
 		model.requests += requests;

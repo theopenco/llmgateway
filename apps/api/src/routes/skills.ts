@@ -28,6 +28,18 @@ const skillSchema = z.object({
 	updatedAt: z.string().datetime(),
 });
 
+function serializeSkill(s: typeof tables.skill.$inferSelect) {
+	return {
+		id: s.id,
+		name: s.name,
+		description: s.description,
+		instructions: s.instructions,
+		enabled: s.enabled,
+		createdAt: s.createdAt.toISOString(),
+		updatedAt: s.updatedAt.toISOString(),
+	};
+}
+
 const createSkillSchema = z.object({
 	name: z.string().min(1).max(100),
 	description: z.string().max(2000),
@@ -71,15 +83,7 @@ skills.openapi(listSkills, async (c) => {
 	});
 
 	return c.json({
-		skills: rows.map((s) => ({
-			id: s.id,
-			name: s.name,
-			description: s.description,
-			instructions: s.instructions,
-			enabled: s.enabled,
-			createdAt: s.createdAt.toISOString(),
-			updatedAt: s.updatedAt.toISOString(),
-		})),
+		skills: rows.map(serializeSkill),
 	});
 });
 
@@ -126,20 +130,7 @@ skills.openapi(createSkill, async (c) => {
 		})
 		.returning();
 
-	return c.json(
-		{
-			skill: {
-				id: created.id,
-				name: created.name,
-				description: created.description,
-				instructions: created.instructions,
-				enabled: created.enabled,
-				createdAt: created.createdAt.toISOString(),
-				updatedAt: created.updatedAt.toISOString(),
-			},
-		},
-		201,
-	);
+	return c.json({ skill: serializeSkill(created) }, 201);
 });
 
 const getSkill = createRoute({
@@ -180,17 +171,7 @@ skills.openapi(getSkill, async (c) => {
 		throw new HTTPException(403, { message: "Forbidden" });
 	}
 
-	return c.json({
-		skill: {
-			id: s.id,
-			name: s.name,
-			description: s.description,
-			instructions: s.instructions,
-			enabled: s.enabled,
-			createdAt: s.createdAt.toISOString(),
-			updatedAt: s.updatedAt.toISOString(),
-		},
-	});
+	return c.json({ skill: serializeSkill(s) });
 });
 
 const updateSkill = createRoute({
@@ -227,44 +208,27 @@ skills.openapi(updateSkill, async (c) => {
 	const { id } = c.req.valid("param");
 	const body = c.req.valid("json");
 
-	const existing = await db.query.skill.findFirst({
-		where: { id: { eq: id } },
-	});
+	const changes = {
+		...(body.name !== undefined ? { name: body.name } : {}),
+		...(body.description !== undefined
+			? { description: body.description }
+			: {}),
+		...(body.instructions !== undefined
+			? { instructions: body.instructions }
+			: {}),
+		...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+	};
+	const owned = and(eq(tables.skill.id, id), eq(tables.skill.userId, user.id));
 
-	if (!existing) {
+	const [updated] = Object.keys(changes).length
+		? await db.update(tables.skill).set(changes).where(owned).returning()
+		: await db.select().from(tables.skill).where(owned).limit(1);
+
+	if (!updated) {
 		throw new HTTPException(404, { message: "Skill not found" });
 	}
 
-	if (existing.userId !== user.id) {
-		throw new HTTPException(403, { message: "Forbidden" });
-	}
-
-	const [updated] = await db
-		.update(tables.skill)
-		.set({
-			...(body.name !== undefined ? { name: body.name } : {}),
-			...(body.description !== undefined
-				? { description: body.description }
-				: {}),
-			...(body.instructions !== undefined
-				? { instructions: body.instructions }
-				: {}),
-			...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
-		})
-		.where(and(eq(tables.skill.id, id), eq(tables.skill.userId, user.id)))
-		.returning();
-
-	return c.json({
-		skill: {
-			id: updated.id,
-			name: updated.name,
-			description: updated.description,
-			instructions: updated.instructions,
-			enabled: updated.enabled,
-			createdAt: updated.createdAt.toISOString(),
-			updatedAt: updated.updatedAt.toISOString(),
-		},
-	});
+	return c.json({ skill: serializeSkill(updated) });
 });
 
 const deleteSkill = createRoute({
@@ -293,21 +257,14 @@ skills.openapi(deleteSkill, async (c) => {
 
 	const { id } = c.req.valid("param");
 
-	const existing = await db.query.skill.findFirst({
-		where: { id: { eq: id } },
-	});
+	const [deleted] = await db
+		.delete(tables.skill)
+		.where(and(eq(tables.skill.id, id), eq(tables.skill.userId, user.id)))
+		.returning({ id: tables.skill.id });
 
-	if (!existing) {
+	if (!deleted) {
 		throw new HTTPException(404, { message: "Skill not found" });
 	}
-
-	if (existing.userId !== user.id) {
-		throw new HTTPException(403, { message: "Forbidden" });
-	}
-
-	await db
-		.delete(tables.skill)
-		.where(and(eq(tables.skill.id, id), eq(tables.skill.userId, user.id)));
 
 	return c.json({ success: true });
 });

@@ -649,24 +649,25 @@ describe("batched project stats refresh", () => {
 			.values(logValues({ createdAt: new Date("2026-09-12T10:30:05Z") }));
 		vi.setSystemTime(new Date("2026-09-12T10:30:30Z"));
 
-		// The project table takes the slice, then the model table write fails.
+		// The model table takes the slice, then the next dependent write fails
+		// before the parent project row is written.
 		const insert = db.insert.bind(db);
 		let inserts = 0;
 		vi.spyOn(db, "insert").mockImplementation(((
 			table: Parameters<typeof db.insert>[0],
 		) => {
 			if (++inserts === 2) {
-				throw new Error("model stats write failed");
+				throw new Error("dependent stats write failed");
 			}
 			return insert(table);
 		}) as typeof db.insert);
 		await expect(refreshProjectHourlyStats()).rejects.toThrow(
-			"model stats write failed",
+			"dependent stats write failed",
 		);
 		vi.restoreAllMocks();
 		const [partial, partialModel] = await readAllStats();
-		expect(partial[0]).toMatchObject({ requestCount: 2 });
-		expect(partialModel[0]).toMatchObject({ requestCount: 1 });
+		expect(partial[0]).toMatchObject({ requestCount: 1 });
+		expect(partialModel[0]).toMatchObject({ requestCount: 2 });
 
 		// The retry must not add the slice a second time.
 		vi.setSystemTime(new Date("2026-09-12T10:30:35Z"));

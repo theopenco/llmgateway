@@ -219,11 +219,8 @@ export default async function DevpassPage({
 		tier: tier || undefined,
 		status: status || undefined,
 		utilization: utilization || undefined,
-		marginNegative: marginNegative || undefined,
-		// Omitted rather than sent as `false`: the query string carries the
-		// literal "false", and the route's `z.coerce.boolean()` reads any
-		// non-empty string as true. Absent falls through to its `false` default.
-		showChurned: showChurned || undefined,
+		marginNegative: marginNegative ? "true" : undefined,
+		showChurned: showChurned ? "true" : undefined,
 		sortBy,
 		sortOrder,
 	};

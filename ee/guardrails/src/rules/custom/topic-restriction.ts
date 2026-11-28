@@ -97,6 +97,18 @@ function keywordPattern(keyword: string): RegExp {
 	);
 }
 
+interface KeywordPattern {
+	keyword: string;
+	pattern: RegExp;
+}
+
+const TOPIC_PATTERNS: Record<string, KeywordPattern[]> = Object.fromEntries(
+	Object.entries(TOPIC_KEYWORDS).map(([topic, keywords]) => [
+		topic,
+		keywords.map((keyword) => ({ keyword, pattern: keywordPattern(keyword) })),
+	]),
+);
+
 function topicKey(topic: string): string {
 	return topic.trim().toLowerCase().replace(/\s+/g, "_");
 }
@@ -119,14 +131,13 @@ export function checkTopicRestriction(
 		}
 		// Unknown topics are matched as a phrase.
 		const key = topicKey(topic);
-		const keywords = Object.hasOwn(TOPIC_KEYWORDS, key)
-			? TOPIC_KEYWORDS[key]!
-			: [topicLabel(topic)];
-		const keyword = keywords.find((candidate) =>
-			keywordPattern(candidate).test(content),
-		);
-		if (keyword) {
-			matches.push(`${topic}: ${keyword}`);
+		const label = topicLabel(topic);
+		const patterns = Object.hasOwn(TOPIC_PATTERNS, key)
+			? TOPIC_PATTERNS[key]!
+			: [{ keyword: label, pattern: keywordPattern(label) }];
+		const found = patterns.find(({ pattern }) => pattern.test(content));
+		if (found) {
+			matches.push(`${topic}: ${found.keyword}`);
 		}
 	}
 

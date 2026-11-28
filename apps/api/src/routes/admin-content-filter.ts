@@ -420,7 +420,7 @@ adminContentFilter.openapi(getViolations, async (c) => {
 	const minSampled = query.minSampled ?? 0;
 	const windowStart = windowStartFor(window);
 
-	const orgRows = await db
+	const orgRowsQuery = db
 		.select({
 			organizationId: contentFilterHourlyStats.organizationId,
 			organizationName: tables.organization.name,
@@ -459,11 +459,99 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		)
 		.limit(TOP_ORGANIZATIONS);
 
+	// Cross-tenant model ranking, independent of the org list cap: which models
+	// the filter flags most across the whole platform.
+	const globalModelRowsQuery = db
+		.select({
+			usedModel: contentFilterHourlyModelStats.usedModel,
+			usedProvider: contentFilterHourlyModelStats.usedProvider,
+			sampledCount: modelSampled,
+			violationCount: modelViolations,
+			blockedCount: modelBlocked,
+		})
+		.from(contentFilterHourlyModelStats)
+		.where(
+			and(
+				gte(contentFilterHourlyModelStats.hourTimestamp, windowStart),
+				isDecidingModel,
+				eq(
+					contentFilterHourlyModelStats.category,
+					CONTENT_FILTER_STATS_ALL_CATEGORY,
+				),
+			),
+		)
+		.groupBy(
+			contentFilterHourlyModelStats.usedModel,
+			contentFilterHourlyModelStats.usedProvider,
+		)
+		.having(minSampled > 0 ? gte(modelSampled, minSampled) : undefined)
+		.orderBy(
+			...(sort === "rate"
+				? [desc(modelViolationRate), desc(modelViolations), desc(modelSampled)]
+				: [desc(modelViolations), desc(modelSampled)]),
+		)
+		.limit(TOP_GLOBAL_MODELS);
+
+	// Grouped in the database rather than folded out of globalModelRows: that
+	// list is capped, so summing it would undercount a provider whose models all
+	// sit below the cap.
+	const globalProviderRowsQuery = db
+		.select({
+			usedProvider: contentFilterHourlyModelStats.usedProvider,
+			sampledCount: modelSampled,
+			violationCount: modelViolations,
+			blockedCount: modelBlocked,
+		})
+		.from(contentFilterHourlyModelStats)
+		.where(
+			and(
+				gte(contentFilterHourlyModelStats.hourTimestamp, windowStart),
+				isDecidingModel,
+				eq(
+					contentFilterHourlyModelStats.category,
+					CONTENT_FILTER_STATS_ALL_CATEGORY,
+				),
+			),
+		)
+		.groupBy(contentFilterHourlyModelStats.usedProvider)
+		.having(minSampled > 0 ? gte(modelSampled, minSampled) : undefined)
+		.orderBy(
+			...(sort === "rate"
+				? [desc(modelViolationRate), desc(modelViolations), desc(modelSampled)]
+				: [desc(modelViolations), desc(modelSampled)]),
+		);
+
+	// Window-wide, independent of the ranked list cap and sample floor.
+	const globalTotalsQuery = db
+		.select({
+			sampledCount: sampled,
+			violationCount: violations,
+			blockedCount: blocked,
+		})
+		.from(contentFilterHourlyStats)
+		.where(
+			and(
+				gte(contentFilterHourlyStats.hourTimestamp, windowStart),
+				isDeciding,
+				eq(
+					contentFilterHourlyStats.category,
+					CONTENT_FILTER_STATS_ALL_CATEGORY,
+				),
+			),
+		);
+
+	const [orgRows, globalModelRows, globalProviderRows, [globalTotals]] =
+		await Promise.all([
+			orgRowsQuery,
+			globalModelRowsQuery,
+			globalProviderRowsQuery,
+			globalTotalsQuery,
+		]);
+
 	const organizationIds = orgRows.map((row) => row.organizationId);
-	const revenueByOrg = await loadOrganizationRevenue(organizationIds);
-	const categoryRows =
+	const categoryRowsQuery =
 		organizationIds.length > 0
-			? await db
+			? db
 					.select({
 						organizationId: contentFilterHourlyStats.organizationId,
 						category: contentFilterHourlyStats.category,
@@ -487,22 +575,9 @@ adminContentFilter.openapi(getViolations, async (c) => {
 					)
 			: [];
 
-	const categoriesByOrg = new Map<
-		string,
-		{ category: string; violationCount: number }[]
-	>();
-	for (const row of categoryRows) {
-		const list = categoriesByOrg.get(row.organizationId) ?? [];
-		list.push({
-			category: row.category,
-			violationCount: Number(row.violationCount),
-		});
-		categoriesByOrg.set(row.organizationId, list);
-	}
-
-	const modelRows =
+	const modelRowsQuery =
 		organizationIds.length > 0
-			? await db
+			? db
 					.select({
 						organizationId: contentFilterHourlyModelStats.organizationId,
 						usedModel: contentFilterHourlyModelStats.usedModel,
@@ -533,16 +608,9 @@ adminContentFilter.openapi(getViolations, async (c) => {
 					)
 			: [];
 
-	const modelsByOrg = new Map<string, ModelBreakdown[]>();
-	for (const row of modelRows) {
-		const list = modelsByOrg.get(row.organizationId) ?? [];
-		list.push(toModelBreakdown(row));
-		modelsByOrg.set(row.organizationId, list);
-	}
-
-	const providerCategoryRows =
+	const providerCategoryRowsQuery =
 		organizationIds.length > 0
-			? await db
+			? db
 					.select({
 						organizationId: contentFilterHourlyModelStats.organizationId,
 						usedProvider: contentFilterHourlyModelStats.usedProvider,
@@ -571,24 +639,6 @@ adminContentFilter.openapi(getViolations, async (c) => {
 					)
 					.having(sql`sum(${contentFilterHourlyModelStats.violationCount}) > 0`)
 			: [];
-
-	// Keyed by organization, then provider.
-	const providerCategoriesByOrg = new Map<
-		string,
-		Map<string, z.infer<typeof categoryCountSchema>[]>
-	>();
-	for (const row of providerCategoryRows) {
-		const byProvider =
-			providerCategoriesByOrg.get(row.organizationId) ??
-			new Map<string, z.infer<typeof categoryCountSchema>[]>();
-		const list = byProvider.get(row.usedProvider) ?? [];
-		list.push({
-			category: row.category,
-			violationCount: Number(row.violationCount),
-		});
-		byProvider.set(row.usedProvider, list);
-		providerCategoriesByOrg.set(row.organizationId, byProvider);
-	}
 
 	// Ranked per organization in the database, so only the top keys of each
 	// org leave it. Keys without a violation never take a slot here; the
@@ -628,9 +678,9 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		.having(sql`sum(${contentFilterHourlyApiKeyStats.violationCount}) > 0`)
 		.as("ranked_api_keys");
 
-	const apiKeyRows =
+	const apiKeyRowsQuery =
 		organizationIds.length > 0
-			? await db
+			? db
 					.select({
 						organizationId: rankedApiKeys.organizationId,
 						apiKeyId: rankedApiKeys.apiKeyId,
@@ -653,93 +703,64 @@ adminContentFilter.openapi(getViolations, async (c) => {
 					.orderBy(rankedApiKeys.organizationId, rankedApiKeys.rank)
 			: [];
 
+	const [
+		revenueByOrg,
+		categoryRows,
+		modelRows,
+		providerCategoryRows,
+		apiKeyRows,
+	] = await Promise.all([
+		loadOrganizationRevenue(organizationIds),
+		categoryRowsQuery,
+		modelRowsQuery,
+		providerCategoryRowsQuery,
+		apiKeyRowsQuery,
+	]);
+
+	const categoriesByOrg = new Map<
+		string,
+		{ category: string; violationCount: number }[]
+	>();
+	for (const row of categoryRows) {
+		const list = categoriesByOrg.get(row.organizationId) ?? [];
+		list.push({
+			category: row.category,
+			violationCount: Number(row.violationCount),
+		});
+		categoriesByOrg.set(row.organizationId, list);
+	}
+
+	const modelsByOrg = new Map<string, ModelBreakdown[]>();
+	for (const row of modelRows) {
+		const list = modelsByOrg.get(row.organizationId) ?? [];
+		list.push(toModelBreakdown(row));
+		modelsByOrg.set(row.organizationId, list);
+	}
+
+	// Keyed by organization, then provider.
+	const providerCategoriesByOrg = new Map<
+		string,
+		Map<string, z.infer<typeof categoryCountSchema>[]>
+	>();
+	for (const row of providerCategoryRows) {
+		const byProvider =
+			providerCategoriesByOrg.get(row.organizationId) ??
+			new Map<string, z.infer<typeof categoryCountSchema>[]>();
+		const list = byProvider.get(row.usedProvider) ?? [];
+		list.push({
+			category: row.category,
+			violationCount: Number(row.violationCount),
+		});
+		byProvider.set(row.usedProvider, list);
+		providerCategoriesByOrg.set(row.organizationId, byProvider);
+	}
+
 	const apiKeysByOrg = new Map<string, ApiKeyBreakdown[]>();
 	for (const row of apiKeyRows) {
 		const list = apiKeysByOrg.get(row.organizationId) ?? [];
 		list.push(toApiKeyBreakdown(row));
 		apiKeysByOrg.set(row.organizationId, list);
 	}
-
-	// Cross-tenant model ranking, independent of the org list cap: which models
-	// the filter flags most across the whole platform.
-	const globalModelRows = await db
-		.select({
-			usedModel: contentFilterHourlyModelStats.usedModel,
-			usedProvider: contentFilterHourlyModelStats.usedProvider,
-			sampledCount: modelSampled,
-			violationCount: modelViolations,
-			blockedCount: modelBlocked,
-		})
-		.from(contentFilterHourlyModelStats)
-		.where(
-			and(
-				gte(contentFilterHourlyModelStats.hourTimestamp, windowStart),
-				isDecidingModel,
-				eq(
-					contentFilterHourlyModelStats.category,
-					CONTENT_FILTER_STATS_ALL_CATEGORY,
-				),
-			),
-		)
-		.groupBy(
-			contentFilterHourlyModelStats.usedModel,
-			contentFilterHourlyModelStats.usedProvider,
-		)
-		.having(minSampled > 0 ? gte(modelSampled, minSampled) : undefined)
-		.orderBy(
-			...(sort === "rate"
-				? [desc(modelViolationRate), desc(modelViolations), desc(modelSampled)]
-				: [desc(modelViolations), desc(modelSampled)]),
-		)
-		.limit(TOP_GLOBAL_MODELS);
-
-	// Grouped in the database rather than folded out of globalModelRows: that
-	// list is capped, so summing it would undercount a provider whose models all
-	// sit below the cap.
-	const globalProviderRows = await db
-		.select({
-			usedProvider: contentFilterHourlyModelStats.usedProvider,
-			sampledCount: modelSampled,
-			violationCount: modelViolations,
-			blockedCount: modelBlocked,
-		})
-		.from(contentFilterHourlyModelStats)
-		.where(
-			and(
-				gte(contentFilterHourlyModelStats.hourTimestamp, windowStart),
-				isDecidingModel,
-				eq(
-					contentFilterHourlyModelStats.category,
-					CONTENT_FILTER_STATS_ALL_CATEGORY,
-				),
-			),
-		)
-		.groupBy(contentFilterHourlyModelStats.usedProvider)
-		.having(minSampled > 0 ? gte(modelSampled, minSampled) : undefined)
-		.orderBy(
-			...(sort === "rate"
-				? [desc(modelViolationRate), desc(modelViolations), desc(modelSampled)]
-				: [desc(modelViolations), desc(modelSampled)]),
-		);
-
-	// Window-wide, independent of the ranked list cap and sample floor.
-	const [globalTotals] = await db
-		.select({
-			sampledCount: sampled,
-			violationCount: violations,
-			blockedCount: blocked,
-		})
-		.from(contentFilterHourlyStats)
-		.where(
-			and(
-				gte(contentFilterHourlyStats.hourTimestamp, windowStart),
-				isDeciding,
-				eq(
-					contentFilterHourlyStats.category,
-					CONTENT_FILTER_STATS_ALL_CATEGORY,
-				),
-			),
-		);
 	const totals = {
 		sampledCount: Number(globalTotals?.sampledCount ?? 0),
 		violationCount: Number(globalTotals?.violationCount ?? 0),

@@ -56,6 +56,7 @@ import {
 	type InferSelectModel,
 	type MemberBudgetOwner,
 	inArray,
+	ne,
 } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
@@ -866,25 +867,44 @@ type ApiKeyPlanOrganization = Pick<
 	"id" | "plan" | "apiKeyLimit"
 >;
 
-/** Active developer keys across all of an organization's projects. */
-async function countOrgActiveApiKeys(organizationId: string): Promise<number> {
+/**
+ * An organization's non-deleted projects and the active developer keys across
+ * them. Platform, LLM SDK aggregate, and playground session keys are excluded.
+ */
+async function getOrgActiveApiKeyUsage(
+	organizationId: string,
+): Promise<{ projectIds: string[]; activeKeyCount: number }> {
 	const orgProjects = await db.query.project.findMany({
-		where: { organizationId: { eq: organizationId } },
+		where: {
+			organizationId: { eq: organizationId },
+			status: { ne: "deleted" },
+		},
 		columns: { id: true },
 	});
-	if (!orgProjects.length) {
-		return 0;
+	const projectIds = orgProjects.map((p) => p.id);
+	if (!projectIds.length) {
+		return { projectIds, activeKeyCount: 0 };
 	}
 	const orgActiveKeys = await db.query.apiKey.findMany({
 		where: {
-			projectId: { in: orgProjects.map((p) => p.id) },
+			projectId: { in: projectIds },
 			status: { eq: "active" },
 			keyType: { eq: "user" },
 			kind: { ne: "playground" },
 		},
 		columns: { id: true },
 	});
-	return orgActiveKeys.length;
+	return { projectIds, activeKeyCount: orgActiveKeys.length };
+}
+
+async function countOrgActiveApiKeys(organizationId: string): Promise<number> {
+	return (await getOrgActiveApiKeyUsage(organizationId)).activeKeyCount;
+}
+
+function apiKeyLimitReachedError(maxApiKeys: number): HTTPException {
+	return new HTTPException(400, {
+		message: `API key limit reached. Maximum ${maxApiKeys} active API keys per organization. Contact us at contact@llmgateway.io to unlock more.`,
+	});
 }
 
 // The cap is org-wide, so currentCount counts active developer keys across ALL
@@ -1185,23 +1205,8 @@ export async function createApiKeyForProject(
 		project.organization,
 	);
 
-	const orgProjects = await db.query.project.findMany({
-		where: { organizationId: { eq: project.organization.id } },
-		columns: { id: true },
-	});
-	const orgProjectIds = orgProjects.map((p) => p.id);
-
-	// Org-wide cap on active developer API keys across all of the org's projects.
-	// Platform, LLM SDK aggregate, and playground session keys are excluded.
-	const orgActiveApiKeys = await db.query.apiKey.findMany({
-		where: {
-			projectId: { in: orgProjectIds },
-			status: { eq: "active" },
-			keyType: { eq: "user" },
-			kind: { ne: "playground" },
-		},
-		columns: { id: true },
-	});
+	const { projectIds: orgProjectIds, activeKeyCount: orgActiveApiKeyCount } =
+		await getOrgActiveApiKeyUsage(project.organization.id);
 
 	const maxApiKeys = resolveApiKeyLimit(
 		project.organization.id,
@@ -1209,15 +1214,13 @@ export async function createApiKeyForProject(
 		project.organization.apiKeyLimit,
 	);
 
-	if (orgActiveApiKeys.length >= maxApiKeys) {
+	if (orgActiveApiKeyCount >= maxApiKeys) {
 		await notifyOrgLimit(project.organization.id, {
 			limit: "api_keys",
 			projectId: project.id,
 			maxApiKeys,
 		});
-		throw new HTTPException(400, {
-			message: `API key limit reached. Maximum ${maxApiKeys} active API keys per organization. Contact us at contact@llmgateway.io to unlock more.`,
-		});
+		throw apiKeyLimitReachedError(maxApiKeys);
 	}
 
 	// Enforce the per-member active-key cap. The creator's own per-member cap
@@ -1650,7 +1653,8 @@ interface MutableApiKeyAccess {
 /**
  * Load the keys a user can reach (RBAC-aware project access) together with the
  * permission to change them. Shared by the single and bulk mutation routes so
- * both apply the same rules. Keys outside the user's projects are omitted.
+ * both apply the same rules. Keys outside the user's projects and deleted keys
+ * are omitted.
  */
 async function loadMutableApiKeys(
 	userId: string,
@@ -1677,6 +1681,7 @@ async function loadMutableApiKeys(
 		where: {
 			id: { in: uniqueIds },
 			projectId: { in: projectIds },
+			status: { ne: "deleted" },
 		},
 		with: { project: true },
 	});
@@ -1688,6 +1693,9 @@ async function loadMutableApiKeys(
 		const userOrg = userOrgs.find(
 			(org) => org.organizationId === project.organizationId,
 		);
+		if (!userOrg) {
+			continue;
+		}
 		access.set(apiKey.id, {
 			apiKey,
 			organizationId: project.organizationId,
@@ -1874,15 +1882,29 @@ keysApi.openapi(bulkAction, async (c) => {
 	if (eligible.length) {
 		// Write through the cached client so onMutate busts the gateway's cached
 		// token lookups; otherwise the change only applies once the cache expires.
-		await cdb
-			.update(tables.apiKey)
-			.set({ status: targetStatus })
-			.where(
-				inArray(
-					tables.apiKey.id,
-					eligible.map((entry) => entry.apiKey.id),
-				),
-			);
+		const updatedIds = new Set(
+			(
+				await cdb
+					.update(tables.apiKey)
+					.set({ status: targetStatus })
+					.where(
+						and(
+							inArray(
+								tables.apiKey.id,
+								eligible.map((entry) => entry.apiKey.id),
+							),
+							ne(tables.apiKey.status, "deleted"),
+						),
+					)
+					.returning({ id: tables.apiKey.id })
+			).map((row) => row.id),
+		);
+		for (const { apiKey } of eligible) {
+			if (!updatedIds.has(apiKey.id)) {
+				fail(apiKey.id, "not_found");
+			}
+		}
+		eligible = eligible.filter(({ apiKey }) => updatedIds.has(apiKey.id));
 		if (targetStatus !== "active") {
 			await deleteBatchCredentialsForApiKeys(
 				eligible.map((entry) => entry.apiKey.id),
@@ -2224,6 +2246,27 @@ keysApi.openapi(updateStatus, async (c) => {
 		});
 	}
 
+	if (
+		status === "active" &&
+		apiKey.status !== "active" &&
+		apiKey.keyType === "user" &&
+		organization
+	) {
+		const maxApiKeys = resolveApiKeyLimit(
+			organization.id,
+			organization.plan,
+			organization.apiKeyLimit,
+		);
+		if ((await countOrgActiveApiKeys(projectOrgId)) >= maxApiKeys) {
+			await notifyOrgLimit(projectOrgId, {
+				limit: "api_keys",
+				projectId: apiKey.projectId,
+				maxApiKeys,
+			});
+			throw apiKeyLimitReachedError(maxApiKeys);
+		}
+	}
+
 	assertCanManageCompliancePolicy(
 		providerCompliancePolicy,
 		access.organizationRole,
@@ -2270,8 +2313,13 @@ keysApi.openapi(updateStatus, async (c) => {
 				? { providerCompliancePolicy }
 				: {}),
 		})
-		.where(eq(tables.apiKey.id, id))
+		.where(and(eq(tables.apiKey.id, id), ne(tables.apiKey.status, "deleted")))
 		.returning();
+	if (!updatedApiKey) {
+		throw new HTTPException(404, {
+			message: "API key not found",
+		});
+	}
 	if (status !== undefined && status !== "active") {
 		await deleteBatchCredentialsForApiKeys([id]);
 	}
@@ -2402,51 +2450,13 @@ keysApi.openapi(roll, async (c) => {
 
 	const { id } = c.req.param();
 
-	// Get the user's projects
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: {
-				eq: user.id,
-			},
-		},
-		with: {
-			organization: {
-				with: {
-					projects: true,
-				},
-			},
-		},
-	});
-
-	// Get all project IDs the user has access to
-	const projectIds = await getUserProjectIds(user.id);
-
-	// Find the API key
-	const apiKey = await db.query.apiKey.findFirst({
-		where: {
-			id: {
-				eq: id,
-			},
-			projectId: {
-				in: projectIds,
-			},
-		},
-		with: {
-			project: true,
-		},
-	});
-
-	if (!apiKey) {
+	const access = (await loadMutableApiKeys(user.id, [id])).get(id);
+	if (!access) {
 		throw new HTTPException(404, {
 			message: "API key not found",
 		});
 	}
-
-	if (!apiKey.project) {
-		throw new HTTPException(404, {
-			message: "Project not found for API key",
-		});
-	}
+	const { apiKey, organizationId: projectOrgId } = access;
 
 	assertApiKeyIsUserManaged(apiKey);
 
@@ -2458,15 +2468,7 @@ keysApi.openapi(roll, async (c) => {
 		});
 	}
 
-	// Check user role and permissions
-	const projectOrgId = apiKey.project.organizationId;
-	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as
-		"owner" | "admin" | "project_admin" | "developer" | undefined;
-
-	// Developers can only modify their own API keys
-	// Owners and admins can modify any API key
-	if (userRole === "developer" && apiKey.createdBy !== user.id) {
+	if (!access.canMutate) {
 		throw new HTTPException(403, {
 			message: "You don't have permission to modify this API key",
 		});
@@ -2574,63 +2576,19 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 	const { id } = c.req.param();
 	const limitUpdate = c.req.valid("json");
 
-	// Get the user's projects
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: {
-				eq: user.id,
-			},
-		},
-		with: {
-			organization: {
-				with: {
-					projects: true,
-				},
-			},
-		},
-	});
-
-	// Get all project IDs the user has access to
-	const projectIds = await getUserProjectIds(user.id);
-
-	// Find the API key
-	const apiKey = await db.query.apiKey.findFirst({
-		where: {
-			id: {
-				eq: id,
-			},
-			projectId: {
-				in: projectIds,
-			},
-		},
-		with: {
-			project: true,
-		},
-	});
-
-	if (!apiKey) {
+	const access = (await loadMutableApiKeys(user.id, [id])).get(id);
+	if (!access) {
 		throw new HTTPException(404, {
 			message: "API key not found",
 		});
 	}
-
-	if (!apiKey.project) {
-		throw new HTTPException(404, {
-			message: "Project not found for API key",
-		});
-	}
+	const { apiKey, organizationId: projectOrgId } = access;
 
 	assertApiKeyIsUserManaged(apiKey);
 
-	// Check user role and permissions
-	const projectOrgId = apiKey.project.organizationId;
-	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as
-		"owner" | "admin" | "project_admin" | "developer" | undefined;
-
 	// Developers can only modify their own API keys
 	// Owners and admins can modify any API key
-	if (userRole === "developer" && apiKey.createdBy !== user.id) {
+	if (!access.canMutate) {
 		throw new HTTPException(403, {
 			message: "You don't have permission to modify this API key",
 		});
@@ -2641,41 +2599,43 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 
 	// The key's limits must stay at or below the key owner's effective member
 	// budget (their own caps, or the org-wide default developer caps).
-	const ownerMembership = await db.query.userOrganization.findFirst({
-		where: {
-			userId: { eq: apiKey.createdBy },
-			organizationId: { eq: projectOrgId },
-		},
-		columns: {
-			role: true,
-			maxApiKeys: true,
-			usageLimit: true,
-			periodUsageLimit: true,
-			periodUsageDurationValue: true,
-			periodUsageDurationUnit: true,
-		},
-		with: {
-			team: {
-				columns: {
-					maxApiKeys: true,
-					usageLimit: true,
-					periodUsageLimit: true,
-					periodUsageDurationValue: true,
-					periodUsageDurationUnit: true,
+	const [ownerMembership, ownerOrg] = await Promise.all([
+		db.query.userOrganization.findFirst({
+			where: {
+				userId: { eq: apiKey.createdBy },
+				organizationId: { eq: projectOrgId },
+			},
+			columns: {
+				role: true,
+				maxApiKeys: true,
+				usageLimit: true,
+				periodUsageLimit: true,
+				periodUsageDurationValue: true,
+				periodUsageDurationUnit: true,
+			},
+			with: {
+				team: {
+					columns: {
+						maxApiKeys: true,
+						usageLimit: true,
+						periodUsageLimit: true,
+						periodUsageDurationValue: true,
+						periodUsageDurationUnit: true,
+					},
 				},
 			},
-		},
-	});
-	const ownerOrg = await db.query.organization.findFirst({
-		where: { id: { eq: projectOrgId } },
-		columns: {
-			defaultDeveloperMaxApiKeys: true,
-			defaultDeveloperUsageLimit: true,
-			defaultDeveloperPeriodUsageLimit: true,
-			defaultDeveloperPeriodUsageDurationValue: true,
-			defaultDeveloperPeriodUsageDurationUnit: true,
-		},
-	});
+		}),
+		db.query.organization.findFirst({
+			where: { id: { eq: projectOrgId } },
+			columns: {
+				defaultDeveloperMaxApiKeys: true,
+				defaultDeveloperUsageLimit: true,
+				defaultDeveloperPeriodUsageLimit: true,
+				defaultDeveloperPeriodUsageDurationValue: true,
+				defaultDeveloperPeriodUsageDurationUnit: true,
+			},
+		}),
+	]);
 	if (ownerOrg) {
 		assertApiKeyLimitsWithinMemberBudget(
 			ownerMembership,
@@ -2771,65 +2731,19 @@ keysApi.openapi(createIamRule, async (c) => {
 
 	validateIamRuleInput(ruleData);
 
-	// Verify user has access to the API key
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: {
-				eq: user.id,
-			},
-		},
-		with: {
-			organization: {
-				with: {
-					projects: true,
-				},
-			},
-		},
-	});
-
-	const projectIds = await getUserProjectIds(user.id);
-
-	const apiKey = await db.query.apiKey.findFirst({
-		where: {
-			id: {
-				eq: id,
-			},
-			projectId: {
-				in: projectIds,
-			},
-		},
-		with: {
-			project: {
-				with: {
-					organization: true,
-				},
-			},
-		},
-	});
-
-	if (!apiKey) {
+	const access = (await loadMutableApiKeys(user.id, [id])).get(id);
+	if (!access) {
 		throw new HTTPException(404, {
 			message: "API key not found",
 		});
 	}
-
-	if (!apiKey.project) {
-		throw new HTTPException(404, {
-			message: "Project not found for API key",
-		});
-	}
+	const { apiKey, organization, organizationId: projectOrgId } = access;
 
 	assertApiKeyIsUserManaged(apiKey);
 
-	// Check user role and permissions
-	const projectOrgId = apiKey.project.organizationId;
-	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as
-		"owner" | "admin" | "project_admin" | "developer" | undefined;
-
 	// Developers can only manage IAM rules for their own API keys
 	// Owners and admins can manage IAM rules for any API key
-	if (userRole === "developer" && apiKey.createdBy !== user.id) {
+	if (!access.canMutate) {
 		throw new HTTPException(403, {
 			message: "You don't have permission to manage IAM rules for this API key",
 		});
@@ -2837,8 +2751,8 @@ keysApi.openapi(createIamRule, async (c) => {
 
 	assertEnterpriseForIpCidrRule(
 		ruleData.ruleType,
-		apiKey.project.organization?.id,
-		apiKey.project.organization?.plan,
+		organization?.id,
+		organization?.plan,
 	);
 
 	// Create the IAM rule
@@ -2991,65 +2905,19 @@ keysApi.openapi(updateIamRule, async (c) => {
 	// existing rule below.
 	validateIamRuleInput(updateData);
 
-	// Verify user has access to the API key and rule
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: {
-				eq: user.id,
-			},
-		},
-		with: {
-			organization: {
-				with: {
-					projects: true,
-				},
-			},
-		},
-	});
-
-	const projectIds = await getUserProjectIds(user.id);
-
-	const apiKey = await db.query.apiKey.findFirst({
-		where: {
-			id: {
-				eq: id,
-			},
-			projectId: {
-				in: projectIds,
-			},
-		},
-		with: {
-			project: {
-				with: {
-					organization: true,
-				},
-			},
-		},
-	});
-
-	if (!apiKey) {
+	const access = (await loadMutableApiKeys(user.id, [id])).get(id);
+	if (!access) {
 		throw new HTTPException(404, {
 			message: "API key not found",
 		});
 	}
-
-	if (!apiKey.project) {
-		throw new HTTPException(404, {
-			message: "Project not found for API key",
-		});
-	}
+	const { apiKey, organization, organizationId: projectOrgId } = access;
 
 	assertApiKeyIsUserManaged(apiKey);
 
-	// Check user role and permissions
-	const projectOrgId = apiKey.project.organizationId;
-	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as
-		"owner" | "admin" | "project_admin" | "developer" | undefined;
-
 	// Developers can only manage IAM rules for their own API keys
 	// Owners and admins can manage IAM rules for any API key
-	if (userRole === "developer" && apiKey.createdBy !== user.id) {
+	if (!access.canMutate) {
 		throw new HTTPException(403, {
 			message: "You don't have permission to manage IAM rules for this API key",
 		});
@@ -3087,8 +2955,8 @@ keysApi.openapi(updateIamRule, async (c) => {
 	const effectiveRuleType = updateData.ruleType ?? existingRule.ruleType;
 	assertEnterpriseForIpCidrRule(
 		effectiveRuleType,
-		apiKey.project.organization?.id,
-		apiKey.project.organization?.plan,
+		organization?.id,
+		organization?.plan,
 	);
 
 	// An empty PATCH body is a valid no-op; drizzle throws "No values to set"
@@ -3128,6 +2996,16 @@ keysApi.openapi(updateIamRule, async (c) => {
 							ruleType: {
 								old: existingRule.ruleType,
 								new: updateData.ruleType,
+							},
+						}
+					: {}),
+				...(updateData.ruleValue !== undefined &&
+				JSON.stringify(existingRule.ruleValue) !==
+					JSON.stringify(updateData.ruleValue)
+					? {
+							ruleValue: {
+								old: existingRule.ruleValue,
+								new: updateData.ruleValue,
 							},
 						}
 					: {}),
@@ -3179,61 +3057,19 @@ keysApi.openapi(deleteIamRule, async (c) => {
 
 	const { id, ruleId } = c.req.param();
 
-	// Verify user has access to the API key
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: {
-				eq: user.id,
-			},
-		},
-		with: {
-			organization: {
-				with: {
-					projects: true,
-				},
-			},
-		},
-	});
-
-	const projectIds = await getUserProjectIds(user.id);
-
-	const apiKey = await db.query.apiKey.findFirst({
-		where: {
-			id: {
-				eq: id,
-			},
-			projectId: {
-				in: projectIds,
-			},
-		},
-		with: {
-			project: true,
-		},
-	});
-
-	if (!apiKey) {
+	const access = (await loadMutableApiKeys(user.id, [id])).get(id);
+	if (!access) {
 		throw new HTTPException(404, {
 			message: "API key not found",
 		});
 	}
-
-	if (!apiKey.project) {
-		throw new HTTPException(404, {
-			message: "Project not found for API key",
-		});
-	}
+	const { apiKey, organizationId: projectOrgId } = access;
 
 	assertApiKeyIsUserManaged(apiKey);
 
-	// Check user role and permissions
-	const projectOrgId = apiKey.project.organizationId;
-	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as
-		"owner" | "admin" | "project_admin" | "developer" | undefined;
-
 	// Developers can only manage IAM rules for their own API keys
 	// Owners and admins can manage IAM rules for any API key
-	if (userRole === "developer" && apiKey.createdBy !== user.id) {
+	if (!access.canMutate) {
 		throw new HTTPException(403, {
 			message: "You don't have permission to manage IAM rules for this API key",
 		});

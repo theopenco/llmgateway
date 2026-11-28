@@ -48,24 +48,21 @@ async function pingApi(): Promise<void> {
 
 		db.run(
 			"INSERT INTO responses (timestamp, status_code, duration_ms, response_payload) VALUES (?, ?, ?, ?)",
-			[timestamp, response.status, duration, payload]
+			[timestamp, response.status, duration, payload],
 		);
-		saveDb();
 		console.log(
-			`[${timestamp}] Status: ${response.status}, Duration: ${duration.toFixed(2)}ms`
+			`[${timestamp}] Status: ${response.status}, Duration: ${duration.toFixed(2)}ms`,
 		);
 	} catch (error) {
 		const duration = performance.now() - start;
-		const errorMessage =
-			error instanceof Error ? error.message : String(error);
+		const errorMessage = error instanceof Error ? error.message : String(error);
 
 		db.run(
 			"INSERT INTO responses (timestamp, status_code, duration_ms, response_payload) VALUES (?, ?, ?, ?)",
-			[timestamp, 0, duration, JSON.stringify({ error: errorMessage })]
+			[timestamp, 0, duration, JSON.stringify({ error: errorMessage })],
 		);
-		saveDb();
 		console.log(
-			`[${timestamp}] Error: ${errorMessage}, Duration: ${duration.toFixed(2)}ms`
+			`[${timestamp}] Error: ${errorMessage}, Duration: ${duration.toFixed(2)}ms`,
 		);
 	}
 }
@@ -79,6 +76,13 @@ async function main(): Promise<void> {
 
 	await pingApi();
 	setInterval(pingApi, INTERVAL_MS);
+	setInterval(saveDb, 30_000);
+	for (const signal of ["SIGINT", "SIGTERM"] as const) {
+		process.on(signal, () => {
+			saveDb();
+			process.exit(0);
+		});
+	}
 }
 
 void main();

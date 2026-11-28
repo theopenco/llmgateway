@@ -969,11 +969,16 @@ publicChatSupport.post("/reaction", async (c) => {
 		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
 
-	const body = await c.req.json<{
-		clientId?: string;
-		sequence?: number;
-		reaction?: "like" | "dislike" | null;
-	}>();
+	const body = await c.req
+		.json<{
+			clientId?: string;
+			sequence?: number;
+			reaction?: "like" | "dislike" | null;
+		}>()
+		.catch(() => null);
+	if (!body) {
+		return c.json({ error: "Invalid JSON body" }, 400);
+	}
 	const { clientId, sequence, reaction } = body;
 
 	if (!clientId || clientId.length > 64) {
@@ -1017,10 +1022,15 @@ publicChatSupport.post("/resolve", async (c) => {
 		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
 
-	const body = await c.req.json<{
-		clientId?: string;
-		rating?: number;
-	}>();
+	const body = await c.req
+		.json<{
+			clientId?: string;
+			rating?: number;
+		}>()
+		.catch(() => null);
+	if (!body) {
+		return c.json({ error: "Invalid JSON body" }, 400);
+	}
 	const { clientId, rating } = body;
 
 	if (!clientId || clientId.length > 64) {
@@ -1049,6 +1059,24 @@ publicChatSupport.post("/resolve", async (c) => {
 	return c.json({ success: true });
 });
 
+const ESCALATE_MAX_MESSAGES = 100;
+const ESCALATE_MAX_ROLE_LENGTH = 32;
+const ESCALATE_MAX_CONTENT_LENGTH = 20_000;
+
+// Clamped rather than rejected so a long conversation can always reach a human.
+const escalateRequestSchema = z.object({
+	clientId: z.string().min(1).max(64),
+	messages: z
+		.array(z.object({ role: z.string(), content: z.string() }))
+		.optional()
+		.transform((messages) =>
+			messages?.slice(-ESCALATE_MAX_MESSAGES).map((m) => ({
+				role: m.role.slice(0, ESCALATE_MAX_ROLE_LENGTH),
+				content: m.content.slice(0, ESCALATE_MAX_CONTENT_LENGTH),
+			})),
+		),
+});
+
 publicChatSupport.post("/escalate", async (c) => {
 	const ipAddress = getClientIpFromContext(c) ?? "unknown";
 	// Throttle escalation on its own buckets — never the message buckets — so a
@@ -1072,16 +1100,14 @@ publicChatSupport.post("/escalate", async (c) => {
 		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
 
-	const body = await c.req.json<{
-		clientId?: string;
-		messages?: { role: string; content: string }[];
-	}>();
-	const { clientId, messages } = body;
-	const { name, email } = c.get("user")!;
-
-	if (!clientId || typeof clientId !== "string" || clientId.length > 64) {
-		return c.json({ error: "Missing or invalid clientId" }, 400);
+	const parsed = escalateRequestSchema.safeParse(
+		await c.req.json().catch(() => null),
+	);
+	if (!parsed.success) {
+		return c.json({ error: "Invalid request body" }, 400);
 	}
+	const { clientId, messages } = parsed.data;
+	const { name, email } = c.get("user")!;
 
 	const conversationId = await getOrCreateConversation(
 		clientId,
@@ -1117,11 +1143,6 @@ publicChatSupport.post("/escalate", async (c) => {
 		});
 		return c.json({ error: "Too many requests. Please try again later." }, 429);
 	}
-
-	await db
-		.update(t)
-		.set({ escalatedAt: new Date() })
-		.where(eq(t.id, conversationId));
 
 	const escapedName = escapeHtml(name ?? "Not provided");
 	const escapedEmail = escapeHtml(email ?? "Not provided");
@@ -1165,6 +1186,11 @@ publicChatSupport.post("/escalate", async (c) => {
 	const lastUserMessage = [...(messages ?? [])]
 		.reverse()
 		.find((m) => m.role === "user")?.content;
+
+	await db
+		.update(t)
+		.set({ escalatedAt: new Date() })
+		.where(eq(t.id, conversationId));
 
 	await Promise.all([
 		sendTransactionalEmail({

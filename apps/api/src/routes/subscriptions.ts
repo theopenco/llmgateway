@@ -162,6 +162,9 @@ subscriptions.openapi(createProSubscription, async (c) => {
 			checkoutUrl: session.url,
 		});
 	} catch (error) {
+		if (error instanceof HTTPException) {
+			throw error;
+		}
 		logger.error(
 			"Stripe checkout session error",
 			error instanceof Error ? error : new Error(String(error)),
@@ -243,6 +246,9 @@ subscriptions.openapi(cancelProSubscription, async (c) => {
 			success: true,
 		});
 	} catch (error) {
+		if (error instanceof HTTPException) {
+			throw error;
+		}
 		logger.error(
 			"Stripe subscription cancellation error",
 			error instanceof Error ? error : new Error(String(error)),
@@ -335,6 +341,9 @@ subscriptions.openapi(resumeProSubscription, async (c) => {
 			success: true,
 		});
 	} catch (error) {
+		if (error instanceof HTTPException) {
+			throw error;
+		}
 		logger.error(
 			"Stripe subscription resume error",
 			error instanceof Error ? error : new Error(String(error)),
@@ -441,6 +450,9 @@ subscriptions.openapi(upgradeToYearlyPlan, async (c) => {
 			success: true,
 		});
 	} catch (error) {
+		if (error instanceof HTTPException) {
+			throw error;
+		}
 		logger.error(
 			"Stripe subscription upgrade error",
 			error instanceof Error ? error : new Error(String(error)),

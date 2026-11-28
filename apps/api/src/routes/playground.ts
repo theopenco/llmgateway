@@ -683,6 +683,7 @@ playground.openapi(saveImageHistory, async (c) => {
 	}
 
 	const body = c.req.valid("json");
+	await assertHistoryOrganization(user.id, body.organizationId);
 
 	const [row] = await db
 		.insert(tables.playgroundImageHistory)
@@ -926,6 +927,7 @@ playground.openapi(saveAudioHistory, async (c) => {
 	}
 
 	const body = c.req.valid("json");
+	await assertHistoryOrganization(user.id, body.organizationId);
 
 	const [row] = await db
 		.insert(tables.playgroundAudioHistory)
@@ -1130,9 +1132,9 @@ function serializeDecisionHistory(
 	};
 }
 
-// A run can only be filed under an organization the user belongs to; the
+// History can only be filed under an organization the user belongs to; the
 // Chat plan context is represented by a null organizationId.
-async function assertDecisionHistoryOrganization(
+async function assertHistoryOrganization(
 	userId: string,
 	organizationId: string | undefined,
 ): Promise<void> {
@@ -1265,7 +1267,7 @@ playground.openapi(saveDecisionHistory, async (c) => {
 	}
 
 	const body = c.req.valid("json");
-	await assertDecisionHistoryOrganization(user.id, body.organizationId);
+	await assertHistoryOrganization(user.id, body.organizationId);
 
 	const [row] = await db
 		.insert(tables.playgroundDecisionHistory)
@@ -1539,6 +1541,7 @@ playground.openapi(saveVideoHistory, async (c) => {
 	}
 
 	const body = c.req.valid("json");
+	await assertHistoryOrganization(user.id, body.organizationId);
 
 	const [row] = await db
 		.insert(tables.playgroundVideoHistory)
@@ -1940,6 +1943,7 @@ playground.openapi(saveRealtimeHistory, async (c) => {
 	}
 
 	const body = c.req.valid("json");
+	await assertHistoryOrganization(user.id, body.organizationId);
 
 	const [row] = await db
 		.insert(tables.playgroundRealtimeHistory)

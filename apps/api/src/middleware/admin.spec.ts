@@ -2,19 +2,25 @@ import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
 	getAdminRole,
-	isAdminEmail,
 	isAdminRequestAllowed,
 	redactStaffFields,
 } from "./admin.js";
 
-describe("isAdminEmail", () => {
+function isAdminEmail(email: string | null | undefined): boolean {
+	return getAdminRole({ email, emailVerified: true }) === "admin";
+}
+
+describe("getAdminRole admin allowlist", () => {
 	const originalEnv = process.env.ADMIN_FULL_ACCESS_EMAILS;
 
 	beforeEach(() => {
 		vi.unstubAllEnvs();
+		vi.stubEnv("ADMIN_SUPPORT_EMAILS", "");
+		vi.stubEnv("ADMIN_VIEWER_EMAILS", "");
 	});
 
 	afterEach(() => {
+		vi.unstubAllEnvs();
 		if (originalEnv !== undefined) {
 			process.env.ADMIN_FULL_ACCESS_EMAILS = originalEnv;
 		} else {
@@ -87,6 +93,13 @@ describe("isAdminEmail", () => {
 		);
 		expect(isAdminEmail("admin@example.com")).toBe(true);
 		expect(isAdminEmail("other@example.com")).toBe(true);
+	});
+
+	test("returns null for an allowlisted but unverified email", () => {
+		vi.stubEnv("ADMIN_FULL_ACCESS_EMAILS", "admin@example.com");
+		expect(
+			getAdminRole({ email: "admin@example.com", emailVerified: false }),
+		).toBe(null);
 	});
 });
 

@@ -196,6 +196,166 @@ function padActivity(
 	return slots.map((slot) => byDate.get(slot) ?? buildEmptyActivityRow(slot));
 }
 
+type AggregateField =
+	| "requestCount"
+	| "inputTokens"
+	| "outputTokens"
+	| "cachedTokens"
+	| "cacheWriteTokens"
+	| "totalTokens"
+	| "cost"
+	| "inputCost"
+	| "outputCost"
+	| "requestCost"
+	| "dataStorageCost"
+	| "imageInputCost"
+	| "audioInputCost"
+	| "audioOutputCost"
+	| "imageOutputCost"
+	| "videoOutputCost"
+	| "cachedInputCost"
+	| "cacheWriteInputCost"
+	| "clientErrorCount"
+	| "gatewayErrorCount"
+	| "upstreamErrorCount"
+	| "cacheCount"
+	| "discountSavings"
+	| "creditsRequestCount"
+	| "apiKeysRequestCount"
+	| "creditsCost"
+	| "apiKeysCost"
+	| "creditsDataStorageCost"
+	| "apiKeysDataStorageCost";
+
+type AggregateRow = { date: string } & Record<AggregateField, number>;
+
+function mapAggregateRow(
+	day: AggregateRow,
+): Omit<ActivityRow, "modelBreakdown" | "apiKeyBreakdown" | "userBreakdown"> {
+	const requestCount = Number(day.requestCount);
+	const clientErrorCount = Number(day.clientErrorCount);
+	const stability = deriveStabilityMetrics({
+		logsCount: requestCount,
+		clientErrorsCount: clientErrorCount,
+		gatewayErrorsCount: Number(day.gatewayErrorCount),
+		upstreamErrorsCount: Number(day.upstreamErrorCount),
+	});
+	const cacheCount = Number(day.cacheCount);
+
+	return {
+		date: day.date,
+		requestCount,
+		inputTokens: Number(day.inputTokens),
+		outputTokens: Number(day.outputTokens),
+		cachedTokens: Number(day.cachedTokens),
+		cacheWriteTokens: Number(day.cacheWriteTokens),
+		totalTokens: Number(day.totalTokens),
+		cost: Number(day.cost),
+		inputCost: Number(day.inputCost),
+		outputCost: Number(day.outputCost),
+		requestCost: Number(day.requestCost),
+		dataStorageCost: Number(day.dataStorageCost),
+		imageInputCost: Number(day.imageInputCost),
+		audioInputCost: Number(day.audioInputCost),
+		audioOutputCost: Number(day.audioOutputCost),
+		imageOutputCost: Number(day.imageOutputCost),
+		videoOutputCost: Number(day.videoOutputCost),
+		cachedInputCost: Number(day.cachedInputCost),
+		cacheWriteInputCost: Number(day.cacheWriteInputCost),
+		errorCount: stability.errorsCount,
+		clientErrorCount,
+		errorRate: stability.errorRate ?? 0,
+		cacheCount,
+		cacheRate: requestCount > 0 ? (cacheCount / requestCount) * 100 : 0,
+		discountSavings: Number(day.discountSavings),
+		creditsRequestCount: Number(day.creditsRequestCount),
+		apiKeysRequestCount: Number(day.apiKeysRequestCount),
+		creditsCost: Number(day.creditsCost),
+		apiKeysCost: Number(day.apiKeysCost),
+		creditsDataStorageCost: Number(day.creditsDataStorageCost),
+		apiKeysDataStorageCost: Number(day.apiKeysDataStorageCost),
+	};
+}
+
+async function loadApiKeyBreakdownByDate({
+	projectIds,
+	startDate,
+	endDate,
+	timeZone,
+	isHourly,
+	extraWhere = [],
+}: {
+	projectIds: string[];
+	startDate: Date;
+	endDate: Date;
+	timeZone: string;
+	isHourly: boolean;
+	extraWhere?: Parameters<typeof and>;
+}) {
+	const apiKeyBreakdowns = await db
+		.select({
+			date: bucketDate(apiKeyHourlyStats.hourTimestamp, timeZone, isHourly).as(
+				"date",
+			),
+			apiKeyId: apiKeyHourlyStats.apiKeyId,
+			description: apiKey.description,
+			requestCount:
+				sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
+					"requestCount",
+				),
+			inputTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
+					"inputTokens",
+				),
+			outputTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.outputTokens} AS NUMERIC)), 0)`.as(
+					"outputTokens",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"totalTokens",
+				),
+			cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
+				"cost",
+			),
+			...modeSplitFields(apiKeyHourlyStats),
+		})
+		.from(apiKeyHourlyStats)
+		.leftJoin(apiKey, eq(apiKey.id, apiKeyHourlyStats.apiKeyId))
+		.where(
+			and(
+				...extraWhere,
+				inArray(apiKeyHourlyStats.projectId, projectIds),
+				inArray(apiKey.keyType, ["user", "end_user_customer"]),
+				gte(apiKeyHourlyStats.hourTimestamp, startDate),
+				lte(apiKeyHourlyStats.hourTimestamp, endDate),
+			),
+		)
+		.groupBy(sql`1, ${apiKeyHourlyStats.apiKeyId}, ${apiKey.description}`)
+		.orderBy(sql`1 ASC, ${apiKeyHourlyStats.apiKeyId} ASC`);
+
+	const apiKeyBreakdownByDate = new Map<
+		string,
+		z.infer<typeof apiKeyUsageSchema>[]
+	>();
+	for (const breakdown of apiKeyBreakdowns) {
+		if (!apiKeyBreakdownByDate.has(breakdown.date)) {
+			apiKeyBreakdownByDate.set(breakdown.date, []);
+		}
+		apiKeyBreakdownByDate.get(breakdown.date)!.push({
+			id: breakdown.apiKeyId,
+			description: breakdown.description ?? "Deleted key",
+			requestCount: Number(breakdown.requestCount),
+			inputTokens: Number(breakdown.inputTokens),
+			outputTokens: Number(breakdown.outputTokens),
+			totalTokens: Number(breakdown.totalTokens),
+			cost: Number(breakdown.cost),
+			...mapModeSplit(breakdown),
+		});
+	}
+	return apiKeyBreakdownByDate;
+}
+
 // Define the route for getting activity data
 const getActivity = createRoute({
 	method: "get",
@@ -284,6 +444,7 @@ activity.openapi(getActivity, async (c) => {
 				granularity = "daily";
 				break;
 		}
+		startDate.setUTCMinutes(0, 0, 0);
 	} else if (from && to) {
 		startDate = zonedTimeToUtc(from + "T00:00:00.000", timeZone);
 		endDate = zonedTimeToUtc(to + "T23:59:59.999", timeZone);
@@ -304,6 +465,11 @@ activity.openapi(getActivity, async (c) => {
 	if (breakdownDimension === "user" && !projectId) {
 		throw new HTTPException(400, {
 			message: "projectId is required when grouping by user",
+		});
+	}
+	if (breakdownDimension === "user" && apiKeyId) {
+		throw new HTTPException(400, {
+			message: "apiKeyId cannot be combined with groupBy=user",
 		});
 	}
 
@@ -507,240 +673,116 @@ activity.openapi(getActivity, async (c) => {
 			.groupBy(sql`1`)
 			.orderBy(sql`1 ASC`);
 
-		// Query model breakdown from apiKeyHourlyModelStats table
-		const modelBreakdowns = await db
-			.select({
-				date: bucketDate(
-					apiKeyHourlyModelStats.hourTimestamp,
-					timeZone,
-					isHourly,
-				).as("date"),
-				usedModel: apiKeyHourlyModelStats.usedModel,
-				usedProvider: apiKeyHourlyModelStats.usedProvider,
-				requestCount:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.requestCount}), 0)`.as(
-						"requestCount",
-					),
-				inputTokens:
-					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.inputTokens} AS NUMERIC)), 0)`.as(
-						"inputTokens",
-					),
-				outputTokens:
-					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.outputTokens} AS NUMERIC)), 0)`.as(
-						"outputTokens",
-					),
-				cachedTokens:
-					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.cachedTokens} AS NUMERIC)), 0)`.as(
-						"cachedTokens",
-					),
-				cacheWriteTokens:
-					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.cacheWriteTokens} AS NUMERIC)), 0)`.as(
-						"cacheWriteTokens",
-					),
-				totalTokens:
-					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
-						"totalTokens",
-					),
-				cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyModelStats.cost} as double precision)), 0)`.as(
-					"cost",
-				),
-				...modeSplitFields(apiKeyHourlyModelStats),
-				...costComponentFields(apiKeyHourlyModelStats),
-			})
-			.from(apiKeyHourlyModelStats)
-			.where(
-				and(
-					apiKeyId ? eq(apiKeyHourlyModelStats.apiKeyId, apiKeyId) : undefined,
-					scopeFilter(
-						apiKeyHourlyModelStats.projectId,
-						apiKeyHourlyModelStats.apiKeyId,
-					),
-					inArray(apiKeyHourlyModelStats.projectId, projectIds),
-					gte(apiKeyHourlyModelStats.hourTimestamp, startDate),
-					lte(apiKeyHourlyModelStats.hourTimestamp, endDate),
-				),
-			)
-			.groupBy(
-				sql`1, ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`,
-			)
-			.orderBy(sql`1 ASC, ${apiKeyHourlyModelStats.usedModel} ASC`);
-
 		const modelBreakdownByDate = new Map<
 			string,
 			z.infer<typeof modelUsageSchema>[]
 		>();
-		for (const breakdown of modelBreakdowns) {
-			if (!modelBreakdownByDate.has(breakdown.date)) {
-				modelBreakdownByDate.set(breakdown.date, []);
-			}
-			modelBreakdownByDate.get(breakdown.date)!.push({
-				id: breakdown.usedModel || "unknown",
-				provider: breakdown.usedProvider || "unknown",
-				requestCount: Number(breakdown.requestCount),
-				inputTokens: Number(breakdown.inputTokens),
-				outputTokens: Number(breakdown.outputTokens),
-				cachedTokens: Number(breakdown.cachedTokens),
-				cacheWriteTokens: Number(breakdown.cacheWriteTokens),
-				totalTokens: Number(breakdown.totalTokens),
-				cost: Number(breakdown.cost),
-				...mapCostComponents(breakdown),
-				...mapModeSplit(breakdown),
-			});
-		}
-
-		// A key-scoped caller asking for the api-key breakdown still gets one, over
-		// the keys they are allowed to see.
-		const apiKeyBreakdownByDate = new Map<
-			string,
-			z.infer<typeof apiKeyUsageSchema>[]
-		>();
-		if (breakdownDimension === "apiKey") {
-			const apiKeyBreakdowns = await db
+		if (breakdownDimension === "model") {
+			const modelBreakdowns = await db
 				.select({
 					date: bucketDate(
-						apiKeyHourlyStats.hourTimestamp,
+						apiKeyHourlyModelStats.hourTimestamp,
 						timeZone,
 						isHourly,
 					).as("date"),
-					apiKeyId: apiKeyHourlyStats.apiKeyId,
-					description: apiKey.description,
+					usedModel: apiKeyHourlyModelStats.usedModel,
+					usedProvider: apiKeyHourlyModelStats.usedProvider,
 					requestCount:
-						sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
+						sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.requestCount}), 0)`.as(
 							"requestCount",
 						),
 					inputTokens:
-						sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
+						sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.inputTokens} AS NUMERIC)), 0)`.as(
 							"inputTokens",
 						),
 					outputTokens:
-						sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.outputTokens} AS NUMERIC)), 0)`.as(
+						sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.outputTokens} AS NUMERIC)), 0)`.as(
 							"outputTokens",
 						),
+					cachedTokens:
+						sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.cachedTokens} AS NUMERIC)), 0)`.as(
+							"cachedTokens",
+						),
+					cacheWriteTokens:
+						sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.cacheWriteTokens} AS NUMERIC)), 0)`.as(
+							"cacheWriteTokens",
+						),
 					totalTokens:
-						sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
+						sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 							"totalTokens",
 						),
-					cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
+					cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyModelStats.cost} as double precision)), 0)`.as(
 						"cost",
 					),
-					...modeSplitFields(apiKeyHourlyStats),
+					...modeSplitFields(apiKeyHourlyModelStats),
+					...costComponentFields(apiKeyHourlyModelStats),
 				})
-				.from(apiKeyHourlyStats)
-				.leftJoin(apiKey, eq(apiKey.id, apiKeyHourlyStats.apiKeyId))
+				.from(apiKeyHourlyModelStats)
 				.where(
 					and(
-						apiKeyId ? eq(apiKeyHourlyStats.apiKeyId, apiKeyId) : undefined,
+						apiKeyId
+							? eq(apiKeyHourlyModelStats.apiKeyId, apiKeyId)
+							: undefined,
 						scopeFilter(
-							apiKeyHourlyStats.projectId,
-							apiKeyHourlyStats.apiKeyId,
+							apiKeyHourlyModelStats.projectId,
+							apiKeyHourlyModelStats.apiKeyId,
 						),
-						inArray(apiKeyHourlyStats.projectId, projectIds),
-						inArray(apiKey.keyType, ["user", "end_user_customer"]),
-						gte(apiKeyHourlyStats.hourTimestamp, startDate),
-						lte(apiKeyHourlyStats.hourTimestamp, endDate),
+						inArray(apiKeyHourlyModelStats.projectId, projectIds),
+						gte(apiKeyHourlyModelStats.hourTimestamp, startDate),
+						lte(apiKeyHourlyModelStats.hourTimestamp, endDate),
 					),
 				)
-				.groupBy(sql`1, ${apiKeyHourlyStats.apiKeyId}, ${apiKey.description}`)
-				.orderBy(sql`1 ASC, ${apiKeyHourlyStats.apiKeyId} ASC`);
+				.groupBy(
+					sql`1, ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`,
+				)
+				.orderBy(sql`1 ASC, ${apiKeyHourlyModelStats.usedModel} ASC`);
 
-			for (const breakdown of apiKeyBreakdowns) {
-				if (!apiKeyBreakdownByDate.has(breakdown.date)) {
-					apiKeyBreakdownByDate.set(breakdown.date, []);
+			for (const breakdown of modelBreakdowns) {
+				if (!modelBreakdownByDate.has(breakdown.date)) {
+					modelBreakdownByDate.set(breakdown.date, []);
 				}
-				apiKeyBreakdownByDate.get(breakdown.date)!.push({
-					id: breakdown.apiKeyId,
-					description: breakdown.description ?? "Deleted key",
+				modelBreakdownByDate.get(breakdown.date)!.push({
+					id: breakdown.usedModel || "unknown",
+					provider: breakdown.usedProvider || "unknown",
 					requestCount: Number(breakdown.requestCount),
 					inputTokens: Number(breakdown.inputTokens),
 					outputTokens: Number(breakdown.outputTokens),
+					cachedTokens: Number(breakdown.cachedTokens),
+					cacheWriteTokens: Number(breakdown.cacheWriteTokens),
 					totalTokens: Number(breakdown.totalTokens),
 					cost: Number(breakdown.cost),
+					...mapCostComponents(breakdown),
 					...mapModeSplit(breakdown),
 				});
 			}
 		}
 
-		// Process daily aggregates and add calculated fields
-		const activityData = hourlyAggregates.map((day) => {
-			const requestCount = Number(day.requestCount);
-			const inputTokens = Number(day.inputTokens);
-			const outputTokens = Number(day.outputTokens);
-			const cachedTokens = Number(day.cachedTokens);
-			const cacheWriteTokens = Number(day.cacheWriteTokens);
-			const totalTokens = Number(day.totalTokens);
-			const cost = Number(day.cost);
-			const inputCost = Number(day.inputCost);
-			const outputCost = Number(day.outputCost);
-			const requestCost = Number(day.requestCost);
-			const dataStorageCost = Number(day.dataStorageCost);
-			const clientErrorCount = Number(day.clientErrorCount);
-			const stability = deriveStabilityMetrics({
-				logsCount: requestCount,
-				clientErrorsCount: clientErrorCount,
-				gatewayErrorsCount: Number(day.gatewayErrorCount),
-				upstreamErrorsCount: Number(day.upstreamErrorCount),
-			});
-			const cacheCount = Number(day.cacheCount);
-			const discountSavings = Number(day.discountSavings);
-			const imageInputCost = Number(day.imageInputCost);
-			const audioInputCost = Number(day.audioInputCost);
-			const audioOutputCost = Number(day.audioOutputCost);
-			const imageOutputCost = Number(day.imageOutputCost);
-			const videoOutputCost = Number(day.videoOutputCost);
-			const cachedInputCost = Number(day.cachedInputCost);
-			const cacheWriteInputCost = Number(day.cacheWriteInputCost);
+		// A key-scoped caller asking for the api-key breakdown still gets one, over
+		// the keys they are allowed to see.
+		const apiKeyBreakdownByDate =
+			breakdownDimension === "apiKey"
+				? await loadApiKeyBreakdownByDate({
+						projectIds,
+						startDate,
+						endDate,
+						timeZone,
+						isHourly,
+						extraWhere: [
+							apiKeyId ? eq(apiKeyHourlyStats.apiKeyId, apiKeyId) : undefined,
+							scopeFilter(
+								apiKeyHourlyStats.projectId,
+								apiKeyHourlyStats.apiKeyId,
+							),
+						],
+					})
+				: new Map<string, z.infer<typeof apiKeyUsageSchema>[]>();
 
-			const creditsRequestCount = Number(day.creditsRequestCount);
-			const apiKeysRequestCount = Number(day.apiKeysRequestCount);
-			const creditsCost = Number(day.creditsCost);
-			const apiKeysCost = Number(day.apiKeysCost);
-			const creditsDataStorageCost = Number(day.creditsDataStorageCost);
-			const apiKeysDataStorageCost = Number(day.apiKeysDataStorageCost);
-
-			const errorRate = stability.errorRate ?? 0;
-			const cacheRate =
-				requestCount > 0 ? (cacheCount / requestCount) * 100 : 0;
-
-			return {
-				date: day.date,
-				requestCount,
-				inputTokens,
-				outputTokens,
-				cachedTokens,
-				cacheWriteTokens,
-				totalTokens,
-				cost,
-				inputCost,
-				outputCost,
-				requestCost,
-				dataStorageCost,
-				imageInputCost,
-				audioInputCost,
-				audioOutputCost,
-				imageOutputCost,
-				videoOutputCost,
-				cachedInputCost,
-				cacheWriteInputCost,
-				errorCount: stability.errorsCount,
-				clientErrorCount,
-				errorRate,
-				cacheCount,
-				cacheRate,
-				discountSavings,
-				creditsRequestCount,
-				apiKeysRequestCount,
-				creditsCost,
-				apiKeysCost,
-				creditsDataStorageCost,
-				apiKeysDataStorageCost,
-				modelBreakdown:
-					breakdownDimension === "model"
-						? (modelBreakdownByDate.get(day.date) ?? [])
-						: [],
-				apiKeyBreakdown: apiKeyBreakdownByDate.get(day.date) ?? [],
-				userBreakdown: [],
-			};
-		});
+		const activityData = hourlyAggregates.map((day) => ({
+			...mapAggregateRow(day),
+			modelBreakdown: modelBreakdownByDate.get(day.date) ?? [],
+			apiKeyBreakdown: apiKeyBreakdownByDate.get(day.date) ?? [],
+			userBreakdown: [],
+		}));
 
 		const paddedActivity =
 			timeRange || (from && to)
@@ -969,70 +1011,16 @@ activity.openapi(getActivity, async (c) => {
 	}
 
 	// Query api key breakdown only when the caller asks for it.
-	const apiKeyBreakdownByDate = new Map<
-		string,
-		z.infer<typeof apiKeyUsageSchema>[]
-	>();
-	if (breakdownDimension === "apiKey") {
-		const apiKeyBreakdowns = await db
-			.select({
-				date: bucketDate(
-					apiKeyHourlyStats.hourTimestamp,
+	const apiKeyBreakdownByDate =
+		breakdownDimension === "apiKey"
+			? await loadApiKeyBreakdownByDate({
+					projectIds,
+					startDate,
+					endDate,
 					timeZone,
 					isHourly,
-				).as("date"),
-				apiKeyId: apiKeyHourlyStats.apiKeyId,
-				description: apiKey.description,
-				requestCount:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.requestCount}), 0)`.as(
-						"requestCount",
-					),
-				inputTokens:
-					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.inputTokens} AS NUMERIC)), 0)`.as(
-						"inputTokens",
-					),
-				outputTokens:
-					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.outputTokens} AS NUMERIC)), 0)`.as(
-						"outputTokens",
-					),
-				totalTokens:
-					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyStats.totalTokens} AS NUMERIC)), 0)`.as(
-						"totalTokens",
-					),
-				cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
-					"cost",
-				),
-				...modeSplitFields(apiKeyHourlyStats),
-			})
-			.from(apiKeyHourlyStats)
-			.leftJoin(apiKey, eq(apiKey.id, apiKeyHourlyStats.apiKeyId))
-			.where(
-				and(
-					inArray(apiKeyHourlyStats.projectId, projectIds),
-					inArray(apiKey.keyType, ["user", "end_user_customer"]),
-					gte(apiKeyHourlyStats.hourTimestamp, startDate),
-					lte(apiKeyHourlyStats.hourTimestamp, endDate),
-				),
-			)
-			.groupBy(sql`1, ${apiKeyHourlyStats.apiKeyId}, ${apiKey.description}`)
-			.orderBy(sql`1 ASC, ${apiKeyHourlyStats.apiKeyId} ASC`);
-
-		for (const breakdown of apiKeyBreakdowns) {
-			if (!apiKeyBreakdownByDate.has(breakdown.date)) {
-				apiKeyBreakdownByDate.set(breakdown.date, []);
-			}
-			apiKeyBreakdownByDate.get(breakdown.date)!.push({
-				id: breakdown.apiKeyId,
-				description: breakdown.description ?? "Deleted key",
-				requestCount: Number(breakdown.requestCount),
-				inputTokens: Number(breakdown.inputTokens),
-				outputTokens: Number(breakdown.outputTokens),
-				totalTokens: Number(breakdown.totalTokens),
-				cost: Number(breakdown.cost),
-				...mapModeSplit(breakdown),
-			});
-		}
-	}
+				})
+			: new Map<string, z.infer<typeof apiKeyUsageSchema>[]>();
 
 	// Query the per-member breakdown only when the caller asks for it.
 	const userBreakdownByDate = new Map<
@@ -1068,84 +1056,12 @@ activity.openapi(getActivity, async (c) => {
 		}
 	}
 
-	// Process hourly aggregates (summed to daily) and add calculated fields
-	const activityData = hourlyAggregates.map((day) => {
-		// Convert database strings to numbers
-		const requestCount = Number(day.requestCount);
-		const inputTokens = Number(day.inputTokens);
-		const outputTokens = Number(day.outputTokens);
-		const cachedTokens = Number(day.cachedTokens);
-		const cacheWriteTokens = Number(day.cacheWriteTokens);
-		const totalTokens = Number(day.totalTokens);
-		const cost = Number(day.cost);
-		const inputCost = Number(day.inputCost);
-		const outputCost = Number(day.outputCost);
-		const requestCost = Number(day.requestCost);
-		const dataStorageCost = Number(day.dataStorageCost);
-		const imageInputCost = Number(day.imageInputCost);
-		const audioInputCost = Number(day.audioInputCost);
-		const audioOutputCost = Number(day.audioOutputCost);
-		const imageOutputCost = Number(day.imageOutputCost);
-		const videoOutputCost = Number(day.videoOutputCost);
-		const cachedInputCost = Number(day.cachedInputCost);
-		const cacheWriteInputCost = Number(day.cacheWriteInputCost);
-		const clientErrorCount = Number(day.clientErrorCount);
-		const stability = deriveStabilityMetrics({
-			logsCount: requestCount,
-			clientErrorsCount: clientErrorCount,
-			gatewayErrorsCount: Number(day.gatewayErrorCount),
-			upstreamErrorsCount: Number(day.upstreamErrorCount),
-		});
-		const cacheCount = Number(day.cacheCount);
-		const discountSavings = Number(day.discountSavings);
-
-		const creditsRequestCount = Number(day.creditsRequestCount);
-		const apiKeysRequestCount = Number(day.apiKeysRequestCount);
-		const creditsCost = Number(day.creditsCost);
-		const apiKeysCost = Number(day.apiKeysCost);
-		const creditsDataStorageCost = Number(day.creditsDataStorageCost);
-		const apiKeysDataStorageCost = Number(day.apiKeysDataStorageCost);
-
-		const errorRate = stability.errorRate ?? 0;
-		const cacheRate = requestCount > 0 ? (cacheCount / requestCount) * 100 : 0;
-
-		return {
-			date: day.date,
-			requestCount,
-			inputTokens,
-			outputTokens,
-			cachedTokens,
-			cacheWriteTokens,
-			totalTokens,
-			cost,
-			inputCost,
-			outputCost,
-			requestCost,
-			dataStorageCost,
-			imageInputCost,
-			audioInputCost,
-			audioOutputCost,
-			imageOutputCost,
-			videoOutputCost,
-			cachedInputCost,
-			cacheWriteInputCost,
-			errorCount: stability.errorsCount,
-			clientErrorCount,
-			errorRate,
-			cacheCount,
-			cacheRate,
-			discountSavings,
-			creditsRequestCount,
-			apiKeysRequestCount,
-			creditsCost,
-			apiKeysCost,
-			creditsDataStorageCost,
-			apiKeysDataStorageCost,
-			modelBreakdown: modelBreakdownByDate.get(day.date) ?? [],
-			apiKeyBreakdown: apiKeyBreakdownByDate.get(day.date) ?? [],
-			userBreakdown: userBreakdownByDate.get(day.date) ?? [],
-		};
-	});
+	const activityData = hourlyAggregates.map((day) => ({
+		...mapAggregateRow(day),
+		modelBreakdown: modelBreakdownByDate.get(day.date) ?? [],
+		apiKeyBreakdown: apiKeyBreakdownByDate.get(day.date) ?? [],
+		userBreakdown: userBreakdownByDate.get(day.date) ?? [],
+	}));
 
 	const paddedActivity =
 		timeRange || (from && to)

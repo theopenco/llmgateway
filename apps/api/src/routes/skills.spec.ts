@@ -79,6 +79,28 @@ test.each([true, false])(
 	},
 );
 
+test("an empty update returns the owned skill and 404 for an unknown one", async () => {
+	const created = await app.request("/skills", {
+		method: "POST",
+		headers: { "Content-Type": "application/json", Cookie: cookie },
+		body: JSON.stringify(draft),
+	});
+	expect(created.status).toBe(201);
+	const { skill } = await created.json();
+
+	const patch = (id: string) =>
+		app.request(`/skills/${id}`, {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json", Cookie: cookie },
+			body: JSON.stringify({}),
+		});
+
+	const own = await patch(skill.id);
+	expect(own.status).toBe(200);
+	expect(await own.json()).toEqual({ skill });
+	expect((await patch("missing-skill")).status).toBe(404);
+});
+
 test("rejects an empty prompt before resolving a billing key", async () => {
 	const resolveKey = vi.spyOn(playgroundKey, "resolvePlaygroundToken");
 	const response = await app.request("/skills/generate", {

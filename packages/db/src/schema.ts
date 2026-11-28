@@ -618,9 +618,6 @@ export const referral = snakeCase.table(
 		index("referral_referrer_organization_id_idx").on(
 			table.referrerOrganizationId,
 		),
-		index("referral_referred_organization_id_idx").on(
-			table.referredOrganizationId,
-		),
 	],
 );
 
@@ -794,9 +791,6 @@ export const devPlanCancellationFeedback = snakeCase.table(
 			table.organizationId,
 			table.devPlanStripeSubscriptionId,
 		),
-		index("dev_plan_cancellation_feedback_organization_id_idx").on(
-			table.organizationId,
-		),
 	],
 );
 
@@ -834,9 +828,6 @@ export const chatPlanCancellationFeedback = snakeCase.table(
 		uniqueIndex("chat_plan_cancellation_feedback_org_sub_unique").on(
 			table.organizationId,
 			table.chatPlanStripeSubscriptionId,
-		),
-		index("chat_plan_cancellation_feedback_organization_id_idx").on(
-			table.organizationId,
 		),
 	],
 );
@@ -1035,10 +1026,7 @@ export const emailUnsubscribe = snakeCase.table(
 			.notNull()
 			.default("one_click"),
 	},
-	(table) => [
-		unique().on(table.email, table.category),
-		index("email_unsubscribe_email_idx").on(table.email),
-	],
+	(table) => [unique().on(table.email, table.category)],
 );
 
 export const followUpEmail = snakeCase.table(
@@ -1060,10 +1048,7 @@ export const followUpEmail = snakeCase.table(
 		}).notNull(),
 		sentTo: text().notNull(),
 	},
-	(table) => [
-		unique().on(table.organizationId, table.emailType),
-		index("follow_up_email_organization_id_idx").on(table.organizationId),
-	],
+	(table) => [unique().on(table.organizationId, table.emailType)],
 );
 
 export const paymentFailure = snakeCase.table(
@@ -1506,7 +1491,6 @@ export const userProject = snakeCase.table(
 			table.userOrganizationId,
 			table.projectId,
 		),
-		index("user_project_user_organization_id_idx").on(table.userOrganizationId),
 		index("user_project_project_id_idx").on(table.projectId),
 	],
 );
@@ -1611,7 +1595,6 @@ export const organizationTeamProject = snakeCase.table(
 			table.teamId,
 			table.projectId,
 		),
-		index("organization_team_project_team_id_idx").on(table.teamId),
 		index("organization_team_project_project_id_idx").on(table.projectId),
 	],
 );
@@ -1659,7 +1642,6 @@ export const endCustomer = snakeCase.table(
 			table.mode,
 		),
 		index("end_customer_organization_id_idx").on(table.organizationId),
-		index("end_customer_project_id_idx").on(table.projectId),
 	],
 );
 
@@ -1971,6 +1953,28 @@ export const apiKey = snakeCase.table(
 	],
 );
 
+export const IAM_RULE_TYPES = [
+	"allow_models",
+	"deny_models",
+	"allow_pricing",
+	"deny_pricing",
+	"allow_providers",
+	"deny_providers",
+	"allow_ip_cidrs",
+	"deny_ip_cidrs",
+] as const;
+
+export type IamRuleType = (typeof IAM_RULE_TYPES)[number];
+
+export interface IamRuleValue {
+	models?: string[];
+	providers?: string[];
+	pricingType?: "free" | "paid";
+	maxInputPrice?: number;
+	maxOutputPrice?: number;
+	ipCidrs?: string[];
+}
+
 export const apiKeyIamRule = snakeCase.table(
 	"api_key_iam_rule",
 	{
@@ -1983,28 +1987,8 @@ export const apiKeyIamRule = snakeCase.table(
 		apiKeyId: text()
 			.notNull()
 			.references(() => apiKey.id, { onDelete: "cascade" }),
-		ruleType: text({
-			enum: [
-				"allow_models",
-				"deny_models",
-				"allow_pricing",
-				"deny_pricing",
-				"allow_providers",
-				"deny_providers",
-				"allow_ip_cidrs",
-				"deny_ip_cidrs",
-			],
-		}).notNull(),
-		ruleValue: json()
-			.$type<{
-				models?: string[];
-				providers?: string[];
-				pricingType?: "free" | "paid";
-				maxInputPrice?: number;
-				maxOutputPrice?: number;
-				ipCidrs?: string[];
-			}>()
-			.notNull(),
+		ruleType: text({ enum: IAM_RULE_TYPES }).notNull(),
+		ruleValue: json().$type<IamRuleValue>().notNull(),
 		status: text({
 			enum: ["active", "inactive"],
 		})
@@ -2035,28 +2019,8 @@ export const userIamRule = snakeCase.table(
 		userOrganizationId: text()
 			.notNull()
 			.references(() => userOrganization.id, { onDelete: "cascade" }),
-		ruleType: text({
-			enum: [
-				"allow_models",
-				"deny_models",
-				"allow_pricing",
-				"deny_pricing",
-				"allow_providers",
-				"deny_providers",
-				"allow_ip_cidrs",
-				"deny_ip_cidrs",
-			],
-		}).notNull(),
-		ruleValue: json()
-			.$type<{
-				models?: string[];
-				providers?: string[];
-				pricingType?: "free" | "paid";
-				maxInputPrice?: number;
-				maxOutputPrice?: number;
-				ipCidrs?: string[];
-			}>()
-			.notNull(),
+		ruleType: text({ enum: IAM_RULE_TYPES }).notNull(),
+		ruleValue: json().$type<IamRuleValue>().notNull(),
 		status: text({
 			enum: ["active", "inactive"],
 		})
@@ -2086,28 +2050,8 @@ export const organizationTeamIamRule = snakeCase.table(
 		teamId: text()
 			.notNull()
 			.references(() => organizationTeam.id, { onDelete: "cascade" }),
-		ruleType: text({
-			enum: [
-				"allow_models",
-				"deny_models",
-				"allow_pricing",
-				"deny_pricing",
-				"allow_providers",
-				"deny_providers",
-				"allow_ip_cidrs",
-				"deny_ip_cidrs",
-			],
-		}).notNull(),
-		ruleValue: json()
-			.$type<{
-				models?: string[];
-				providers?: string[];
-				pricingType?: "free" | "paid";
-				maxInputPrice?: number;
-				maxOutputPrice?: number;
-				ipCidrs?: string[];
-			}>()
-			.notNull(),
+		ruleType: text({ enum: IAM_RULE_TYPES }).notNull(),
+		ruleValue: json().$type<IamRuleValue>().notNull(),
 		status: text({ enum: ["active", "inactive"] })
 			.notNull()
 			.default("active"),
@@ -2146,7 +2090,6 @@ export const masterKey = snakeCase.table(
 	},
 	(table) => [
 		index("master_key_organization_id_idx").on(table.organizationId),
-		index("master_key_token_hash_idx").on(table.tokenHash),
 		index("master_key_created_by_idx").on(table.createdBy),
 	],
 );
@@ -2516,6 +2459,66 @@ export const LOG_ERROR_CATEGORIES = [
 
 export type LogErrorCategory = (typeof LOG_ERROR_CATEGORIES)[number];
 
+export interface RoutingMetadataBase {
+	availableProviders?: string[];
+	selectedProvider?: string;
+	selectionReason?: string;
+	usedApiKeyHash?: string;
+	// Whose credential served the request: the organization's own provider
+	// key (`byok`) or an LLM Gateway platform credential (`platform`).
+	// Always agrees with the row's billing mode (`usedMode`).
+	usedCredentialSource?: "byok" | "platform";
+	// The organization's own key that served the request, named as its
+	// owner sees it. Only set for "byok" — a platform-managed credential
+	// is never described to a tenant.
+	usedProviderKeyId?: string;
+	usedProviderKeyLabel?: string;
+	// The organization's own keys that were candidates for the used
+	// provider, in selection order. BYOK rows only.
+	eligibleProviderKeys?: Array<{ id: string; label?: string }>;
+	providerScores?: Array<{
+		providerId: string;
+		region?: string;
+		score: number;
+		uptime?: number;
+		latency?: number;
+		throughput?: number;
+		price?: number;
+		priority?: number;
+		cacheSupported?: boolean;
+		failed?: boolean;
+		status_code?: number;
+		error_type?: string;
+		rate_limited?: boolean;
+		contentFilterProvider?: boolean;
+		excludedByContentFilter?: boolean;
+	}>;
+	originalProvider?: string;
+	originalProviderUptime?: number;
+	originalProviderRateLimited?: boolean;
+	noFallback?: boolean;
+	xNoFallbackHeaderSet?: boolean;
+	contentFilterMatched?: boolean;
+	contentFilterRerouted?: boolean;
+	contentFilterExcludedProviders?: string[];
+	routing?: Array<{
+		provider: string;
+		model: string;
+		region?: string;
+		status_code: number;
+		error_type: string;
+		succeeded: boolean;
+		apiKeyHash?: string;
+		// Per attempt: a hybrid-mode request can start on the org's own key
+		// and fall back to the platform credential, so ownership differs
+		// between entries in this array.
+		credentialSource?: "byok" | "platform";
+		providerKeyId?: string;
+		providerKeyLabel?: string;
+		logId?: string;
+	}>;
+}
+
 export const log = snakeCase.table(
 	"log",
 	{
@@ -2661,150 +2664,96 @@ export const log = snakeCase.table(
 		promptVersion: integer(),
 		promptLabel: text(),
 		customHeaders: json().$type<{ [key: string]: string }>(),
-		routingMetadata: json().$type<{
-			availableProviders?: string[];
-			selectedProvider?: string;
-			selectionReason?: string;
-			usedApiKeyHash?: string;
-			// Whose credential served the request: the organization's own provider
-			// key (`byok`) or an LLM Gateway platform credential (`platform`).
-			// Always agrees with the row's billing mode (`usedMode`).
-			usedCredentialSource?: "byok" | "platform";
-			// The organization's own key that served the request, named as its
-			// owner sees it. Only set for "byok" — a platform-managed credential
-			// is never described to a tenant.
-			usedProviderKeyId?: string;
-			usedProviderKeyLabel?: string;
-			// The organization's own keys that were candidates for the used
-			// provider, in selection order. BYOK rows only.
-			eligibleProviderKeys?: Array<{ id: string; label?: string }>;
-			providerScores?: Array<{
-				providerId: string;
-				region?: string;
-				score: number;
-				uptime?: number;
-				latency?: number;
-				throughput?: number;
-				price?: number;
-				priority?: number;
-				cacheSupported?: boolean;
-				failed?: boolean;
-				status_code?: number;
-				error_type?: string;
-				rate_limited?: boolean;
-				contentFilterProvider?: boolean;
-				excludedByContentFilter?: boolean;
-			}>;
-			originalProvider?: string;
-			originalProviderUptime?: number;
-			originalProviderRateLimited?: boolean;
-			noFallback?: boolean;
-			xNoFallbackHeaderSet?: boolean;
-			contentFilterMatched?: boolean;
-			contentFilterRerouted?: boolean;
-			contentFilterExcludedProviders?: string[];
-			routing?: Array<{
-				provider: string;
-				model: string;
-				region?: string;
-				status_code: number;
-				error_type: string;
-				succeeded: boolean;
-				apiKeyHash?: string;
-				// Per attempt: a hybrid-mode request can start on the org's own key
-				// and fall back to the platform credential, so ownership differs
-				// between entries in this array.
-				credentialSource?: "byok" | "platform";
-				providerKeyId?: string;
-				providerKeyLabel?: string;
-				logId?: string;
-			}>;
-			filteredProviders?: Array<{
-				providerId: string;
-				reasons: string[];
-				// Stable RoutingExclusionReason codes for the same exclusions, used as
-				// the aggregation key for routing_exclusion_hourly. Absent on rows
-				// written before codes existed.
-				codes?: string[];
-			}>;
-			// Where the requested service tier came from: the request body, or a
-			// dev-plan (DevPass) org's configured default tier. Only set when a
-			// premium tier was in play.
-			serviceTierSource?: "request" | "coding-plan-default";
-			strippedParameters?: string[];
-			// Some of the conversation's OpenAI-format encrypted reasoning was
-			// left out: a retry moved to a credential that could not verify it,
-			// or the request replayed reasoning from another credential.
-			encryptedReasoningDropped?: boolean;
-			// Set when the request was resolved through a named dynamic route.
-			dynamicRoute?: {
-				name: string;
-				version: number;
-				// Node ids traversed during graph evaluation.
-				path: string[];
-				// Verdict the route's classifier nodes branched on. Absent when the
-				// graph has none, or when no verdict was obtained and those nodes
-				// took their `else` branch.
-				classifier?: {
-					kind: "jev";
+		routingMetadata: json().$type<
+			RoutingMetadataBase & {
+				filteredProviders?: Array<{
+					providerId: string;
+					reasons: string[];
+					// Stable RoutingExclusionReason codes for the same exclusions, used as
+					// the aggregation key for routing_exclusion_hourly. Absent on rows
+					// written before codes existed.
+					codes?: string[];
+				}>;
+				// Where the requested service tier came from: the request body, or a
+				// dev-plan (DevPass) org's configured default tier. Only set when a
+				// premium tier was in play.
+				serviceTierSource?: "request" | "coding-plan-default";
+				strippedParameters?: string[];
+				// Some of the conversation's OpenAI-format encrypted reasoning was
+				// left out: a retry moved to a credential that could not verify it,
+				// or the request replayed reasoning from another credential.
+				encryptedReasoningDropped?: boolean;
+				// Set when the request was resolved through a named dynamic route.
+				dynamicRoute?: {
+					name: string;
+					version: number;
+					// Node ids traversed during graph evaluation.
+					path: string[];
+					// Verdict the route's classifier nodes branched on. Absent when the
+					// graph has none, or when no verdict was obtained and those nodes
+					// took their `else` branch.
+					classifier?: {
+						kind: "jev";
+						difficulty?: "low" | "medium" | "high";
+						difficultyScore?: number;
+						task?: string;
+						outputType?: string;
+					};
+				};
+				// How an "auto" request resolved to a concrete model when the
+				// organization configured smart routing. Absent for the built-in
+				// default candidate set.
+				smartRouting?: {
+					classifier: "none" | "jev";
+					rubricVersion?: number;
+					eligibleModels: string[];
+					candidateModels: string[];
 					difficulty?: "low" | "medium" | "high";
 					difficultyScore?: number;
+					difficultyProbabilities?: Partial<
+						Record<"low" | "medium" | "high", number>
+					>;
 					task?: string;
 					outputType?: string;
+					bestModel?: string;
+					bestModelConfidence?: number;
+					// The classifier's top candidates by probability, highest first.
+					bestModelProbabilities?: Record<string, number>;
+					band?: "low" | "medium" | "high";
+					selectedModel: string;
+					classifierLatencyMs?: number;
+					// USD billed for the classifier call this request made, on its own
+					// log row. Absent when it made none.
+					classifierCost?: number;
+					classifierFailed: boolean;
+					// Why a configured classifier was not consulted at all.
+					classifierSkipped?:
+						"single-candidate" | "compliance" | "no-credential" | "no-credits";
+					// True when the configured fallback model served a verdict-less request.
+					usedFallback?: boolean;
+					// True when the verdict served came from another turn of the same
+					// sticky session rather than from this request.
+					classifierReused?: boolean;
+					trigger?:
+						"initial" | "reused" | "mid-turn" | "cache-expired" | "scan";
+					effort?: "low" | "medium" | "high";
+					effortSource?: "classifier" | "caller";
+					workChange?: "same" | "easier" | "harder" | "different" | "unclear";
+					keptReason?: string;
+					// Present on the request where the model or effort changed.
+					switch?: {
+						fromModel: string;
+						toModel: string;
+						fromEffort?: "low" | "medium" | "high";
+						toEffort?: "low" | "medium" | "high";
+						direction?: "upgrade" | "downgrade" | "lateral";
+						reason: string;
+						estimatedStayUsd?: number;
+						estimatedSwitchUsd?: number;
+					};
 				};
-			};
-			// How an "auto" request resolved to a concrete model when the
-			// organization configured smart routing. Absent for the built-in
-			// default candidate set.
-			smartRouting?: {
-				classifier: "none" | "jev";
-				rubricVersion?: number;
-				eligibleModels: string[];
-				candidateModels: string[];
-				difficulty?: "low" | "medium" | "high";
-				difficultyScore?: number;
-				difficultyProbabilities?: Partial<
-					Record<"low" | "medium" | "high", number>
-				>;
-				task?: string;
-				outputType?: string;
-				bestModel?: string;
-				bestModelConfidence?: number;
-				// The classifier's top candidates by probability, highest first.
-				bestModelProbabilities?: Record<string, number>;
-				band?: "low" | "medium" | "high";
-				selectedModel: string;
-				classifierLatencyMs?: number;
-				// USD billed for the classifier call this request made, on its own
-				// log row. Absent when it made none.
-				classifierCost?: number;
-				classifierFailed: boolean;
-				// Why a configured classifier was not consulted at all.
-				classifierSkipped?:
-					"single-candidate" | "compliance" | "no-credential" | "no-credits";
-				// True when the configured fallback model served a verdict-less request.
-				usedFallback?: boolean;
-				// True when the verdict served came from another turn of the same
-				// sticky session rather than from this request.
-				classifierReused?: boolean;
-				trigger?: "initial" | "reused" | "mid-turn" | "cache-expired" | "scan";
-				effort?: "low" | "medium" | "high";
-				effortSource?: "classifier" | "caller";
-				workChange?: "same" | "easier" | "harder" | "different" | "unclear";
-				keptReason?: string;
-				// Present on the request where the model or effort changed.
-				switch?: {
-					fromModel: string;
-					toModel: string;
-					fromEffort?: "low" | "medium" | "high";
-					toEffort?: "low" | "medium" | "high";
-					direction?: "upgrade" | "downgrade" | "lateral";
-					reason: string;
-					estimatedStayUsd?: number;
-					estimatedSwitchUsd?: number;
-				};
-			};
-		}>(),
+			}
+		>(),
 		processedAt: timestamp(),
 		rawRequest: jsonb(),
 		rawResponse: jsonb(),
@@ -3121,65 +3070,7 @@ export const videoJob = snakeCase.table(
 		cost: real(),
 		videoOutputCost: real(),
 		imageInputCost: real(),
-		routingMetadata: jsonb().$type<{
-			availableProviders?: string[];
-			selectedProvider?: string;
-			selectionReason?: string;
-			usedApiKeyHash?: string;
-			// Whose credential served the request: the organization's own provider
-			// key (`byok`) or an LLM Gateway platform credential (`platform`).
-			// Always agrees with the row's billing mode (`usedMode`).
-			usedCredentialSource?: "byok" | "platform";
-			// The organization's own key that served the request, named as its
-			// owner sees it. Only set for "byok" — a platform-managed credential
-			// is never described to a tenant.
-			usedProviderKeyId?: string;
-			usedProviderKeyLabel?: string;
-			// The organization's own keys that were candidates for the used
-			// provider, in selection order. BYOK rows only.
-			eligibleProviderKeys?: Array<{ id: string; label?: string }>;
-			providerScores?: Array<{
-				providerId: string;
-				region?: string;
-				score: number;
-				uptime?: number;
-				latency?: number;
-				throughput?: number;
-				price?: number;
-				priority?: number;
-				cacheSupported?: boolean;
-				failed?: boolean;
-				status_code?: number;
-				error_type?: string;
-				rate_limited?: boolean;
-				contentFilterProvider?: boolean;
-				excludedByContentFilter?: boolean;
-			}>;
-			originalProvider?: string;
-			originalProviderUptime?: number;
-			originalProviderRateLimited?: boolean;
-			noFallback?: boolean;
-			xNoFallbackHeaderSet?: boolean;
-			contentFilterMatched?: boolean;
-			contentFilterRerouted?: boolean;
-			contentFilterExcludedProviders?: string[];
-			routing?: Array<{
-				provider: string;
-				model: string;
-				region?: string;
-				status_code: number;
-				error_type: string;
-				succeeded: boolean;
-				apiKeyHash?: string;
-				// Per attempt: a hybrid-mode request can start on the org's own key
-				// and fall back to the platform credential, so ownership differs
-				// between entries in this array.
-				credentialSource?: "byok" | "platform";
-				providerKeyId?: string;
-				providerKeyLabel?: string;
-				logId?: string;
-			}>;
-		}>(),
+		routingMetadata: jsonb().$type<RoutingMetadataBase>(),
 		upstreamCreateResponse: jsonb(),
 		upstreamStatusResponse: jsonb(),
 	},
@@ -3340,10 +3231,7 @@ export const scimToken = snakeCase.table(
 			.notNull()
 			.default("active"),
 	},
-	(table) => [
-		index("scim_token_organization_id_idx").on(table.organizationId),
-		index("scim_token_token_hash_idx").on(table.tokenHash),
-	],
+	(table) => [index("scim_token_organization_id_idx").on(table.organizationId)],
 );
 
 // SCIM groups pushed by the IdP (Okta). Membership drives role assignment via
@@ -7976,7 +7864,6 @@ export const loungePointEvent = snakeCase.table(
 		points: integer().notNull(),
 	},
 	(table) => [
-		index("lounge_point_event_user_id_idx").on(table.userId),
 		index("lounge_point_event_user_id_created_at_idx").on(
 			table.userId,
 			table.createdAt,
@@ -8400,10 +8287,7 @@ export const prompt = snakeCase.table(
 		description: text(),
 		latestVersion: integer().notNull().default(0),
 	},
-	(table) => [
-		index("prompt_project_id_idx").on(table.projectId),
-		unique().on(table.projectId, table.name),
-	],
+	(table) => [unique().on(table.projectId, table.name)],
 );
 
 export const promptVersion = snakeCase.table(

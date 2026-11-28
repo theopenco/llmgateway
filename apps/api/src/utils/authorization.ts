@@ -8,25 +8,18 @@ export {
 	type ApiKeyScope,
 } from "@llmgateway/actions";
 
-/**
- * Get all organization IDs that a user belongs to
- * @param userId - The user ID to check
- * @returns Promise<string[]> - Array of organization IDs
- */
-export async function getUserOrganizationIds(
-	userId: string,
-): Promise<string[]> {
-	const userOrgs = await db.query.userOrganization.findMany({
+async function loadUserMemberships(userId: string) {
+	return await db.query.userOrganization.findMany({
 		where: {
 			userId: {
 				eq: userId,
 			},
 		},
+		columns: { role: true },
 		with: {
-			organization: true,
+			organization: { columns: { id: true, status: true } },
 		},
 	});
-	return userOrgs.map((uo) => uo.organization!.id);
 }
 
 /**
@@ -48,16 +41,7 @@ export async function userHasProjectAccess(
 export async function getAdminOrganizationIds(
 	userId: string,
 ): Promise<string[]> {
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: {
-				eq: userId,
-			},
-		},
-		with: {
-			organization: true,
-		},
-	});
+	const userOrgs = await loadUserMemberships(userId);
 	return userOrgs
 		.filter(
 			(uo) =>
@@ -75,16 +59,7 @@ export async function getAdminOrganizationIds(
 export async function getActiveUserOrganizationIds(
 	userId: string,
 ): Promise<string[]> {
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: {
-				eq: userId,
-			},
-		},
-		with: {
-			organization: true,
-		},
-	});
+	const userOrgs = await loadUserMemberships(userId);
 	return userOrgs
 		.filter((uo) => uo.organization?.status !== "deleted")
 		.map((uo) => uo.organization!.id);

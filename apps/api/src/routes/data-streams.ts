@@ -477,11 +477,20 @@ dataStreams.openapi(testStreamRoute, async (c) => {
 		c.get("user")?.id,
 		c.req.valid("param").id,
 	);
-	const secret = decryptDataStreamSecret(
-		existing.secret,
-		existing.id,
-		existing.organizationId,
-	);
+	let secret: DataStreamSecret;
+	try {
+		secret = decryptDataStreamSecret(
+			existing.secret,
+			existing.id,
+			existing.organizationId,
+		);
+	} catch {
+		return c.json({
+			success: false,
+			error:
+				"Stream secret could not be decrypted. Re-enter the secret and try again.",
+		});
+	}
 	try {
 		await deliverDataStreamBatch(existing, secret, [
 			buildDataStreamTestEvent(existing),

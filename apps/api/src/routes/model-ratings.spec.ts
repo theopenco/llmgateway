@@ -9,6 +9,7 @@ import { db, tables } from "@llmgateway/db";
 
 const ORG_ID = "test-org-ratings";
 const PROJECT_ID = "test-project-ratings";
+const API_KEY_ID = "test-api-key-ratings";
 const MODEL_ID = "gpt-4o";
 
 async function seedOrgAndProject() {
@@ -28,10 +29,23 @@ async function seedOrgAndProject() {
 		name: "Test Project",
 		organizationId: ORG_ID,
 	});
+	await db.insert(tables.apiKey).values({
+		id: API_KEY_ID,
+		tokenHash: "test-ratings-token-hash",
+		tokenMasked: "llmgtwy_****",
+		description: "Ratings key",
+		projectId: PROJECT_ID,
+		createdBy: "test-user-id",
+	});
 }
 
-async function seedModelUsage(requestCount: number, usedModel = MODEL_ID) {
-	await db.insert(tables.projectHourlyModelStats).values({
+async function seedModelUsage(
+	requestCount: number,
+	usedModel = MODEL_ID,
+	apiKeyId = API_KEY_ID,
+) {
+	await db.insert(tables.apiKeyHourlyModelStats).values({
+		apiKeyId,
 		projectId: PROJECT_ID,
 		hourTimestamp: new Date("2026-06-01T00:00:00Z"),
 		usedModel,
@@ -156,6 +170,36 @@ describe("model-ratings", () => {
 			body: JSON.stringify({ modelId: MODEL_ID, rating: 5 }),
 		});
 		expect(res.status).toBe(200);
+	});
+
+	test("POST / ignores org usage from keys created by other members", async () => {
+		await db.insert(tables.user).values({
+			id: "test-other-ratings-user",
+			name: "Other User",
+			email: "other-ratings@example.com",
+			emailVerified: true,
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "test-other-ratings-user",
+			organizationId: ORG_ID,
+			role: "developer",
+		});
+		await db.insert(tables.apiKey).values({
+			id: "test-other-api-key-ratings",
+			tokenHash: "test-other-ratings-token-hash",
+			tokenMasked: "llmgtwy_****",
+			description: "Other key",
+			projectId: PROJECT_ID,
+			createdBy: "test-other-ratings-user",
+		});
+		await seedModelUsage(500, MODEL_ID, "test-other-api-key-ratings");
+
+		const res = await app.request("/model-ratings", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ modelId: MODEL_ID, rating: 5 }),
+		});
+		expect(res.status).toBe(403);
 	});
 
 	test("POST / requires authentication", async () => {

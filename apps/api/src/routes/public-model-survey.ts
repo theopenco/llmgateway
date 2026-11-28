@@ -72,7 +72,12 @@ const getResults = createRoute({
 publicModelSurvey.openapi(getResults, async (c) => {
 	const { year: queryYear } = c.req.valid("query");
 	const year = queryYear ?? new Date().getUTCFullYear();
+	return c.json(await loadSurveyResults(year));
+});
 
+async function loadSurveyResults(
+	year: number,
+): Promise<z.infer<typeof resultsSchema>> {
 	const round2 = (value: string | number | null) =>
 		Math.round(Number(value ?? 0) * 100) / 100;
 
@@ -125,7 +130,12 @@ publicModelSurvey.openapi(getResults, async (c) => {
 					count: count(),
 				})
 				.from(tables.modelSurveyResponse)
-				.where(eq(tables.modelSurveyResponse.year, year))
+				.where(
+					and(
+						eq(tables.modelSurveyResponse.year, year),
+						inArray(tables.modelSurveyResponse.modelId, publishedModelIds),
+					),
+				)
 				.groupBy(
 					tables.modelSurveyResponse.modelId,
 					tables.modelSurveyResponse.primaryUseCase,
@@ -137,10 +147,7 @@ publicModelSurvey.openapi(getResults, async (c) => {
 		{ useCase: (typeof useCaseRows)[number]["useCase"]; count: number }[]
 	>();
 	for (const row of useCaseRows) {
-		if (
-			!publishedModelIds.includes(row.modelId) ||
-			Number(row.count) < MIN_USE_CASE_BUCKET
-		) {
+		if (Number(row.count) < MIN_USE_CASE_BUCKET) {
 			continue;
 		}
 		const list = useCasesByModel.get(row.modelId) ?? [];
@@ -148,7 +155,7 @@ publicModelSurvey.openapi(getResults, async (c) => {
 		useCasesByModel.set(row.modelId, list);
 	}
 
-	return c.json({
+	return {
 		year,
 		minResponses: MIN_PUBLIC_RESPONSES,
 		totalResponses,
@@ -170,7 +177,7 @@ publicModelSurvey.openapi(getResults, async (c) => {
 				),
 			};
 		}),
-	});
-});
+	};
+}
 
 export { publicModelSurvey };

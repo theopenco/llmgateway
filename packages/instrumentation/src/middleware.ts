@@ -31,12 +31,6 @@ export function createTracingMiddleware(options: TracingMiddlewareOptions) {
 			]),
 		);
 
-		// Add support for X-Cloud-Trace-Context header
-		const cloudTraceContext = c.req.header("x-cloud-trace-context");
-		if (cloudTraceContext) {
-			headers["x-cloud-trace-context"] = cloudTraceContext;
-		}
-
 		const parentContext = propagation.extract(context.active(), headers);
 
 		// Check for force-trace header

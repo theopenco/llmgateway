@@ -26,7 +26,10 @@ export function checkBlockedTerms(
 
 		switch (config.matchType) {
 			case "exact": {
-				const regex = new RegExp(`\\b${escapeRegex(searchTerm)}\\b`, "g");
+				const regex = new RegExp(
+					`(?<![\\p{L}\\p{N}_])${escapeRegex(searchTerm)}(?![\\p{L}\\p{N}_])`,
+					"gu",
+				);
 				const found = searchContent.match(regex);
 				if (found) {
 					matches.push(...found.map(() => term));

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { tables } from "./index.js";
+import type { IamRuleType } from "./schema.js";
 import type { InferSelectModel, InferInsertModel } from "drizzle-orm";
 
 export const errorDetails = z.object({
@@ -159,28 +160,12 @@ export type Organization = Omit<
 export type User = UserBase;
 
 export type ApiKeyIamRule = Omit<ApiKeyIamRuleBase, "status" | "ruleType"> & {
-	ruleType:
-		| "allow_models"
-		| "deny_models"
-		| "allow_pricing"
-		| "deny_pricing"
-		| "allow_providers"
-		| "deny_providers"
-		| "allow_ip_cidrs"
-		| "deny_ip_cidrs";
+	ruleType: IamRuleType;
 	status: "active" | "inactive";
 };
 
 export type UserIamRule = Omit<UserIamRuleBase, "status" | "ruleType"> & {
-	ruleType:
-		| "allow_models"
-		| "deny_models"
-		| "allow_pricing"
-		| "deny_pricing"
-		| "allow_providers"
-		| "deny_providers"
-		| "allow_ip_cidrs"
-		| "deny_ip_cidrs";
+	ruleType: IamRuleType;
 	status: "active" | "inactive";
 };
 

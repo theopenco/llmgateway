@@ -144,7 +144,7 @@ describe("MCP account analytics", () => {
 				projectId: "mcp-project",
 				hourTimestamp: hour,
 				usedProvider: "provider-b",
-				usedModel: "model-b",
+				usedModel: "provider-b/model-b:region-a",
 				requestCount: 14,
 				cost: 2,
 				totalTokens: "400",

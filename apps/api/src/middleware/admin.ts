@@ -21,15 +21,6 @@ function emailList(value: string | undefined): string[] {
 		.filter(Boolean);
 }
 
-export function isAdminEmail(email: string | null | undefined): boolean {
-	return (
-		!!email &&
-		emailList(process.env.ADMIN_FULL_ACCESS_EMAILS).includes(
-			email.toLowerCase(),
-		)
-	);
-}
-
 /**
  * The admin panel role for a user. Authority is keyed on the email address, so
  * an unverified one never counts — otherwise changing your email to an

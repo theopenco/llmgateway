@@ -15,7 +15,7 @@ import {
 } from "@/utils/playground-key.js";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
-import { db, tables, eq, and, count, desc, asc } from "@llmgateway/db";
+import { db, tables, eq, and, count, desc, asc, inArray } from "@llmgateway/db";
 import { deferDownloadsToGateway } from "@llmgateway/shared/ai-sdk-download";
 import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
@@ -243,6 +243,10 @@ chatProjects.openapi(listProjects, async (c) => {
 					and(
 						eq(tables.chat.userId, user.id),
 						eq(tables.chat.status, "active"),
+						inArray(
+							tables.chat.projectId,
+							rows.map((row) => row.id),
+						),
 					),
 				)
 				.groupBy(tables.chat.projectId)
@@ -712,10 +716,8 @@ chatProjects.openapi(retrieve, async (c) => {
 	const [chunks, memoryRows] = await Promise.all([
 		db
 			.select({
-				content: tables.chatProjectFileChunk.content,
+				id: tables.chatProjectFileChunk.id,
 				embedding: tables.chatProjectFileChunk.embedding,
-				fileId: tables.chatProjectFileChunk.fileId,
-				fileName: tables.chatProjectFile.name,
 			})
 			.from(tables.chatProjectFileChunk)
 			.innerJoin(
@@ -746,16 +748,53 @@ chatProjects.openapi(retrieve, async (c) => {
 	const token = headerKey ?? (await resolvePlaygroundToken(c, user));
 	const [queryEmbedding] = await embedTexts(token, [query], c.req.raw.headers);
 
-	const scored = chunks
+	const topScores = chunks
 		.map((chunk) => ({
-			content: chunk.content,
-			fileId: chunk.fileId,
-			fileName: chunk.fileName,
+			id: chunk.id,
 			score: cosineSimilarity(queryEmbedding, chunk.embedding),
 		}))
 		.filter((chunk) => chunk.score >= MIN_RETRIEVAL_SCORE)
 		.sort((a, b) => b.score - a.score)
 		.slice(0, topK ?? DEFAULT_TOP_K);
+
+	if (!topScores.length) {
+		return c.json({ project: projectInfo, chunks: [], memories });
+	}
+
+	const details = await db
+		.select({
+			id: tables.chatProjectFileChunk.id,
+			content: tables.chatProjectFileChunk.content,
+			fileId: tables.chatProjectFileChunk.fileId,
+			fileName: tables.chatProjectFile.name,
+		})
+		.from(tables.chatProjectFileChunk)
+		.innerJoin(
+			tables.chatProjectFile,
+			eq(tables.chatProjectFileChunk.fileId, tables.chatProjectFile.id),
+		)
+		.where(
+			inArray(
+				tables.chatProjectFileChunk.id,
+				topScores.map((chunk) => chunk.id),
+			),
+		);
+	const detailById = new Map(details.map((row) => [row.id, row]));
+
+	const scored = topScores.flatMap((chunk) => {
+		const detail = detailById.get(chunk.id);
+		if (!detail) {
+			return [];
+		}
+		return [
+			{
+				content: detail.content,
+				fileId: detail.fileId,
+				fileName: detail.fileName,
+				score: chunk.score,
+			},
+		];
+	});
 
 	return c.json({ project: projectInfo, chunks: scored, memories });
 });

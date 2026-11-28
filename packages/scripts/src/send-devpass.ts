@@ -37,11 +37,6 @@ import { readFileSync } from "fs";
 import { Resend } from "resend";
 
 import { isEmailSuppressed } from "@llmgateway/db";
-import {
-	buildUnsubscribeHeaders,
-	renderFooterText,
-	signUnsubscribeToken,
-} from "@llmgateway/shared/email-unsubscribe";
 
 import {
 	parseSendArgs,
@@ -51,17 +46,11 @@ import {
 	type SendArgs,
 } from "./devpass-audiences.js";
 import { loadDevPassMemberships } from "./devpass-memberships.js";
+import { sendMarketingEmail, sleep } from "./marketing-email.js";
 
-const FROM = "Luca from LLMGateway <contact@mail.llmgateway.io>";
-const REPLY_TO = "luca.steeb@llmgateway.io";
 const RATE_LIMIT_DELAY_MS = 600;
-const MAX_RETRIES = 5;
 
 type Recipient = DevPassMembership;
-
-async function sleep(ms: number) {
-	return await new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function describe(recipient: Recipient, audience: DevPassAudience): string {
 	if (audience === "past") {
@@ -71,51 +60,6 @@ function describe(recipient: Recipient, audience: DevPassAudience): string {
 		? `${recipient.devPlan}, cancelled, active until ${recipient.expiresAt?.toISOString() ?? "?"}`
 		: `${recipient.devPlan}, active`;
 	return audience === "past-due" ? `${plan}, renewal payment failed` : plan;
-}
-
-async function sendWithRetry(
-	resend: Resend,
-	recipient: Recipient,
-	subject: string,
-	body: string,
-): Promise<{ success: boolean; id?: string; error?: unknown }> {
-	const token = signUnsubscribeToken({
-		email: recipient.email,
-		category: "marketing",
-	});
-
-	for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-		const { data, error } = await resend.emails.send({
-			from: FROM,
-			to: recipient.email,
-			subject,
-			text: `${body}${renderFooterText("marketing", token)}`,
-			replyTo: REPLY_TO,
-			headers: buildUnsubscribeHeaders(token),
-		});
-
-		if (!error) {
-			return { success: true, id: data?.id };
-		}
-
-		if (
-			typeof error === "object" &&
-			error !== null &&
-			"statusCode" in error &&
-			error.statusCode === 429
-		) {
-			const backoffMs = Math.pow(2, attempt) * 1000;
-			console.log(
-				`Rate limited for ${recipient.email}, waiting ${backoffMs}ms (attempt ${attempt + 1}/${MAX_RETRIES})`,
-			);
-			await sleep(backoffMs);
-			continue;
-		}
-
-		return { success: false, error };
-	}
-
-	return { success: false, error: "Max retries exceeded" };
 }
 
 async function main() {
@@ -169,7 +113,11 @@ async function main() {
 			continue;
 		}
 
-		const result = await sendWithRetry(resend, recipient, subject, body);
+		const result = await sendMarketingEmail(resend, {
+			to: recipient.email,
+			subject,
+			text: body,
+		});
 		if (result.success) {
 			sent++;
 			console.log(`Sent to ${recipient.email}:`, result.id);

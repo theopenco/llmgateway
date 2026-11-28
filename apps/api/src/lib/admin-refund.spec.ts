@@ -233,6 +233,25 @@ describe("admin refund execution", () => {
 		expect(stripeMock.refunds.create).not.toHaveBeenCalled();
 	});
 
+	test("rejects a sub-cent amount before calling Stripe", async () => {
+		const payment = await seedTransaction();
+		const organization = (await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		}))!;
+
+		await expect(
+			executeAdminRefund({
+				organization,
+				transaction: payment,
+				adminUserId: "test-user-id",
+				amount: 0.004,
+				refundedAmount: new Decimal(0),
+				reason: "requested_by_customer",
+			}),
+		).rejects.toThrow("between $0.01 and $100.00");
+		expect(stripeMock.refunds.create).not.toHaveBeenCalled();
+	});
+
 	test("records an audit log entry for the refund", async () => {
 		const payment = await seedTransaction();
 

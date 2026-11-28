@@ -18,11 +18,8 @@ import { Resend } from "resend";
 import { z } from "zod";
 
 import { isEmailSuppressed } from "@llmgateway/db";
-import {
-	buildUnsubscribeHeaders,
-	renderFooterText,
-	signUnsubscribeToken,
-} from "@llmgateway/shared/email-unsubscribe";
+
+import { sendMarketingEmail, sleep } from "./marketing-email.js";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -35,55 +32,6 @@ const EmailRowSchema = z.object({
 });
 
 const EmailsSchema = z.array(EmailRowSchema);
-
-type EmailRow = z.infer<typeof EmailRowSchema>;
-
-async function sleep(ms: number) {
-	return await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function sendWithRetry(
-	row: EmailRow,
-	maxRetries = 5,
-): Promise<{ success: boolean; id?: string; error?: unknown }> {
-	const token = signUnsubscribeToken({
-		email: row.email,
-		category: "marketing",
-	});
-
-	for (let attempt = 0; attempt < maxRetries; attempt++) {
-		const { data, error } = await resend.emails.send({
-			from: "Luca from LLMGateway <contact@mail.llmgateway.io>",
-			to: row.email,
-			subject: row.email_subject,
-			text: `${row.email_content}${renderFooterText("marketing", token)}`,
-			replyTo: "luca.steeb@llmgateway.io",
-			headers: buildUnsubscribeHeaders(token),
-		});
-
-		if (!error) {
-			return { success: true, id: data?.id };
-		}
-
-		if (
-			typeof error === "object" &&
-			error !== null &&
-			"statusCode" in error &&
-			error.statusCode === 429
-		) {
-			const backoffMs = Math.pow(2, attempt) * 1000;
-			console.log(
-				`Rate limited for ${row.email}, waiting ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`,
-			);
-			await sleep(backoffMs);
-			continue;
-		}
-
-		return { success: false, error };
-	}
-
-	return { success: false, error: "Max retries exceeded" };
-}
 
 async function sendEmails(jsonPath: string) {
 	const content = readFileSync(jsonPath, "utf-8");
@@ -104,7 +52,11 @@ async function sendEmails(jsonPath: string) {
 			continue;
 		}
 
-		const sendResult = await sendWithRetry(row);
+		const sendResult = await sendMarketingEmail(resend, {
+			to: row.email,
+			subject: row.email_subject,
+			text: row.email_content,
+		});
 
 		if (sendResult.success) {
 			console.log(`Sent to ${row.email}:`, sendResult.id);

@@ -37,9 +37,10 @@ import {
 	type LogInsertData,
 	type QueuedLogData,
 	lt,
+	ne,
+	or,
 	organization,
 	resolveVerifiedOrgRecipient,
-	shortid,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -480,31 +481,25 @@ export async function processAutoTopUp(): Promise<void> {
 	}
 
 	try {
-		const orgsNeedingTopUp = await db.query.organization.findMany({
-			where: {
-				autoTopUpEnabled: {
-					eq: true,
-				},
-			},
-		});
-
-		// Filter organizations that need top-up based on credits vs threshold
-		const filteredOrgs = orgsNeedingTopUp.filter((org) => {
-			// An organization flagged as high risk cannot buy credits manually, so
-			// it must not keep charging a card automatically either.
-			if (org.riskFlagged) {
-				return false;
-			}
-			// DevPass orgs can only spend credits with the pay-as-you-go
-			// overflow opt-in; without it auto-reload would buy credits the
-			// org cannot use.
-			if (org.kind === "devpass" && !org.devPlanPaygEnabled) {
-				return false;
-			}
-			const credits = Number(org.credits || 0);
-			const threshold = Number(org.autoTopUpThreshold ?? 10);
-			return credits < threshold;
-		});
+		const filteredOrgs = await db
+			.select()
+			.from(organization)
+			.where(
+				and(
+					eq(organization.autoTopUpEnabled, true),
+					// An organization flagged as high risk cannot buy credits manually, so
+					// it must not keep charging a card automatically either.
+					eq(organization.riskFlagged, false),
+					// DevPass orgs can only spend credits with the pay-as-you-go
+					// overflow opt-in; without it auto-reload would buy credits the
+					// org cannot use.
+					or(
+						ne(organization.kind, "devpass"),
+						eq(organization.devPlanPaygEnabled, true),
+					),
+					sql`${organization.credits} < coalesce(${organization.autoTopUpThreshold}, 10)`,
+				),
+			);
 
 		for (const org of filteredOrgs) {
 			if (isStopRequested()) {
@@ -737,6 +732,7 @@ export async function processAutoTopUp(): Promise<void> {
 				if (
 					!freshOrg ||
 					!freshOrg.autoTopUpEnabled ||
+					freshOrg.riskFlagged ||
 					(freshOrg.kind === "devpass" && !freshOrg.devPlanPaygEnabled) ||
 					Number(freshOrg.credits || 0) >=
 						Number(freshOrg.autoTopUpThreshold ?? 10)
@@ -3447,10 +3443,129 @@ async function runWebhookDeliveryLoop() {
 const AUTO_PAYOUT_MIN_AMOUNT = 25;
 
 /**
+ * A pending payout is retried with the same idempotency key so Stripe replays
+ * a transfer it already created. Stripe forgets keys after 24 hours, so older
+ * pending payouts are left for manual reconciliation instead of re-sent.
+ */
+const MARGIN_PAYOUT_RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
+
+/**
+ * Rate limit, authentication and permission errors are raised before Stripe
+ * consults the idempotency key, so they say nothing about an earlier attempt.
+ */
+const PRE_EXECUTION_STRIPE_STATUSES = new Set([401, 403, 409, 429]);
+
+/**
+ * Stripe answered with a 4xx that replays or reflects the keyed request itself,
+ * so the transfer definitely was not created. Pre-execution and idempotency
+ * errors, timeouts, connection errors and 5xx responses leave it unknown.
+ */
+function isDefinitiveStripeFailure(error: unknown): boolean {
+	if (typeof error !== "object" || error === null) {
+		return false;
+	}
+	const statusCode = "statusCode" in error ? error.statusCode : undefined;
+	const type = "type" in error ? error.type : undefined;
+	return (
+		typeof statusCode === "number" &&
+		statusCode >= 400 &&
+		statusCode < 500 &&
+		!PRE_EXECUTION_STRIPE_STATUSES.has(statusCode) &&
+		type !== "StripeIdempotencyError"
+	);
+}
+
+async function transferMarginPayout(
+	organizationId: string,
+	destination: string,
+	payoutId: string,
+	amount: Decimal,
+): Promise<void> {
+	let transfer: Stripe.Transfer;
+	try {
+		transfer = await getStripe().transfers.create(
+			{
+				amount: amount.mul(100).toNumber(),
+				currency: "usd",
+				destination,
+				metadata: {
+					organizationId,
+					kind: "end_user_margin_payout",
+					payoutRef: payoutId,
+				},
+			},
+			{ idempotencyKey: `margin_payout_${organizationId}_${payoutId}` },
+		);
+	} catch (err) {
+		if (!isDefinitiveStripeFailure(err)) {
+			logger.error(
+				`Margin payout ${payoutId} for organization ${organizationId} has an unknown outcome; retrying with the same idempotency key next tick`,
+				err instanceof Error ? err : new Error(String(err)),
+			);
+			return;
+		}
+		await db.transaction(async (tx) => {
+			const failed = await tx
+				.update(tables.transaction)
+				.set({
+					status: "failed",
+					description: `Automatic end-user margin payout failed: ${err instanceof Error ? err.message : String(err)}`,
+				})
+				.where(
+					and(
+						eq(tables.transaction.id, payoutId),
+						eq(tables.transaction.status, "pending"),
+					),
+				)
+				.returning({ id: tables.transaction.id });
+			if (failed.length === 0) {
+				return;
+			}
+			await tx
+				.update(organization)
+				.set({
+					endUserMarginBalance: sql`${organization.endUserMarginBalance} + ${amount.toFixed(2)}`,
+				})
+				.where(eq(organization.id, organizationId));
+		});
+		logger.error(
+			`Failed to auto-pay-out margin for organization ${organizationId}`,
+			err instanceof Error ? err : new Error(String(err)),
+		);
+		return;
+	}
+
+	try {
+		await db
+			.update(tables.transaction)
+			.set({
+				status: "completed",
+				description: `Automatic end-user margin payout (transfer ${transfer.id})`,
+			})
+			.where(
+				and(
+					eq(tables.transaction.id, payoutId),
+					eq(tables.transaction.status, "pending"),
+				),
+			);
+	} catch (err) {
+		logger.error(
+			`Failed to record margin payout ${payoutId} for organization ${organizationId} (amount ${amount.toFixed(2)}, transfer ${transfer.id}); retrying next tick`,
+			err instanceof Error ? err : new Error(String(err)),
+		);
+		return;
+	}
+
+	logger.info(
+		`Auto-paid out ${amount.toFixed(2)} end-user margin for organization ${organizationId}`,
+	);
+}
+
+/**
  * LLM SDK: automatically pay out accrued developer margin to onboarded
  * connected accounts above a threshold, via Stripe Connect transfers.
  */
-async function processMarginPayouts(): Promise<void> {
+export async function processMarginPayouts(): Promise<void> {
 	const lockAcquired = await acquireLock(MARGIN_PAYOUT_LOCK_KEY);
 	if (!lockAcquired) {
 		return;
@@ -3463,85 +3578,88 @@ async function processMarginPayouts(): Promise<void> {
 			},
 		});
 
+		const pendingPayouts = await db.query.transaction.findMany({
+			where: {
+				type: { eq: "end_user_margin_payout" },
+				status: { eq: "pending" },
+			},
+		});
+		const pendingByOrg = new Map(
+			pendingPayouts.map((payout) => [payout.organizationId, payout]),
+		);
+
 		for (const org of orgs) {
-			const balance = Number(org.endUserMarginBalance ?? "0");
-			if (!org.stripeConnectAccountId || balance < AUTO_PAYOUT_MIN_AMOUNT) {
+			if (!org.stripeConnectAccountId) {
 				continue;
 			}
 
-			const amountCents = Math.floor(balance * 100);
-			const amount = amountCents / 100;
-
-			// Reserve the funds first with a conditional decrement: only proceed if
-			// we actually claimed >= amount. This prevents the manual payout
-			// endpoint (or another tick) from racing this one into an overpayment.
-			const reserved = await db
-				.update(organization)
-				.set({
-					endUserMarginBalance: sql`${organization.endUserMarginBalance} - ${amount}`,
-				})
-				.where(
-					and(
-						eq(organization.id, org.id),
-						sql`${organization.endUserMarginBalance} >= ${amount}`,
-					),
-				)
-				.returning();
-
-			if (reserved.length === 0) {
-				// Balance changed under us; skip this org this tick.
+			const pending = pendingByOrg.get(org.id);
+			if (pending) {
+				if (
+					Date.now() - pending.createdAt.getTime() >=
+					MARGIN_PAYOUT_RETRY_WINDOW_MS
+				) {
+					logger.error(
+						`Pending margin payout ${pending.id} for organization ${org.id} is past the Stripe idempotency window; reconcile it manually`,
+					);
+					continue;
+				}
+				await transferMarginPayout(
+					org.id,
+					org.stripeConnectAccountId,
+					pending.id,
+					new Decimal(pending.amount ?? "0"),
+				);
 				continue;
 			}
 
-			// Unique per-payout reference. The idempotency key MUST NOT be derived
-			// from the amount alone: two distinct payouts of the same cents value
-			// within Stripe's idempotency window would collide, silently replaying
-			// the first transfer (no money moves) while we still debit the margin
-			// balance — losing the developer's funds. A fresh ref per reservation
-			// keeps single-call network retries safe (the Stripe SDK reuses this
-			// key) while letting genuinely distinct payouts through.
-			const payoutRef = shortid();
+			const balance = new Decimal(org.endUserMarginBalance ?? "0");
+			if (balance.lt(AUTO_PAYOUT_MIN_AMOUNT)) {
+				continue;
+			}
 
-			try {
-				const transfer = await getStripe().transfers.create(
-					{
-						amount: amountCents,
-						currency: "usd",
-						destination: org.stripeConnectAccountId,
-						metadata: {
-							organizationId: org.id,
-							kind: "end_user_margin_payout",
-							payoutRef,
-						},
-					},
-					{ idempotencyKey: `margin_payout_${org.id}_${payoutRef}` },
-				);
+			const amount = balance.mul(100).floor().div(100);
 
-				await db.insert(tables.transaction).values({
-					organizationId: org.id,
-					type: "end_user_margin_payout",
-					amount: String(amount),
-					creditAmount: String(amount),
-					status: "completed",
-					description: `Automatic end-user margin payout (transfer ${transfer.id})`,
-				});
-
-				logger.info(
-					`Auto-paid out ${amount} end-user margin for organization ${org.id}`,
-				);
-			} catch (err) {
-				// Transfer failed — restore the reserved funds so they aren't lost.
-				await db
+			const payoutId = await db.transaction(async (tx) => {
+				const reserved = await tx
 					.update(organization)
 					.set({
-						endUserMarginBalance: sql`${organization.endUserMarginBalance} + ${amount}`,
+						endUserMarginBalance: sql`${organization.endUserMarginBalance} - ${amount.toFixed(2)}`,
 					})
-					.where(eq(organization.id, org.id));
-				logger.error(
-					`Failed to auto-pay-out margin for organization ${org.id}`,
-					err instanceof Error ? err : new Error(String(err)),
-				);
+					.where(
+						and(
+							eq(organization.id, org.id),
+							sql`${organization.endUserMarginBalance} >= ${amount.toFixed(2)}`,
+						),
+					)
+					.returning({ id: organization.id });
+				if (reserved.length === 0) {
+					return undefined;
+				}
+				const [payout] = await tx
+					.insert(tables.transaction)
+					.values({
+						organizationId: org.id,
+						type: "end_user_margin_payout",
+						amount: amount.toFixed(2),
+						creditAmount: amount.toFixed(2),
+						status: "pending",
+						description: "Automatic end-user margin payout (pending transfer)",
+					})
+					.returning({ id: tables.transaction.id });
+				return payout.id;
+			});
+
+			if (!payoutId) {
+				continue;
 			}
+
+			await transferMarginPayout(
+				org.id,
+				org.stripeConnectAccountId,
+				payoutId,
+				amount,
+			);
 		}
 	} finally {
 		await releaseLock(MARGIN_PAYOUT_LOCK_KEY);

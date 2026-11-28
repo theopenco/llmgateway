@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { computeStreaks } from "@/utils/profile.js";
 
+import { redisClient } from "@llmgateway/cache";
 import { and, db, desc, eq, gte, sql, tables } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import { LOUNGE_ACTIVITIES } from "@llmgateway/shared/lounge-points";
@@ -119,19 +120,76 @@ export const loungeStatsSchema = z.object({
 
 export type LoungeStats = z.infer<typeof loungeStatsSchema>;
 
+const LOUNGE_RANK_CACHE_MS = 5 * 60 * 1000;
+
+async function getLoungeRank(
+	userId: string,
+	totalPoints: number,
+): Promise<number> {
+	const cacheKey = `lounge-rank:v1:${userId}`;
+	try {
+		const cached = await redisClient.get(cacheKey);
+		if (cached !== null && Number.isFinite(Number(cached))) {
+			return Number(cached);
+		}
+	} catch (error) {
+		logger.error("Failed to read cached lounge rank", toError(error), {
+			userId,
+		});
+	}
+
+	const rankRows = await db.execute<{ ahead: string }>(sql`
+		SELECT COUNT(*) AS ahead
+		FROM (
+			SELECT user_id, SUM(points) AS total
+			FROM lounge_point_event
+			GROUP BY user_id
+		) totals
+		WHERE totals.total > ${totalPoints}
+	`);
+	const rank = Number(rankRows.rows?.[0]?.ahead ?? 0) + 1;
+
+	try {
+		await redisClient.set(cacheKey, String(rank), "PX", LOUNGE_RANK_CACHE_MS);
+	} catch (error) {
+		logger.error("Failed to cache lounge rank", toError(error), { userId });
+	}
+
+	return rank;
+}
+
 export async function computeLoungeStats(userId: string): Promise<LoungeStats> {
 	const pointsColumn = tables.loungePointEvent.points;
+	const dayExpr = sql<string>`to_char(${tables.loungePointEvent.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`;
 
-	const breakdownRows = await db
-		.select({
-			kind: tables.loungePointEvent.kind,
-			points: sql<number>`COALESCE(SUM(${pointsColumn}), 0)`,
-			count: sql<number>`COUNT(*)`,
-		})
-		.from(tables.loungePointEvent)
-		.where(eq(tables.loungePointEvent.userId, userId))
-		.groupBy(tables.loungePointEvent.kind)
-		.orderBy(desc(sql`COALESCE(SUM(${pointsColumn}), 0)`));
+	const [breakdownRows, [todayRow], dayRows] = await Promise.all([
+		db
+			.select({
+				kind: tables.loungePointEvent.kind,
+				points: sql<number>`COALESCE(SUM(${pointsColumn}), 0)`,
+				count: sql<number>`COUNT(*)`,
+			})
+			.from(tables.loungePointEvent)
+			.where(eq(tables.loungePointEvent.userId, userId))
+			.groupBy(tables.loungePointEvent.kind)
+			.orderBy(desc(sql`COALESCE(SUM(${pointsColumn}), 0)`)),
+		db
+			.select({
+				points: sql<number>`COALESCE(SUM(${pointsColumn}), 0)`,
+			})
+			.from(tables.loungePointEvent)
+			.where(
+				and(
+					eq(tables.loungePointEvent.userId, userId),
+					gte(tables.loungePointEvent.createdAt, startOfUtcDay()),
+				),
+			),
+		db
+			.select({ day: dayExpr })
+			.from(tables.loungePointEvent)
+			.where(eq(tables.loungePointEvent.userId, userId))
+			.groupBy(dayExpr),
+	]);
 
 	const breakdown = breakdownRows.map((row) => ({
 		kind: row.kind,
@@ -140,44 +198,11 @@ export async function computeLoungeStats(userId: string): Promise<LoungeStats> {
 	}));
 	const totalPoints = breakdown.reduce((sum, row) => sum + row.points, 0);
 
-	const [todayRow] = await db
-		.select({
-			points: sql<number>`COALESCE(SUM(${pointsColumn}), 0)`,
-		})
-		.from(tables.loungePointEvent)
-		.where(
-			and(
-				eq(tables.loungePointEvent.userId, userId),
-				gte(tables.loungePointEvent.createdAt, startOfUtcDay()),
-			),
-		);
-
-	const dayRows = await db
-		.select({
-			day: sql<string>`to_char(${tables.loungePointEvent.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
-		})
-		.from(tables.loungePointEvent)
-		.where(eq(tables.loungePointEvent.userId, userId))
-		.groupBy(
-			sql`to_char(${tables.loungePointEvent.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
-		);
-
 	const activeDates = new Set(dayRows.map((row) => row.day));
 	const { currentStreak, longestStreak } = computeStreaks(activeDates);
 
-	let rank: number | null = null;
-	if (totalPoints > 0) {
-		const rankRows = await db.execute<{ ahead: string }>(sql`
-			SELECT COUNT(*) AS ahead
-			FROM (
-				SELECT user_id, SUM(points) AS total
-				FROM lounge_point_event
-				GROUP BY user_id
-			) totals
-			WHERE totals.total > ${totalPoints}
-		`);
-		rank = Number(rankRows.rows?.[0]?.ahead ?? 0) + 1;
-	}
+	const rank =
+		totalPoints > 0 ? await getLoungeRank(userId, totalPoints) : null;
 
 	const { level, title, currentLevelAt, nextLevelAt } =
 		getLoungeLevel(totalPoints);

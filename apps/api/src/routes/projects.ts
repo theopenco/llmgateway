@@ -894,7 +894,7 @@ projects.openapi(deleteProject, async (c) => {
 		});
 	}
 
-	await db
+	await cdb
 		.update(tables.project)
 		.set({
 			status: "deleted",

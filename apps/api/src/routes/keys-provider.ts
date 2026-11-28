@@ -652,17 +652,17 @@ keysProvider.openapi(create, async (c) => {
 		with: {
 			organization: {
 				with: {
-					projects: true,
+					projects: {
+						columns: { id: true },
+						where: { status: { ne: "deleted" } },
+						limit: 1,
+					},
 				},
 			},
 		},
 	});
 
-	const activeProjects = userOrgs[0]?.organization?.projects.filter(
-		(project) => project.status !== "deleted",
-	);
-
-	if (!userOrgs.length || !activeProjects?.length) {
+	if (!userOrgs.length || !userOrgs[0]?.organization?.projects.length) {
 		throw new HTTPException(403, {
 			message:
 				"You don't have access to this organization or it has no projects",
@@ -683,6 +683,11 @@ keysProvider.openapi(create, async (c) => {
 		!(await getEffectiveProviders()).some((entry) => entry.id === provider)
 	) {
 		throw new HTTPException(400, { message: "Invalid or inactive provider." });
+	}
+	if (name !== undefined && provider !== "custom") {
+		throw new HTTPException(400, {
+			message: "name can only be set on custom provider keys",
+		});
 	}
 	if (forwardCacheControl !== undefined && provider !== "custom") {
 		throw new HTTPException(400, {

@@ -1066,10 +1066,12 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 					continue;
 				}
 				const reqCount = randomInt(1, isHighVolume ? 30 : 10);
-				const errCount = secureRandom() < 0.1 ? randomInt(1, 3) : 0;
+				const errCount =
+					secureRandom() < 0.1 ? Math.min(reqCount, randomInt(1, 3)) : 0;
 				const inputTok = reqCount * randomInt(100, 1500);
 				const outputTok = reqCount * randomInt(50, 1000);
 				const streamedReqs = Math.floor(reqCount * 0.6);
+				const creditsReqs = Math.floor(reqCount * 0.6);
 				const avgDurationMs = Math.round(
 					modelBaseDurationMs(modelDef) * randomFloat(0.75, 1.35),
 				);
@@ -1089,8 +1091,8 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 					requestCount: reqCount,
 					errorCount: errCount,
 					cacheCount: randomInt(0, Math.floor(reqCount * 0.2)),
-					streamedCount: Math.floor(reqCount * 0.6),
-					nonStreamedCount: Math.floor(reqCount * 0.4),
+					streamedCount: streamedReqs,
+					nonStreamedCount: reqCount - streamedReqs,
 					completedCount: reqCount - errCount,
 					lengthLimitCount: 0,
 					contentFilterCount: 0,
@@ -1122,8 +1124,8 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 					imageInputCost: 0,
 					imageOutputCost: 0,
 					cachedInputCost: 0,
-					creditsRequestCount: Math.floor(reqCount * 0.6),
-					apiKeysRequestCount: Math.floor(reqCount * 0.4),
+					creditsRequestCount: creditsReqs,
+					apiKeysRequestCount: reqCount - creditsReqs,
 					creditsCost: Number((costVal * 0.6).toFixed(6)),
 					apiKeysCost: Number((costVal * 0.4).toFixed(6)),
 					creditsDataStorageCost: 0,
@@ -1171,7 +1173,10 @@ function generateProjectHourlySourceStats(projects: ProjectDef[]) {
 					continue;
 				}
 				const reqCount = randomInt(1, isHighVolume ? 25 : 8);
-				const errCount = secureRandom() < 0.1 ? randomInt(1, 3) : 0;
+				const errCount =
+					secureRandom() < 0.1 ? Math.min(reqCount, randomInt(1, 3)) : 0;
+				const streamedReqs = Math.floor(reqCount * 0.6);
+				const creditsReqs = Math.floor(reqCount * 0.6);
 				const inputTok = reqCount * randomInt(200, 4000);
 				const outputTok = reqCount * randomInt(100, 2500);
 				const costPerReq = randomFloat(0.002, 0.06);
@@ -1185,8 +1190,8 @@ function generateProjectHourlySourceStats(projects: ProjectDef[]) {
 					requestCount: reqCount,
 					errorCount: errCount,
 					cacheCount: randomInt(0, Math.floor(reqCount * 0.2)),
-					streamedCount: Math.floor(reqCount * 0.6),
-					nonStreamedCount: Math.floor(reqCount * 0.4),
+					streamedCount: streamedReqs,
+					nonStreamedCount: reqCount - streamedReqs,
 					completedCount: reqCount - errCount,
 					lengthLimitCount: 0,
 					contentFilterCount: 0,
@@ -1215,8 +1220,8 @@ function generateProjectHourlySourceStats(projects: ProjectDef[]) {
 					videoOutputCost: 0,
 					cachedInputCost: 0,
 					cacheWriteInputCost: 0,
-					creditsRequestCount: Math.floor(reqCount * 0.6),
-					apiKeysRequestCount: Math.floor(reqCount * 0.4),
+					creditsRequestCount: creditsReqs,
+					apiKeysRequestCount: reqCount - creditsReqs,
 					creditsCost: Number((costVal * 0.6).toFixed(6)),
 					apiKeysCost: Number((costVal * 0.4).toFixed(6)),
 					creditsDataStorageCost: 0,
@@ -2611,7 +2616,7 @@ async function seed() {
 		createdAt: devpassRenewalCreatedAt,
 		updatedAt: devpassRenewalCreatedAt,
 		type: "dev_plan_renewal",
-		amount: "79",
+		amount: String(DEV_PLAN_PRICES.pro),
 		creditAmount: String(getDevPlanCreditsLimit("pro")),
 		currency: "USD",
 		status: "completed",
@@ -2736,15 +2741,13 @@ async function seed() {
 			trialEndDate: org.trialDays ? daysFromNow(org.trialDays.endsIn) : null,
 			devPlan: org.devPlan,
 			devPlanCreditsUsed:
-				org.devPlan !== "none" ? String(randomFloat(0, 20)) : "0",
+				org.devPlan !== "none"
+					? String(randomFloat(0, getDevPlanCreditsLimit(org.devPlan) * 0.9))
+					: "0",
 			devPlanCreditsLimit:
-				org.devPlan === "lite"
-					? "15"
-					: org.devPlan === "pro"
-						? "50"
-						: org.devPlan === "max"
-							? "200"
-							: "0",
+				org.devPlan !== "none"
+					? String(getDevPlanCreditsLimit(org.devPlan))
+					: "0",
 			createdAt: org.createdAt,
 		});
 	}

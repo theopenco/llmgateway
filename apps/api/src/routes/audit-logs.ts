@@ -371,31 +371,19 @@ auditLogs.openapi(getFilterOptions, async (c) => {
 		});
 	}
 
-	// Get unique users who have audit logs for this org
-	const usersWithLogs = await db.query.auditLog.findMany({
-		where: { organizationId: { eq: organizationId } },
-		columns: { userId: true },
-		with: {
-			user: {
-				columns: { id: true, email: true, name: true },
-			},
-		},
-	});
-
-	// Deduplicate users
-	const uniqueUsers = new Map<
-		string,
-		{ id: string; email: string; name: string | null }
-	>();
-	for (const log of usersWithLogs) {
-		if (log.user && !uniqueUsers.has(log.user.id)) {
-			uniqueUsers.set(log.user.id, log.user);
-		}
-	}
+	const users = await db
+		.selectDistinct({
+			id: tables.user.id,
+			email: tables.user.email,
+			name: tables.user.name,
+		})
+		.from(tables.auditLog)
+		.innerJoin(tables.user, eq(tables.auditLog.userId, tables.user.id))
+		.where(eq(tables.auditLog.organizationId, organizationId));
 
 	return c.json({
 		actions: [...auditLogActions],
 		resourceTypes: [...auditLogResourceTypes],
-		users: Array.from(uniqueUsers.values()),
+		users,
 	});
 });

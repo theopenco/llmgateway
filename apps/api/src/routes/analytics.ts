@@ -445,7 +445,7 @@ analytics.openapi(getMemberDetail, async (c) => {
 		});
 	}
 
-	const summaryRows = await db
+	const summaryQuery = db
 		.select({
 			cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
 				"cost",
@@ -493,31 +493,7 @@ analytics.openapi(getMemberDetail, async (c) => {
 			),
 		);
 
-	const summaryRow = summaryRows[0];
-	const stability = deriveStabilityMetrics({
-		logsCount: Number(summaryRow?.requestCount ?? 0),
-		clientErrorsCount: Number(summaryRow?.clientErrorCount ?? 0),
-		gatewayErrorsCount: Number(summaryRow?.gatewayErrorCount ?? 0),
-		upstreamErrorsCount: Number(summaryRow?.upstreamErrorCount ?? 0),
-	});
-	const summary = {
-		cost: Number(summaryRow?.cost ?? 0),
-		inputTokens: Number(summaryRow?.inputTokens ?? 0),
-		outputTokens: Number(summaryRow?.outputTokens ?? 0),
-		totalTokens: Number(summaryRow?.totalTokens ?? 0),
-		requestCount: Number(summaryRow?.requestCount ?? 0),
-		errorCount: stability.errorsCount,
-		clientErrorCount: Number(summaryRow?.clientErrorCount ?? 0),
-		errorRate: stability.errorRate ?? 0,
-		cacheCount: Number(summaryRow?.cacheCount ?? 0),
-		apiKeyCount: keyIds.length,
-		creditsRequestCount: Number(summaryRow?.creditsRequestCount ?? 0),
-		apiKeysRequestCount: Number(summaryRow?.apiKeysRequestCount ?? 0),
-		creditsCost: Number(summaryRow?.creditsCost ?? 0),
-		apiKeysCost: Number(summaryRow?.apiKeysCost ?? 0),
-	};
-
-	const modelRows = await db
+	const modelQuery = db
 		.select({
 			usedModel: apiKeyHourlyModelStats.usedModel,
 			usedProvider: apiKeyHourlyModelStats.usedProvider,
@@ -548,6 +524,79 @@ analytics.openapi(getMemberDetail, async (c) => {
 		.orderBy(
 			desc(sql`SUM(cast(${apiKeyHourlyModelStats.cost} as double precision))`),
 		);
+
+	const activityQuery = db
+		.select({
+			date: bucketDate(
+				apiKeyHourlyModelStats.hourTimestamp,
+				timeZone,
+				false,
+			).as("date"),
+			usedModel: apiKeyHourlyModelStats.usedModel,
+			usedProvider: apiKeyHourlyModelStats.usedProvider,
+			cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyModelStats.cost} as double precision)), 0)`.as(
+				"cost",
+			),
+			requestCount:
+				sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.requestCount}), 0)`.as(
+					"request_count",
+				),
+			inputTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.inputTokens} AS NUMERIC)), 0)`.as(
+					"input_tokens",
+				),
+			outputTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.outputTokens} AS NUMERIC)), 0)`.as(
+					"output_tokens",
+				),
+			totalTokens:
+				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
+					"total_tokens",
+				),
+			...modeSplitFields(apiKeyHourlyModelStats),
+		})
+		.from(apiKeyHourlyModelStats)
+		.where(
+			and(
+				inArray(apiKeyHourlyModelStats.apiKeyId, keyIds),
+				gte(apiKeyHourlyModelStats.hourTimestamp, startDate),
+				lte(apiKeyHourlyModelStats.hourTimestamp, endDate),
+			),
+		)
+		.groupBy(
+			sql`1, ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`,
+		)
+		.orderBy(sql`1 ASC`);
+
+	const [summaryRows, modelRows, activityRows] = await Promise.all([
+		summaryQuery,
+		modelQuery,
+		activityQuery,
+	]);
+
+	const summaryRow = summaryRows[0];
+	const stability = deriveStabilityMetrics({
+		logsCount: Number(summaryRow?.requestCount ?? 0),
+		clientErrorsCount: Number(summaryRow?.clientErrorCount ?? 0),
+		gatewayErrorsCount: Number(summaryRow?.gatewayErrorCount ?? 0),
+		upstreamErrorsCount: Number(summaryRow?.upstreamErrorCount ?? 0),
+	});
+	const summary = {
+		cost: Number(summaryRow?.cost ?? 0),
+		inputTokens: Number(summaryRow?.inputTokens ?? 0),
+		outputTokens: Number(summaryRow?.outputTokens ?? 0),
+		totalTokens: Number(summaryRow?.totalTokens ?? 0),
+		requestCount: Number(summaryRow?.requestCount ?? 0),
+		errorCount: stability.errorsCount,
+		clientErrorCount: Number(summaryRow?.clientErrorCount ?? 0),
+		errorRate: stability.errorRate ?? 0,
+		cacheCount: Number(summaryRow?.cacheCount ?? 0),
+		apiKeyCount: keyIds.length,
+		creditsRequestCount: Number(summaryRow?.creditsRequestCount ?? 0),
+		apiKeysRequestCount: Number(summaryRow?.apiKeysRequestCount ?? 0),
+		creditsCost: Number(summaryRow?.creditsCost ?? 0),
+		apiKeysCost: Number(summaryRow?.apiKeysCost ?? 0),
+	};
 
 	const costByModel = modelRows
 		.map((r) => ({
@@ -596,49 +645,6 @@ analytics.openapi(getMemberDetail, async (c) => {
 		.slice(0, 5);
 
 	const topModels = costByModel.slice(0, 5);
-
-	const activityRows = await db
-		.select({
-			date: bucketDate(
-				apiKeyHourlyModelStats.hourTimestamp,
-				timeZone,
-				false,
-			).as("date"),
-			usedModel: apiKeyHourlyModelStats.usedModel,
-			usedProvider: apiKeyHourlyModelStats.usedProvider,
-			cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyModelStats.cost} as double precision)), 0)`.as(
-				"cost",
-			),
-			requestCount:
-				sql<number>`COALESCE(SUM(${apiKeyHourlyModelStats.requestCount}), 0)`.as(
-					"request_count",
-				),
-			inputTokens:
-				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.inputTokens} AS NUMERIC)), 0)`.as(
-					"input_tokens",
-				),
-			outputTokens:
-				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.outputTokens} AS NUMERIC)), 0)`.as(
-					"output_tokens",
-				),
-			totalTokens:
-				sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
-					"total_tokens",
-				),
-			...modeSplitFields(apiKeyHourlyModelStats),
-		})
-		.from(apiKeyHourlyModelStats)
-		.where(
-			and(
-				inArray(apiKeyHourlyModelStats.apiKeyId, keyIds),
-				gte(apiKeyHourlyModelStats.hourTimestamp, startDate),
-				lte(apiKeyHourlyModelStats.hourTimestamp, endDate),
-			),
-		)
-		.groupBy(
-			sql`1, ${apiKeyHourlyModelStats.usedModel}, ${apiKeyHourlyModelStats.usedProvider}`,
-		)
-		.orderBy(sql`1 ASC`);
 
 	const breakdownByDate = new Map<
 		string,
@@ -796,7 +802,7 @@ analytics.openapi(getSelfUsage, async (c) => {
 		});
 	}
 
-	const summaryRows = await db
+	const summaryQuery = db
 		.select({
 			cost: sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.cost} as double precision)), 0)`.as(
 				"cost",
@@ -831,22 +837,8 @@ analytics.openapi(getSelfUsage, async (c) => {
 				lte(apiKeyHourlyStats.hourTimestamp, endDate),
 			),
 		);
-	const s = summaryRows[0];
-	const summary = {
-		cost: Number(s?.cost ?? 0),
-		inputTokens: Number(s?.inputTokens ?? 0),
-		outputTokens: Number(s?.outputTokens ?? 0),
-		totalTokens: Number(s?.totalTokens ?? 0),
-		requestCount: Number(s?.requestCount ?? 0),
-		errorCount: Number(s?.errorCount ?? 0),
-		apiKeyCount: keyIds.length,
-		creditsRequestCount: Number(s?.creditsRequestCount ?? 0),
-		apiKeysRequestCount: Number(s?.apiKeysRequestCount ?? 0),
-		creditsCost: Number(s?.creditsCost ?? 0),
-		apiKeysCost: Number(s?.apiKeysCost ?? 0),
-	};
 
-	const activityRows = await db
+	const activityQuery = db
 		.select({
 			date: bucketDate(apiKeyHourlyStats.hourTimestamp, timeZone, false).as(
 				"date",
@@ -874,24 +866,8 @@ analytics.openapi(getSelfUsage, async (c) => {
 		)
 		.groupBy(sql`1`)
 		.orderBy(sql`1 ASC`);
-	const byDate = new Map(
-		activityRows.map((r) => [String(r.date).slice(0, 10), r]),
-	);
-	const activity = eachDay(fromStr, toStr).map((date) => {
-		const r = byDate.get(date);
-		return {
-			date,
-			cost: Number(r?.cost ?? 0),
-			requestCount: Number(r?.requestCount ?? 0),
-			totalTokens: Number(r?.totalTokens ?? 0),
-			creditsRequestCount: Number(r?.creditsRequestCount ?? 0),
-			apiKeysRequestCount: Number(r?.apiKeysRequestCount ?? 0),
-			creditsCost: Number(r?.creditsCost ?? 0),
-			apiKeysCost: Number(r?.apiKeysCost ?? 0),
-		};
-	});
 
-	const modelRows = await db
+	const modelQuery = db
 		.select({
 			usedModel: apiKeyHourlyModelStats.usedModel,
 			cost: sql<number>`SUM(cast(${apiKeyHourlyModelStats.cost} as double precision))`.as(
@@ -918,6 +894,44 @@ analytics.openapi(getSelfUsage, async (c) => {
 		.orderBy(
 			desc(sql`SUM(cast(${apiKeyHourlyModelStats.cost} as double precision))`),
 		);
+
+	const [summaryRows, activityRows, modelRows] = await Promise.all([
+		summaryQuery,
+		activityQuery,
+		modelQuery,
+	]);
+	const s = summaryRows[0];
+	const summary = {
+		cost: Number(s?.cost ?? 0),
+		inputTokens: Number(s?.inputTokens ?? 0),
+		outputTokens: Number(s?.outputTokens ?? 0),
+		totalTokens: Number(s?.totalTokens ?? 0),
+		requestCount: Number(s?.requestCount ?? 0),
+		errorCount: Number(s?.errorCount ?? 0),
+		apiKeyCount: keyIds.length,
+		creditsRequestCount: Number(s?.creditsRequestCount ?? 0),
+		apiKeysRequestCount: Number(s?.apiKeysRequestCount ?? 0),
+		creditsCost: Number(s?.creditsCost ?? 0),
+		apiKeysCost: Number(s?.apiKeysCost ?? 0),
+	};
+
+	const byDate = new Map(
+		activityRows.map((r) => [String(r.date).slice(0, 10), r]),
+	);
+	const activity = eachDay(fromStr, toStr).map((date) => {
+		const r = byDate.get(date);
+		return {
+			date,
+			cost: Number(r?.cost ?? 0),
+			requestCount: Number(r?.requestCount ?? 0),
+			totalTokens: Number(r?.totalTokens ?? 0),
+			creditsRequestCount: Number(r?.creditsRequestCount ?? 0),
+			apiKeysRequestCount: Number(r?.apiKeysRequestCount ?? 0),
+			creditsCost: Number(r?.creditsCost ?? 0),
+			apiKeysCost: Number(r?.apiKeysCost ?? 0),
+		};
+	});
+
 	const topModels = modelRows.slice(0, 5).map((r) => ({
 		key: r.usedModel || "unknown",
 		cost: Number(r.cost ?? 0),

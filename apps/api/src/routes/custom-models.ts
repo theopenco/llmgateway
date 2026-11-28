@@ -238,8 +238,13 @@ export async function softDeleteCustomModel(
  * the gateway honors stored catalog rows regardless of plan, but management is
  * gated here.
  */
-async function getManageableProviderKey(userId: string, providerKeyId: string) {
-	const organizationIds = await getAdminOrganizationIds(userId);
+async function getManageableProviderKey(
+	userId: string,
+	providerKeyId: string,
+	adminOrganizationIds?: string[],
+) {
+	const organizationIds =
+		adminOrganizationIds ?? (await getAdminOrganizationIds(userId));
 
 	const providerKey = await db.query.providerKey.findFirst({
 		where: {
@@ -434,7 +439,11 @@ customModels.openapi(update, async (c) => {
 	}
 
 	// Enforce enterprise plan + custom provider key ownership.
-	await getManageableProviderKey(user.id, existing.providerKeyId);
+	await getManageableProviderKey(
+		user.id,
+		existing.providerKeyId,
+		organizationIds,
+	);
 
 	const customModel = await applyCustomModelUpdate(existing, user.id, fields);
 
@@ -489,7 +498,11 @@ customModels.openapi(deleteCustomModel, async (c) => {
 		throw new HTTPException(404, { message: "Custom model not found" });
 	}
 
-	await getManageableProviderKey(user.id, existing.providerKeyId);
+	await getManageableProviderKey(
+		user.id,
+		existing.providerKeyId,
+		organizationIds,
+	);
 
 	await softDeleteCustomModel(existing, user.id);
 

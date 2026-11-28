@@ -123,4 +123,81 @@ describe("database circuit breaker", () => {
 		).rejects.toThrow();
 		expect(getDbCircuitState()).toBe("open");
 	});
+
+	it("closes when the probe fails with a query error, since the database answered", async () => {
+		for (let i = 0; i < 3; i++) {
+			await swrWrap(`cb:z:${i}`, ["t"], () =>
+				Promise.reject(poolTimeout()),
+			).catch(() => undefined);
+		}
+		await new Promise((resolve) => setTimeout(resolve, 250));
+		expect(getDbCircuitState()).toBe("half-open");
+		await expect(
+			swrWrap("cb:probe-bug", ["t"], () =>
+				Promise.reject(Object.assign(new Error("syntax"), { code: "42601" })),
+			),
+		).rejects.toThrow("syntax");
+		expect(getDbCircuitState()).toBe("closed");
+
+		const fetcher = vi.fn(() => Promise.resolve(7));
+		expect(await swrWrap("cb:probe-recover", ["t"], fetcher)).toBe(7);
+		expect(fetcher).toHaveBeenCalledTimes(1);
+	});
+
+	it("closes when the probe fails with a constraint violation", async () => {
+		for (let i = 0; i < 3; i++) {
+			await swrWrap(`cb:v:${i}`, ["t"], () =>
+				Promise.reject(poolTimeout()),
+			).catch(() => undefined);
+		}
+		await new Promise((resolve) => setTimeout(resolve, 250));
+		await expect(
+			swrWrap("cb:probe-dup", ["t"], () =>
+				Promise.reject(
+					new Error("Failed query", {
+						cause: Object.assign(new Error("dup"), { code: "23505" }),
+					}),
+				),
+			),
+		).rejects.toThrow("Failed query");
+		expect(getDbCircuitState()).toBe("closed");
+	});
+
+	it("re-opens when the probe fails with a wrapped availability error", async () => {
+		for (let i = 0; i < 3; i++) {
+			await swrWrap(`cb:u:${i}`, ["t"], () =>
+				Promise.reject(poolTimeout()),
+			).catch(() => undefined);
+		}
+		await new Promise((resolve) => setTimeout(resolve, 250));
+		await expect(
+			swrWrap("cb:probe-lock", ["t"], () =>
+				Promise.reject(
+					new Error("Failed query", {
+						cause: Object.assign(new Error("lock timeout"), { code: "55P03" }),
+					}),
+				),
+			),
+		).rejects.toThrow("Failed query");
+		expect(getDbCircuitState()).toBe("open");
+	});
+
+	it("allows a new probe when the previous probe never settles", async () => {
+		for (let i = 0; i < 3; i++) {
+			await swrWrap(`cb:w:${i}`, ["t"], () =>
+				Promise.reject(poolTimeout()),
+			).catch(() => undefined);
+		}
+		await new Promise((resolve) => setTimeout(resolve, 250));
+		void swrWrap("cb:probe-hang", ["t"], () => new Promise<number>(() => {}));
+		await expect(
+			swrWrap("cb:probe-blocked", ["t"], () => Promise.resolve(1)),
+		).rejects.toBeInstanceOf(DbCircuitOpenError);
+
+		await new Promise((resolve) => setTimeout(resolve, 250));
+		expect(
+			await swrWrap("cb:probe-next", ["t"], () => Promise.resolve(8)),
+		).toBe(8);
+		expect(getDbCircuitState()).toBe("closed");
+	});
 });

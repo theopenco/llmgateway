@@ -5811,6 +5811,22 @@ describe("airside provider portal", () => {
 		expect(imported).toContain("qwen-image-3.0");
 	});
 
+	it("skips catalogue mappings with peak-hour pricing", async () => {
+		await setUserEmail("ops@deepseek.com");
+		const company = await createCompany(cookie, "DeepSeek");
+		await claimProvider(cookie, company.id, "deepseek");
+		await activateClaim("deepseek");
+
+		const res = await app.request(
+			"/airside/models/import",
+			json(cookie, { providerCompanyId: company.id, providerId: "deepseek" }),
+		);
+		expect(res.status).toBe(200);
+		const { imported, skipped } = await res.json();
+		expect(skipped).toContain("deepseek-v4-pro");
+		expect(imported).not.toContain("deepseek-v4-pro");
+	});
+
 	it("round-trips the carrier rate limit scope", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);

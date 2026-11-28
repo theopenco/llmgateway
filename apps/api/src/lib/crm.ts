@@ -459,9 +459,18 @@ export async function loadCrmBook(
 		return existing;
 	};
 
+	const membersByOrg = new Map<string, typeof members>();
+	for (const m of members) {
+		const list = membersByOrg.get(m.organizationId);
+		if (list) {
+			list.push(m);
+		} else {
+			membersByOrg.set(m.organizationId, [m]);
+		}
+	}
 	const memberKeys = new Map<string, string>();
 	for (const o of orgs) {
-		const orgMembers = members.filter((m) => m.organizationId === o.id);
+		const orgMembers = membersByOrg.get(o.id) ?? [];
 		const key = orgAccountKey(o, orgMembers);
 		const e = entry(key);
 		e.orgs.push(o);
