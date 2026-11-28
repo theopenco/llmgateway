@@ -4,7 +4,7 @@ import { ArrowUpRight, Clock, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
-	AnvilIcon,
+	MezairIcon,
 	AutohandIcon,
 	ClineIcon,
 	CodexIcon,
@@ -57,11 +57,11 @@ export const DEFAULT_INTEGRATION_GUIDES: IntegrationGuide[] = [
 		comingSoon: false,
 	},
 	{
-		name: "Anvil",
+		name: "Mezair",
 		description:
-			"Use LLM Gateway with Anvil, the chat-first desktop workspace for repo-aware agent delivery — connect with one browser login.",
-		href: "/guides/anvil",
-		icon: AnvilIcon,
+			"Use LLM Gateway with Mezair, the chat-first desktop workspace for repo-aware agent delivery — connect with one browser login.",
+		href: "/guides/mezair",
+		icon: MezairIcon,
 		comingSoon: false,
 	},
 	{

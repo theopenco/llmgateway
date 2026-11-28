@@ -2,6 +2,8 @@
 
 import { Terminal } from "lucide-react";
 
+import { MezairIcon } from "@llmgateway/shared/components";
+
 interface OgIconProps {
 	size?: number;
 }
@@ -327,14 +329,8 @@ export const GitHubCopilotIcon = ({ size = 100 }: OgIconProps) => (
 	</svg>
 );
 
-export const AnvilOgIcon = ({ size = 100 }: OgIconProps) => (
-	<img
-		src="https://llmgateway.io/integrations/anvil.svg"
-		alt="Anvil"
-		width={size}
-		height={size}
-		style={{ objectFit: "contain" }}
-	/>
+const MezairOgIcon = ({ size = 100 }: OgIconProps) => (
+	<MezairIcon width={size} height={size} />
 );
 
 export const EmpryoIcon = ({ size = 100 }: OgIconProps) => (
@@ -385,7 +381,7 @@ export function getIconForGuide(slug: string) {
 		mimocode: MimoCodeIcon,
 		"kilo-code": KiloCodeIcon,
 		"devpass-code": DevPassCodeIcon,
-		anvil: AnvilOgIcon,
+		mezair: MezairOgIcon,
 		empryo: EmpryoIcon,
 		reasonix: ({ size }) => <Terminal size={size} color="#ffffff" />,
 		"github-copilot": GitHubCopilotIcon,

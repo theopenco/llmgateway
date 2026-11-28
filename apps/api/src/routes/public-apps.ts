@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
+import { canonicalMezairSource } from "@/utils/coding-agent-source.js";
 import { createRoute } from "@/utils/create-route.js";
 
 import { db, globalSourceStats, ne, sql } from "@llmgateway/db";
@@ -48,18 +49,19 @@ const listAppsRoute = createRoute({
 
 publicApps.openapi(listAppsRoute, async (c) => {
 	const { limit } = c.req.valid("query");
+	const source = canonicalMezairSource(globalSourceStats.source);
 
 	const [rows, [totals]] = await Promise.all([
 		db
 			.select({
-				source: globalSourceStats.source,
+				source,
 				totalTokens: sql<string>`COALESCE(SUM(CAST(${globalSourceStats.totalTokens} AS NUMERIC)), 0)`,
 				totalRequests: sql<string>`COALESCE(SUM(${globalSourceStats.requestCount}), 0)`,
 				lastUsedAt: sql<Date | null>`MAX(${globalSourceStats.dayTimestamp})`,
 			})
 			.from(globalSourceStats)
 			.where(ne(globalSourceStats.source, "unknown"))
-			.groupBy(globalSourceStats.source)
+			.groupBy(source)
 			.orderBy(
 				sql`COALESCE(SUM(CAST(${globalSourceStats.totalTokens} AS NUMERIC)), 0) DESC`,
 			)
@@ -68,7 +70,7 @@ publicApps.openapi(listAppsRoute, async (c) => {
 			.select({
 				totalTokens: sql<string>`COALESCE(SUM(CAST(${globalSourceStats.totalTokens} AS NUMERIC)), 0)`,
 				totalRequests: sql<string>`COALESCE(SUM(${globalSourceStats.requestCount}), 0)`,
-				totalApps: sql<string>`COUNT(DISTINCT ${globalSourceStats.source}) FILTER (WHERE ${globalSourceStats.source} <> 'unknown')`,
+				totalApps: sql<string>`COUNT(DISTINCT ${source}) FILTER (WHERE ${globalSourceStats.source} <> 'unknown')`,
 			})
 			.from(globalSourceStats),
 	]);

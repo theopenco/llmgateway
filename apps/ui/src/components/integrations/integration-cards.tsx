@@ -7,7 +7,7 @@ import { Card } from "@/lib/components/card";
 
 import {
 	AnthropicIcon,
-	AnvilIcon,
+	MezairIcon,
 	AutohandIcon,
 	CodexIcon,
 	ContinueIcon,
@@ -60,11 +60,11 @@ export const integrations: Integration[] = [
 		comingSoon: false,
 	},
 	{
-		name: "Anvil",
+		name: "Mezair",
 		description:
-			"Use LLM Gateway with Anvil, the chat-first desktop workspace for repo-aware agent delivery — connect with one browser login.",
-		href: "/guides/anvil",
-		icon: AnvilIcon,
+			"Use LLM Gateway with Mezair, the chat-first desktop workspace for repo-aware agent delivery — connect with one browser login.",
+		href: "/guides/mezair",
+		icon: MezairIcon,
 		comingSoon: false,
 	},
 	{

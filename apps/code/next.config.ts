@@ -23,8 +23,13 @@ const nextConfig: NextConfig = {
 		serverSourceMaps: true,
 	},
 	async redirects() {
-		// Truncated pricing-toggle URLs ("/mo", "/yr") picked up by crawlers.
 		return [
+			{
+				source: "/dashboard/agents/anvil",
+				destination: "/dashboard/agents/mezair",
+				permanent: true,
+			},
+			// Truncated pricing-toggle URLs picked up by crawlers.
 			{
 				source: "/mo",
 				destination: "/",

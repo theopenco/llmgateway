@@ -1,3 +1,5 @@
+import { MezairIcon } from "@llmgateway/shared/components";
+
 import type { ComponentType, SVGProps } from "react";
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
@@ -165,23 +167,7 @@ export const customIcons: Record<string, IconComponent> = {
 			/>
 		</svg>
 	),
-	Anvil: (props) => (
-		// Full-color crest SVG hosted at /integrations/anvil.svg in the docs
-		// public dir, wrapped in an <svg> shell so sidebar sizing rules apply.
-		<svg
-			style={{ flex: "none", lineHeight: "1" }}
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			{...props}
-		>
-			<image
-				href="/integrations/anvil.svg"
-				width="24"
-				height="24"
-				preserveAspectRatio="xMidYMid meet"
-			/>
-		</svg>
-	),
+	Mezair: (props) => <MezairIcon style={{ flex: "none" }} {...props} />,
 	Empryo: (props) => (
 		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {...props}>
 			<image

@@ -312,6 +312,47 @@ describe("logs route", () => {
 			expect(json.pagination.limit).toBe(50);
 		});
 
+		test("matches historical and current Mezair logs with either source", async () => {
+			await db.insert(tables.log).values(
+				["anvil", "mezair"].map((source) => ({
+					id: `test-log-${source}`,
+					requestId: `test-request-${source}`,
+					organizationId: "test-org-id",
+					projectId: "test-project-id",
+					apiKeyId: "test-api-key-id",
+					duration: 100,
+					requestedModel: "gpt-4",
+					requestedProvider: "openai",
+					usedModel: "gpt-4",
+					usedProvider: "openai",
+					responseSize: 10,
+					mode: "api-keys" as const,
+					usedMode: "api-keys" as const,
+					source,
+				})),
+			);
+
+			for (const source of ["anvil", "mezair"]) {
+				const params = new URLSearchParams({
+					projectId: "test-project-id",
+					source,
+				});
+				const res = await app.request("/logs?" + params, {
+					headers: { Cookie: token },
+				});
+
+				expect(res.status).toBe(200);
+				const { logs } = await res.json();
+				expect(logs).toHaveLength(2);
+				expect(logs).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({ source: "anvil" }),
+						expect.objectContaining({ source: "mezair" }),
+					]),
+				);
+			}
+		});
+
 		test("should filter logs by usedMode", async () => {
 			await db.insert(tables.log).values({
 				id: "test-log-credits",

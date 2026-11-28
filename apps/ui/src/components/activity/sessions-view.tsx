@@ -26,6 +26,7 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 
+import { normalizeSourceToAgentId } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { paths } from "@/lib/api/v1";
@@ -56,6 +57,7 @@ const KNOWN_SOURCES = [
 	"opencode",
 	"cursor",
 	"autohand",
+	"mezair",
 	"anvil",
 	"empryo",
 	"soulforge",
@@ -67,7 +69,7 @@ const SOURCE_OPTIONS = [
 	{ value: "opencode", label: "OpenCode" },
 	{ value: "cursor", label: "Cursor" },
 	{ value: "autohand", label: "Autohand Code" },
-	{ value: "anvil", label: "Anvil" },
+	{ value: "mezair", label: "Mezair" },
 	{ value: "empryo", label: "Empryo" },
 	{ value: "soulforge", label: "SoulForge" },
 ] as const;
@@ -171,8 +173,9 @@ function formatSourceLabel(source: string): string {
 			return "Cursor";
 		case "autohand":
 			return "Autohand Code";
+		case "mezair":
 		case "anvil":
-			return "Anvil";
+			return "Mezair";
 		case "empryo":
 			return "Empryo";
 		case "soulforge":
@@ -281,14 +284,14 @@ export function SessionsView({
 		queryParams.endDate = dateRange.end.toISOString();
 	}
 
-	// Filter by source at API level so pagination reflects filtered results
-	if (source === "all") {
-		queryParams.source = KNOWN_SOURCES.join(",");
-	} else if (source === "opencode") {
-		queryParams.source = "opencode,open-code";
-	} else {
-		queryParams.source = source;
-	}
+	// Filter by source at API level so pagination reflects filtered results.
+	const selectedSources: readonly string[] =
+		source === "all"
+			? KNOWN_SOURCES
+			: KNOWN_SOURCES.filter(
+					(value) => normalizeSourceToAgentId(value) === source,
+				);
+	queryParams.source = selectedSources.join(",");
 
 	const {
 		data,
@@ -322,24 +325,9 @@ export function SessionsView({
 		data?.pages.flatMap((page) => page?.logs ?? []) ?? []
 	).filter((log) => !log.retriedByLogId);
 
-	// Only include logs from known integration sources
-	const integrationLogs = allLogs.filter((log) => {
-		if (
-			!log.source ||
-			!(KNOWN_SOURCES as readonly string[]).includes(log.source)
-		) {
-			return false;
-		}
-		// Apply client-side source filter
-		if (source === "all") {
-			return true;
-		}
-		// "opencode" filter matches both "opencode" and "open-code"
-		if (source === "opencode") {
-			return log.source === "opencode" || log.source === "open-code";
-		}
-		return log.source === source;
-	});
+	const integrationLogs = allLogs.filter(
+		(log) => log.source && selectedSources.includes(log.source),
+	);
 	const sessions = groupLogsIntoSessions(integrationLogs);
 
 	return (

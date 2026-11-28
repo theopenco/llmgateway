@@ -1,6 +1,6 @@
 import {
 	AnthropicIcon,
-	AnvilIcon,
+	MezairIcon,
 	AutohandIcon,
 	ClineIcon,
 	CodexIcon,
@@ -175,13 +175,13 @@ export const APP_METADATA: Record<string, AppMetadata> = {
 		category: "coding",
 		Icon: AutohandIcon,
 	},
-	anvil: {
-		displayName: "Anvil",
-		url: "https://anvil.dev",
+	mezair: {
+		displayName: "Mezair",
+		url: "https://mezair.dev/",
 		description:
 			"Chat-first desktop workspace for repo-aware agent delivery. Connects to LLM Gateway with one-click browser login.",
 		category: "coding",
-		Icon: AnvilIcon,
+		Icon: MezairIcon,
 	},
 	empryo: {
 		displayName: "Empryo",
@@ -217,7 +217,7 @@ export const APP_METADATA: Record<string, AppMetadata> = {
 };
 
 export function getAppMetadata(source: string): AppMetadata {
-	const known = APP_METADATA[source];
+	const known = APP_METADATA[source === "anvil" ? "mezair" : source];
 	if (known) {
 		return known;
 	}

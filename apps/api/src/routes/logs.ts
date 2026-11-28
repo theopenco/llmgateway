@@ -772,12 +772,12 @@ logs.openapi(get, async (c) => {
 
 	// Add source filter if provided (supports comma-separated values)
 	if (source) {
-		const sources = source.split(",").map((s) => s.trim());
-		if (sources.length === 1) {
-			whereConditions.push(eq(tables.log.source, sources[0]));
-		} else {
-			whereConditions.push(inArray(tables.log.source, sources));
+		const sources = new Set(source.split(",").map((s) => s.trim()));
+		if (sources.has("mezair") || sources.has("anvil")) {
+			sources.add("mezair");
+			sources.add("anvil");
 		}
+		whereConditions.push(inArray(tables.log.source, [...sources]));
 	}
 
 	// Add requestId filter

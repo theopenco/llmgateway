@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { cachedPublicResponse } from "@/lib/public-response-cache.js";
+import { canonicalMezairSource } from "@/utils/coding-agent-source.js";
 import { createRoute } from "@/utils/create-route.js";
 import { CODING_AGENT_SOURCES } from "@/utils/profile.js";
 
@@ -138,10 +139,11 @@ async function loadLeaderboard(take: number) {
 
 	const topAgentByUser = new Map<string, string>();
 	if (userIds.length > 0) {
+		const source = canonicalMezairSource(projectHourlySourceStats.source);
 		const agentRows = await db
 			.select({
 				userId: user.id,
-				source: projectHourlySourceStats.source,
+				source,
 				requestCount:
 					sql<number>`COALESCE(SUM(${projectHourlySourceStats.requestCount}), 0)`.as(
 						"requestCount",
@@ -173,7 +175,7 @@ async function loadLeaderboard(take: number) {
 					inArray(projectHourlySourceStats.source, CODING_AGENT_SOURCES),
 				),
 			)
-			.groupBy(user.id, projectHourlySourceStats.source);
+			.groupBy(user.id, source);
 
 		const bestByUser = new Map<string, { source: string; count: number }>();
 		for (const row of agentRows) {

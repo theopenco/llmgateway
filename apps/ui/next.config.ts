@@ -94,8 +94,9 @@ const nextConfig: NextConfig = {
 			systemone: "v1_systemone",
 			videos: "v1_videos_create",
 		};
-		// Posts whose slug changed after they were indexed or linked.
+		// Pages whose slug changed after they were indexed or linked.
 		const renamedContentRedirects: Record<string, string> = {
+			"/guides/anvil": "/guides/mezair",
 			"/blog/perplexity-sonar-retirement":
 				"/blog/perplexity-sonar-api-retirement",
 			"/blog/self-host-llm-gateway": "/blog/how-to-self-host-llm-gateway",

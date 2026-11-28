@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { canonicalMezairSource } from "@/utils/coding-agent-source.js";
+
 import {
 	and,
 	db,
@@ -80,6 +82,7 @@ export const CODING_AGENT_SOURCES = [
 	"open-code",
 	"cursor",
 	"autohand",
+	"mezair",
 	"anvil",
 	"empryo",
 	"soulforge",
@@ -220,6 +223,7 @@ export async function computeProfileData(
 	startDate.setUTCHours(0, 0, 0, 0);
 	startDate.setUTCDate(startDate.getUTCDate() - 364);
 
+	const source = canonicalMezairSource(projectHourlySourceStats.source);
 	const [activityRows, modelRows, sourceRows] = await Promise.all([
 		db
 			.select({
@@ -271,7 +275,7 @@ export async function computeProfileData(
 			),
 		db
 			.select({
-				source: projectHourlySourceStats.source,
+				source,
 				requestCount:
 					sql<number>`COALESCE(SUM(${projectHourlySourceStats.requestCount}), 0)`.as(
 						"requestCount",
@@ -288,7 +292,7 @@ export async function computeProfileData(
 					inArray(projectHourlySourceStats.source, CODING_AGENT_SOURCES),
 				),
 			)
-			.groupBy(projectHourlySourceStats.source),
+			.groupBy(source),
 	]);
 
 	const activity: ProfileActivityDay[] = activityRows.map((r) => ({

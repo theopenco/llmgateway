@@ -38,7 +38,7 @@ import { cn } from "@/lib/utils";
 import { buildAgentLogsCsv, CODING_AGENTS } from "@llmgateway/shared";
 import {
 	AnthropicIcon,
-	AnvilIcon,
+	MezairIcon,
 	AutohandIcon,
 	ClineIcon,
 	CodexIcon,
@@ -80,7 +80,7 @@ interface AgentDefinition {
 const AGENT_ICONS: Record<string, IconComponent> = {
 	"devpass-code": DevPassCodeIcon,
 	"claude.com/claude-code": AnthropicIcon,
-	anvil: AnvilIcon,
+	mezair: MezairIcon,
 	opencode: OpenCodeIcon,
 	cursor: CursorIcon,
 	autohand: AutohandIcon,
