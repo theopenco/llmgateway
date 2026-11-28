@@ -5,11 +5,7 @@ import { checkFreeModelRateLimit, isFreeModel } from "./rate-limit.js";
 // Mock dependencies
 vi.mock("@llmgateway/cache", () => ({
 	redisClient: {
-		zremrangebyscore: vi.fn(),
-		zcard: vi.fn(),
-		zrange: vi.fn(),
-		zadd: vi.fn(),
-		expire: vi.fn(),
+		eval: vi.fn(),
 	},
 }));
 
@@ -165,7 +161,7 @@ describe("Rate Limiting", () => {
 				defaultDeveloperPeriodUsageDurationUnit: null,
 			});
 
-			vi.mocked(redis.zcard).mockResolvedValue(0);
+			vi.mocked(redis.eval).mockResolvedValue([1, 0]);
 
 			const result = await checkFreeModelRateLimit(
 				organizationId,
@@ -174,9 +170,9 @@ describe("Rate Limiting", () => {
 			);
 
 			expect(result.allowed).toBe(true);
-			expect(redis.zremrangebyscore).toHaveBeenCalled();
-			expect(redis.zadd).toHaveBeenCalled();
-			expect(redis.expire).toHaveBeenCalled();
+			expect(result.limit).toBe(5);
+			expect(result.remaining).toBe(4);
+			expect(redis.eval).toHaveBeenCalledOnce();
 		});
 
 		it("should use a unique sorted-set member per request", async () => {
@@ -276,19 +272,22 @@ describe("Rate Limiting", () => {
 				defaultDeveloperPeriodUsageDurationValue: null,
 				defaultDeveloperPeriodUsageDurationUnit: null,
 			});
-			vi.mocked(redis.zcard).mockResolvedValue(0);
+			vi.mocked(redis.eval).mockResolvedValue([1, 0]);
 
 			try {
 				await checkFreeModelRateLimit(organizationId, model, modelDefinition);
 
-				expect(redis.zadd).toHaveBeenCalledOnce();
-				const zaddArgs = vi.mocked(redis.zadd).mock.calls[0];
-				expect(zaddArgs[0]).toBe(
-					`rate_limit:free_model:${organizationId}:${model}`,
-				);
-				expect(zaddArgs[1]).toBe(now);
-				expect(zaddArgs[2]).toMatch(new RegExp(`^${now}:`));
-				expect(zaddArgs[2]).not.toBe(now.toString());
+				expect(redis.eval).toHaveBeenCalledOnce();
+				const [, , key, trimBefore, limit, score, member, ttl] = vi.mocked(
+					redis.eval,
+				).mock.calls[0];
+				expect(key).toBe(`rate_limit:free_model:${organizationId}:${model}`);
+				expect(trimBefore).toBe(now - 600_000);
+				expect(limit).toBe(5);
+				expect(score).toBe(now);
+				expect(member).toMatch(new RegExp(`^${now}:`));
+				expect(member).not.toBe(now.toString());
+				expect(ttl).toBe(1200);
 			} finally {
 				dateNowSpy.mockRestore();
 			}
@@ -390,7 +389,7 @@ describe("Rate Limiting", () => {
 				defaultDeveloperPeriodUsageDurationUnit: null,
 			});
 
-			vi.mocked(redis.zcard).mockResolvedValue(5); // Under elevated limit (20)
+			vi.mocked(redis.eval).mockResolvedValue([1, 5]); // Under elevated limit (20)
 
 			const result = await checkFreeModelRateLimit(
 				organizationId,
@@ -497,12 +496,12 @@ describe("Rate Limiting", () => {
 				defaultDeveloperPeriodUsageDurationUnit: null,
 			});
 
-			vi.mocked(redis.zcard).mockResolvedValue(5); // At limit (5)
 			const futureTimestamp = Date.now() + 30000; // 30 seconds in future
-			vi.mocked(redis.zrange).mockResolvedValue([
-				"123",
+			vi.mocked(redis.eval).mockResolvedValue([
+				0,
+				5,
 				futureTimestamp.toString(),
-			]);
+			]); // At limit (5)
 
 			const result = await checkFreeModelRateLimit(
 				organizationId,
@@ -612,12 +611,12 @@ describe("Rate Limiting", () => {
 				defaultDeveloperPeriodUsageDurationUnit: null,
 			});
 
-			vi.mocked(redis.zcard).mockResolvedValue(20); // At elevated limit (20)
 			const futureTimestamp = Date.now() + 30000; // 30 seconds in future
-			vi.mocked(redis.zrange).mockResolvedValue([
-				"123",
+			vi.mocked(redis.eval).mockResolvedValue([
+				0,
+				20,
 				futureTimestamp.toString(),
-			]);
+			]); // At elevated limit (20)
 
 			const result = await checkFreeModelRateLimit(
 				organizationId,
@@ -726,9 +725,7 @@ describe("Rate Limiting", () => {
 				defaultDeveloperPeriodUsageDurationValue: null,
 				defaultDeveloperPeriodUsageDurationUnit: null,
 			});
-			vi.mocked(redis.zremrangebyscore).mockRejectedValue(
-				new Error("Redis error"),
-			);
+			vi.mocked(redis.eval).mockRejectedValue(new Error("Redis error"));
 
 			const result = await checkFreeModelRateLimit(
 				organizationId,

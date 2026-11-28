@@ -407,4 +407,23 @@ describe("MCP OAuth", () => {
 		);
 		expect(response.status).toBe(401);
 	});
+
+	test("malformed percent-encoding in Basic credentials is invalid_client", async () => {
+		const response = await app.request("/oauth/token", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/x-www-form-urlencoded",
+				Authorization: `Basic ${Buffer.from("a%zz:b").toString("base64")}`,
+			},
+			body: new URLSearchParams({
+				grant_type: "authorization_code",
+				code: "unused",
+				code_verifier: "unused",
+			}).toString(),
+		});
+		expect(response.status).toBe(401);
+		expect(((await response.json()) as TokenResponse).error).toBe(
+			"invalid_client",
+		);
+	});
 });

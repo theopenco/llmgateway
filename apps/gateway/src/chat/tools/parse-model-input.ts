@@ -102,8 +102,9 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 		// Handle model names with multiple slashes (e.g. together.ai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo)
 		let modelName = split.slice(1).join("/");
 
-		// Parse optional region suffix (e.g. "qwen-plus:cn-beijing")
-		if (modelName.includes(":")) {
+		// Parse optional region suffix (e.g. "qwen-plus:cn-beijing"). Custom
+		// provider model ids keep their colon (e.g. "llama3:8b").
+		if (requestedProvider !== "custom" && modelName.includes(":")) {
 			const colonIdx = modelName.lastIndexOf(":");
 			requestedRegion = modelName.slice(colonIdx + 1);
 			modelName = modelName.slice(0, colonIdx);

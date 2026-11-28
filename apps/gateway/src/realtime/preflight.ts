@@ -1,3 +1,4 @@
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 
 import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
@@ -130,19 +131,13 @@ export interface RealtimePreflightResult {
 	upstreamClientRequestId?: string | null;
 }
 
-export function getAvailableCredits(organization: Organization): number {
-	const regularCredits = parseFloat(organization.credits ?? "0");
-	const devPlanCreditsRemaining =
-		organization.devPlan !== "none"
-			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
-				parseFloat(organization.devPlanCreditsUsed ?? "0")
-			: 0;
-	const chatPlanCreditsRemaining =
-		organization.chatPlan !== "none"
-			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
-				parseFloat(organization.chatPlanCreditsUsed ?? "0")
-			: 0;
-	return regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
+/**
+ * Realtime bills regular PAYG credits only, never dev- or chat-plan pools.
+ */
+export function getRealtimeCreditBalance(
+	organization: Pick<Organization, "credits">,
+): Decimal {
+	return new Decimal(organization.credits ?? "0");
 }
 
 function toConnectError(error: unknown): RealtimeConnectError {
@@ -421,7 +416,7 @@ async function runRealtimePreflightInner(
 	};
 
 	const assertCredits = () => {
-		if (getAvailableCredits(organization) <= 0) {
+		if (getRealtimeCreditBalance(organization).lte(0)) {
 			throw new RealtimeConnectError(
 				402,
 				"insufficient_credits",

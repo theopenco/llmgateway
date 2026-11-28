@@ -239,24 +239,29 @@ async function getProviderRateLimitStates(
 
 	const keys = {} as Record<ProviderRateLimitWindow, string>;
 	const limits = buildUnlimitedLimits();
-	for (const window of PROVIDER_RATE_LIMIT_WINDOWS) {
-		const config = getWindowConfig(effectiveRateLimit, window);
-		keys[window] = buildWindowKey(
-			window,
-			organizationId,
-			provider,
-			model,
-			config,
-		);
-		limits[window] = await readWindowState(
-			keys[window],
-			window,
-			config.limit,
-			now,
-			config.source,
-			config.mode,
-		);
-	}
+	const states = await Promise.all(
+		PROVIDER_RATE_LIMIT_WINDOWS.map((window) => {
+			const config = getWindowConfig(effectiveRateLimit, window);
+			keys[window] = buildWindowKey(
+				window,
+				organizationId,
+				provider,
+				model,
+				config,
+			);
+			return readWindowState(
+				keys[window],
+				window,
+				config.limit,
+				now,
+				config.source,
+				config.mode,
+			);
+		}),
+	);
+	PROVIDER_RATE_LIMIT_WINDOWS.forEach((window, index) => {
+		limits[window] = states[index];
+	});
 
 	return { keys, limits };
 }

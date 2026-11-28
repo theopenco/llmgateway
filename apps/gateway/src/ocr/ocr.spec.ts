@@ -157,6 +157,44 @@ describe("ocr", () => {
 		);
 	});
 
+	test("/v1/ocr returns 402 when the dev-plan allowance is exhausted and PAYG overflow is off", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-ocr-devplan-exhausted",
+			...hashApiKeyForStorage("real-token-ocr-devplan-exhausted"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await harness.setProjectMode("credits");
+		await harness.setDevPlan({
+			devPlan: "pro",
+			creditsLimit: "100",
+			creditsUsed: "100",
+			paygEnabled: false,
+		});
+		await db
+			.update(tables.organization)
+			.set({ kind: "default", credits: "50" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		const res = await app.request("/v1/ocr", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-ocr-devplan-exhausted",
+			},
+			body: JSON.stringify({
+				model: "mistral-ocr-latest",
+				document: IMAGE_DOCUMENT,
+			}),
+		});
+
+		expect(res.status).toBe(402);
+		expect(JSON.stringify(await res.json())).toContain(
+			"Dev Plan credit limit reached",
+		);
+	});
+
 	test("/v1/ocr surfaces upstream errors", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-ocr-error",

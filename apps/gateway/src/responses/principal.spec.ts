@@ -320,13 +320,11 @@ describe("Responses principals", () => {
 				expect(state.store).toHaveBeenCalledWith(
 					expect.any(String),
 					expect.objectContaining({
-						input: [
-							{
-								type: "message",
-								role: "user",
-								content: "Regular conversation",
-							},
-						],
+						input: [],
+						output: expect.arrayContaining([
+							expect.objectContaining({ type: "message", role: "user" }),
+							expect.objectContaining({ type: "compaction" }),
+						]),
 					}),
 					"project",
 				);

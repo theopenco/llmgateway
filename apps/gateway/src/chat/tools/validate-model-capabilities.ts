@@ -70,22 +70,24 @@ export function validateModelCapabilities(
 	// a pointer to the right one.
 	validateModelOutput(modelInfo, requestedModel, ["text", "image"]);
 
-	// Validate vision capability when the request contains images.
-	// Skip this check for "auto", "smart" and "custom" models as they will be resolved dynamically.
-	if (
-		hasImages &&
-		requestedModel !== "auto" &&
-		requestedModel !== "smart" &&
-		requestedModel !== "custom"
-	) {
-		const providersToCheck = requestedProvider
+	const providersToCheck = (
+		requestedProvider
 			? modelInfo.providers.filter(
 					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
 				)
-			: modelInfo.providers;
+			: modelInfo.providers
+	) as ProviderModelMapping[];
+	// "auto", "smart" and "custom" models are resolved dynamically, so most
+	// capability checks are skipped for them.
+	const isDynamicModel =
+		requestedModel === "auto" ||
+		requestedModel === "smart" ||
+		requestedModel === "custom";
 
+	// Validate vision capability when the request contains images.
+	if (hasImages && !isDynamicModel) {
 		const supportsVision = providersToCheck.some(
-			(provider) => (provider as ProviderModelMapping).vision === true,
+			(provider) => provider.vision === true,
 		);
 
 		if (!supportsVision) {
@@ -98,21 +100,9 @@ export function validateModelCapabilities(
 	}
 
 	// Validate document capability when the request contains `file` content blocks.
-	// Skip for "auto", "smart" and "custom" models (router/transform handle dynamic resolution).
-	if (
-		hasDocuments &&
-		requestedModel !== "auto" &&
-		requestedModel !== "smart" &&
-		requestedModel !== "custom"
-	) {
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
-
+	if (hasDocuments && !isDynamicModel) {
 		const supportsDocuments = providersToCheck.some(
-			(provider) => (provider as ProviderModelMapping).document === true,
+			(provider) => provider.document === true,
 		);
 
 		if (!supportsDocuments) {
@@ -129,21 +119,9 @@ export function validateModelCapabilities(
 	// but that filter is bypassed when the provider is pinned explicitly or the
 	// model has a single mapping, so reject here instead of letting the upstream
 	// return its own 400.
-	if (
-		hasAssistantPrefill &&
-		requestedModel !== "auto" &&
-		requestedModel !== "smart" &&
-		requestedModel !== "custom"
-	) {
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
-
+	if (hasAssistantPrefill && !isDynamicModel) {
 		const supportsAssistantPrefill = providersToCheck.some(
-			(provider) =>
-				(provider as ProviderModelMapping).supportsAssistantPrefill !== false,
+			(provider) => provider.supportsAssistantPrefill !== false,
 		);
 
 		if (!supportsAssistantPrefill) {
@@ -157,14 +135,8 @@ export function validateModelCapabilities(
 
 	// Validate JSON object output capability
 	if (response_format?.type === "json_object") {
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
-
 		const supportsJsonOutput = providersToCheck.some(
-			(provider) => (provider as ProviderModelMapping).jsonOutput === true,
+			(provider) => provider.jsonOutput === true,
 		);
 
 		if (!supportsJsonOutput) {
@@ -175,48 +147,22 @@ export function validateModelCapabilities(
 	}
 
 	// Validate JSON schema output capability
-	if (response_format?.type === "json_schema") {
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
+	if (response_format?.type === "json_schema" && !isDynamicModel) {
+		const supportsJsonSchema = providersToCheck.some(
+			(provider) => provider.jsonOutputSchema === true,
+		);
 
-		// For non-auto/custom models, check if the provider supports json_schema
-		if (
-			requestedModel !== "auto" &&
-			requestedModel !== "smart" &&
-			requestedModel !== "custom"
-		) {
-			const supportsJsonSchema = providersToCheck.some(
-				(provider) =>
-					(provider as ProviderModelMapping).jsonOutputSchema === true,
-			);
-
-			if (!supportsJsonSchema) {
-				throw new HTTPException(400, {
-					message: `Model ${requestedModel} does not support JSON schema output mode`,
-				});
-			}
+		if (!supportsJsonSchema) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} does not support JSON schema output mode`,
+			});
 		}
 	}
 
 	// Check if reasoning_effort is specified but model doesn't support reasoning
-	// Skip this check for "auto", "smart" and "custom" models as they will be resolved dynamically
-	if (
-		reasoning_effort !== undefined &&
-		requestedModel !== "auto" &&
-		requestedModel !== "smart" &&
-		requestedModel !== "custom"
-	) {
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
-
+	if (reasoning_effort !== undefined && !isDynamicModel) {
 		const supportsReasoning = providersToCheck.some(
-			(provider) => (provider as ProviderModelMapping).reasoning === true,
+			(provider) => provider.reasoning === true,
 		);
 
 		if (!supportsReasoning) {
@@ -240,21 +186,9 @@ export function validateModelCapabilities(
 	}
 
 	// Check if verbosity is specified but model doesn't support it
-	// Skip this check for "auto", "smart" and "custom" models as they will be resolved dynamically
-	if (
-		verbosity !== undefined &&
-		requestedModel !== "auto" &&
-		requestedModel !== "smart" &&
-		requestedModel !== "custom"
-	) {
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
-
+	if (verbosity !== undefined && !isDynamicModel) {
 		const supportsVerbosity = providersToCheck.some(
-			(provider) => (provider as ProviderModelMapping).verbosity === true,
+			(provider) => provider.verbosity === true,
 		);
 
 		if (!supportsVerbosity) {
@@ -265,28 +199,15 @@ export function validateModelCapabilities(
 	}
 
 	// Check if reasoning.max_tokens is specified but model doesn't support it
-	// Skip this check for "auto", "smart" and "custom" models as they will be resolved dynamically
-	if (
-		reasoning_max_tokens !== undefined &&
-		requestedModel !== "auto" &&
-		requestedModel !== "smart" &&
-		requestedModel !== "custom"
-	) {
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
-
+	if (reasoning_max_tokens !== undefined && !isDynamicModel) {
 		// A mapping that thinks through a binary chat-template flag
 		// (`chatTemplateThinkingKey`) also accepts a budget: the budget is dropped
 		// and only the on/off state is conveyed, so it is not "unsupported" the way
 		// it is on a provider with no thinking control at all.
 		const reasoningMaxTokens = providersToCheck.some(
 			(provider) =>
-				(provider as ProviderModelMapping).reasoningMaxTokens === true ||
-				(provider as ProviderModelMapping).chatTemplateThinkingKey !==
-					undefined,
+				provider.reasoningMaxTokens === true ||
+				provider.chatTemplateThinkingKey !== undefined,
 		);
 
 		if (!reasoningMaxTokens) {
@@ -312,21 +233,9 @@ export function validateModelCapabilities(
 	// Rejecting here is what keeps an unsupported mode from being dropped on
 	// the way upstream: the request would otherwise succeed in standard mode
 	// while the caller believes they paid for pro.
-	if (
-		reasoning_mode !== undefined &&
-		requestedModel !== "auto" &&
-		requestedModel !== "smart" &&
-		requestedModel !== "custom"
-	) {
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
+	if (reasoning_mode !== undefined && !isDynamicModel) {
 		const supportsMode = providersToCheck.some((provider) =>
-			(provider as ProviderModelMapping).reasoningModes?.includes(
-				reasoning_mode,
-			),
+			provider.reasoningModes?.includes(reasoning_mode),
 		);
 
 		if (!supportsMode) {
@@ -337,25 +246,13 @@ export function validateModelCapabilities(
 	}
 
 	// Check if tools are specified but model doesn't support them
-	// Skip this check for "auto", "smart" and "custom" models as they will be resolved dynamically
-	if (
-		(tools !== undefined || tool_choice !== undefined) &&
-		requestedModel !== "auto" &&
-		requestedModel !== "smart" &&
-		requestedModel !== "custom"
-	) {
-		const providersToCheck = requestedProvider
-			? modelInfo.providers.filter(
-					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
-				)
-			: modelInfo.providers;
-
+	if ((tools !== undefined || tool_choice !== undefined) && !isDynamicModel) {
 		const supportsTools = providersToCheck.some(
-			(provider) => (provider as ProviderModelMapping).tools === true,
+			(provider) => provider.tools === true,
 		);
 
 		const webSearchSupported = providersToCheck.some((provider) =>
-			supportsWebSearch(provider as ProviderModelMapping),
+			supportsWebSearch(provider),
 		);
 
 		// Determine if we have function tools (web_search tools were already extracted earlier)

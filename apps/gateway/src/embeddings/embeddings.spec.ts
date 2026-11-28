@@ -47,6 +47,56 @@ describe("embeddings", () => {
 		);
 	});
 
+	test("/v1/embeddings returns 402 when the dev-plan allowance is exhausted and PAYG overflow is off", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-embeddings-devplan-exhausted",
+			...hashApiKeyForStorage("real-token-embeddings-devplan-exhausted"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await harness.setProjectMode("credits");
+		await cdb.insert(tables.providerKey).values({
+			id: "managed-embeddings-devplan-exhausted",
+			provider: "openai",
+			...encryptProviderKeyForStorage(
+				"openai-token",
+				"managed-embeddings-devplan-exhausted",
+				null,
+			),
+			managed: true,
+			organizationId: null,
+			config: { baseUrl: harness.mockServerUrl },
+		});
+		await harness.setDevPlan({
+			devPlan: "pro",
+			creditsLimit: "100",
+			creditsUsed: "100",
+			paygEnabled: false,
+		});
+		await db
+			.update(tables.organization)
+			.set({ kind: "default", credits: "50" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-embeddings-devplan-exhausted",
+			},
+			body: JSON.stringify({
+				model: "text-embedding-3-small",
+				input: "The food was delicious",
+			}),
+		});
+
+		expect(res.status).toBe(402);
+		expect(JSON.stringify(await res.json())).toContain(
+			"Dev Plan credit limit reached",
+		);
+	});
+
 	test("/v1/embeddings serves Azure deployments on the v1 API", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-azure",

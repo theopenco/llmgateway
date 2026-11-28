@@ -202,7 +202,7 @@ export function transformStreamingToOpenai(
 					id: data.message?.id ?? data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: data.created ?? Math.floor(Date.now() / 1000),
-					model: data.message?.model ?? data.model ?? usedModel,
+					model: usedModel,
 					choices: [
 						{
 							index: 0,
@@ -219,7 +219,7 @@ export function transformStreamingToOpenai(
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: data.created ?? Math.floor(Date.now() / 1000),
-					model: data.model ?? usedModel,
+					model: usedModel,
 					choices: [
 						{
 							index: 0,
@@ -245,7 +245,7 @@ export function transformStreamingToOpenai(
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: data.created ?? Math.floor(Date.now() / 1000),
-					model: data.model ?? usedModel,
+					model: usedModel,
 					choices: [
 						{
 							index: 0,
@@ -265,7 +265,7 @@ export function transformStreamingToOpenai(
 			) {
 				transformedData = signedThinkingChunk(
 					thinkingProvider,
-					data.model ?? usedModel,
+					usedModel,
 					{
 						type: "thinking",
 						thinking: takeThinkingText(thinkingText, data.index),
@@ -280,7 +280,7 @@ export function transformStreamingToOpenai(
 			) {
 				transformedData = signedThinkingChunk(
 					thinkingProvider,
-					data.model ?? usedModel,
+					usedModel,
 					{ type: "redacted_thinking", data: data.content_block.data },
 					data.index,
 				);
@@ -311,7 +311,7 @@ export function transformStreamingToOpenai(
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: data.created ?? Math.floor(Date.now() / 1000),
-					model: data.model ?? usedModel,
+					model: usedModel,
 					choices: [
 						{
 							index: 0,
@@ -331,7 +331,7 @@ export function transformStreamingToOpenai(
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: data.created ?? Math.floor(Date.now() / 1000),
-					model: data.model ?? usedModel,
+					model: usedModel,
 					choices: [
 						{
 							index: 0,
@@ -377,7 +377,7 @@ export function transformStreamingToOpenai(
 						id: data.id ?? `chatcmpl-${Date.now()}`,
 						object: "chat.completion.chunk",
 						created: data.created ?? Math.floor(Date.now() / 1000),
-						model: data.model ?? usedModel,
+						model: usedModel,
 						choices: [
 							{
 								index: 0,
@@ -394,7 +394,7 @@ export function transformStreamingToOpenai(
 						id: data.id ?? `chatcmpl-${Date.now()}`,
 						object: "chat.completion.chunk",
 						created: data.created ?? Math.floor(Date.now() / 1000),
-						model: data.model ?? usedModel,
+						model: usedModel,
 						choices: [
 							{
 								index: 0,
@@ -461,7 +461,7 @@ export function transformStreamingToOpenai(
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: data.created ?? Math.floor(Date.now() / 1000),
-					model: data.model ?? usedModel,
+					model: usedModel,
 					choices: [
 						{
 							index: 0,
@@ -490,7 +490,7 @@ export function transformStreamingToOpenai(
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: data.created ?? Math.floor(Date.now() / 1000),
-					model: data.model ?? usedModel,
+					model: usedModel,
 					choices: [
 						{
 							index: 0,
@@ -512,7 +512,7 @@ export function transformStreamingToOpenai(
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: data.created ?? Math.floor(Date.now() / 1000),
-					model: data.model ?? usedModel,
+					model: usedModel,
 					choices: [
 						{
 							index: 0,
@@ -536,7 +536,7 @@ export function transformStreamingToOpenai(
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: data.created ?? Math.floor(Date.now() / 1000),
-					model: data.model ?? usedModel,
+					model: usedModel,
 					choices: [
 						{
 							index: 0,
@@ -574,7 +574,7 @@ export function transformStreamingToOpenai(
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: data.created ?? Math.floor(Date.now() / 1000),
-					model: data.model ?? usedModel,
+					model: usedModel,
 					choices: [
 						{
 							index: 0,
@@ -603,7 +603,7 @@ export function transformStreamingToOpenai(
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: data.created ?? Math.floor(Date.now() / 1000),
-					model: data.model ?? usedModel,
+					model: usedModel,
 					choices: [
 						{
 							index: 0,
@@ -622,7 +622,7 @@ export function transformStreamingToOpenai(
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: data.created ?? Math.floor(Date.now() / 1000),
-					model: data.model ?? usedModel,
+					model: usedModel,
 					choices: [
 						{
 							index: 0,
@@ -649,7 +649,7 @@ export function transformStreamingToOpenai(
 					id: data.id ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: data.created ?? Math.floor(Date.now() / 1000),
-					model: data.model ?? usedModel,
+					model: usedModel,
 					choices: [
 						{
 							index: 0,
@@ -961,7 +961,7 @@ export function transformStreamingToOpenai(
 					id: data.responseId ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: Math.floor(Date.now() / 1000),
-					model: data.modelVersion ?? usedModel,
+					model: usedModel,
 					choices,
 					usage: buildUsage(data.usageMetadata, messages),
 				};
@@ -1011,7 +1011,7 @@ export function transformStreamingToOpenai(
 					id: data.responseId ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: Math.floor(Date.now() / 1000),
-					model: data.modelVersion ?? usedModel,
+					model: usedModel,
 					choices: finishChoices,
 					usage: buildUsage(data.usageMetadata, messages),
 				};
@@ -1035,7 +1035,7 @@ export function transformStreamingToOpenai(
 					id: data.responseId ?? `chatcmpl-${Date.now()}`,
 					object: "chat.completion.chunk",
 					created: Math.floor(Date.now() / 1000),
-					model: data.modelVersion ?? usedModel,
+					model: usedModel,
 					choices: [
 						{
 							index: firstCandidate?.index ?? 0,
@@ -1098,7 +1098,7 @@ export function transformStreamingToOpenai(
 							object: "chat.completion.chunk",
 							created:
 								data.response?.created_at ?? Math.floor(Date.now() / 1000),
-							model: data.response?.model ?? usedModel,
+							model: usedModel,
 							choices: [
 								{
 									index: 0,
@@ -1120,7 +1120,7 @@ export function transformStreamingToOpenai(
 								object: "chat.completion.chunk",
 								created:
 									data.response?.created_at ?? Math.floor(Date.now() / 1000),
-								model: data.response?.model ?? usedModel,
+								model: usedModel,
 								choices: [
 									{
 										index: 0,
@@ -1149,7 +1149,7 @@ export function transformStreamingToOpenai(
 								object: "chat.completion.chunk",
 								created:
 									data.response?.created_at ?? Math.floor(Date.now() / 1000),
-								model: data.response?.model ?? usedModel,
+								model: usedModel,
 								choices: [
 									{
 										index: 0,
@@ -1241,7 +1241,7 @@ export function transformStreamingToOpenai(
 							object: "chat.completion.chunk",
 							created:
 								data.response?.created_at ?? Math.floor(Date.now() / 1000),
-							model: data.response?.model ?? usedModel,
+							model: usedModel,
 							choices: [
 								{
 									index: 0,
@@ -1280,7 +1280,7 @@ export function transformStreamingToOpenai(
 							object: "chat.completion.chunk",
 							created:
 								data.response?.created_at ?? Math.floor(Date.now() / 1000),
-							model: data.response?.model ?? usedModel,
+							model: usedModel,
 							choices: [
 								{
 									index: 0,
@@ -1303,7 +1303,7 @@ export function transformStreamingToOpenai(
 							object: "chat.completion.chunk",
 							created:
 								data.response?.created_at ?? Math.floor(Date.now() / 1000),
-							model: data.response?.model ?? usedModel,
+							model: usedModel,
 							choices: [
 								{
 									index: 0,
@@ -1325,7 +1325,7 @@ export function transformStreamingToOpenai(
 							object: "chat.completion.chunk",
 							created:
 								data.response?.created_at ?? Math.floor(Date.now() / 1000),
-							model: data.response?.model ?? usedModel,
+							model: usedModel,
 							choices: [
 								{
 									index: 0,
@@ -1355,7 +1355,7 @@ export function transformStreamingToOpenai(
 							object: "chat.completion.chunk",
 							created:
 								data.response?.created_at ?? Math.floor(Date.now() / 1000),
-							model: data.response?.model ?? usedModel,
+							model: usedModel,
 							choices: [
 								{
 									index: 0,
@@ -1399,7 +1399,7 @@ export function transformStreamingToOpenai(
 							object: "chat.completion.chunk",
 							created:
 								data.response?.created_at ?? Math.floor(Date.now() / 1000),
-							model: data.response?.model ?? usedModel,
+							model: usedModel,
 							choices: [
 								{
 									index: 0,
@@ -1448,7 +1448,7 @@ export function transformStreamingToOpenai(
 							object: "chat.completion.chunk",
 							created:
 								data.response?.created_at ?? Math.floor(Date.now() / 1000),
-							model: data.response?.model ?? usedModel,
+							model: usedModel,
 							choices: [
 								{
 									index: 0,
@@ -1496,7 +1496,7 @@ export function transformStreamingToOpenai(
 							object: "chat.completion.chunk",
 							created:
 								data.response?.created_at ?? Math.floor(Date.now() / 1000),
-							model: data.response?.model ?? usedModel,
+							model: usedModel,
 							choices: [
 								{
 									index: 0,
@@ -1527,7 +1527,7 @@ export function transformStreamingToOpenai(
 							object: "chat.completion.chunk",
 							created:
 								data.response?.created_at ?? Math.floor(Date.now() / 1000),
-							model: data.response?.model ?? usedModel,
+							model: usedModel,
 							choices: [
 								{
 									index: 0,

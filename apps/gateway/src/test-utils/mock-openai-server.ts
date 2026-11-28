@@ -3096,11 +3096,8 @@ const vertexPublisherModelHandler = async (
 			body.outputDimensionality > 0
 				? (body.outputDimensionality as number)
 				: 3072;
-		const values = Array.from({ length: dimensions }, (_, dim) => {
-			const base = dim % 2 === 0 ? 0.0011 : -0.0033;
-			return base;
-		});
-		const tokenCount = Math.max(1, Math.floor(text.length / 5));
+		const values = buildGoogleEmbeddingValues(text, dimensions, 0);
+		const tokenCount = googleTokensFor(text);
 		return c.json({
 			embedding: { values },
 			usageMetadata: { promptTokenCount: tokenCount },
@@ -3141,19 +3138,14 @@ const vertexPublisherModelHandler = async (
 			parameters.outputDimensionality > 0
 				? (parameters.outputDimensionality as number)
 				: 3072;
-		const values = Array.from({ length: dimensions }, (_, dim) => {
-			const base = dim % 2 === 0 ? 0.0011 : -0.0033;
-			return base;
-		});
-		// Distinct from the gateway's ceil(chars/4) fallback so tests can
-		// detect when upstream token_count is used vs. estimated.
+		const values = buildGoogleEmbeddingValues(firstText, dimensions, 0);
 		return c.json({
 			predictions: texts.map((text) => ({
 				embeddings: {
 					values,
 					statistics: {
 						truncated: false,
-						token_count: Math.max(1, Math.floor(text.length / 5)),
+						token_count: googleTokensFor(text),
 					},
 				},
 			})),

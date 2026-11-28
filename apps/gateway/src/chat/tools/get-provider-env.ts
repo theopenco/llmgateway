@@ -32,10 +32,7 @@ function getEnvCredentialCount(
 	if (!value) {
 		return 0;
 	}
-	return value
-		.split(",")
-		.map((v) => v.trim())
-		.filter((v) => v.length > 0).length;
+	return parseCommaSeparatedEnv(value).length;
 }
 
 /**

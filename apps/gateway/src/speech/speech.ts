@@ -13,7 +13,10 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
-import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
+import {
+	buildByokKeyFilter,
+	getAvailableCredits,
+} from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -415,29 +418,6 @@ function findSpeechMapping(modelId: string): {
 		}
 	}
 	return null;
-}
-
-function getAvailableCredits(
-	organization: InferSelectModel<typeof tables.organization>,
-) {
-	const regularCredits = parseFloat(organization.credits ?? "0");
-	const devPlanCreditsRemaining =
-		organization.devPlan !== "none"
-			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
-				parseFloat(organization.devPlanCreditsUsed ?? "0")
-			: 0;
-	const chatPlanCreditsRemaining =
-		organization.chatPlan !== "none"
-			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
-				parseFloat(organization.chatPlanCreditsUsed ?? "0")
-			: 0;
-
-	return {
-		devPlanCreditsRemaining,
-		chatPlanCreditsRemaining,
-		totalAvailableCredits:
-			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining,
-	};
 }
 
 async function assertCreditsAvailable(
@@ -2089,10 +2069,13 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 				}
 
 				const characters = request.input.length;
-				const inputCharacterPrice = Number(mapping.inputCharacterPrice ?? "0");
-				const inputCost = characters * inputCharacterPrice;
-				const requestCost = Number(mapping.requestPrice ?? "0");
-				const cost = inputCost + requestCost;
+				const inputCostDecimal = new Decimal(characters).mul(
+					mapping.inputCharacterPrice ?? "0",
+				);
+				const requestCostDecimal = new Decimal(mapping.requestPrice ?? "0");
+				const inputCost = inputCostDecimal.toNumber();
+				const requestCost = requestCostDecimal.toNumber();
+				const cost = inputCostDecimal.plus(requestCostDecimal).toNumber();
 
 				routingAttempts.push(
 					buildRoutingAttempt(
@@ -2329,15 +2312,20 @@ async function handleSpeech(c: Context<ServerTypes>): Promise<Response> {
 					? usage.candidatesTokenCount
 					: null;
 
-			const inputPrice = Number(mapping.inputPrice ?? "0");
-			const outputAudioPrice = Number(
+			const inputCostDecimal = new Decimal(promptTokens ?? 0).mul(
+				mapping.inputPrice ?? "0",
+			);
+			const outputCostDecimal = new Decimal(audioOutputTokens ?? 0).mul(
 				mapping.outputAudioPrice ?? mapping.outputPrice ?? "0",
 			);
-			const inputCost = promptTokens !== null ? promptTokens * inputPrice : 0;
-			const outputCost =
-				audioOutputTokens !== null ? audioOutputTokens * outputAudioPrice : 0;
-			const requestCost = Number(mapping.requestPrice ?? "0");
-			const cost = inputCost + outputCost + requestCost;
+			const requestCostDecimal = new Decimal(mapping.requestPrice ?? "0");
+			const inputCost = inputCostDecimal.toNumber();
+			const outputCost = outputCostDecimal.toNumber();
+			const requestCost = requestCostDecimal.toNumber();
+			const cost = inputCostDecimal
+				.plus(outputCostDecimal)
+				.plus(requestCostDecimal)
+				.toNumber();
 			const totalTokens =
 				promptTokens !== null || audioOutputTokens !== null
 					? (promptTokens ?? 0) + (audioOutputTokens ?? 0)

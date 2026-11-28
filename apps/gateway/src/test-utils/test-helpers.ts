@@ -5,18 +5,6 @@ import { RESPONSES_STORAGE_KEY_PREFIX } from "@/responses/tools/response-state.j
 import { redisClient } from "@llmgateway/cache";
 import { and, db, inArray, tables, eq, sql } from "@llmgateway/db";
 
-/**
- * Reset Redis state between tests, except the Responses API state store.
- *
- * Test files run in parallel and the e2e suites run their tests concurrently,
- * all against a single Redis (the storage Redis falls back to the main
- * instance unless a STORAGE_REDIS_* var is set). A blanket `flushdb` therefore
- * fires while sibling tests are mid-conversation and deletes the responses
- * they stored, which surfaces as a follow-up `previous_response_id` turn
- * losing its history or `GET /v1/responses/:id` returning 404. Those keys
- * carry their own TTL and are namespaced per response id, so leaving them
- * behind cannot leak into another test.
- */
 /** The organization's provider-facing safety identifier, as stored. */
 export async function getOrganizationSafetyIdentifier(
 	organizationId: string,
@@ -31,6 +19,18 @@ export async function getOrganizationSafetyIdentifier(
 	return row.safetyIdentifier;
 }
 
+/**
+ * Reset Redis state between tests, except the Responses API state store.
+ *
+ * Test files run in parallel and the e2e suites run their tests concurrently,
+ * all against a single Redis (the storage Redis falls back to the main
+ * instance unless a STORAGE_REDIS_* var is set). A blanket `flushdb` therefore
+ * fires while sibling tests are mid-conversation and deletes the responses
+ * they stored, which surfaces as a follow-up `previous_response_id` turn
+ * losing its history or `GET /v1/responses/:id` returning 404. Those keys
+ * carry their own TTL and are namespaced per response id, so leaving them
+ * behind cannot leak into another test.
+ */
 export async function clearCache() {
 	let cursor = "0";
 	do {
@@ -89,13 +89,6 @@ export async function cleanupTestOrganization(
 }
 
 /**
- * Helper function to wait for logs to be processed by the worker
- * @param expectedCount The expected number of logs
- * @param maxWaitMs Maximum time to wait in milliseconds
- * @param intervalMs Interval between checks in milliseconds
- * @returns Promise that resolves with true if logs are found, false if timed out
- */
-/**
  * Drop the rows the request classifier bills its own calls on. Routing
  * assertions want the request's own log entry, and a classified request now
  * writes two.
@@ -106,6 +99,13 @@ export function requestLogs<T extends { usedProvider: string }>(
 	return logs.filter((log) => log.usedProvider !== "typesafe");
 }
 
+/**
+ * Helper function to wait for logs to be processed by the worker
+ * @param expectedCount The expected number of logs
+ * @param maxWaitMs Maximum time to wait in milliseconds
+ * @param intervalMs Interval between checks in milliseconds
+ * @returns Promise that resolves with true if logs are found, false if timed out
+ */
 export async function waitForLogs(
 	expectedCount = 1,
 	maxWaitMs = 10000,
@@ -222,11 +222,6 @@ export async function waitForLogByRequestId(
 }
 
 /**
- * Helper function to read all chunks from a streaming response
- * @param stream The ReadableStream to read from
- * @returns Promise that resolves with parsed stream data including SSE validation
- */
-/**
  * The log row that billed a gateway-run web search. Each model call of the
  * search loop logs under `<requestId>-ws<n>`, and the searches are billed on
  * the call that read their results.
@@ -269,6 +264,11 @@ export async function waitForBilledWebSearchLog(
 	}
 }
 
+/**
+ * Helper function to read all chunks from a streaming response
+ * @param stream The ReadableStream to read from
+ * @returns Promise that resolves with parsed stream data including SSE validation
+ */
 export async function readAll(
 	stream: ReadableStream<Uint8Array> | null,
 ): Promise<{
@@ -295,6 +295,9 @@ export async function readAll(
 		};
 	}
 	const reader = stream.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
+	let currentEvent = "";
 	let fullContent = "";
 	let eventCount = 0;
 	let hasValidSSE = false;
@@ -304,65 +307,77 @@ export async function readAll(
 	const chunks: any[] = [];
 	const errorEvents: any[] = [];
 	let hasError = false;
+	const processLine = (line: string) => {
+		if (line === "" || line === "\r") {
+			currentEvent = "";
+			return;
+		}
+		if (line.startsWith("event: ")) {
+			currentEvent = line.substring(7).trim();
+			return;
+		}
+		if (!line.startsWith("data: ")) {
+			return;
+		}
+		eventCount++;
+		hasValidSSE = true;
+		if (line.trimEnd() === "data: [DONE]") {
+			currentEvent = "";
+			return;
+		}
+		try {
+			const data = JSON.parse(line.substring(6));
+			// Handle error events
+			if (currentEvent === "error" || data.error) {
+				errorEvents.push(data);
+				hasError = true;
+				currentEvent = "";
+				return;
+			}
+			chunks.push(data);
+			// Check if this chunk has OpenAI format
+			if (!data.id || !data.object || data.object !== "chat.completion.chunk") {
+				hasOpenAIFormat = false;
+			}
+			// Check for content in OpenAI format (should be the primary format after transformation)
+			if (
+				data.choices?.[0]?.delta?.content ||
+				data.choices?.[0]?.finish_reason
+			) {
+				hasContent = true;
+			}
+			// Check for usage information
+			if (
+				data.usage &&
+				(data.usage.prompt_tokens !== null ||
+					data.usage.completion_tokens !== null ||
+					data.usage.total_tokens !== null)
+			) {
+				hasUsage = true;
+			}
+		} catch {}
+		currentEvent = "";
+	};
 	try {
 		while (true) {
 			const { done, value } = await reader.read();
 			if (done) {
 				break;
 			}
-			const chunk = new TextDecoder().decode(value);
+			const chunk = decoder.decode(value, { stream: true });
 			fullContent += chunk;
-			const lines = chunk.split("\n");
-			let currentEvent = "";
+			buffer += chunk;
+			const lines = buffer.split("\n");
+			buffer = lines.pop() ?? "";
 			for (const line of lines) {
-				if (line.startsWith("event: ")) {
-					currentEvent = line.substring(7).trim();
-				} else if (line.startsWith("data: ")) {
-					eventCount++;
-					hasValidSSE = true;
-					if (line === "data: [DONE]") {
-						// Reset currentEvent to avoid stale carry-over
-						currentEvent = "";
-						continue;
-					}
-					try {
-						const data = JSON.parse(line.substring(6));
-						// Handle error events
-						if (currentEvent === "error" || data.error) {
-							errorEvents.push(data);
-							hasError = true;
-							currentEvent = "";
-							continue;
-						}
-						chunks.push(data);
-						// Check if this chunk has OpenAI format
-						if (
-							!data.id ||
-							!data.object ||
-							data.object !== "chat.completion.chunk"
-						) {
-							hasOpenAIFormat = false;
-						}
-						// Check for content in OpenAI format (should be the primary format after transformation)
-						if (
-							data.choices?.[0]?.delta?.content ||
-							data.choices?.[0]?.finish_reason
-						) {
-							hasContent = true;
-						}
-						// Check for usage information
-						if (
-							data.usage &&
-							(data.usage.prompt_tokens !== null ||
-								data.usage.completion_tokens !== null ||
-								data.usage.total_tokens !== null)
-						) {
-							hasUsage = true;
-						}
-					} catch {}
-					currentEvent = "";
-				}
+				processLine(line);
 			}
+		}
+		const tail = decoder.decode();
+		fullContent += tail;
+		buffer += tail;
+		for (const line of buffer.split("\n")) {
+			processLine(line);
 		}
 	} finally {
 		reader.releaseLock();

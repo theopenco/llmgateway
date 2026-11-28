@@ -34,11 +34,17 @@ const anthropicKnownContentBlockSchema = z.union([
 	}),
 	z.object({
 		type: z.literal("image"),
-		source: z.object({
-			type: z.literal("base64"),
-			media_type: z.string(),
-			data: z.string(),
-		}),
+		source: z.union([
+			z.object({
+				type: z.literal("base64"),
+				media_type: z.string(),
+				data: z.string(),
+			}),
+			z.object({
+				type: z.literal("url"),
+				url: z.string(),
+			}),
+		]),
 	}),
 	// PDF and plain-text documents. Lowering turns the base64 and text sources
 	// into an internal `file` part and rejects the rest.

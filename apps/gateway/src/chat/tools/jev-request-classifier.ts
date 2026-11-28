@@ -459,7 +459,11 @@ export async function classifyRequest(
 
 		// A 200 is a call TypeSafe billed us for, whatever the answers turn out to
 		// look like, so the charge is recorded here rather than after parsing.
-		const usage = (responseJson as JevSystemOneResponse).usage;
+		const body =
+			responseJson && typeof responseJson === "object"
+				? (responseJson as JevSystemOneResponse)
+				: undefined;
+		const usage = body?.usage;
 		const classifierCost = logClassifierUsage({
 			context,
 			modelId: JEV_CLASSIFIER_MODEL,
@@ -471,15 +475,12 @@ export async function classifyRequest(
 				outputTokens:
 					typeof usage?.output_tokens === "number" ? usage.output_tokens : null,
 			},
-			answers: (responseJson as JevSystemOneResponse).answers ?? null,
+			answers: body?.answers ?? null,
 			responseSize: upstreamText.length,
 			durationMs: Date.now() - startTime,
 		});
 
-		const answers =
-			responseJson && typeof responseJson === "object"
-				? ((responseJson as JevSystemOneResponse).answers ?? null)
-				: null;
+		const answers = body?.answers ?? null;
 		const rawScore = answers?.difficulty?.score;
 		if (typeof rawScore !== "number" || !Number.isFinite(rawScore)) {
 			logClassifierError(context, {
@@ -550,7 +551,7 @@ export async function classifyRequest(
 			projectId: context.project.id,
 			apiKeyId: context.apiKey.id,
 			durationMs: classification.latencyMs,
-			model: (responseJson as JevSystemOneResponse).model,
+			model: body?.model,
 			usage,
 			cost: classifierCost,
 			difficulty: classification.difficulty,

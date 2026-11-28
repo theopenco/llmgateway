@@ -1,5 +1,3 @@
-import { hasInvalidProviderCredentialError } from "@/lib/provider-auth-errors.js";
-
 import { compareProviderOrder } from "@llmgateway/actions";
 import { DEFAULT_ROUTING_RETRY } from "@llmgateway/shared/routing-config";
 
@@ -75,22 +73,16 @@ export function isRetryableErrorType(errorType: string): boolean {
  * Determines whether a failed request should be retried against another key
  * for the same provider.
  *
- * Auth failures (401/403) are not eligible for cross-provider fallback, but
- * they should still rotate to another configured key for the current provider
- * because the failure is often isolated to a single credential.
+ * Every retryable error type rotates to another configured key, including
+ * gateway_error (auth, config and payment failures), which is often isolated
+ * to a single credential. The status code and error text are not consulted.
  */
 export function shouldRetryAlternateKey(
 	errorType: string,
-	statusCode?: number,
-	errorText?: string,
+	_statusCode?: number,
+	_errorText?: string,
 ): boolean {
-	return (
-		isRetryableErrorType(errorType) ||
-		(errorType === "gateway_error" &&
-			((statusCode !== undefined &&
-				(statusCode === 401 || statusCode === 403)) ||
-				hasInvalidProviderCredentialError(errorText)))
-	);
+	return isRetryableErrorType(errorType);
 }
 
 /**

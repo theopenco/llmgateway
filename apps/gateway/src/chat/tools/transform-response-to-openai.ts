@@ -345,21 +345,35 @@ export function withCurrentRequestMetadataOnOpenAiResponse<
 /**
  * Helper function to build usage object with optional cost fields
  */
-function buildUsageObject(
-	promptTokens: number | null,
-	completionTokens: number | null,
-	totalTokens: number | null,
-	reasoningTokens: number | null,
-	cachedTokens: number | null,
-	costs: CostData | null,
+function buildUsageObject({
+	promptTokens,
+	completionTokens,
+	totalTokens,
+	reasoningTokens,
+	cachedTokens,
+	costs,
 	showUpgradeMessage = false,
-	cacheCreationTokens: number | null = null,
-	imageInputTokens: number | null = null,
-	imageOutputTokens: number | null = null,
-	cacheCreation5mTokens: number | null = null,
-	cacheCreation1hTokens: number | null = null,
-	audioInputTokens: number | null = null,
-) {
+	cacheCreationTokens = null,
+	imageInputTokens = null,
+	imageOutputTokens = null,
+	cacheCreation5mTokens = null,
+	cacheCreation1hTokens = null,
+	audioInputTokens = null,
+}: {
+	promptTokens: number | null;
+	completionTokens: number | null;
+	totalTokens: number | null;
+	reasoningTokens: number | null;
+	cachedTokens: number | null;
+	costs: CostData | null;
+	showUpgradeMessage?: boolean;
+	cacheCreationTokens?: number | null;
+	imageInputTokens?: number | null;
+	imageOutputTokens?: number | null;
+	cacheCreation5mTokens?: number | null;
+	cacheCreation1hTokens?: number | null;
+	audioInputTokens?: number | null;
+}) {
 	const usage: Record<string, any> = {
 		prompt_tokens: Math.max(1, promptTokens ?? 1),
 		completion_tokens: completionTokens ?? 0,
@@ -428,6 +442,127 @@ export function transformResponseToOpenai(
 	searchResults: SearchResult[] | null = null,
 ) {
 	let transformedResponse = json;
+
+	const displayModel = () =>
+		formatUsedModelForDisplay(
+			usedProvider,
+			baseModelName,
+			undefined,
+			usedRegion,
+		);
+	const metadata = () =>
+		buildMetadata(
+			requestedModel,
+			requestedProvider,
+			baseModelName,
+			usedProvider,
+			usedModel,
+			requestId,
+			routing,
+			usedRegion,
+		);
+
+	const singleChoice = (
+		message: Record<string, unknown>,
+		finish_reason: string,
+	) => [
+		{
+			index: 0,
+			message: { role: "assistant", ...message },
+			finish_reason,
+		},
+	];
+
+	const buildCompletion = ({
+		choices,
+		id,
+		created,
+		extra,
+	}: {
+		choices: unknown[];
+		id?: string | null;
+		created?: number | null;
+		extra?: Record<string, unknown>;
+	}) => ({
+		id: id ?? `chatcmpl-${Date.now()}`,
+		object: "chat.completion",
+		created: created ?? Math.floor(Date.now() / 1000),
+		model: displayModel(),
+		choices,
+		...extra,
+		usage: buildUsageObject({
+			promptTokens,
+			completionTokens,
+			totalTokens,
+			reasoningTokens,
+			cachedTokens,
+			costs,
+			showUpgradeMessage,
+			cacheCreationTokens,
+			imageInputTokens,
+			imageOutputTokens,
+			cacheCreation5mTokens,
+			cacheCreation1hTokens,
+			audioInputTokens,
+		}),
+		metadata: metadata(),
+	});
+
+	const imageCompletion = (id?: string | null, created?: number | null) =>
+		buildCompletion({
+			id,
+			created,
+			choices: singleChoice(
+				{
+					content,
+					...(images && images.length > 0 && { images }),
+				},
+				finishReason ?? "stop",
+			),
+		});
+
+	const patchPassthrough = (
+		response: Record<string, any>,
+		writeAnnotations: boolean,
+	) => {
+		if (response.choices?.[0]?.message) {
+			const message = response.choices[0].message;
+			// The parsed content/reasoning aggregate every choice when n > 1, so
+			// only write them back into choice 0 for single-choice responses.
+			const isSingleChoice = response.choices.length === 1;
+			if (content !== null && isSingleChoice) {
+				message.content = content;
+			}
+			if (reasoningContent !== null && isSingleChoice) {
+				message.reasoning = reasoningContent;
+				delete message.reasoning_content;
+			}
+			if (writeAnnotations && annotations && annotations.length > 0) {
+				message.annotations = annotations;
+			}
+		}
+		// Canonicalizations applied by parseProviderResponse (e.g. "abort" ->
+		// "upstream_error", "tool_use" -> "tool_calls") must reach the client.
+		if (response.choices?.[0] && finishReason !== null) {
+			response.choices[0].finish_reason = finishReason;
+		}
+		response.model = displayModel();
+		response.metadata = metadata();
+		if (response.usage) {
+			if (showUpgradeMessage) {
+				response.usage = {
+					...response.usage,
+					info: "upgrade to pro to include usd cost breakdown",
+				};
+			}
+			applyExtendedUsageFields(response.usage, {
+				costs,
+				cachedTokens,
+				cacheCreationTokens,
+				reasoningTokens,
+			});
+		}
+	};
 
 	// Perplexity serves two upstream shapes until Sonar's chat/completions
 	// retires on 2026-09-27: the Agent API's `output` items, and the
@@ -581,103 +716,29 @@ export function transformResponseToOpenai(
 					Object.assign(choice.message, { reasoning_details: details });
 				}
 			}
-			transformedResponse = {
-				id: `chatcmpl-${Date.now()}`,
-				object: "chat.completion",
-				created: Math.floor(Date.now() / 1000),
-				model: formatUsedModelForDisplay(
-					usedProvider,
-					baseModelName,
-					undefined,
-					usedRegion,
-				),
-				choices: googleChoices,
-				usage: buildUsageObject(
-					promptTokens,
-					completionTokens,
-					totalTokens,
-					reasoningTokens,
-					cachedTokens,
-					costs,
-					showUpgradeMessage,
-					cacheCreationTokens,
-					imageInputTokens,
-					imageOutputTokens,
-					cacheCreation5mTokens,
-					cacheCreation1hTokens,
-					audioInputTokens,
-				),
-				metadata: buildMetadata(
-					requestedModel,
-					requestedProvider,
-					baseModelName,
-					usedProvider,
-					usedModel,
-					requestId,
-					routing,
-					usedRegion,
-				),
-			};
+			transformedResponse = buildCompletion({ choices: googleChoices });
 			break;
 		}
 		case "anthropic":
 		case "vertex-anthropic":
 		case "azure-anthropic": {
-			transformedResponse = {
-				id: `chatcmpl-${Date.now()}`,
-				object: "chat.completion",
-				created: Math.floor(Date.now() / 1000),
-				model: formatUsedModelForDisplay(
-					usedProvider,
-					baseModelName,
-					undefined,
-					usedRegion,
-				),
-				choices: [
+			transformedResponse = buildCompletion({
+				choices: singleChoice(
 					{
-						index: 0,
-						message: {
-							role: "assistant",
-							content: content,
-							...(reasoningContent !== null && {
-								reasoning: reasoningContent,
-							}),
-							...(toolResults && { tool_calls: toolResults }),
-							...(annotations && annotations.length > 0 && { annotations }),
-						},
-						finish_reason: mapFinishReasonToOpenai(
-							finishReason,
-							responseProvider,
-							!!toolResults,
-						),
+						content,
+						...(reasoningContent !== null && {
+							reasoning: reasoningContent,
+						}),
+						...(toolResults && { tool_calls: toolResults }),
+						...(annotations && annotations.length > 0 && { annotations }),
 					},
-				],
-				usage: buildUsageObject(
-					promptTokens,
-					completionTokens,
-					totalTokens,
-					reasoningTokens,
-					cachedTokens,
-					costs,
-					showUpgradeMessage,
-					cacheCreationTokens,
-					imageInputTokens,
-					imageOutputTokens,
-					cacheCreation5mTokens,
-					cacheCreation1hTokens,
-					audioInputTokens,
+					mapFinishReasonToOpenai(
+						finishReason,
+						responseProvider,
+						!!toolResults,
+					),
 				),
-				metadata: buildMetadata(
-					requestedModel,
-					requestedProvider,
-					baseModelName,
-					usedProvider,
-					usedModel,
-					requestId,
-					routing,
-					usedRegion,
-				),
-			};
+			});
 			break;
 		}
 		case "perplexity-agent": {
@@ -685,325 +746,77 @@ export function transformResponseToOpenai(
 			// the chat-completions response here. `search_results` and `citations`
 			// stay top-level: that is where Sonar put them and where callers
 			// already read the per-source dates from.
-			transformedResponse = {
-				id: json.id ?? `chatcmpl-${Date.now()}`,
-				object: "chat.completion",
-				created: json.created_at ?? Math.floor(Date.now() / 1000),
-				model: formatUsedModelForDisplay(
-					usedProvider,
-					baseModelName,
-					undefined,
-					usedRegion,
-				),
-				choices: [
+			transformedResponse = buildCompletion({
+				id: json.id,
+				created: json.created_at,
+				choices: singleChoice(
 					{
-						index: 0,
-						message: {
-							role: "assistant",
-							content: content,
-							...(toolResults && { tool_calls: toolResults }),
-							...(annotations && annotations.length > 0 && { annotations }),
-						},
-						finish_reason: finishReason ?? "stop",
+						content,
+						...(toolResults && { tool_calls: toolResults }),
+						...(annotations && annotations.length > 0 && { annotations }),
 					},
-				],
-				...(searchResults && {
-					search_results: searchResults,
-					citations: searchResults.map((result) => result.url),
-				}),
-				usage: buildUsageObject(
-					promptTokens,
-					completionTokens,
-					totalTokens,
-					reasoningTokens,
-					cachedTokens,
-					costs,
-					showUpgradeMessage,
-					cacheCreationTokens,
-					imageInputTokens,
-					imageOutputTokens,
-					cacheCreation5mTokens,
-					cacheCreation1hTokens,
-					audioInputTokens,
+					finishReason ?? "stop",
 				),
-				metadata: buildMetadata(
-					requestedModel,
-					requestedProvider,
-					baseModelName,
-					usedProvider,
-					usedModel,
-					requestId,
-					routing,
-					usedRegion,
-				),
-			};
+				extra: searchResults
+					? {
+							search_results: searchResults,
+							citations: searchResults.map((result) => result.url),
+						}
+					: undefined,
+			});
 			break;
 		}
 		case "inference.net":
 		case "together-ai":
 		case "groq": {
 			if (!transformedResponse.id) {
-				transformedResponse = {
-					id: `chatcmpl-${Date.now()}`,
-					object: "chat.completion",
-					created: Math.floor(Date.now() / 1000),
-					model: formatUsedModelForDisplay(
-						usedProvider,
-						baseModelName,
-						undefined,
-						usedRegion,
-					),
-					choices: [
+				transformedResponse = buildCompletion({
+					choices: singleChoice(
 						{
-							index: 0,
-							message: {
-								role: "assistant",
-								content: content,
-								...(reasoningContent !== null && {
-									reasoning: reasoningContent,
-								}),
-							},
-							finish_reason: finishReason ?? "stop",
+							content,
+							...(reasoningContent !== null && {
+								reasoning: reasoningContent,
+							}),
 						},
-					],
-					usage: buildUsageObject(
-						promptTokens,
-						completionTokens,
-						totalTokens,
-						reasoningTokens,
-						cachedTokens,
-						costs,
-						showUpgradeMessage,
-						cacheCreationTokens,
-						imageInputTokens,
-						imageOutputTokens,
-						cacheCreation5mTokens,
-						cacheCreation1hTokens,
+						finishReason ?? "stop",
 					),
-					metadata: buildMetadata(
-						requestedModel,
-						requestedProvider,
-						baseModelName,
-						usedProvider,
-						usedModel,
-						requestId,
-						routing,
-					),
-				};
+				});
 			} else {
-				// Ensure reasoning field is present if we have reasoning content
-				// Also update content and finish_reason with parsed values
-				if (transformedResponse.choices?.[0]?.message) {
-					const message = transformedResponse.choices[0].message;
-					// content/reasoning aggregate all choices when n > 1, so only
-					// write them into choice 0 for single-choice responses.
-					const isSingleChoice = transformedResponse.choices.length === 1;
-					if (content !== null && isSingleChoice) {
-						message.content = content;
-					}
-					if (reasoningContent !== null && isSingleChoice) {
-						message.reasoning = reasoningContent;
-						delete message.reasoning_content;
-					}
-				}
-				// Update finish_reason with the mapped value
-				if (transformedResponse.choices?.[0] && finishReason !== null) {
-					transformedResponse.choices[0].finish_reason = finishReason;
-				}
-				// Add metadata and usage with costs to existing response
-				transformedResponse.model = formatUsedModelForDisplay(
-					usedProvider,
-					baseModelName,
-					undefined,
-					usedRegion,
-				);
-				transformedResponse.metadata = buildMetadata(
-					requestedModel,
-					requestedProvider,
-					baseModelName,
-					usedProvider,
-					usedModel,
-					requestId,
-					routing,
-					usedRegion,
-				);
-				if (transformedResponse.usage) {
-					if (showUpgradeMessage) {
-						transformedResponse.usage = {
-							...transformedResponse.usage,
-							info: "upgrade to pro to include usd cost breakdown",
-						};
-					}
-					applyExtendedUsageFields(transformedResponse.usage, {
-						costs,
-						cachedTokens,
-						cacheCreationTokens,
-						reasoningTokens,
-					});
-				}
+				patchPassthrough(transformedResponse, false);
 			}
 			break;
 		}
 		case "aws-bedrock": {
-			transformedResponse = {
-				id: `chatcmpl-${Date.now()}`,
-				object: "chat.completion",
-				created: Math.floor(Date.now() / 1000),
-				model: formatUsedModelForDisplay(
-					usedProvider,
-					baseModelName,
-					undefined,
-					usedRegion,
-				),
-				choices: [
+			transformedResponse = buildCompletion({
+				choices: singleChoice(
 					{
-						index: 0,
-						message: {
-							role: "assistant",
-							content: content,
-							...(reasoningContent !== null && {
-								reasoning: reasoningContent,
-							}),
-							...(toolResults && { tool_calls: toolResults }),
-							...(annotations && annotations.length > 0 && { annotations }),
-						},
-						// parseProviderResponse already maps Bedrock stop reasons to
-						// OpenAI-canonical values; mapFinishReasonToOpenai is idempotent
-						// for those and additionally surfaces a "refusal" as
-						// "content_filter" for OpenAI-compatible clients.
-						finish_reason:
-							mapFinishReasonToOpenai(
-								finishReason,
-								usedProvider,
-								!!toolResults,
-							) ?? "stop",
+						content,
+						...(reasoningContent !== null && {
+							reasoning: reasoningContent,
+						}),
+						...(toolResults && { tool_calls: toolResults }),
+						...(annotations && annotations.length > 0 && { annotations }),
 					},
-				],
-				usage: buildUsageObject(
-					promptTokens,
-					completionTokens,
-					totalTokens,
-					reasoningTokens,
-					cachedTokens,
-					costs,
-					showUpgradeMessage,
-					cacheCreationTokens,
-					imageInputTokens,
-					imageOutputTokens,
-					cacheCreation5mTokens,
-					cacheCreation1hTokens,
-					audioInputTokens,
+					// parseProviderResponse already maps Bedrock stop reasons to
+					// OpenAI-canonical values; mapFinishReasonToOpenai is idempotent
+					// for those and additionally surfaces a "refusal" as
+					// "content_filter" for OpenAI-compatible clients.
+					mapFinishReasonToOpenai(finishReason, usedProvider, !!toolResults) ??
+						"stop",
 				),
-				metadata: buildMetadata(
-					requestedModel,
-					requestedProvider,
-					baseModelName,
-					usedProvider,
-					usedModel,
-					requestId,
-					routing,
-					usedRegion,
-				),
-			};
+			});
 			break;
 		}
 		case "alibaba": {
-			// Check if this is a DashScope multimodal generation response (image generation)
-			// These have output.choices format instead of direct choices
+			// DashScope multimodal generation (image generation) responses use
+			// output.choices instead of direct choices.
 			if (json.output?.choices) {
-				transformedResponse = {
-					id: json.request_id ?? `chatcmpl-${Date.now()}`,
-					object: "chat.completion",
-					created: Math.floor(Date.now() / 1000),
-					model: formatUsedModelForDisplay(
-						usedProvider,
-						baseModelName,
-						undefined,
-						usedRegion,
-					),
-					choices: [
-						{
-							index: 0,
-							message: {
-								role: "assistant",
-								content: content,
-								...(images && images.length > 0 && { images }),
-							},
-							finish_reason: finishReason ?? "stop",
-						},
-					],
-					usage: buildUsageObject(
-						promptTokens,
-						completionTokens,
-						totalTokens,
-						reasoningTokens,
-						cachedTokens,
-						costs,
-						showUpgradeMessage,
-						cacheCreationTokens,
-						imageInputTokens,
-						imageOutputTokens,
-						cacheCreation5mTokens,
-						cacheCreation1hTokens,
-					),
-					metadata: buildMetadata(
-						requestedModel,
-						requestedProvider,
-						baseModelName,
-						usedProvider,
-						usedModel,
-						requestId,
-						routing,
-						usedRegion,
-					),
-				};
-			} else {
-				// Standard Alibaba chat completions format (OpenAI-compatible)
-				if (transformedResponse && typeof transformedResponse === "object") {
-					if (transformedResponse.choices?.[0]?.message) {
-						const message = transformedResponse.choices[0].message;
-						if (content !== null) {
-							message.content = content;
-						}
-						if (reasoningContent !== null) {
-							message.reasoning = reasoningContent;
-							delete message.reasoning_content;
-						}
-					}
-					if (transformedResponse.choices?.[0] && finishReason !== null) {
-						transformedResponse.choices[0].finish_reason = finishReason;
-					}
-					transformedResponse.model = formatUsedModelForDisplay(
-						usedProvider,
-						baseModelName,
-						undefined,
-						usedRegion,
-					);
-					transformedResponse.metadata = buildMetadata(
-						requestedModel,
-						requestedProvider,
-						baseModelName,
-						usedProvider,
-						usedModel,
-						requestId,
-						routing,
-						usedRegion,
-					);
-					if (transformedResponse.usage) {
-						if (showUpgradeMessage) {
-							transformedResponse.usage = {
-								...transformedResponse.usage,
-								info: "upgrade to pro to include usd cost breakdown",
-							};
-						}
-						applyExtendedUsageFields(transformedResponse.usage, {
-							costs,
-							cachedTokens,
-							cacheCreationTokens,
-							reasoningTokens,
-						});
-					}
-				}
+				transformedResponse = imageCompletion(json.request_id);
+			} else if (
+				transformedResponse &&
+				typeof transformedResponse === "object"
+			) {
+				patchPassthrough(transformedResponse, false);
 			}
 			break;
 		}
@@ -1015,8 +828,8 @@ export function transformResponseToOpenai(
 		case "meta-contributor":
 		case "aws-mantle":
 		case "openai": {
-			// Handle OpenAI / Azure image generation responses (e.g. gpt-image-2)
-			// Format: { created: number, data: [{ b64_json?: string, url?: string }], usage?: {...} }
+			// OpenAI / Azure image generation responses (e.g. gpt-image-2):
+			// { created: number, data: [{ b64_json?: string, url?: string }], usage?: {...} }
 			if (
 				(usedProvider === "openai" || usedProvider === "azure") &&
 				json.data &&
@@ -1024,474 +837,47 @@ export function transformResponseToOpenai(
 				!json.choices &&
 				!json.output
 			) {
-				transformedResponse = {
-					id: `chatcmpl-${Date.now()}`,
-					object: "chat.completion",
-					created: json.created ?? Math.floor(Date.now() / 1000),
-					model: formatUsedModelForDisplay(
-						usedProvider,
-						baseModelName,
-						undefined,
-						usedRegion,
-					),
-					choices: [
-						{
-							index: 0,
-							message: {
-								role: "assistant",
-								content: content,
-								...(images && images.length > 0 && { images }),
-							},
-							finish_reason: finishReason ?? "stop",
-						},
-					],
-					usage: buildUsageObject(
-						promptTokens,
-						completionTokens,
-						totalTokens,
-						reasoningTokens,
-						cachedTokens,
-						costs,
-						showUpgradeMessage,
-						cacheCreationTokens,
-						imageInputTokens,
-						imageOutputTokens,
-						cacheCreation5mTokens,
-						cacheCreation1hTokens,
-					),
-					metadata: buildMetadata(
-						requestedModel,
-						requestedProvider,
-						baseModelName,
-						usedProvider,
-						usedModel,
-						requestId,
-						routing,
-						usedRegion,
-					),
-				};
+				transformedResponse = imageCompletion(undefined, json.created);
 				break;
 			}
-			// Handle OpenAI responses format transformation to chat completions format
 			if (json.output && Array.isArray(json.output)) {
-				// This is from the responses endpoint - transform to chat completions format
-				transformedResponse = {
-					id: json.id ?? `chatcmpl-${Date.now()}`,
-					object: "chat.completion",
-					created: json.created_at ?? Math.floor(Date.now() / 1000),
-					model: formatUsedModelForDisplay(
-						usedProvider,
-						baseModelName,
-						undefined,
-						usedRegion,
-					),
-					choices: [
+				// Responses API output, transformed to chat completions format.
+				transformedResponse = buildCompletion({
+					id: json.id,
+					created: json.created_at,
+					choices: singleChoice(
 						{
-							index: 0,
-							message: {
-								role: "assistant",
-								content: content,
-								...(images && images.length > 0 && { images }),
-								...(reasoningContent !== null && {
-									reasoning: reasoningContent,
-								}),
-								...(toolResults && { tool_calls: toolResults }),
-								...(annotations && annotations.length > 0 && { annotations }),
-							},
-							finish_reason: finishReason ?? "stop",
+							content,
+							...(images && images.length > 0 && { images }),
+							...(reasoningContent !== null && {
+								reasoning: reasoningContent,
+							}),
+							...(toolResults && { tool_calls: toolResults }),
+							...(annotations && annotations.length > 0 && { annotations }),
 						},
-					],
-					usage: buildUsageObject(
-						promptTokens,
-						completionTokens,
-						totalTokens,
-						reasoningTokens,
-						cachedTokens,
-						costs,
-						showUpgradeMessage,
-						cacheCreationTokens,
-						imageInputTokens,
-						imageOutputTokens,
-						cacheCreation5mTokens,
-						cacheCreation1hTokens,
+						finishReason ?? "stop",
 					),
-					metadata: buildMetadata(
-						requestedModel,
-						requestedProvider,
-						baseModelName,
-						usedProvider,
-						usedModel,
-						requestId,
-						routing,
-					),
-				};
-			} else {
-				// For standard chat completions format, update model field and add metadata
-				if (transformedResponse && typeof transformedResponse === "object") {
-					// Update content and finish_reason with parsed values
-					if (transformedResponse.choices?.[0]?.message) {
-						const message = transformedResponse.choices[0].message;
-						// The parsed content/reasoning aggregate every choice for the
-						// log row when n > 1, so only write them back into choice 0
-						// for single-choice responses — otherwise choice 0 would
-						// carry the concatenation of all choices. (Single-choice
-						// updates handle JSON unwrapping for Mistral/Novita.)
-						const isSingleChoice = transformedResponse.choices.length === 1;
-						if (content !== null && isSingleChoice) {
-							message.content = content;
-						}
-						if (reasoningContent !== null && isSingleChoice) {
-							message.reasoning = reasoningContent;
-							// Remove the old reasoning_content field if it exists
-							delete message.reasoning_content;
-						}
-						// Add annotations if present
-						if (annotations && annotations.length > 0) {
-							message.annotations = annotations;
-						}
-					}
-					// Update finish_reason with the mapped value
-					if (transformedResponse.choices?.[0] && finishReason !== null) {
-						transformedResponse.choices[0].finish_reason = finishReason;
-					}
-
-					transformedResponse.model = formatUsedModelForDisplay(
-						usedProvider,
-						baseModelName,
-						undefined,
-						usedRegion,
-					);
-					transformedResponse.metadata = buildMetadata(
-						requestedModel,
-						requestedProvider,
-						baseModelName,
-						usedProvider,
-						usedModel,
-						requestId,
-						routing,
-						usedRegion,
-					);
-					if (transformedResponse.usage) {
-						if (showUpgradeMessage) {
-							transformedResponse.usage = {
-								...transformedResponse.usage,
-								info: "upgrade to pro to include usd cost breakdown",
-							};
-						}
-						applyExtendedUsageFields(transformedResponse.usage, {
-							costs,
-							cachedTokens,
-							cacheCreationTokens,
-							reasoningTokens,
-						});
-					}
-				}
+				});
+			} else if (
+				transformedResponse &&
+				typeof transformedResponse === "object"
+			) {
+				patchPassthrough(transformedResponse, true);
 			}
 			break;
 		}
-		case "bytedance": {
-			// Check if this is a Seedream image generation response
-			// Format: { data: [{ url: "..." }] }
-			if (json.data && Array.isArray(json.data)) {
-				transformedResponse = {
-					id: `chatcmpl-${Date.now()}`,
-					object: "chat.completion",
-					created: json.created ?? Math.floor(Date.now() / 1000),
-					model: formatUsedModelForDisplay(
-						usedProvider,
-						baseModelName,
-						undefined,
-						usedRegion,
-					),
-					choices: [
-						{
-							index: 0,
-							message: {
-								role: "assistant",
-								content: content,
-								...(images && images.length > 0 && { images }),
-							},
-							finish_reason: finishReason ?? "stop",
-						},
-					],
-					usage: buildUsageObject(
-						promptTokens,
-						completionTokens,
-						totalTokens,
-						reasoningTokens,
-						cachedTokens,
-						costs,
-						showUpgradeMessage,
-						cacheCreationTokens,
-						imageInputTokens,
-						imageOutputTokens,
-						cacheCreation5mTokens,
-						cacheCreation1hTokens,
-					),
-					metadata: buildMetadata(
-						requestedModel,
-						requestedProvider,
-						baseModelName,
-						usedProvider,
-						usedModel,
-						requestId,
-						routing,
-					),
-				};
-			} else {
-				// Standard ByteDance chat completions format (OpenAI-compatible)
-				if (transformedResponse && typeof transformedResponse === "object") {
-					if (transformedResponse.choices?.[0]?.message) {
-						const message = transformedResponse.choices[0].message;
-						// content/reasoning aggregate all choices when n > 1, so only
-						// write them into choice 0 for single-choice responses.
-						const isSingleChoice = transformedResponse.choices.length === 1;
-						if (content !== null && isSingleChoice) {
-							message.content = content;
-						}
-						if (reasoningContent !== null && isSingleChoice) {
-							message.reasoning = reasoningContent;
-							delete message.reasoning_content;
-						}
-					}
-					if (transformedResponse.choices?.[0] && finishReason !== null) {
-						transformedResponse.choices[0].finish_reason = finishReason;
-					}
-					transformedResponse.model = formatUsedModelForDisplay(
-						usedProvider,
-						baseModelName,
-						undefined,
-						usedRegion,
-					);
-					transformedResponse.metadata = buildMetadata(
-						requestedModel,
-						requestedProvider,
-						baseModelName,
-						usedProvider,
-						usedModel,
-						requestId,
-						routing,
-						usedRegion,
-					);
-					if (transformedResponse.usage) {
-						if (showUpgradeMessage) {
-							transformedResponse.usage = {
-								...transformedResponse.usage,
-								info: "upgrade to pro to include usd cost breakdown",
-							};
-						}
-						applyExtendedUsageFields(transformedResponse.usage, {
-							costs,
-							cachedTokens,
-							cacheCreationTokens,
-							reasoningTokens,
-						});
-					}
-				}
-			}
-			break;
-		}
-		case "xai": {
-			// Check if this is a Grok Imagine image generation response
-			// Format: { data: [{ url: "..." }] }
-			if (json.data && Array.isArray(json.data)) {
-				transformedResponse = {
-					id: `chatcmpl-${Date.now()}`,
-					object: "chat.completion",
-					created: json.created ?? Math.floor(Date.now() / 1000),
-					model: formatUsedModelForDisplay(
-						usedProvider,
-						baseModelName,
-						undefined,
-						usedRegion,
-					),
-					choices: [
-						{
-							index: 0,
-							message: {
-								role: "assistant",
-								content: content,
-								...(images && images.length > 0 && { images }),
-							},
-							finish_reason: finishReason ?? "stop",
-						},
-					],
-					usage: buildUsageObject(
-						promptTokens,
-						completionTokens,
-						totalTokens,
-						reasoningTokens,
-						cachedTokens,
-						costs,
-						showUpgradeMessage,
-						cacheCreationTokens,
-						imageInputTokens,
-						imageOutputTokens,
-						cacheCreation5mTokens,
-						cacheCreation1hTokens,
-					),
-					metadata: buildMetadata(
-						requestedModel,
-						requestedProvider,
-						baseModelName,
-						usedProvider,
-						usedModel,
-						requestId,
-						routing,
-					),
-				};
-			} else {
-				// Standard xAI chat completions format (OpenAI-compatible)
-				if (transformedResponse && typeof transformedResponse === "object") {
-					if (transformedResponse.choices?.[0]?.message) {
-						const message = transformedResponse.choices[0].message;
-						// content/reasoning aggregate all choices when n > 1, so only
-						// write them into choice 0 for single-choice responses.
-						const isSingleChoice = transformedResponse.choices.length === 1;
-						if (content !== null && isSingleChoice) {
-							message.content = content;
-						}
-						if (reasoningContent !== null && isSingleChoice) {
-							message.reasoning = reasoningContent;
-							delete message.reasoning_content;
-						}
-					}
-					if (transformedResponse.choices?.[0] && finishReason !== null) {
-						transformedResponse.choices[0].finish_reason = finishReason;
-					}
-					transformedResponse.model = formatUsedModelForDisplay(
-						usedProvider,
-						baseModelName,
-						undefined,
-						usedRegion,
-					);
-					transformedResponse.metadata = buildMetadata(
-						requestedModel,
-						requestedProvider,
-						baseModelName,
-						usedProvider,
-						usedModel,
-						requestId,
-						routing,
-						usedRegion,
-					);
-					if (transformedResponse.usage) {
-						if (showUpgradeMessage) {
-							transformedResponse.usage = {
-								...transformedResponse.usage,
-								info: "upgrade to pro to include usd cost breakdown",
-							};
-						}
-						applyExtendedUsageFields(transformedResponse.usage, {
-							costs,
-							cachedTokens,
-							cacheCreationTokens,
-							reasoningTokens,
-						});
-					}
-				}
-			}
-			break;
-		}
+		case "bytedance":
+		case "xai":
 		case "zai": {
-			// Check if this is a CogView image generation response
-			// Format: { created: number, data: [{ url: "..." }] }
+			// Seedream, Grok Imagine and CogView image generation responses:
+			// { created?: number, data: [{ url: "..." }] }
 			if (json.data && Array.isArray(json.data)) {
-				transformedResponse = {
-					id: `chatcmpl-${Date.now()}`,
-					object: "chat.completion",
-					created: json.created ?? Math.floor(Date.now() / 1000),
-					model: formatUsedModelForDisplay(
-						usedProvider,
-						baseModelName,
-						undefined,
-						usedRegion,
-					),
-					choices: [
-						{
-							index: 0,
-							message: {
-								role: "assistant",
-								content: content,
-								...(images && images.length > 0 && { images }),
-							},
-							finish_reason: finishReason ?? "stop",
-						},
-					],
-					usage: buildUsageObject(
-						promptTokens,
-						completionTokens,
-						totalTokens,
-						reasoningTokens,
-						cachedTokens,
-						costs,
-						showUpgradeMessage,
-						cacheCreationTokens,
-						imageInputTokens,
-						imageOutputTokens,
-						cacheCreation5mTokens,
-						cacheCreation1hTokens,
-					),
-					metadata: buildMetadata(
-						requestedModel,
-						requestedProvider,
-						baseModelName,
-						usedProvider,
-						usedModel,
-						requestId,
-						routing,
-					),
-				};
-			} else {
-				// Standard ZAI chat completions format (OpenAI-compatible)
-				if (transformedResponse && typeof transformedResponse === "object") {
-					if (transformedResponse.choices?.[0]?.message) {
-						const message = transformedResponse.choices[0].message;
-						// content/reasoning aggregate all choices when n > 1, so only
-						// write them into choice 0 for single-choice responses.
-						const isSingleChoice = transformedResponse.choices.length === 1;
-						if (content !== null && isSingleChoice) {
-							message.content = content;
-						}
-						if (reasoningContent !== null && isSingleChoice) {
-							message.reasoning = reasoningContent;
-							delete message.reasoning_content;
-						}
-					}
-					if (transformedResponse.choices?.[0] && finishReason !== null) {
-						transformedResponse.choices[0].finish_reason = finishReason;
-					}
-					transformedResponse.model = formatUsedModelForDisplay(
-						usedProvider,
-						baseModelName,
-						undefined,
-						usedRegion,
-					);
-					transformedResponse.metadata = buildMetadata(
-						requestedModel,
-						requestedProvider,
-						baseModelName,
-						usedProvider,
-						usedModel,
-						requestId,
-						routing,
-						usedRegion,
-					);
-					if (transformedResponse.usage) {
-						if (showUpgradeMessage) {
-							transformedResponse.usage = {
-								...transformedResponse.usage,
-								info: "upgrade to pro to include usd cost breakdown",
-							};
-						}
-						applyExtendedUsageFields(transformedResponse.usage, {
-							costs,
-							cachedTokens,
-							cacheCreationTokens,
-							reasoningTokens,
-						});
-					}
-				}
+				transformedResponse = imageCompletion(undefined, json.created);
+			} else if (
+				transformedResponse &&
+				typeof transformedResponse === "object"
+			) {
+				patchPassthrough(transformedResponse, false);
 			}
 			break;
 		}
@@ -1509,112 +895,11 @@ export function transformResponseToOpenai(
 							content !== null ||
 							usedProvider === "fal-ai")))
 			) {
-				transformedResponse = {
-					id: `chatcmpl-${Date.now()}`,
-					object: "chat.completion",
-					created: Math.floor(Date.now() / 1000),
-					model: formatUsedModelForDisplay(
-						usedProvider,
-						baseModelName,
-						undefined,
-						usedRegion,
-					),
-					choices: [
-						{
-							index: 0,
-							message: {
-								role: "assistant",
-								content: content,
-								...(images && images.length > 0 && { images }),
-							},
-							finish_reason: finishReason ?? "stop",
-						},
-					],
-					usage: buildUsageObject(
-						promptTokens,
-						completionTokens,
-						totalTokens,
-						reasoningTokens,
-						cachedTokens,
-						costs,
-						showUpgradeMessage,
-						cacheCreationTokens,
-						imageInputTokens,
-						imageOutputTokens,
-						cacheCreation5mTokens,
-						cacheCreation1hTokens,
-						audioInputTokens,
-					),
-					metadata: buildMetadata(
-						requestedModel,
-						requestedProvider,
-						baseModelName,
-						usedProvider,
-						usedModel,
-						requestId,
-						routing,
-						usedRegion,
-					),
-				};
+				transformedResponse = imageCompletion();
 				break;
 			}
-			// For any other provider, add metadata to existing response
 			if (transformedResponse && typeof transformedResponse === "object") {
-				// Ensure content and reasoning fields are present with parsed/healed values
-				if (transformedResponse.choices?.[0]?.message) {
-					const message = transformedResponse.choices[0].message;
-					// content/reasoning aggregate all choices when n > 1, so only
-					// write them into choice 0 for single-choice responses.
-					const isSingleChoice = transformedResponse.choices.length === 1;
-					if (content !== null && isSingleChoice) {
-						message.content = content;
-					}
-					if (reasoningContent !== null && isSingleChoice) {
-						message.reasoning = reasoningContent;
-						delete message.reasoning_content;
-					}
-					// Add annotations if present
-					if (annotations && annotations.length > 0) {
-						message.annotations = annotations;
-					}
-				}
-				// Update finish_reason with the mapped value so canonicalizations
-				// applied by parseProviderResponse (e.g. "abort" -> "upstream_error",
-				// "tool_use" -> "tool_calls") reach the client instead of the raw
-				// upstream value, matching the provider-specific cases above.
-				if (transformedResponse.choices?.[0] && finishReason !== null) {
-					transformedResponse.choices[0].finish_reason = finishReason;
-				}
-				transformedResponse.model = formatUsedModelForDisplay(
-					usedProvider,
-					baseModelName,
-					undefined,
-					usedRegion,
-				);
-				transformedResponse.metadata = buildMetadata(
-					requestedModel,
-					requestedProvider,
-					baseModelName,
-					usedProvider,
-					usedModel,
-					requestId,
-					routing,
-					usedRegion,
-				);
-				if (transformedResponse.usage) {
-					if (showUpgradeMessage) {
-						transformedResponse.usage = {
-							...transformedResponse.usage,
-							info: "upgrade to pro to include usd cost breakdown",
-						};
-					}
-					applyExtendedUsageFields(transformedResponse.usage, {
-						costs,
-						cachedTokens,
-						cacheCreationTokens,
-						reasoningTokens,
-					});
-				}
+				patchPassthrough(transformedResponse, true);
 			}
 			break;
 		}

@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 
 import { buildRoutingAttempt } from "@/chat/tools/build-routing-attempt.js";
@@ -12,7 +13,10 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
-import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
+import {
+	buildByokKeyFilter,
+	getAvailableCredits,
+} from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -298,29 +302,6 @@ function findEmbeddingMapping(modelId: string): {
 		}
 	}
 	return null;
-}
-
-function getAvailableCredits(
-	organization: InferSelectModel<typeof tables.organization>,
-) {
-	const regularCredits = parseFloat(organization.credits ?? "0");
-	const devPlanCreditsRemaining =
-		organization.devPlan !== "none"
-			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
-				parseFloat(organization.devPlanCreditsUsed ?? "0")
-			: 0;
-	const chatPlanCreditsRemaining =
-		organization.chatPlan !== "none"
-			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
-				parseFloat(organization.chatPlanCreditsUsed ?? "0")
-			: 0;
-
-	return {
-		devPlanCreditsRemaining,
-		chatPlanCreditsRemaining,
-		totalAvailableCredits:
-			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining,
-	};
 }
 
 async function assertCreditsAvailableForEmbedding(
@@ -1604,6 +1585,118 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				);
 			}
 
+			if (
+				upstreamJson === null ||
+				typeof upstreamJson !== "object" ||
+				Array.isArray(upstreamJson)
+			) {
+				const invalidStatus = 502;
+				if (attempt.envVarName !== undefined) {
+					reportKeyError(
+						attempt.envVarName,
+						attempt.configIndex,
+						invalidStatus,
+						upstreamText,
+						upstreamModel,
+					);
+				}
+				const invalidKeyHealthId =
+					attempt.providerKey?.id ?? attempt.managedKey?.id;
+				if (invalidKeyHealthId) {
+					reportTrackedKeyError(
+						invalidKeyHealthId,
+						invalidStatus,
+						upstreamText,
+						upstreamModel,
+					);
+				}
+
+				routingAttempts.push(
+					buildRoutingAttempt(
+						providerId,
+						modelDefId,
+						invalidStatus,
+						getErrorType(invalidStatus),
+						false,
+						{
+							apiKeyHash: usedApiKeyHash,
+							credentialSource,
+							providerKeyId,
+							providerKeyLabel: keyLabel,
+							logId: finalLogId,
+						},
+					),
+				);
+
+				await insertLog(
+					{
+						...baseLogEntry,
+						id: finalLogId,
+						upstreamRequestId,
+						routingMetadata: buildEmbeddingRoutingMetadata(
+							usedApiKeyHash,
+							credentialSource,
+							usedProviderKey,
+						),
+						duration,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize,
+						content: null,
+						reasoningContent: null,
+						finishReason: "upstream_error",
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: true,
+						streamed: false,
+						canceled: false,
+						errorDetails: {
+							statusCode: upstreamResponse.status,
+							statusText: "Invalid upstream response",
+							responseText: upstreamText.slice(0, 2000),
+						},
+						inputCost: 0,
+						outputCost: 0,
+						cachedInputCost: 0,
+						requestCost: 0,
+						webSearchCost: 0,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						cost: 0,
+						estimatedCost: false,
+						discount: null,
+						pricingTier: null,
+						dataStorageCost: calculateDataStorageCost(
+							null,
+							null,
+							null,
+							null,
+							retentionLevel,
+						),
+						cached: false,
+						toolResults: null,
+					},
+					{ retentionLevel },
+				);
+
+				return c.json(
+					{
+						error: {
+							message: "Invalid response from upstream provider",
+							type: "upstream_error",
+							param: null,
+							code: "upstream_error",
+						},
+					} satisfies z.infer<typeof openAIErrorSchema>,
+					invalidStatus,
+				);
+			}
+
 			if (attempt.envVarName !== undefined) {
 				reportKeySuccess(
 					attempt.envVarName,
@@ -1617,8 +1710,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				reportTrackedKeySuccess(trackedKeyHealthId, upstreamModel);
 			}
 
-			let normalizedResponse: Record<string, unknown> = (upstreamJson ??
-				{}) as Record<string, unknown>;
+			let normalizedResponse = upstreamJson as Record<string, unknown>;
 			let promptTokens: number | null = null;
 			let totalTokens: number | null = null;
 			let estimatedUsage = false;
@@ -1758,10 +1850,13 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 
 			normalizedResponse.model = responseModel;
 
-			const inputPrice = Number(mapping.inputPrice ?? "0");
-			const inputCost = promptTokens !== null ? promptTokens * inputPrice : 0;
-			const requestCost = Number(mapping.requestPrice ?? "0");
-			const cost = inputCost + requestCost;
+			const inputCostDec = new Decimal(mapping.inputPrice ?? "0").mul(
+				promptTokens ?? 0,
+			);
+			const requestCostDec = new Decimal(mapping.requestPrice ?? "0");
+			const inputCost = inputCostDec.toNumber();
+			const requestCost = requestCostDec.toNumber();
+			const cost = inputCostDec.plus(requestCostDec).toNumber();
 
 			routingAttempts.push(
 				buildRoutingAttempt(

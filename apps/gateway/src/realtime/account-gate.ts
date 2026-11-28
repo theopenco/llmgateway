@@ -1,5 +1,3 @@
-import { Decimal } from "decimal.js";
-
 import {
 	assertApiKeyWithinUsageLimits,
 	assertMemberProjectAccess,
@@ -19,10 +17,11 @@ import { logger } from "@llmgateway/logger";
 import { getRequestedModelAlias } from "@llmgateway/models";
 
 import { getUnsettledRealtimeOrganizationSpend } from "./billing.js";
-import { getAvailableCredits } from "./preflight.js";
+import { getRealtimeCreditBalance } from "./preflight.js";
 
 import type { RealtimeMappingMatch } from "./catalog.js";
 import type { RealtimePreflightResult } from "./preflight.js";
+import type { Decimal } from "decimal.js";
 
 type AccountOrganization = Awaited<ReturnType<typeof findOrganizationById>>;
 
@@ -69,9 +68,11 @@ export async function authorizeAccount(
 	let freshOrg;
 	let freshProject;
 	try {
-		freshKey = await findApiKeyByToken(input.gatewayToken);
-		freshOrg = await findOrganizationById(preflight.project.organizationId);
-		freshProject = await findProjectById(preflight.project.id);
+		[freshKey, freshOrg, freshProject] = await Promise.all([
+			findApiKeyByToken(input.gatewayToken),
+			findOrganizationById(preflight.project.organizationId),
+			findProjectById(preflight.project.id),
+		]);
 	} catch (error) {
 		logger.error("Realtime authorization lookup failed", error as Error);
 		return {
@@ -233,7 +234,7 @@ export async function authorizeAccount(
  */
 export async function availableCredits(
 	organizationId: string,
-	organization: Parameters<typeof getAvailableCredits>[0],
+	organization: Parameters<typeof getRealtimeCreditBalance>[0],
 ): Promise<Decimal | null> {
 	const unsettled = await getUnsettledRealtimeOrganizationSpend(
 		organizationId,
@@ -247,5 +248,5 @@ export async function availableCredits(
 	if (unsettled === null) {
 		return null;
 	}
-	return new Decimal(getAvailableCredits(organization)).minus(unsettled);
+	return getRealtimeCreditBalance(organization).minus(unsettled);
 }

@@ -109,6 +109,8 @@ export function parseProviderResponse(
 		 * differs from the response format (Claude on AWS Bedrock).
 		 */
 		thinkingProvider?: Provider;
+		/** The request set `response_format` to `json_object` or `json_schema`. */
+		jsonOutputRequested?: boolean;
 	},
 ) {
 	const thinkingProvider = options?.thinkingProvider ?? usedProvider;
@@ -750,14 +752,17 @@ export function parseProviderResponse(
 			cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
 			totalTokens = json.usage?.total_tokens ?? null;
 
-			// Handle Mistral/Novita JSON output mode which wraps JSON in markdown code blocks
+			// Handle Mistral/Novita JSON output mode which wraps the whole reply in
+			// a single markdown code block. When the request asked for JSON output,
+			// a fenced block surrounded by prose is unwrapped too, as long as it
+			// parses.
 			if (
 				content &&
 				typeof content === "string" &&
 				content.includes("```json")
 			) {
-				const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
-				if (jsonMatch && jsonMatch[1]) {
+				const jsonMatch = content.trim().match(/^```json\s*([\s\S]*?)\s*```$/);
+				if (jsonMatch?.[1] && !jsonMatch[1].includes("```")) {
 					// Extract and clean the JSON content
 					content = jsonMatch[1].trim();
 					// Ensure it's valid JSON by parsing and re-stringifying to normalize formatting
@@ -765,6 +770,13 @@ export function parseProviderResponse(
 						const parsed = JSON.parse(content);
 						content = JSON.stringify(parsed);
 					} catch {}
+				} else if (options?.jsonOutputRequested) {
+					const embedded = content.match(/```json\s*([\s\S]*?)\s*```/)?.[1];
+					if (embedded) {
+						try {
+							content = JSON.stringify(JSON.parse(embedded));
+						} catch {}
+					}
 				}
 			}
 

@@ -434,8 +434,19 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 			} as ModelDefinition;
 		}
 
+		// When requested, keep only provider mappings whose provider does not
+		// train on API data before judging deactivation and deprecation.
+		const trainingFilteredModels = noTraining
+			? allCatalogueModels.map((model: ModelDefinition) => ({
+					...model,
+					providers: model.providers.filter((provider) =>
+						noTrainingProviderIds.has(provider.providerId),
+					),
+				}))
+			: allCatalogueModels;
+
 		// Filter models based on deactivation and deprecation status of their provider mappings
-		const deactivationFilteredModels = allCatalogueModels.filter(
+		let filteredModels = trainingFilteredModels.filter(
 			(model: ModelDefinition) => {
 				// Every mapping belonged to a listing that is out of service.
 				if (model.providers.length === 0) {
@@ -469,19 +480,6 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 				return true;
 			},
 		);
-
-		// When requested, keep only provider mappings whose provider does not
-		// train on API data, and drop models left with no eligible mappings.
-		let filteredModels = noTraining
-			? deactivationFilteredModels
-					.map((model: ModelDefinition) => ({
-						...model,
-						providers: model.providers.filter((provider) =>
-							noTrainingProviderIds.has(provider.providerId),
-						),
-					}))
-					.filter((model) => model.providers.length > 0)
-			: deactivationFilteredModels;
 
 		if (access && !query.include_restricted) {
 			filteredModels = await filterAccessibleModels(filteredModels, access, {

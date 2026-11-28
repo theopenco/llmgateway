@@ -1,7 +1,10 @@
+import { HTTPException } from "hono/http-exception";
+
 import { UNREPLAYABLE_ITEM_TYPES } from "@/responses/schemas.js";
 
 import { isGoogleReasoningDetail } from "@llmgateway/actions";
 
+import { GATEWAY_COMPACTION_ID_PREFIX } from "./convert-chat-to-compaction.js";
 import { flattenToolName } from "./tool-registry.js";
 
 import type { ResponsesRequest } from "@/responses/schemas.js";
@@ -267,6 +270,16 @@ export function convertResponsesInputToMessages(
 			continue;
 		}
 
+		const compactionSummary = decodeGatewayCompaction(item);
+		if (compactionSummary !== undefined) {
+			messages.push({
+				role: "user",
+				content: `Summary of the earlier conversation:\n${compactionSummary}`,
+			});
+			i++;
+			continue;
+		}
+
 		if ("type" in item && SKIPPED_ITEM_TYPES.has(item.type as string)) {
 			i++;
 			continue;
@@ -368,6 +381,31 @@ export function convertResponsesInputToMessages(
 	return messages;
 }
 
+/**
+ * Summary text of a compaction item this gateway produced. Compaction items
+ * from elsewhere are opaque and stay skipped.
+ */
+function decodeGatewayCompaction(item: unknown): string | undefined {
+	const candidate = item as {
+		type?: unknown;
+		id?: unknown;
+		encrypted_content?: unknown;
+	} | null;
+	if (
+		candidate?.type !== "compaction" ||
+		typeof candidate.id !== "string" ||
+		!candidate.id.startsWith(GATEWAY_COMPACTION_ID_PREFIX) ||
+		typeof candidate.encrypted_content !== "string" ||
+		candidate.encrypted_content.length === 0
+	) {
+		return undefined;
+	}
+	const summary = Buffer.from(candidate.encrypted_content, "base64").toString(
+		"utf8",
+	);
+	return summary.length > 0 ? summary : undefined;
+}
+
 function serializeFunctionCallOutput(
 	output: string | Array<Record<string, unknown>>,
 ): string {
@@ -443,11 +481,46 @@ function convertContent(
 			};
 		}
 		if (item.type === "input_image") {
+			const url = item.image_url ?? item.url;
+			if (typeof url !== "string" || url.length === 0) {
+				throw new HTTPException(400, {
+					message:
+						"input_image.file_id is not supported; send input_image.image_url",
+				});
+			}
+			const detail = item.detail === "original" ? "high" : item.detail;
 			return {
 				type: "image_url",
 				image_url: {
-					url: item.image_url ?? item.url,
-					...(item.detail ? { detail: item.detail } : {}),
+					url,
+					...(detail ? { detail } : {}),
+				},
+				...breakpoint,
+			};
+		}
+		if (item.type === "input_file") {
+			const fileData =
+				typeof item.file_data === "string" && item.file_data.length > 0
+					? item.file_data
+					: undefined;
+			const fileId =
+				typeof item.file_id === "string" && item.file_id.length > 0
+					? item.file_id
+					: undefined;
+			if (!fileData && !fileId) {
+				throw new HTTPException(400, {
+					message:
+						"input_file requires file_data or file_id; file_url is not supported",
+				});
+			}
+			return {
+				type: "file",
+				file: {
+					...(typeof item.filename === "string"
+						? { filename: item.filename }
+						: {}),
+					...(fileData ? { file_data: fileData } : {}),
+					...(fileId ? { file_id: fileId } : {}),
 				},
 				...breakpoint,
 			};

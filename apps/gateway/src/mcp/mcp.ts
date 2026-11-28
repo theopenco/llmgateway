@@ -29,6 +29,7 @@ import { getAuthenticatedReadAccess } from "@/lib/gateway-read-access.js";
 import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import {
 	isMcpBearerTokenActive,
+	isUsableApiKeyRecord,
 	resolveMcpBearerToken,
 	resolveRequestBaseUrl,
 } from "@/mcp/oauth.js";
@@ -94,6 +95,8 @@ const listModelsInputSchema = z.object({
 		.describe("Exclude deprecated models"),
 	limit: z
 		.number()
+		.int()
+		.min(1)
 		.optional()
 		.default(20)
 		.describe("Maximum number of models to return (default 20)"),
@@ -189,6 +192,39 @@ function createMcpServer(
 		assertApiKeyWithinUsageLimits(apiKeyRecord);
 	}
 
+	async function callChatCompletions(body: unknown) {
+		const response = await fetch(`${getMcpGatewayUrl()}/v1/chat/completions`, {
+			method: "POST",
+			redirect: "error",
+			headers: generationHeaders,
+			body: JSON.stringify(body),
+		});
+
+		if (!response.ok) {
+			const errorText = await response.text();
+			let errorMessage: string;
+			try {
+				const errorJson = JSON.parse(errorText);
+				errorMessage = errorJson.message ?? errorJson.error ?? errorText;
+			} catch {
+				errorMessage = errorText;
+			}
+			return {
+				errorResult: {
+					content: [
+						{
+							type: "text" as const,
+							text: `Error: ${response.status} - ${errorMessage}`,
+						},
+					],
+					isError: true,
+				},
+			};
+		}
+
+		return { data: await response.json() };
+	}
+
 	// Register the chat tool
 	server.tool(
 		"chat",
@@ -197,43 +233,17 @@ function createMcpServer(
 		async (input: ChatInput) => {
 			try {
 				await assertGenerationAllowed();
-				// Call the internal chat completions endpoint
-				const gatewayUrl = getMcpGatewayUrl();
-
-				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
-					method: "POST",
-					redirect: "error",
-					headers: generationHeaders,
-					body: JSON.stringify({
-						model: input.model,
-						messages: input.messages,
-						temperature: input.temperature,
-						max_tokens: input.max_tokens,
-						stream: false, // MCP doesn't support streaming
-					}),
+				const result = await callChatCompletions({
+					model: input.model,
+					messages: input.messages,
+					temperature: input.temperature,
+					max_tokens: input.max_tokens,
+					stream: false, // MCP doesn't support streaming
 				});
-
-				if (!response.ok) {
-					const errorText = await response.text();
-					let errorMessage: string;
-					try {
-						const errorJson = JSON.parse(errorText);
-						errorMessage = errorJson.message ?? errorJson.error ?? errorText;
-					} catch {
-						errorMessage = errorText;
-					}
-					return {
-						content: [
-							{
-								type: "text" as const,
-								text: `Error: ${response.status} - ${errorMessage}`,
-							},
-						],
-						isError: true,
-					};
+				if (result.errorResult) {
+					return result.errorResult;
 				}
-
-				const data = await response.json();
+				const { data } = result;
 
 				// Extract the assistant's response
 				const assistantMessage =
@@ -459,50 +469,24 @@ function createMcpServer(
 		async (input: GenerateImageInput) => {
 			try {
 				await assertGenerationAllowed();
-				const gatewayUrl = getMcpGatewayUrl();
-
-				// Call the chat completions endpoint with image generation model
-				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
-					method: "POST",
-					redirect: "error",
-					headers: generationHeaders,
-					body: JSON.stringify({
-						model: input.model,
-						messages: [
-							{
-								role: "user",
-								content: input.prompt,
-							},
-						],
-						stream: false,
-						image_config: {
-							image_size: input.size,
-							n: input.n,
+				const result = await callChatCompletions({
+					model: input.model,
+					messages: [
+						{
+							role: "user",
+							content: input.prompt,
 						},
-					}),
+					],
+					stream: false,
+					image_config: {
+						image_size: input.size,
+						n: input.n,
+					},
 				});
-
-				if (!response.ok) {
-					const errorText = await response.text();
-					let errorMessage: string;
-					try {
-						const errorJson = JSON.parse(errorText);
-						errorMessage = errorJson.message ?? errorJson.error ?? errorText;
-					} catch {
-						errorMessage = errorText;
-					}
-					return {
-						content: [
-							{
-								type: "text" as const,
-								text: `Error: ${response.status} - ${errorMessage}`,
-							},
-						],
-						isError: true,
-					};
+				if (result.errorResult) {
+					return result.errorResult;
 				}
-
-				const data = await response.json();
+				const { data } = result;
 
 				// Extract images from the response
 				const message = data.choices?.[0]?.message;
@@ -594,8 +578,6 @@ function createMcpServer(
 		async (input: GenerateNanoBananaInput) => {
 			try {
 				await assertGenerationAllowed();
-				const gatewayUrl = getMcpGatewayUrl();
-
 				const body: Record<string, unknown> = {
 					model: "gemini-3-pro-image",
 					messages: [
@@ -611,34 +593,11 @@ function createMcpServer(
 					body.image_config = { aspect_ratio: input.aspect_ratio };
 				}
 
-				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
-					method: "POST",
-					headers: generationHeaders,
-					body: JSON.stringify(body),
-					redirect: "error",
-				});
-
-				if (!response.ok) {
-					const errorText = await response.text();
-					let errorMessage: string;
-					try {
-						const errorJson = JSON.parse(errorText);
-						errorMessage = errorJson.message ?? errorJson.error ?? errorText;
-					} catch {
-						errorMessage = errorText;
-					}
-					return {
-						content: [
-							{
-								type: "text" as const,
-								text: `Error: ${response.status} - ${errorMessage}`,
-							},
-						],
-						isError: true,
-					};
+				const result = await callChatCompletions(body);
+				if (result.errorResult) {
+					return result.errorResult;
 				}
-
-				const data = await response.json();
+				const { data } = result;
 				const message = data.choices?.[0]?.message;
 				const images = message?.images ?? [];
 
@@ -1263,14 +1222,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	// (GHSA-8h26-h6v8-f9cg).
 	const apiKey = await resolveMcpBearerToken(bearerToken);
 	const apiKeyRecord = apiKey ? await findApiKeyByToken(apiKey) : undefined;
-	if (
-		!apiKey ||
-		!apiKeyRecord ||
-		apiKeyRecord.status !== "active" ||
-		(apiKeyRecord.keyType === "user" &&
-			apiKeyRecord.expiresAt &&
-			apiKeyRecord.expiresAt <= new Date())
-	) {
+	if (!apiKey || !apiKeyRecord || !isUsableApiKeyRecord(apiKeyRecord)) {
 		c.header(
 			"WWW-Authenticate",
 			`Bearer error="invalid_token", resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", gatewayUrl).href}"`,

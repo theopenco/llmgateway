@@ -19,11 +19,7 @@ import {
 
 vi.mock("@llmgateway/cache", () => ({
 	redisClient: {
-		zremrangebyscore: vi.fn(),
-		zcard: vi.fn(),
-		zrange: vi.fn(),
-		zadd: vi.fn(),
-		expire: vi.fn(),
+		eval: vi.fn(),
 		get: vi.fn(),
 		set: vi.fn(),
 		pipeline: vi.fn(),
@@ -383,7 +379,7 @@ describe("checkOrgRateLimit", () => {
 
 	it("allows requests under the limit and records them", async () => {
 		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "10";
-		vi.mocked(redis.zcard).mockResolvedValue(3);
+		vi.mocked(redis.eval).mockResolvedValue([1, 3]);
 
 		const getMultiplier = multiplierOf(1);
 		const result = await checkOrgRateLimit(
@@ -396,13 +392,16 @@ describe("checkOrgRateLimit", () => {
 		expect(result.allowed).toBe(true);
 		expect(result.limit).toBe(10);
 		expect(result.remaining).toBe(6);
-		expect(redis.zadd).toHaveBeenCalled();
-		expect(redis.expire).toHaveBeenCalled();
+		expect(redis.eval).toHaveBeenCalledOnce();
+		const [, , key, , limit, , member] = vi.mocked(redis.eval).mock.calls[0];
+		expect(key).toBe(`rate_limit:org_path:${orgId}:chat_completions`);
+		expect(limit).toBe(10);
+		expect(member).toEqual(expect.any(String));
 	});
 
 	it("advertises the tier-scaled limit even under the base limit", async () => {
 		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "10";
-		vi.mocked(redis.zcard).mockResolvedValue(3);
+		vi.mocked(redis.eval).mockResolvedValue([1, 3]);
 
 		const result = await checkOrgRateLimit(
 			orgId,
@@ -416,9 +415,7 @@ describe("checkOrgRateLimit", () => {
 
 	it("fails open as unenforced (limit 0) on a Redis error", async () => {
 		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "10";
-		vi.mocked(redis.zremrangebyscore).mockRejectedValueOnce(
-			new Error("redis down"),
-		);
+		vi.mocked(redis.eval).mockRejectedValueOnce(new Error("redis down"));
 
 		const result = await checkOrgRateLimit(
 			orgId,
@@ -434,9 +431,8 @@ describe("checkOrgRateLimit", () => {
 
 	it("blocks requests at the limit with a retryAfter", async () => {
 		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "5";
-		vi.mocked(redis.zcard).mockResolvedValue(5);
 		const future = Date.now() + 30_000;
-		vi.mocked(redis.zrange).mockResolvedValue(["m", future.toString()]);
+		vi.mocked(redis.eval).mockResolvedValue([0, 5, future.toString()]);
 
 		const result = await checkOrgRateLimit(
 			orgId,
@@ -449,15 +445,18 @@ describe("checkOrgRateLimit", () => {
 		expect(result.limit).toBe(5);
 		expect(result.remaining).toBe(0);
 		expect(result.retryAfter).toBeGreaterThan(0);
-		expect(redis.zadd).not.toHaveBeenCalled();
+		expect(result.retryAfter).toBeLessThanOrEqual(90);
 	});
 
 	it("applies the tighter base limit for dev (devpass) plans", async () => {
 		// No env override: dev plan falls back to its default, which is below the
 		// regular default.
-		vi.mocked(redis.zcard).mockResolvedValue(chatConfig.devDefaultRpm);
 		const future = Date.now() + 30_000;
-		vi.mocked(redis.zrange).mockResolvedValue(["m", future.toString()]);
+		vi.mocked(redis.eval).mockResolvedValue([
+			0,
+			chatConfig.devDefaultRpm,
+			future.toString(),
+		]);
 
 		const getMultiplier = multiplierOf(1);
 		const result = await checkOrgRateLimit(
@@ -473,7 +472,7 @@ describe("checkOrgRateLimit", () => {
 
 	it("admits past the base limit when the spend tier raises it", async () => {
 		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "10";
-		vi.mocked(redis.zcard).mockResolvedValue(15);
+		vi.mocked(redis.eval).mockResolvedValue([1, 15]);
 
 		// At base limit 10 a 16th request would block, but with multiplier 4 the
 		// effective limit is 40 so the request is allowed.
@@ -488,6 +487,7 @@ describe("checkOrgRateLimit", () => {
 		expect(result.allowed).toBe(true);
 		expect(result.limit).toBe(40);
 		expect(getMultiplier).toHaveBeenCalledOnce();
+		expect(vi.mocked(redis.eval).mock.calls[0][4]).toBe(40);
 	});
 
 	it("treats a zero limit as unlimited without touching Redis", async () => {
@@ -502,15 +502,13 @@ describe("checkOrgRateLimit", () => {
 		);
 
 		expect(result.allowed).toBe(true);
-		expect(redis.zcard).not.toHaveBeenCalled();
+		expect(redis.eval).not.toHaveBeenCalled();
 		expect(getMultiplier).not.toHaveBeenCalled();
 	});
 
 	it("fails open on Redis errors", async () => {
 		process.env.GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM = "5";
-		vi.mocked(redis.zremrangebyscore).mockRejectedValue(
-			new Error("Redis down"),
-		);
+		vi.mocked(redis.eval).mockRejectedValue(new Error("Redis down"));
 
 		const result = await checkOrgRateLimit(
 			orgId,
@@ -566,32 +564,20 @@ describe("acquireOrgInflightSlot", () => {
 	const orgId = "org-1";
 	const maxOf = (value: number) => vi.fn().mockResolvedValue(value);
 
-	// The slot ops use explicit pipeline() calls (never bare auto-pipelined
-	// commands — see acquireOrgInflightSlot); the chainable stub records every
-	// queued command and resolves exec() with the given [error, result] pairs.
-	function stubPipeline(execResults: Array<[unknown, unknown]> | null) {
-		const pipeline: Record<string, ReturnType<typeof vi.fn>> = {};
-		for (const method of [
-			"zremrangebyscore",
-			"zcard",
-			"zadd",
-			"expire",
-			"zrem",
-			"hincrby",
-			"hincrbyfloat",
-		]) {
-			pipeline[method] = vi.fn(() => pipeline);
-		}
-		pipeline.exec = vi.fn().mockResolvedValue(execResults);
+	// Acquisition is one atomic eval; release uses an explicit pipeline()
+	// (never a bare auto-pipelined command — see acquireOrgInflightSlot).
+	function stubPipeline() {
+		const pipeline = {
+			zrem: vi.fn(() => pipeline),
+			exec: vi.fn().mockResolvedValue([[null, 1]]),
+		};
 		vi.mocked(redis.pipeline).mockReturnValue(pipeline as never);
 		return pipeline;
 	}
 
 	it("acquires a slot under the base limit and releases it via zrem", async () => {
-		const pipeline = stubPipeline([
-			[null, 0],
-			[null, 3],
-		]);
+		const pipeline = stubPipeline();
+		vi.mocked(redis.eval).mockResolvedValue([1, 3]);
 
 		const getMax = maxOf(100);
 		const acquisition = await acquireOrgInflightSlot(
@@ -603,12 +589,13 @@ describe("acquireOrgInflightSlot", () => {
 
 		expect(acquisition.allowed).toBe(true);
 		expect(acquisition.release).toBeDefined();
-		expect(pipeline.zadd).toHaveBeenCalledOnce();
-		expect(pipeline.expire).toHaveBeenCalled();
+		expect(redis.eval).toHaveBeenCalledOnce();
 		// Under the base limit the tier ceiling must not be resolved.
 		expect(getMax).not.toHaveBeenCalled();
 
-		const member = pipeline.zadd.mock.calls[0][2];
+		const [, , key, , limit, , member] = vi.mocked(redis.eval).mock.calls[0];
+		expect(key).toBe(`rate_limit:org_inflight:${orgId}`);
+		expect(limit).toBe(5);
 		acquisition.release!();
 		expect(pipeline.zrem).toHaveBeenCalledWith(
 			`rate_limit:org_inflight:${orgId}`,
@@ -618,24 +605,21 @@ describe("acquireOrgInflightSlot", () => {
 
 	it("reaps stale slots from crashed holders before counting", async () => {
 		vi.stubEnv("GATEWAY_ORG_INFLIGHT_STALE_SECONDS", "600");
-		const pipeline = stubPipeline([
-			[null, 0],
-			[null, 0],
-		]);
+		vi.mocked(redis.eval).mockResolvedValue([1, 0]);
 
 		const before = Date.now();
 		await acquireOrgInflightSlot(orgId, 5, maxOf(5), "chat_completions");
 
-		const [, , staleBefore] = pipeline.zremrangebyscore.mock.calls[0];
+		const [, , , staleBefore, , , , ttl] = vi.mocked(redis.eval).mock.calls[0];
 		expect(Number(staleBefore)).toBeGreaterThanOrEqual(before - 600_000 - 50);
 		expect(Number(staleBefore)).toBeLessThanOrEqual(Date.now() - 600_000 + 50);
+		expect(ttl).toBe(600);
 	});
 
 	it("resolves the tier ceiling only at the base and admits when it raises the limit", async () => {
-		const pipeline = stubPipeline([
-			[null, 0],
-			[null, 7],
-		]);
+		vi.mocked(redis.eval)
+			.mockResolvedValueOnce([0, 7])
+			.mockResolvedValueOnce([1, 7]);
 
 		const getMax = maxOf(20);
 		const acquisition = await acquireOrgInflightSlot(
@@ -648,14 +632,12 @@ describe("acquireOrgInflightSlot", () => {
 		expect(getMax).toHaveBeenCalledOnce();
 		expect(acquisition.allowed).toBe(true);
 		expect(acquisition.limit).toBe(20);
-		expect(pipeline.zadd).toHaveBeenCalledOnce();
+		expect(redis.eval).toHaveBeenCalledTimes(2);
+		expect(vi.mocked(redis.eval).mock.calls[1][4]).toBe(20);
 	});
 
 	it("denies at the tier ceiling without taking a slot", async () => {
-		const pipeline = stubPipeline([
-			[null, 0],
-			[null, 20],
-		]);
+		vi.mocked(redis.eval).mockResolvedValue([0, 20]);
 
 		const acquisition = await acquireOrgInflightSlot(
 			orgId,
@@ -667,14 +649,10 @@ describe("acquireOrgInflightSlot", () => {
 		expect(acquisition.allowed).toBe(false);
 		expect(acquisition.limit).toBe(20);
 		expect(acquisition.release).toBeUndefined();
-		expect(pipeline.zadd).not.toHaveBeenCalled();
 	});
 
 	it("never lets the resolved ceiling drop below the base", async () => {
-		stubPipeline([
-			[null, 0],
-			[null, 5],
-		]);
+		vi.mocked(redis.eval).mockResolvedValue([0, 5]);
 
 		// A flat-plan resolver returns the base itself; a buggy lower value must
 		// not tighten the limit mid-flight.
@@ -682,11 +660,10 @@ describe("acquireOrgInflightSlot", () => {
 
 		expect(acquisition.allowed).toBe(false);
 		expect(acquisition.limit).toBe(5);
+		expect(redis.eval).toHaveBeenCalledOnce();
 	});
 
 	it("treats a zero base limit as unlimited without touching Redis", async () => {
-		stubPipeline(null);
-
 		const acquisition = await acquireOrgInflightSlot(
 			orgId,
 			0,
@@ -696,12 +673,12 @@ describe("acquireOrgInflightSlot", () => {
 
 		expect(acquisition.allowed).toBe(true);
 		expect(acquisition.release).toBeUndefined();
+		expect(redis.eval).not.toHaveBeenCalled();
 		expect(redis.pipeline).not.toHaveBeenCalled();
 	});
 
 	it("fails open on Redis errors", async () => {
-		const pipeline = stubPipeline(null);
-		pipeline.exec.mockRejectedValue(new Error("Redis down"));
+		vi.mocked(redis.eval).mockRejectedValue(new Error("Redis down"));
 
 		const acquisition = await acquireOrgInflightSlot(orgId, 5, maxOf(5), "ocr");
 
@@ -709,11 +686,8 @@ describe("acquireOrgInflightSlot", () => {
 		expect(acquisition.release).toBeUndefined();
 	});
 
-	it("fails open when the pipeline reports a command error", async () => {
-		stubPipeline([
-			[null, 0],
-			[new Error("zcard failed"), null],
-		]);
+	it("fails open on a malformed script reply", async () => {
+		vi.mocked(redis.eval).mockResolvedValue(null);
 
 		const acquisition = await acquireOrgInflightSlot(orgId, 5, maxOf(5), "ocr");
 

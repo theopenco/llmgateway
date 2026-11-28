@@ -2,7 +2,10 @@ import { describe, it, expect } from "vitest";
 import { z } from "zod";
 
 import { compactRequestSchema, responsesRequestSchema } from "./schemas.js";
-import { convertChatResponseToCompaction } from "./tools/convert-chat-to-compaction.js";
+import {
+	convertChatResponseToCompaction,
+	normalizeOutputItem,
+} from "./tools/convert-chat-to-compaction.js";
 import { convertChatResponseToResponses } from "./tools/convert-chat-to-responses.js";
 import {
 	createCompletionEvents,
@@ -769,7 +772,7 @@ describe("Open Responses compliance: compact endpoint", () => {
 		expect(out.usage.output_tokens_details.reasoning_tokens).toBe(12);
 	});
 
-	it("normalizes pass-through message items to the spec's Message shape (upstream compact-response fixture)", () => {
+	it("keeps user messages in the spec's Message shape and drops the summarized assistant turns (upstream compact-response fixture)", () => {
 		// Mirrors compliance-tests.ts compact-response test (id: "compact-response").
 		// Input messages omit id/status and use string content — without normalization
 		// these fail Message schema with `output.N: Invalid input`.
@@ -823,19 +826,8 @@ describe("Open Responses compliance: compact endpoint", () => {
 			text: "We agreed to launch on Tuesday and notify support first.",
 		});
 
-		const msg1 = out.output[1] as Record<string, unknown>;
-		expect(msg1.role).toBe("assistant");
-		expect((msg1.content as unknown[])[0]).toEqual({
-			type: "output_text",
-			text: "Understood. The launch is Tuesday, with support notified beforehand.",
-			annotations: [],
-		});
-
-		expect(
-			out.output.some(
-				(o) => (o as Record<string, unknown>).type === "compaction",
-			),
-		).toBe(true);
+		expect(out.output).toHaveLength(2);
+		expect((out.output[1] as Record<string, unknown>).type).toBe("compaction");
 	});
 
 	it("preserves existing message id/status/content-array when caller already provided them", () => {
@@ -866,23 +858,11 @@ describe("Open Responses compliance: compact endpoint", () => {
 	});
 
 	it("adds annotations: [] to assistant output_text parts when caller omitted them", () => {
-		const inputItems = [
-			{
-				type: "message",
-				role: "assistant",
-				content: [{ type: "output_text", text: "hello" }],
-			},
-		];
-		const out = convertChatResponseToCompaction(
-			{ choices: [{ message: { role: "assistant", content: "ok" } }] },
-			inputItems,
-			"resp_compact_4",
-			1_700_000_000,
-		);
-		const result = compactResourceSchema.safeParse(out);
-		expect(result.success).toBe(true);
-
-		const msg0 = out.output[0] as Record<string, unknown>;
+		const msg0 = normalizeOutputItem({
+			type: "message",
+			role: "assistant",
+			content: [{ type: "output_text", text: "hello" }],
+		});
 		const part = (msg0.content as unknown[])[0] as Record<string, unknown>;
 		expect(part.type).toBe("output_text");
 		expect(part.annotations).toEqual([]);

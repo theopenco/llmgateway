@@ -32,6 +32,10 @@ import {
 } from "@llmgateway/shared";
 
 import { findApiKeyByToken, findProjectById } from "./cached-queries.js";
+import {
+	admitSortedSetEntry,
+	checkAndAddSlidingWindow,
+} from "./rate-limit-windows.js";
 
 /**
  * Per-organization, per-path rate limiting for the gateway.
@@ -225,32 +229,17 @@ export async function checkOrgRateLimit(
 	const key = `rate_limit:org_path:${organizationId}:${config.key}`;
 
 	try {
-		const now = Date.now();
-		// eslint-disable-next-line no-mixed-operators
-		const windowStart = now - window * 1000;
-
 		// Resolve the tier eagerly (it is cached, and the spend-cap check reads
 		// the same entry) so the advertised limit is always the effective one.
-		const [multiplier] = await Promise.all([
-			getMultiplier(),
-			redisClient.zremrangebyscore(key, "-inf", windowStart),
-		]);
+		const multiplier = await getMultiplier();
 		const limit = Math.floor(baseLimit * multiplier);
-		const currentCount = await redisClient.zcard(key);
 
-		if (currentCount >= limit) {
-			const oldestEntry = await redisClient.zrange(key, 0, 0, "WITHSCORES");
-			const retryAfter =
-				oldestEntry.length > 1
-					? Math.max(
-							1,
-							Math.ceil(
-								// eslint-disable-next-line no-mixed-operators
-								(parseInt(oldestEntry[1], 10) + window * 1000 - now) / 1000,
-							),
-						)
-					: window;
+		const now = Date.now();
+		const member = `${now}:${randomUUID()}`;
+		const { allowed, currentCount, retryAfter } =
+			await checkAndAddSlidingWindow(key, window, limit, now, member);
 
+		if (!allowed) {
 			logger.info("Org rate limit exceeded", {
 				organizationId,
 				path: config.key,
@@ -269,10 +258,6 @@ export async function checkOrgRateLimit(
 
 			return { allowed: false, retryAfter, remaining: 0, limit };
 		}
-
-		const member = `${now}:${randomUUID()}`;
-		await redisClient.zadd(key, now, member);
-		await redisClient.expire(key, window * 2);
 
 		return {
 			allowed: true,
@@ -332,35 +317,39 @@ export async function acquireOrgInflightSlot(
 	const key = orgInflightKey(organizationId);
 	const staleSeconds = getOrgInflightStaleSeconds();
 
-	// Explicit pipelines, NOT bare awaited commands: the release below runs in
-	// the response-close/finally context, where a bare command can wedge
-	// ioredis's auto-pipelining (the queued command's flush is never scheduled,
-	// silently hanging every later command on the shared client). pipeline()
-	// bypasses auto-pipelining and also halves the acquire round trips.
+	// The release below runs in the response-close/finally context, where a
+	// bare command can wedge ioredis's auto-pipelining (the queued command's
+	// flush is never scheduled, silently hanging every later command on the
+	// shared client), so it uses an explicit pipeline().
 	try {
 		const now = Date.now();
-		// eslint-disable-next-line no-mixed-operators
-		const staleBefore = now - staleSeconds * 1000;
+		const member = `${now}:${randomUUID()}`;
+		// The expire is a safety net: if every holder crashes, the whole key
+		// expires once no acquisition refreshes it, instead of lingering until
+		// the next reap.
+		const admit = (ceiling: number) =>
+			admitSortedSetEntry(key, {
+				// eslint-disable-next-line no-mixed-operators
+				trimBefore: now - staleSeconds * 1000,
+				limit: ceiling,
+				score: now,
+				member,
+				ttlSeconds: staleSeconds,
+			});
 
-		const checkResults = await redisClient
-			.pipeline()
-			.zremrangebyscore(key, "-inf", staleBefore)
-			.zcard(key)
-			.exec();
-		const zcardResult = checkResults?.[1];
-		if (!zcardResult || zcardResult[0]) {
-			throw zcardResult?.[0] ?? new Error("org inflight pipeline failed");
-		}
-		const currentCount = Number(zcardResult[1]);
-
+		let limit = baseLimit;
+		let admission = await admit(baseLimit);
 		// Only resolve the tier-elevated ceiling (an extra cached lookup) once
 		// the base limit is reached; below it the request is admitted without it.
-		let limit = baseLimit;
-		if (currentCount >= baseLimit) {
+		if (!admission.allowed) {
 			limit = Math.max(baseLimit, await getMaxLimit());
+			if (limit > baseLimit) {
+				admission = await admit(limit);
+			}
 		}
+		const { currentCount } = admission;
 
-		if (currentCount >= limit) {
+		if (!admission.allowed) {
 			logger.info("Org inflight limit exceeded", {
 				organizationId,
 				endpointKey,
@@ -376,16 +365,6 @@ export async function acquireOrgInflightSlot(
 
 			return { allowed: false, limit };
 		}
-
-		const member = `${now}:${randomUUID()}`;
-		// The expire is a safety net: if every holder crashes, the whole key
-		// expires once no acquisition refreshes it, instead of lingering until
-		// the next reap.
-		await redisClient
-			.pipeline()
-			.zadd(key, now, member)
-			.expire(key, staleSeconds)
-			.exec();
 
 		return {
 			allowed: true,
