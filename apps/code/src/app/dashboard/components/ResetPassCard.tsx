@@ -3,7 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, Stamp } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -37,6 +37,30 @@ interface ResetPassCardProps {
 	premiumWeeklyLimit: number;
 	cycleCreditsUsed: number;
 	cycleCreditsLimit: number;
+}
+
+const PENDING_PURCHASE_STORAGE_KEY = "llmgateway-reset-pass-pending-purchase";
+
+// Storage access throws when the browser blocks site data; the pending
+// attempt then lives only as long as the page.
+function readPendingPurchase(key: string): string | null {
+	try {
+		return window.localStorage.getItem(key);
+	} catch {
+		return null;
+	}
+}
+
+function writePendingPurchase(key: string, id: string | null) {
+	try {
+		if (id) {
+			window.localStorage.setItem(key, id);
+		} else {
+			window.localStorage.removeItem(key);
+		}
+	} catch {
+		// See readPendingPurchase.
+	}
 }
 
 // A single visa-stamp slot in the pass strip. Held passes render as inked
@@ -111,7 +135,14 @@ export default function ResetPassCard({
 	const [stampOverlay, setStampOverlay] = useState<
 		{ kind: "redeemed" } | { kind: "purchased"; amount: number } | null
 	>(null);
-	const [purchaseId, setPurchaseId] = useState(() => crypto.randomUUID());
+	// A purchase attempt whose outcome is not known yet. It is kept (across
+	// reloads too) until the server reports success or a definite "not
+	// charged" (402); retrying with it makes the server report the original
+	// charge instead of creating another.
+	const pendingPurchaseKey = `${PENDING_PURCHASE_STORAGE_KEY}:${organizationId ?? "personal"}`;
+	const [pendingPurchaseId, setPendingPurchaseId] = useState<string | null>(
+		null,
+	);
 	const reduceMotion = useReducedMotion();
 
 	const available = includedRemaining + purchased;
@@ -137,6 +168,15 @@ export default function ResetPassCard({
 			},
 		});
 
+	useEffect(() => {
+		setPendingPurchaseId(readPendingPurchase(pendingPurchaseKey));
+	}, [pendingPurchaseKey]);
+
+	const rememberPendingPurchase = (id: string | null) => {
+		setPendingPurchaseId(id);
+		writePendingPurchase(pendingPurchaseKey, id);
+	};
+
 	const redeemMutation = api.useMutation(
 		"post",
 		"/dev-plans/reset-pass/redeem",
@@ -157,18 +197,14 @@ export default function ResetPassCard({
 		"/dev-plans/reset-pass/purchase",
 		{
 			onSuccess: async (data) => {
-				setPurchaseId(crypto.randomUUID());
+				rememberPendingPurchase(null);
 				setStampOverlay({ kind: "purchased", amount: data.amount });
 				setTimeout(() => setStampOverlay(null), 2200);
 				await invalidateStatus();
 			},
 			onError: (error) => {
-				// Keep the idempotency key after a lost or unknown response so a
-				// retry replays the original charge; start a new attempt only once
-				// the charge was declined (402) or the key was rejected (409).
-				const status = (error as { status?: number })?.status;
-				if (status === 402 || status === 409) {
-					setPurchaseId(crypto.randomUUID());
+				if ((error as { status?: number })?.status === 402) {
+					rememberPendingPurchase(null);
 				}
 				toast.error(
 					(error as { message?: string })?.message ??
@@ -363,7 +399,9 @@ export default function ResetPassCard({
 										{purchaseMutation.isPending ? (
 											<Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
 										) : null}
-										Buy a pass · ${price}
+										{pendingPurchaseId
+											? "Retry last purchase"
+											: `Buy a pass · $${price}`}
 									</Button>
 								</AlertDialogTrigger>
 								<AlertDialogContent>
@@ -372,6 +410,13 @@ export default function ResetPassCard({
 											Buy a Reset Pass for ${price}?
 										</AlertDialogTitle>
 										<AlertDialogDescription>
+											{pendingPurchaseId && (
+												<>
+													This retries your unconfirmed purchase: if it already
+													charged you, the pass is delivered without a second
+													charge.{" "}
+												</>
+											)}
 											Your saved payment method is charged {`$${price} `}now and
 											one pass is stamped into your passport. Redeem it anytime
 											to lift the weekly premium limit — it doesn&apos;t add
@@ -381,9 +426,12 @@ export default function ResetPassCard({
 									<AlertDialogFooter>
 										<AlertDialogCancel>Not now</AlertDialogCancel>
 										<AlertDialogAction
-											onClick={() =>
-												purchaseMutation.mutate({ body: { purchaseId } })
-											}
+											onClick={() => {
+												const purchaseId =
+													pendingPurchaseId ?? crypto.randomUUID();
+												rememberPendingPurchase(purchaseId);
+												purchaseMutation.mutate({ body: { purchaseId } });
+											}}
 										>
 											Charge ${price}
 										</AlertDialogAction>
@@ -392,6 +440,17 @@ export default function ResetPassCard({
 							</AlertDialog>
 						)}
 					</div>
+					{pendingPurchaseId &&
+						!purchaseBlocked &&
+						!purchaseMutation.isPending && (
+							<p
+								role="status"
+								className="mt-2 max-w-md text-xs text-amber-700 dark:text-amber-400"
+							>
+								Your last purchase wasn&apos;t confirmed. Retry it to check: you
+								are charged at most once for it.
+							</p>
+						)}
 				</div>
 
 				<div className="flex items-center gap-2">

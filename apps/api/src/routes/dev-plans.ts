@@ -3747,6 +3747,139 @@ async function resolveDevPassPaymentMethodId(
 	return paymentMethodId;
 }
 
+// Finds the PaymentIntent a Reset Pass purchase attempt created, if any.
+// Listing is strongly consistent (unlike search), and the customer's most
+// recent intents cover any attempt the dashboard can still be retrying.
+async function findResetPassPaymentIntent(
+	stripeCustomerId: string,
+	organizationId: string,
+	purchaseId: string,
+): Promise<Stripe.PaymentIntent | null> {
+	const { data } = await getStripe().paymentIntents.list({
+		customer: stripeCustomerId,
+		limit: 100,
+	});
+	return (
+		data.find(
+			(intent) =>
+				intent.metadata?.kind === "dev_plan_reset_pass" &&
+				intent.metadata.organizationId === organizationId &&
+				intent.metadata.purchaseId === purchaseId,
+		) ?? null
+	);
+}
+
+async function chargeResetPass(
+	personalOrg: NonNullable<Awaited<ReturnType<typeof findPersonalOrg>>>,
+	user: { id: string; email: string },
+	purchaseId: string,
+): Promise<Stripe.PaymentIntent> {
+	if (personalOrg.devPlan === "none") {
+		throw new HTTPException(400, {
+			message: "An active dev plan is required to buy a Reset Pass.",
+		});
+	}
+
+	// A pass lifts the weekly premium cap, but the unlocked spend still draws
+	// from the monthly credit pool — selling one against a nearly exhausted
+	// pool would only confuse buyers, so the purchase waits for the renewal.
+	// (At 100% the dashboard replaces the pass card with an upgrade/PAYG
+	// promo; this gate is the server-side backstop for that state too.)
+	if (
+		getDevPlanCycleUsageFraction(
+			personalOrg.devPlanCreditsUsed,
+			personalOrg.devPlanCreditsLimit,
+		) > DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE
+	) {
+		throw new HTTPException(400, {
+			message:
+				"You've used more than 95% of this cycle's credit allowance, so a Reset Pass would give you almost nothing to use right now. You can buy one again when your credits renew.",
+		});
+	}
+
+	const tier = personalOrg.devPlan;
+	const price = DEV_PLAN_RESET_PASS_PRICES[tier];
+	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
+	const paymentMethodId = await resolveDevPassPaymentMethodId(
+		personalOrg,
+		stripeCustomerId,
+	);
+
+	// `kind` (not `baseAmount`) in the metadata keeps this PaymentIntent out
+	// of handlePaymentIntentSucceeded's credit top-up path and routes it to
+	// the Reset Pass fulfilment recovery branch instead.
+	try {
+		return await getStripe().paymentIntents.create(
+			{
+				amount: Math.round(price * 100),
+				currency: "usd",
+				customer: stripeCustomerId,
+				payment_method: paymentMethodId,
+				off_session: true,
+				confirm: true,
+				description: `DevPass Reset Pass (${tier.toUpperCase()})`,
+				metadata: {
+					organizationId: personalOrg.id,
+					kind: "dev_plan_reset_pass",
+					devPlan: tier,
+					purchaseId,
+					userEmail: user.email,
+					userId: user.id,
+				},
+			},
+			{
+				idempotencyKey: `dev-plan-reset-pass:${personalOrg.id}:${purchaseId}`,
+			},
+		);
+	} catch (err) {
+		// Stripe raises StripeCardError when the saved card can't be charged
+		// (declined, expired, insufficient funds, 3DS required off-session) —
+		// an expected user-facing outcome surfaced as 402, mirroring the
+		// tier-change handler.
+		const stripeErr = err as {
+			type?: string;
+			code?: string;
+			statusCode?: number;
+		};
+		const cardErrorMessage = getStripeCardErrorMessage(err);
+		if (cardErrorMessage || stripeErr?.code === "card_declined") {
+			logger.warn("Reset Pass charge declined", { code: stripeErr.code });
+			throw new HTTPException(402, {
+				message: `${cardErrorMessage ?? "Your card was declined."} Update your payment method on the billing page and try again.`,
+			});
+		}
+		// A parameter mismatch means an earlier request with this key already
+		// completed with other details (the plan changed since), and Stripe
+		// replays a 5xx to every retry of the key. Either way, report what
+		// that attempt left behind; with no PaymentIntent nothing was charged.
+		// Anything else (configuration, outage, programming errors) is
+		// rethrown to the global error handler.
+		const idempotencyMismatch =
+			stripeErr?.type === "StripeIdempotencyError" ||
+			stripeErr?.code === "idempotency_error";
+		const stripeServerError = (stripeErr?.statusCode ?? 0) >= 500;
+		if (!idempotencyMismatch && !stripeServerError) {
+			throw err;
+		}
+		const original = await findResetPassPaymentIntent(
+			stripeCustomerId,
+			personalOrg.id,
+			purchaseId,
+		);
+		if (original) {
+			return original;
+		}
+		logger.warn("Reset Pass attempt left no payment intent", {
+			idempotencyMismatch,
+			statusCode: stripeErr?.statusCode,
+		});
+		throw new HTTPException(402, {
+			message:
+				"This purchase attempt did not go through and you were not charged. Try again.",
+		});
+	}
+}
+
 // Buy a Reset Pass — charges the saved payment method directly (the dashboard
 // shows a confirmation dialog first), so there is no Stripe Checkout redirect.
 // The charge and the fulfilment are synchronous: on success one pass is added
@@ -3759,9 +3892,9 @@ const purchaseResetPass = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						// Client-generated purchase attempt id, forwarded to Stripe as
-						// the idempotency key so a resubmitted request reuses the same
-						// PaymentIntent instead of charging twice.
+						// Client-generated purchase attempt id. It is the Stripe
+						// idempotency key and is stamped on the PaymentIntent, so a
+						// retry reports the original charge instead of creating another.
 						purchaseId: z.string().min(8).max(64),
 					}),
 				},
@@ -3809,87 +3942,23 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 		});
 	}
 
-	if (personalOrg.devPlan === "none") {
-		throw new HTTPException(400, {
-			message: "An active dev plan is required to buy a Reset Pass.",
-		});
-	}
+	// A retry of an attempt that already reached Stripe reports that attempt's
+	// outcome, even if the plan or usage changed since; the gates and charge
+	// parameters in chargeResetPass apply only to a new charge.
+	const paymentIntent =
+		(personalOrg.stripeCustomerId
+			? await findResetPassPaymentIntent(
+					personalOrg.stripeCustomerId,
+					personalOrg.id,
+					purchaseId,
+				)
+			: null) ?? (await chargeResetPass(personalOrg, user, purchaseId));
 
-	// A pass lifts the weekly premium cap, but the unlocked spend still draws
-	// from the monthly credit pool — selling one against a nearly exhausted
-	// pool would only confuse buyers, so the purchase waits for the renewal.
-	// (At 100% the dashboard replaces the pass card with an upgrade/PAYG
-	// promo; this gate is the server-side backstop for that state too.)
-	if (
-		getDevPlanCycleUsageFraction(
-			personalOrg.devPlanCreditsUsed,
-			personalOrg.devPlanCreditsLimit,
-		) > DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE
-	) {
-		throw new HTTPException(400, {
+	if (paymentIntent.status === "processing") {
+		throw new HTTPException(409, {
 			message:
-				"You've used more than 95% of this cycle's credit allowance, so a Reset Pass would give you almost nothing to use right now. You can buy one again when your credits renew.",
+				"Your payment is still processing. Check again in a moment; you won't be charged twice.",
 		});
-	}
-
-	const tier = personalOrg.devPlan;
-	const price = DEV_PLAN_RESET_PASS_PRICES[tier];
-	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
-	const paymentMethodId = await resolveDevPassPaymentMethodId(
-		personalOrg,
-		stripeCustomerId,
-	);
-
-	// `kind` (not `baseAmount`) in the metadata keeps this PaymentIntent out
-	// of handlePaymentIntentSucceeded's credit top-up path and routes it to
-	// the Reset Pass fulfilment recovery branch instead.
-	let paymentIntent: Stripe.PaymentIntent;
-	try {
-		paymentIntent = await getStripe().paymentIntents.create(
-			{
-				amount: Math.round(price * 100),
-				currency: "usd",
-				customer: stripeCustomerId,
-				payment_method: paymentMethodId,
-				off_session: true,
-				confirm: true,
-				description: `DevPass Reset Pass (${tier.toUpperCase()})`,
-				metadata: {
-					organizationId: personalOrg.id,
-					kind: "dev_plan_reset_pass",
-					devPlan: tier,
-					userEmail: user.email,
-					userId: user.id,
-				},
-			},
-			{
-				idempotencyKey: `dev-plan-reset-pass:${personalOrg.id}:${purchaseId}`,
-			},
-		);
-	} catch (err) {
-		// Stripe raises StripeCardError when the saved card can't be charged
-		// (declined, expired, insufficient funds, 3DS required off-session) —
-		// an expected user-facing outcome surfaced as 402, mirroring the
-		// tier-change handler. Anything else (configuration, outage,
-		// programming errors) is rethrown to the global error handler.
-		const stripeErr = err as { type?: string; code?: string };
-		const cardErrorMessage = getStripeCardErrorMessage(err);
-		if (cardErrorMessage || stripeErr?.code === "card_declined") {
-			logger.warn("Reset Pass charge declined", { code: stripeErr.code });
-			throw new HTTPException(402, {
-				message: `${cardErrorMessage ?? "Your card was declined."} Update your payment method on the billing page and try again.`,
-			});
-		}
-		if (
-			stripeErr?.type === "StripeIdempotencyError" ||
-			stripeErr?.code === "idempotency_error"
-		) {
-			throw new HTTPException(409, {
-				message:
-					"This purchase attempt was already submitted with different details. Start a new attempt and try again.",
-			});
-		}
-		throw err;
 	}
 
 	if (paymentIntent.status !== "succeeded") {
@@ -3907,6 +3976,11 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 	const updatedOrg = await db.query.organization.findFirst({
 		where: { id: { eq: personalOrg.id } },
 	});
+	const amount = new Decimal(
+		paymentIntent.amount_received || paymentIntent.amount,
+	)
+		.div(100)
+		.toNumber();
 
 	await logAuditEvent({
 		organizationId: personalOrg.id,
@@ -3915,19 +3989,18 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 		resourceType: "dev_plan",
 		resourceId: paymentIntent.id,
 		metadata: {
-			tier,
-			price,
+			tier: paymentIntent.metadata.devPlan,
+			price: amount,
 		},
 	});
 
 	return c.json({
 		success: true,
-		devPlanResetPasses: updatedOrg
-			? getPurchasedResetPasses(updatedOrg, tier)
-			: 0,
-		amount: new Decimal(paymentIntent.amount_received || paymentIntent.amount)
-			.div(100)
-			.toNumber(),
+		devPlanResetPasses:
+			updatedOrg && updatedOrg.devPlan !== "none"
+				? getPurchasedResetPasses(updatedOrg, updatedOrg.devPlan)
+				: 0,
+		amount,
 	});
 });
 
