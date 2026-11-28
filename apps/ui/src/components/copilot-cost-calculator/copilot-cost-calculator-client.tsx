@@ -41,8 +41,10 @@ import type { Route } from "next";
 
 export function CopilotCostCalculatorClient() {
 	const [developers, setDevelopers] = useState(5);
+	const [developersDraft, setDevelopersDraft] = useState("5");
 	const [planId, setPlanId] = useState("business");
 	const [includedCredits, setIncludedCredits] = useState(0);
+	const [includedCreditsDraft, setIncludedCreditsDraft] = useState("0");
 	const [profileId, setProfileId] = useState("moderate");
 	const [chatSessionsPerDay, setChatSessionsPerDay] = useState(20);
 	const [agentTasksPerDay, setAgentTasksPerDay] = useState(0);
@@ -56,7 +58,9 @@ export function CopilotCostCalculatorClient() {
 	const selectPlan = (id: string) => {
 		setPlanId(id);
 		const next = COPILOT_PLANS.find((p) => p.id === id);
-		setIncludedCredits(next?.includedCredits ?? 0);
+		const credits = next?.includedCredits ?? 0;
+		setIncludedCredits(credits);
+		setIncludedCreditsDraft(String(credits));
 	};
 
 	const selectProfile = (id: string) => {
@@ -129,12 +133,21 @@ export function CopilotCostCalculatorClient() {
 										type="number"
 										min={1}
 										max={1000}
-										value={developers}
+										value={developersDraft}
 										onChange={(e) => {
+											setDevelopersDraft(e.target.value);
 											const parsed = parseInt(e.target.value, 10);
 											if (!isNaN(parsed)) {
 												setDevelopers(Math.min(1000, Math.max(1, parsed)));
 											}
+										}}
+										onBlur={() => {
+											const parsed = parseInt(developersDraft, 10);
+											const next = isNaN(parsed)
+												? 1
+												: Math.min(1000, Math.max(1, parsed));
+											setDevelopers(next);
+											setDevelopersDraft(String(next));
 										}}
 										className="w-24 text-right"
 									/>
@@ -147,6 +160,7 @@ export function CopilotCostCalculatorClient() {
 									onValueChange={([v]) => {
 										if (v !== undefined) {
 											setDevelopers(v);
+											setDevelopersDraft(String(v));
 										}
 									}}
 								/>
@@ -178,12 +192,21 @@ export function CopilotCostCalculatorClient() {
 										type="number"
 										min={0}
 										max={1000}
-										value={includedCredits}
+										value={includedCreditsDraft}
 										onChange={(e) => {
+											setIncludedCreditsDraft(e.target.value);
 											const parsed = parseFloat(e.target.value);
 											if (!isNaN(parsed)) {
 												setIncludedCredits(Math.min(1000, Math.max(0, parsed)));
 											}
+										}}
+										onBlur={() => {
+											const parsed = parseFloat(includedCreditsDraft);
+											const next = isNaN(parsed)
+												? 0
+												: Math.min(1000, Math.max(0, parsed));
+											setIncludedCredits(next);
+											setIncludedCreditsDraft(String(next));
 										}}
 										className="w-24 text-right"
 									/>

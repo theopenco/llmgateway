@@ -10,6 +10,7 @@ export const metadata: Metadata = {
 	title: "Brand Assets — Logos & Guidelines",
 	description:
 		"Download official LLM Gateway logos in SVG and transparent PNG. Explore logo usage, spacing, colors, typography, and brand guidelines.",
+	alternates: { canonical: "/brand" },
 	openGraph: {
 		title: "Brand Assets — Logos & Guidelines | LLM Gateway",
 		description:

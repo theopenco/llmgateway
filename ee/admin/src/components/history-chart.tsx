@@ -1,7 +1,7 @@
 "use client";
 
 import { format } from "date-fns";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
 	Area,
 	AreaChart,
@@ -186,34 +186,40 @@ export function HistoryChart({
 	const [data, setData] = useState<HistoryDataPoint[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const [reloadKey, setReloadKey] = useState(0);
 	const [internalWindow, setInternalWindow] = useState<HistoryWindow>("4h");
 	const window = externalWindow ?? internalWindow;
 	const [activeMetric, setActiveMetric] = useState<ActiveMetric>("requests");
 	const [chartType, setChartType] = useState<ChartType>("line");
 	const ChartRoot = chartType === "line" ? AreaChart : BarChart;
 
-	const loadData = useCallback(
-		async (w: HistoryWindow) => {
-			setLoading(true);
-			setError(null);
-			try {
-				const result = await fetchData(w);
-				setData(result ?? []);
-			} catch (err) {
-				setData([]);
-				setError(
-					err instanceof Error ? err.message : "Failed to load history data",
-				);
-			} finally {
-				setLoading(false);
-			}
-		},
-		[fetchData],
-	);
-
 	useEffect(() => {
-		void loadData(window);
-	}, [loadData, window]);
+		let cancelled = false;
+		setLoading(true);
+		setError(null);
+		fetchData(window)
+			.then((result) => {
+				if (!cancelled) {
+					setData(result ?? []);
+				}
+			})
+			.catch((err: unknown) => {
+				if (!cancelled) {
+					setData([]);
+					setError(
+						err instanceof Error ? err.message : "Failed to load history data",
+					);
+				}
+			})
+			.finally(() => {
+				if (!cancelled) {
+					setLoading(false);
+				}
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [fetchData, window, reloadKey]);
 
 	const config = chartConfigs[activeMetric];
 	const dataKeys = Object.keys(config);
@@ -438,7 +444,7 @@ export function HistoryChart({
 							variant="outline"
 							size="sm"
 							className="h-7 px-2 text-xs"
-							onClick={() => void loadData(window)}
+							onClick={() => setReloadKey((key) => key + 1)}
 						>
 							Retry
 						</Button>

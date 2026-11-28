@@ -1,45 +1,14 @@
 import { fetchServerData } from "@/lib/server-api";
 
-import { ReferralsClient } from "./referrals-client";
+import { ReferralsClient, type ReferralStats } from "./referrals-client";
 
-interface Transaction {
-	id: string;
-	createdAt: string;
-	type:
-		| "credit_topup"
-		| "subscription_start"
-		| "subscription_cancel"
-		| "subscription_end";
-	creditAmount: string | null;
-	amount: string | null;
-	status: "pending" | "completed" | "failed";
-	description: string | null;
-}
+import type { paths } from "@/lib/api/v1";
 
-interface TransactionsData {
-	transactions: Transaction[];
-}
+type ReferralStatsResponse =
+	paths["/orgs/{id}/referral-stats"]["get"]["responses"][200]["content"]["application/json"];
 
-interface ReferralStatsData {
-	referredCount: number;
-}
-
-async function fetchTransactions(orgId: string): Promise<TransactionsData> {
-	const data = await fetchServerData<TransactionsData>(
-		"GET",
-		"/orgs/{id}/transactions",
-		{
-			params: {
-				path: { id: orgId },
-			},
-		},
-	);
-
-	return data ?? { transactions: [] };
-}
-
-async function fetchReferralStats(orgId: string): Promise<ReferralStatsData> {
-	const data = await fetchServerData<ReferralStatsData>(
+async function fetchReferralStats(orgId: string): Promise<ReferralStats> {
+	const data = await fetchServerData<Partial<ReferralStatsResponse>>(
 		"GET",
 		"/orgs/{id}/referral-stats",
 		{
@@ -49,7 +18,12 @@ async function fetchReferralStats(orgId: string): Promise<ReferralStatsData> {
 		},
 	);
 
-	return data ?? { referredCount: 0 };
+	return {
+		referredCount: data?.referredCount ?? 0,
+		netPaidTopUps: data?.netPaidTopUps ?? "0",
+		minNetTopUps: data?.minNetTopUps ?? null,
+		eligible: data?.eligible ?? false,
+	};
 }
 
 export default async function ReferralsPage({
@@ -76,14 +50,13 @@ export default async function ReferralsPage({
 		);
 	}
 
-	const [data, stats] = await Promise.all([
-		fetchTransactions(orgId),
-		fetchReferralStats(orgId),
-	]);
+	const stats = await fetchReferralStats(orgId);
 
 	return (
 		<ReferralsClient
-			transactions={data.transactions}
+			netPaidTopUps={stats.netPaidTopUps}
+			minNetTopUps={stats.minNetTopUps}
+			eligible={stats.eligible}
 			referredCount={stats.referredCount}
 		/>
 	);

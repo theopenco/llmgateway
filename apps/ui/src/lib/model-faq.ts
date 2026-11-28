@@ -57,11 +57,18 @@ export function buildModelFaqs(
 		} You can access it through LLM Gateway's OpenAI-compatible API with automatic provider routing, fallback, and cost analytics.`,
 	});
 
+	const discountedPerMillion = (
+		price: FaqProviderInfo["inputPrice"],
+		discount: FaqProviderInfo["discount"],
+	): number | null => {
+		const n = perMillion(price);
+		return n === null ? null : applyDiscount(n, discount);
+	};
 	const inputPrices = providers
-		.map((p) => perMillion(p.inputPrice))
+		.map((p) => discountedPerMillion(p.inputPrice, p.discount))
 		.filter((n): n is number => n !== null && Number.isFinite(n));
 	const outputPrices = providers
-		.map((p) => perMillion(p.outputPrice))
+		.map((p) => discountedPerMillion(p.outputPrice, p.discount))
 		.filter((n): n is number => n !== null && Number.isFinite(n));
 
 	const ocrPagePrices = providers

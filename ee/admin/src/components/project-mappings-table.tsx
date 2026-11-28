@@ -30,6 +30,8 @@ import type { PageWindow } from "@/lib/page-window";
 type SortBy = "logsCount" | "errorsCount" | "cost" | "modelId" | "providerId";
 type SortOrder = "asc" | "desc";
 
+const COLUMN_COUNT = 11;
+
 export interface ProjectMappingEntry {
 	modelId: string;
 	providerId: string;
@@ -191,7 +193,7 @@ function MappingRow({
 			</TableRow>
 			{expanded && (
 				<TableRow>
-					<TableCell colSpan={10} className="p-4">
+					<TableCell colSpan={COLUMN_COUNT} className="p-4">
 						<HistoryChart
 							title={`${mapping.providerId}/${displayModel} — History`}
 							description="Hourly request volume, errors, tokens, and cost for this project"
@@ -259,7 +261,7 @@ export function ProjectMappingsTable({
 				{mappings.length === 0 ? (
 					<TableRow>
 						<TableCell
-							colSpan={10}
+							colSpan={COLUMN_COUNT}
 							className="h-24 text-center text-muted-foreground"
 						>
 							No usage data found

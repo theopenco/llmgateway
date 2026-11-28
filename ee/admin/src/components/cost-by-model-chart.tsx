@@ -1,6 +1,6 @@
 "use client";
 
-import { Cpu, FolderOpen, KeyRound, Layers, Server, User } from "lucide-react";
+import { Cpu, Layers, Server } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
@@ -29,11 +29,7 @@ import {
 } from "@llmgateway/shared/number-format";
 
 import type { ChartConfig } from "@/components/ui/chart";
-import type {
-	GlobalStatsModelView,
-	OrganizationCostGroupBy,
-	TokenWindow,
-} from "@/lib/types";
+import type { GlobalStatsModelView, TokenWindow } from "@/lib/types";
 
 export interface CostByModelEntry {
 	model: string;
@@ -81,17 +77,6 @@ const modelViewOptions: {
 	{ value: "provider", label: "Providers", icon: Server },
 ];
 
-const groupByOptions: {
-	value: OrganizationCostGroupBy;
-	label: string;
-	icon: typeof Cpu;
-}[] = [
-	{ value: "model", label: "Model", icon: Cpu },
-	{ value: "project", label: "Project", icon: FolderOpen },
-	{ value: "api-key", label: "API key", icon: KeyRound },
-	{ value: "user", label: "User", icon: User },
-];
-
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
 	currency: "USD",
@@ -108,9 +93,6 @@ export function CostByModelChart({
 	showModelView = false,
 	modelView: controlledModelView,
 	onModelViewChange,
-	showGroupBy = false,
-	groupBy: controlledGroupBy,
-	onGroupByChange,
 	allowedModelViews,
 	forceRange = false,
 	from,
@@ -122,7 +104,6 @@ export function CostByModelChart({
 	fetchData?: (
 		window: TokenWindow,
 		modelView: GlobalStatsModelView,
-		groupBy: OrganizationCostGroupBy,
 	) => Promise<CostByModelData | null>;
 	fetchDataRange?: (
 		from: string | undefined,
@@ -133,9 +114,6 @@ export function CostByModelChart({
 	showModelView?: boolean;
 	modelView?: GlobalStatsModelView;
 	onModelViewChange?: (value: GlobalStatsModelView) => void;
-	showGroupBy?: boolean;
-	groupBy?: OrganizationCostGroupBy;
-	onGroupByChange?: (value: OrganizationCostGroupBy) => void;
 	allowedModelViews?: GlobalStatsModelView[];
 	forceRange?: boolean;
 	from?: string;
@@ -149,10 +127,6 @@ export function CostByModelChart({
 		useState<GlobalStatsModelView>("mapping");
 	const modelView = controlledModelView ?? internalModelView;
 	const setModelView = onModelViewChange ?? setInternalModelView;
-	const [internalGroupBy, setInternalGroupBy] =
-		useState<OrganizationCostGroupBy>("model");
-	const groupBy = controlledGroupBy ?? internalGroupBy;
-	const setGroupBy = onGroupByChange ?? setInternalGroupBy;
 	const useRange = forceRange || Boolean(from && to);
 	const requestIdRef = useRef(0);
 
@@ -164,7 +138,7 @@ export function CostByModelChart({
 			if (useRange && fetchDataRange) {
 				result = await fetchDataRange(from, to, modelView);
 			} else if (fetchData) {
-				result = await fetchData(window, modelView, groupBy);
+				result = await fetchData(window, modelView);
 			}
 			if (requestId === requestIdRef.current) {
 				setData(result);
@@ -179,16 +153,7 @@ export function CostByModelChart({
 				setLoading(false);
 			}
 		}
-	}, [
-		fetchData,
-		fetchDataRange,
-		window,
-		modelView,
-		groupBy,
-		from,
-		to,
-		useRange,
-	]);
+	}, [fetchData, fetchDataRange, window, modelView, from, to, useRange]);
 
 	useEffect(() => {
 		void loadData();
@@ -214,14 +179,17 @@ export function CostByModelChart({
 			? (data?.totalCost ?? 0)
 			: ((usageMode === "credits"
 					? data?.totalCreditsCost
-					: data?.totalApiKeysCost) ?? 0);
+					: data?.totalApiKeysCost) ??
+				data?.totalCost ??
+				0);
 	const displayTotalRequests =
 		usageMode === "total"
 			? (data?.totalRequests ?? 0)
 			: ((usageMode === "credits"
 					? data?.totalCreditsRequests
 					: data?.totalApiKeysRequests) ??
-				displayModels.reduce((sum, m) => sum + m.requestCount, 0));
+				data?.totalRequests ??
+				0);
 
 	const config = viewConfigs[activeView];
 	const dataKey = Object.keys(config)[0];
@@ -290,31 +258,7 @@ export function CostByModelChart({
 					</div>
 					<div className="flex flex-wrap items-center justify-end gap-2">
 						{showUsageMode && <UsageModeSelector />}
-						{showGroupBy && (
-							<div
-								className="flex flex-wrap items-center gap-1 rounded-md border border-border/60 bg-background p-1"
-								role="group"
-								aria-label="Break down by"
-							>
-								{groupByOptions.map((opt) => {
-									const Icon = opt.icon;
-									return (
-										<Button
-											key={opt.value}
-											aria-pressed={groupBy === opt.value}
-											variant={groupBy === opt.value ? "default" : "ghost"}
-											size="sm"
-											className="h-7 gap-1.5 px-3 text-xs"
-											onClick={() => setGroupBy(opt.value)}
-										>
-											<Icon className="h-3.5 w-3.5" />
-											{opt.label}
-										</Button>
-									);
-								})}
-							</div>
-						)}
-						{showModelView && groupBy === "model" && (
+						{showModelView && (
 							<div
 								className="flex flex-wrap items-center gap-1 rounded-md border border-border/60 bg-background p-1"
 								role="group"

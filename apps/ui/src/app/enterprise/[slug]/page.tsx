@@ -13,6 +13,7 @@ import { Fragment } from "react";
 import { enterpriseFeatureIcons } from "@/components/enterprise/feature-icons";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { JsonLd } from "@/components/seo/json-ld";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
@@ -152,21 +153,9 @@ export default async function EnterpriseFeaturePage({ params }: PageProps) {
 
 	return (
 		<>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }}
-			/>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
-			/>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(productSchema) }}
-			/>
+			<JsonLd data={breadcrumbSchema} />
+			<JsonLd data={faqSchema} />
+			<JsonLd data={productSchema} />
 			<HeroRSC />
 			<main className="relative min-h-screen bg-background">
 				<section className="relative overflow-hidden border-b border-border">

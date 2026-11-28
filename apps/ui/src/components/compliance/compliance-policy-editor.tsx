@@ -10,6 +10,7 @@ import { ComplianceAlertsCard } from "@/app/dashboard/[orgId]/org/compliance/com
 import { ContactSalesCard } from "@/app/dashboard/[orgId]/org/compliance/contact-sales-card";
 import { useCustomProviderSelection } from "@/hooks/useCustomProviders";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useUpdateOrganization } from "@/hooks/useOrganization";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
 import { getApiErrorMessage } from "@/lib/api-error";
@@ -53,6 +54,7 @@ import {
 	providerLogoUrls,
 	type SelectableProviderOption,
 } from "@llmgateway/shared/components";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { ReactElement } from "react";
 
@@ -245,12 +247,7 @@ export function CompliancePolicyEditor({
 		{},
 	);
 	const providers = providerFacts?.providers ?? catalogueProviders;
-	const updateOrganization = api.useMutation("patch", "/orgs/{id}", {
-		onSuccess: () => {
-			const queryKey = api.queryOptions("get", "/orgs").queryKey;
-			void queryClient.invalidateQueries({ queryKey });
-		},
-	});
+	const updateOrganization = useUpdateOrganization();
 
 	const updateKey = api.useMutation("patch", "/keys/api/{id}", {
 		onSuccess: () => {
@@ -447,8 +444,7 @@ export function CompliancePolicyEditor({
 		}));
 	};
 
-	const canManageStoredPolicy =
-		currentUserRole === "owner" || currentUserRole === "admin";
+	const canManageStoredPolicy = isOrganizationAdmin(currentUserRole);
 	const canManage =
 		selectedOrganization?.enterpriseAccess === true && canManageStoredPolicy;
 	const payloadRetentionEnabled =

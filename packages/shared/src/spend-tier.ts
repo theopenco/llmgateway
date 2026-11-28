@@ -792,20 +792,6 @@ export function isTopUpVelocityGatedOrg(org: {
 }
 
 /**
- * Whether top-up velocity caps are enforced. `GATEWAY_TOPUP_VELOCITY_ENABLED`
- * is the explicit switch; when unset, enabled everywhere except under a test
- * runner (mirrors the spend-cap toggle so existing api/worker specs that top up
- * the seeded org don't trip the cap).
- */
-/**
- * Whether the daily/monthly USD spend caps are enforced. Explicit
- * `GATEWAY_SPEND_CAPS_ENABLED` wins; when unset, enabled in prod but disabled
- * under any test runner (`NODE_ENV==='test'` or `E2E_TEST`), because the tight
- * T0 cap ($5/day) would otherwise trip unrelated tests that share the seeded
- * org and Redis. Lives here (not in the gateway) so the API's limits display
- * can honor the same switch the enforcement reads.
- */
-/**
  * Whether per-org endpoint RPM limiting is enforced. Explicit
  * `GATEWAY_RATE_LIMITS_ENABLED` wins ("false" is the prod kill switch); when
  * unset it is on everywhere except the e2e suite (which fires many requests
@@ -820,6 +806,14 @@ export function isOrgRateLimitEnabled(): boolean {
 	return process.env.E2E_TEST !== "true";
 }
 
+/**
+ * Whether the daily/monthly USD spend caps are enforced. Explicit
+ * `GATEWAY_SPEND_CAPS_ENABLED` wins; when unset, enabled in prod but disabled
+ * under any test runner (`NODE_ENV==='test'` or `E2E_TEST`), because the T0
+ * daily cap would otherwise trip unrelated tests that share the seeded org and
+ * Redis. Lives here (not in the gateway) so the API's limits display can honor
+ * the same switch the enforcement reads.
+ */
 export function isSpendCapEnabled(): boolean {
 	const explicit = process.env.GATEWAY_SPEND_CAPS_ENABLED;
 	if (explicit !== undefined) {
@@ -828,6 +822,12 @@ export function isSpendCapEnabled(): boolean {
 	return process.env.NODE_ENV !== "test" && process.env.E2E_TEST !== "true";
 }
 
+/**
+ * Whether top-up velocity caps are enforced. `GATEWAY_TOPUP_VELOCITY_ENABLED`
+ * is the explicit switch; when unset, enabled everywhere except under a test
+ * runner (mirrors the spend-cap toggle so existing api/worker specs that top up
+ * the seeded org don't trip the cap).
+ */
 export function isTopUpVelocityEnabled(): boolean {
 	const explicit = process.env.GATEWAY_TOPUP_VELOCITY_ENABLED;
 	if (explicit !== undefined) {

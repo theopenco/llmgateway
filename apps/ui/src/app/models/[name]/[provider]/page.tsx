@@ -1,3 +1,4 @@
+import { Decimal } from "decimal.js";
 import {
 	AlertTriangle,
 	ArrowLeft,
@@ -42,7 +43,10 @@ import { VirtualModelBanner } from "@/components/models/virtual-model-banner";
 import { JsonLd } from "@/components/seo/json-ld";
 import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
-import { findEffectiveProviderDiscount, applyDiscount } from "@/lib/discount";
+import {
+	discountFraction,
+	findEffectiveProviderDiscount,
+} from "@/lib/discount";
 import { fetchProviders } from "@/lib/fetch-models";
 import { isLoungeChatModel } from "@/lib/model-utils";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
@@ -202,12 +206,19 @@ export default async function ModelProviderPage({ params }: PageProps) {
 	};
 
 	// OCR bills per page; its zero token prices must not advertise a free offer.
-	const ocrPagePrice = Number(providerMapping.ocrPagePrice ?? 0);
-	const offerPrice =
-		ocrPagePrice > 0
-			? applyDiscount(ocrPagePrice, bannerDiscount?.discountPercent)
-			: (providerMapping.inputPrice ?? 0);
-	const offerUnit = ocrPagePrice > 0 ? "per page" : "per 1M input tokens";
+	const ocrPagePrice = new Decimal(providerMapping.ocrPagePrice ?? 0);
+	const isPerPage = ocrPagePrice.greaterThan(0);
+	const listPrice = isPerPage
+		? ocrPagePrice
+		: new Decimal(providerMapping.inputPrice || 0).times(1_000_000);
+	const offerPrice = Number(
+		listPrice
+			.times(
+				new Decimal(1).minus(discountFraction(bannerDiscount?.discountPercent)),
+			)
+			.toFixed(6),
+	);
+	const offerUnit = isPerPage ? "per page" : "per 1M input tokens";
 
 	const productSchema = {
 		"@context": "https://schema.org",

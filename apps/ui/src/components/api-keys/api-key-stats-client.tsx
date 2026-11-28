@@ -228,7 +228,7 @@ export function ApiKeyStatsClient({
 				<CostByModelCard
 					activity={activity}
 					loading={isLoading}
-					description="Top 20 models by cost for this API key"
+					description="Top 20 models for this API key"
 				/>
 			</div>
 		</div>

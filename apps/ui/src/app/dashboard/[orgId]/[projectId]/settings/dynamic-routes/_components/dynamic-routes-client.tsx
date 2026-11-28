@@ -69,6 +69,29 @@ function asEditableGraph(text: string): DynamicRouteGraph | null {
 	}
 }
 
+function canonicalJson(value: unknown): string {
+	return JSON.stringify(value, (_key, v: unknown) =>
+		v && typeof v === "object" && !Array.isArray(v)
+			? Object.fromEntries(
+					Object.entries(v).sort(([a], [b]) => a.localeCompare(b)),
+				)
+			: v,
+	);
+}
+
+function isDraftTextDirty(draftText: string | null, savedGraph: unknown) {
+	if (draftText === null) {
+		return false;
+	}
+	try {
+		return (
+			canonicalJson(JSON.parse(draftText)) !== canonicalJson(savedGraph ?? null)
+		);
+	} catch {
+		return true;
+	}
+}
+
 const STARTER_GRAPH = {
 	entry: "split",
 	nodes: [
@@ -334,6 +357,7 @@ export function DynamicRoutesClient({ projectId }: { projectId: string }) {
 	const jsonErrors = selectedName ? validateGraphText(effectiveDraftText) : [];
 	const draftErrors = activeTab === "visual" ? visualErrors : jsonErrors;
 	const editableGraph = asEditableGraph(effectiveDraftText);
+	const hasUnsavedDraft = isDraftTextDirty(draftText, detail?.draftGraph);
 
 	const handleSaveDraft = () => {
 		if (!selectedName || draftErrors.length > 0) {
@@ -599,7 +623,15 @@ export function DynamicRoutesClient({ projectId }: { projectId: string }) {
 											</Button>
 											<Button
 												disabled={
-													publishMutation.isPending || !detail.draftGraph
+													publishMutation.isPending ||
+													!detail.draftGraph ||
+													hasUnsavedDraft ||
+													draftErrors.length > 0
+												}
+												title={
+													hasUnsavedDraft
+														? "Save draft before publishing"
+														: undefined
 												}
 												onClick={() =>
 													publishMutation.mutate({
@@ -612,6 +644,11 @@ export function DynamicRoutesClient({ projectId }: { projectId: string }) {
 												Publish
 											</Button>
 										</div>
+										{hasUnsavedDraft && (
+											<p className="text-xs text-muted-foreground">
+												Save draft before publishing.
+											</p>
+										)}
 										<p className="text-xs text-muted-foreground">
 											Node types: <code>model</code> (target model + optional
 											provider allowlist), <code>conditional</code> (ops: eq,

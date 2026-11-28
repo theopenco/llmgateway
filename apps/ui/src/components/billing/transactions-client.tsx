@@ -68,13 +68,29 @@ interface Transaction {
 		| "subscription_start"
 		| "subscription_cancel"
 		| "subscription_end"
+		| "enterprise_license_fee"
 		| "dev_plan_start"
-		| "dev_plan_renewal"
 		| "dev_plan_upgrade"
+		| "dev_plan_downgrade"
+		| "dev_plan_cancel"
+		| "dev_plan_resume"
+		| "dev_plan_end"
+		| "dev_plan_renewal"
 		| "dev_plan_reset_pass"
+		| "dev_plan_reset_pass_reward"
+		| "dev_plan_reset_pass_gift"
 		| "chat_plan_start"
+		| "chat_plan_upgrade"
+		| "chat_plan_downgrade"
+		| "chat_plan_cancel"
+		| "chat_plan_resume"
+		| "chat_plan_end"
 		| "chat_plan_renewal"
-		| "chat_plan_upgrade";
+		| "end_user_topup"
+		| "end_user_margin_accrual"
+		| "end_user_refund"
+		| "end_user_margin_payout"
+		| "end_user_bonus";
 	creditAmount: string | null;
 	amount: string | null;
 	status: "pending" | "completed" | "failed";
@@ -360,6 +376,54 @@ function InvoiceDownloadButton({
 	);
 }
 
+const TRANSACTION_TYPE_LABELS: Partial<Record<Transaction["type"], string>> = {
+	credit_topup: "Credit Top-up",
+	credit_refund: "Credit Refund",
+	credit_gift: "Credit Gift",
+	credit_manual_payment: "Credits Added",
+	subscription_start: "Subscription Start",
+	subscription_cancel: "Subscription Cancelled",
+	subscription_end: "Subscription Ended",
+	enterprise_license_fee: "Enterprise License Fee",
+	dev_plan_start: "DevPass Start",
+	dev_plan_upgrade: "DevPass Upgrade",
+	dev_plan_downgrade: "DevPass Downgrade",
+	dev_plan_cancel: "DevPass Cancelled",
+	dev_plan_resume: "DevPass Resumed",
+	dev_plan_end: "DevPass Ended",
+	dev_plan_renewal: "DevPass Renewal",
+	dev_plan_reset_pass: "Reset Pass",
+	dev_plan_reset_pass_reward: "Reset Pass Reward",
+	dev_plan_reset_pass_gift: "Reset Pass Gift",
+	chat_plan_start: "Chat Plan Start",
+	chat_plan_upgrade: "Chat Plan Upgrade",
+	chat_plan_downgrade: "Chat Plan Downgrade",
+	chat_plan_cancel: "Chat Plan Cancelled",
+	chat_plan_resume: "Chat Plan Resumed",
+	chat_plan_end: "Chat Plan Ended",
+	chat_plan_renewal: "Chat Plan Renewal",
+	end_user_topup: "End User Top-up",
+	end_user_margin_accrual: "End User Margin Accrual",
+	end_user_refund: "End User Refund",
+	end_user_margin_payout: "End User Margin Payout",
+	end_user_bonus: "End User Bonus",
+};
+
+function getTypeLabel(type: Transaction["type"]): string {
+	return TRANSACTION_TYPE_LABELS[type] ?? type.replace(/_/g, " ");
+}
+
+function getStatusColor(status: Transaction["status"]): string {
+	switch (status) {
+		case "completed":
+			return "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400";
+		case "pending":
+			return "bg-yellow-50 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400";
+		default:
+			return "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400";
+	}
+}
+
 function TransactionCard({
 	transaction,
 	orgId,
@@ -367,40 +431,6 @@ function TransactionCard({
 	transaction: Transaction;
 	orgId: string;
 }) {
-	const getTypeLabel = (type: Transaction["type"]) => {
-		switch (type) {
-			case "credit_topup":
-				return "Credit Top-up";
-			case "credit_refund":
-				return "Credit Refund";
-			case "credit_gift":
-				return "Credit Gift";
-			case "credit_manual_payment":
-				return "Credits Added";
-			case "subscription_start":
-				return "Subscription Start";
-			case "subscription_cancel":
-				return "Subscription Cancelled";
-			case "subscription_end":
-				return "Subscription Ended";
-			default:
-				return type;
-		}
-	};
-
-	const getStatusColor = (status: Transaction["status"]) => {
-		switch (status) {
-			case "completed":
-				return "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400";
-			case "pending":
-				return "bg-yellow-50 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400";
-			case "failed":
-				return "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400";
-			default:
-				return "bg-gray-50 text-gray-700 dark:bg-gray-900/20 dark:text-gray-400";
-		}
-	};
-
 	return (
 		<Card className="p-4">
 			<div className="space-y-3">
@@ -543,19 +573,7 @@ export function TransactionsClient({
 													)}
 												</td>
 												<td className="p-4 align-middle whitespace-nowrap">
-													{transaction.type === "credit_topup" &&
-														"Credit Top-up"}
-													{transaction.type === "credit_refund" &&
-														"Credit Refund"}
-													{transaction.type === "credit_gift" && "Credit Gift"}
-													{transaction.type === "credit_manual_payment" &&
-														"Credits Added"}
-													{transaction.type === "subscription_start" &&
-														"Subscription Start"}
-													{transaction.type === "subscription_cancel" &&
-														"Subscription Cancelled"}
-													{transaction.type === "subscription_end" &&
-														"Subscription Ended"}
+													{getTypeLabel(transaction.type)}
 												</td>
 												<td className="p-4 align-middle whitespace-nowrap">
 													{transaction.creditAmount ?? "—"}
@@ -565,13 +583,7 @@ export function TransactionsClient({
 												</td>
 												<td className="p-4 align-middle whitespace-nowrap">
 													<Badge
-														className={`text-xs ${
-															transaction.status === "completed"
-																? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400"
-																: transaction.status === "pending"
-																	? "bg-yellow-50 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400"
-																	: "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"
-														}`}
+														className={`text-xs ${getStatusColor(transaction.status)}`}
 													>
 														{transaction.status}
 													</Badge>

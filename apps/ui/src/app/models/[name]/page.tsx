@@ -62,6 +62,7 @@ import { buildFaqSchema, buildModelFaqs } from "@/lib/model-faq";
 import { getCheapestOgMapping } from "@/lib/model-og";
 import { isLoungeChatModel } from "@/lib/model-utils";
 import { pageTitle } from "@/lib/page-title";
+import { uploadedMarksByProvider } from "@/lib/providers-catalog";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -171,11 +172,7 @@ export default async function ModelPage({ params }: PageProps) {
 		};
 	});
 	// Square carrier marks for compact rows; wordmarks only as a fallback.
-	const uploadedProviderIcons = Object.fromEntries(
-		apiProviders
-			.map((p) => [p.id, p.airsideIconUrl ?? p.airsideLogoUrl])
-			.filter((entry): entry is [string, string] => Boolean(entry[1])),
-	);
+	const uploadedProviderIcons = uploadedMarksByProvider(apiProviders);
 	// Aggregated metrics (pricing, context, capabilities) describe what can
 	// actually be routed today, so deactivated providers are excluded. Models
 	// whose providers are all deactivated fall back to showing everything.

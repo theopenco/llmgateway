@@ -129,6 +129,12 @@ const RELATIVE_TIME_OPTIONS: RelativeTimeOption[] = [
 	},
 ];
 
+export function getRelativeTimeRange(value: string): DateRange | undefined {
+	return RELATIVE_TIME_OPTIONS.find(
+		(option) => option.value === value,
+	)?.getRange();
+}
+
 interface DateRangeSelectProps {
 	value?: string;
 	onChange: (value: string, range: DateRange) => void;

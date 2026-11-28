@@ -195,6 +195,12 @@ export function SecurityEventsView() {
 					</div>
 
 					<div className="space-y-4 @3xl/demo:hidden">
+						{violations.length === 0 && (
+							<div className="flex flex-col items-center gap-2 p-8 text-center text-muted-foreground">
+								<ShieldCheck className="h-12 w-12 text-muted-foreground/50" />
+								<span>No security events found</span>
+							</div>
+						)}
 						{violations.map((violation) => (
 							<Card key={violation.id}>
 								<CardContent className="pt-4">

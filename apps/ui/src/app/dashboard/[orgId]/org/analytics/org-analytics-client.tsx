@@ -46,6 +46,7 @@ import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode } from "@/lib/usage-mode";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 import {
 	OrganizationUsageTimeseries,
 	useUsageTimeseriesControls,
@@ -158,7 +159,7 @@ export function OrgAnalyticsClient() {
 	const currentUserRole = teamData?.members.find(
 		(member) => member.userId === user?.id,
 	)?.role;
-	const isAdmin = currentUserRole === "owner" || currentUserRole === "admin";
+	const isAdmin = isOrganizationAdmin(currentUserRole);
 	// Distinguish "membership still loading" from "not an admin" so we don't flash
 	// the denial card before team membership resolves.
 	const membershipLoading = isEnterprise && (!teamData || !user);

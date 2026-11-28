@@ -93,10 +93,16 @@ export function formatRuleValue(rule: Pick<IamRule, "ruleType" | "ruleValue">) {
 		if (ruleValue.pricingType) {
 			parts.push(`Type: ${ruleValue.pricingType}`);
 		}
-		if (ruleValue.maxInputPrice) {
+		if (
+			ruleValue.maxInputPrice !== undefined &&
+			ruleValue.maxInputPrice !== null
+		) {
 			parts.push(`Max input: $${ruleValue.maxInputPrice}/M tokens`);
 		}
-		if (ruleValue.maxOutputPrice) {
+		if (
+			ruleValue.maxOutputPrice !== undefined &&
+			ruleValue.maxOutputPrice !== null
+		) {
 			parts.push(`Max output: $${ruleValue.maxOutputPrice}/M tokens`);
 		}
 		return parts.join(", ") || "No constraints";

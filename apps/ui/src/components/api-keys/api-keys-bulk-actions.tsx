@@ -150,6 +150,12 @@ export function ApiKeysBulkActionBar({
 		let succeeded = 0;
 		let skipped = 0;
 		const failures = new Map<string, number>();
+		const verb =
+			action === "delete"
+				? "deleted"
+				: action === "deactivate"
+					? "deactivated"
+					: "reactivated";
 
 		try {
 			for (let start = 0; start < ids.length; start += BULK_CHUNK_SIZE) {
@@ -166,22 +172,24 @@ export function ApiKeysBulkActionBar({
 				}
 			}
 		} catch (error) {
+			const message = getApiErrorMessage(error, "Please try again.");
+			const partial = succeeded > 0 || skipped > 0;
 			toast({
 				title: `Failed to ${action} API keys.`,
-				description: getApiErrorMessage(error, "Please try again."),
+				description: partial
+					? `${pluralKeys(succeeded)} ${verb} before the error. ${message}`
+					: message,
 				variant: "destructive",
 			});
+			if (partial) {
+				setPendingAction(null);
+				onClear();
+			}
 			return;
 		} finally {
 			void queryClient.invalidateQueries({ queryKey: ["get", "/keys/api"] });
 		}
 
-		const verb =
-			action === "delete"
-				? "deleted"
-				: action === "deactivate"
-					? "deactivated"
-					: "reactivated";
 		const details = [
 			skipped ? `${pluralKeys(skipped)} already ${verb}` : null,
 			...Array.from(failures).map(

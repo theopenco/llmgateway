@@ -28,7 +28,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
-import { type CrmCall, AttendeeChips, timeRange } from "./crm-calls";
+import { type CrmCall, AttendeeChips, timeRange, callStart } from "./crm-calls";
 import {
 	type CrmAccountDetail,
 	accountHref,
@@ -579,8 +579,8 @@ export function CrmCallBrief({
 					<p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
 						<span className="inline-flex items-center gap-1">
 							<CalendarDays className="h-4 w-4" />
-							{whenLabel(call.startAt)} · {timeRange(call)} (
-							{relativeDays(call.startAt)})
+							{whenLabel(callStart(call).toISOString())} · {timeRange(call)} (
+							{relativeDays(callStart(call).toISOString())})
 						</span>
 						<span>on {call.calendar}</span>
 						{call.location && !call.joinUrl ? (

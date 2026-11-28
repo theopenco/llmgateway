@@ -54,7 +54,7 @@ export default function CompareVercelPage() {
 							"Open-Source Core",
 							"Self-Hostable",
 							"Zero Token Markup",
-							"Self-Hosting Option",
+							"Image & Video Gen",
 						],
 						cta: {
 							primary: {

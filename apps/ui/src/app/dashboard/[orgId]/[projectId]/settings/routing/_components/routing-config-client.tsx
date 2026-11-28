@@ -492,10 +492,20 @@ export function RoutingConfigClient({
 						: { enabled: state.session.enabled },
 				providerPriorities: compact(state.providerPriorities),
 			};
-			await fetchClient.PUT("/routing-config/config/{projectId}", {
-				params: { path: { projectId } },
-				body: body as never,
-			});
+			const { error: apiError } = await fetchClient.PUT(
+				"/routing-config/config/{projectId}",
+				{
+					params: { path: { projectId } },
+					body: body as never,
+				},
+			);
+			if (apiError) {
+				setError(
+					(apiError as { message?: string }).message ??
+						"Failed to save routing configuration",
+				);
+				return;
+			}
 			setSuccess("Routing configuration saved");
 		} catch {
 			setError("Failed to save routing configuration");
@@ -509,9 +519,19 @@ export function RoutingConfigClient({
 		setError(null);
 		setSuccess(null);
 		try {
-			await fetchClient.POST("/routing-config/config/{projectId}/reset", {
-				params: { path: { projectId } },
-			});
+			const { error: apiError } = await fetchClient.POST(
+				"/routing-config/config/{projectId}/reset",
+				{
+					params: { path: { projectId } },
+				},
+			);
+			if (apiError) {
+				setError(
+					(apiError as { message?: string }).message ??
+						"Failed to reset routing configuration",
+				);
+				return;
+			}
 			setState(emptyState());
 			setSuccess("Routing configuration reset to defaults");
 		} catch {

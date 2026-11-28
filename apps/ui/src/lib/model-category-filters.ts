@@ -8,5 +8,7 @@ export {
 	LONG_CONTEXT_MIN_TOKENS,
 	OPEN_SOURCE_FAMILIES,
 	OPEN_SOURCE_MODEL_IDS,
+	type CategoryFilterMapping,
+	type CategoryFilterModel,
 	type ModelCategoryFilter,
 } from "@llmgateway/shared/components";

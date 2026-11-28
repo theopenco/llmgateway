@@ -73,12 +73,7 @@ const RATE_LIMIT_FIELDS: Array<{
 export function formatProviderKeyRateLimits(
 	limits: Partial<ProviderKeyRateLimits>,
 ): string | null {
-	const parts = RATE_LIMIT_FIELDS.flatMap(({ field, unit }) => {
-		const value = limits[field];
-		return value === null || value === undefined
-			? []
-			: [`${value.toLocaleString("en-US")} ${unit}`];
-	});
+	const parts = formatCaps(limits);
 	if (parts.length === 0) {
 		return null;
 	}

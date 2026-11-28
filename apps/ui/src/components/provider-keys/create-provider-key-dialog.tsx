@@ -398,7 +398,7 @@ export function CreateProviderKeyDialog({
 						description: "The provider key has been validated and saved.",
 					});
 					void queryClient.invalidateQueries({ queryKey });
-					setOpen(false);
+					handleClose();
 				},
 				onError: (error: unknown) => {
 					setIsValidating(false);
@@ -444,6 +444,7 @@ export function CreateProviderKeyDialog({
 			setToken("");
 			setDescription("");
 			setAzureResource("");
+			setAzureAnthropicResource("");
 			setAzureApiVersion("2024-10-21");
 			setAzureDeploymentType("ai-foundry");
 			setAzureValidationModel("gpt-4o-mini");
@@ -458,7 +459,10 @@ export function CreateProviderKeyDialog({
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog
+			open={open}
+			onOpenChange={(next) => (next ? setOpen(true) : handleClose())}
+		>
 			<DialogTrigger asChild>{children}</DialogTrigger>
 			<DialogContent className="sm:max-w-[500px]">
 				<DialogHeader>

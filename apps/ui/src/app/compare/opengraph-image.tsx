@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 
+import { CompareOgFrame, compareOgSize } from "./compare-og";
 import {
 	AwsBedrockOgIcon,
 	AzureOgIcon,
@@ -11,11 +12,10 @@ import {
 	VercelOgIcon,
 } from "./og-icons";
 
-export const size = {
-	width: 1200,
-	height: 630,
-};
-export const contentType = "image/png";
+export {
+	compareOgSize as size,
+	compareOgContentType as contentType,
+} from "./compare-og";
 export const alt = "LLM Gateway compared to every major AI gateway";
 
 const COMPETITORS = [
@@ -30,48 +30,7 @@ const COMPETITORS = [
 
 export default async function CompareHubOgImage() {
 	return new ImageResponse(
-		<div
-			style={{
-				width: "100%",
-				height: "100%",
-				display: "flex",
-				flexDirection: "column",
-				justifyContent: "space-between",
-				alignItems: "stretch",
-				background: "#000000",
-				color: "white",
-				fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-				padding: 60,
-				boxSizing: "border-box",
-			}}
-		>
-			{/* Header with logo */}
-			<div
-				style={{
-					display: "flex",
-					flexDirection: "row",
-					alignItems: "center",
-					gap: 16,
-				}}
-			>
-				<LLMGatewayOgIcon size={48} />
-				<div
-					style={{
-						display: "flex",
-						flexDirection: "row",
-						alignItems: "center",
-						gap: 8,
-						fontSize: 24,
-						color: "#9CA3AF",
-					}}
-				>
-					<span style={{ color: "#ffffff", fontWeight: 600 }}>LLM Gateway</span>
-					<span style={{ opacity: 0.6 }}>•</span>
-					<span>Comparisons</span>
-				</div>
-			</div>
-
-			{/* Main content */}
+		<CompareOgFrame label="Comparisons">
 			<div
 				style={{
 					display: "flex",
@@ -170,20 +129,7 @@ export default async function CompareHubOgImage() {
 					))}
 				</div>
 			</div>
-
-			{/* Footer */}
-			<div
-				style={{
-					display: "flex",
-					flexDirection: "row",
-					justifyContent: "flex-end",
-					fontSize: 20,
-					color: "#9CA3AF",
-				}}
-			>
-				<span>llmgateway.io</span>
-			</div>
-		</div>,
-		size,
+		</CompareOgFrame>,
+		compareOgSize,
 	);
 }

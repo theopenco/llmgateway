@@ -159,9 +159,13 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
 	year: "numeric",
 	month: "long",
 	day: "numeric",
+	timeZone: "UTC",
 });
 
-const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "long" });
+const monthFormatter = new Intl.DateTimeFormat("en-US", {
+	month: "long",
+	timeZone: "UTC",
+});
 
 /** Human date, formatted with an explicit locale so SSR/CSR output matches. */
 export function formatDate(iso: string | null): string {

@@ -1,9 +1,9 @@
 "use client";
-import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { ContactSalesLink } from "@/components/contact-sales";
+import { useUpdateOrganization } from "@/hooks/useOrganization";
 import { Alert, AlertDescription } from "@/lib/components/alert";
 import { Button } from "@/lib/components/button";
 import { Label } from "@/lib/components/label";
@@ -12,20 +12,12 @@ import { Separator } from "@/lib/components/separator";
 import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { useDashboardState } from "@/lib/dashboard-state";
-import { useApi } from "@/lib/fetch-client";
 
 export function OrganizationRetentionSettings() {
-	const queryClient = useQueryClient();
 	const { selectedOrganization } = useDashboardState();
 	const { hosted } = useAppConfig();
 
-	const api = useApi();
-	const updateOrganization = api.useMutation("patch", "/orgs/{id}", {
-		onSuccess: () => {
-			const queryKey = api.queryOptions("get", "/orgs").queryKey;
-			void queryClient.invalidateQueries({ queryKey });
-		},
-	});
+	const updateOrganization = useUpdateOrganization();
 
 	const [retentionLevel, setRetentionLevel] = useState<"retain" | "none">(
 		selectedOrganization?.retentionLevel ?? "retain",

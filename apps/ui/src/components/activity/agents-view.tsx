@@ -56,17 +56,14 @@ import {
 	formatNumber,
 } from "@llmgateway/shared/number-format";
 
-import type { paths } from "@/lib/api/v1";
+import { type ApiLog, toUiLog } from "./log-utils";
+
 import type {
 	SourceActivityData,
 	SourceModelUsage,
 	SourceUsage,
 } from "@/types/activity";
-import type { Log } from "@llmgateway/db";
 import type { ComponentType, ReactNode, SVGProps } from "react";
-
-type ApiLog =
-	paths["/logs"]["get"]["responses"][200]["content"]["application/json"]["logs"][number];
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
 
@@ -162,26 +159,12 @@ function getTimeRangeWindow(timeRange: TimeRangeValue): {
 	return { from, to };
 }
 
-function toUiLog(log: ApiLog): Partial<Log> {
-	return {
-		...log,
-		createdAt: new Date(log.createdAt),
-		updatedAt: new Date(log.updatedAt),
-		lastVideoDownloadedAt: log.lastVideoDownloadedAt
-			? new Date(log.lastVideoDownloadedAt)
-			: null,
-		videoDownloadCount: log.videoDownloadCount ?? undefined,
-		toolChoice: log.toolChoice as Log["toolChoice"],
-		customHeaders: log.customHeaders as Log["customHeaders"],
-	};
-}
-
-function buildSession(logs: ApiLog[], index: number): Session {
+function buildSession(logs: ApiLog[]): Session {
 	const startTime = new Date(logs[0].createdAt);
 	const endTime = new Date(logs[logs.length - 1].createdAt);
 
 	return {
-		id: `session-${index}`,
+		id: `session-${logs[logs.length - 1].id}`,
 		startTime,
 		endTime,
 		logs: [...logs].reverse(),
@@ -211,7 +194,7 @@ function groupLogsIntoSessions(logs: ApiLog[]): Session[] {
 		const currTime = new Date(sorted[i].createdAt).getTime();
 
 		if (currTime - prevTime > SESSION_GAP_MS) {
-			sessions.push(buildSession(currentBatch, sessions.length));
+			sessions.push(buildSession(currentBatch));
 			currentBatch = [sorted[i]];
 		} else {
 			currentBatch.push(sorted[i]);
@@ -219,7 +202,7 @@ function groupLogsIntoSessions(logs: ApiLog[]): Session[] {
 	}
 
 	if (currentBatch.length > 0) {
-		sessions.push(buildSession(currentBatch, sessions.length));
+		sessions.push(buildSession(currentBatch));
 	}
 
 	return sessions.reverse();

@@ -43,6 +43,14 @@ describe("getMappingCapabilities", () => {
 		expect(getMappingCapabilities({ batchEndpoints: [] })).toEqual([]);
 		expect(getMappingCapabilities({ batchEndpoints: null })).toEqual([]);
 	});
+
+	it("advertises Realtime for transcription-only mappings", () => {
+		expect(
+			getMappingCapabilities({ realtimeTranscription: true }).map(
+				({ label }) => label,
+			),
+		).toEqual(["Realtime"]);
+	});
 });
 
 describe("batchSupportDescription", () => {

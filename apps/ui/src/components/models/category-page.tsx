@@ -47,18 +47,16 @@ export function buildCategoryMetadata(slug: ModelCategorySlug): Metadata {
 
 export async function ModelCategoryPage({ slug }: { slug: ModelCategorySlug }) {
 	const content = modelCategoryContent[slug];
-	const [models, providers] = await Promise.all([
+	const [models, providers, stats] = await Promise.all([
 		fetchModels(),
 		fetchProviders(),
+		fetchServerData<ModelStats>("GET", "/public/models/stats", {
+			params: { query: { window: RANKING_WINDOW } },
+		}),
 	]);
 
 	const categoryModels = models.filter((model) =>
 		applyCategoryFilter(slug, model, model.mappings),
-	);
-	const stats = await fetchServerData<ModelStats>(
-		"GET",
-		"/public/models/stats",
-		{ params: { query: { window: RANKING_WINDOW } } },
 	);
 	const tokensByModel = new Map(
 		(stats?.models ?? []).map((model) => [model.modelId, model.totalTokens]),

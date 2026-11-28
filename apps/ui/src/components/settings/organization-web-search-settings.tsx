@@ -1,13 +1,12 @@
 "use client";
-import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
+import { useUpdateOrganization } from "@/hooks/useOrganization";
 import { Button } from "@/lib/components/button";
 import { Label } from "@/lib/components/label";
 import { RadioGroup, RadioGroupItem } from "@/lib/components/radio-group";
 import { toast } from "@/lib/components/use-toast";
 import { useDashboardState } from "@/lib/dashboard-state";
-import { useApi } from "@/lib/fetch-client";
 
 import {
 	DEFAULT_GATEWAY_WEB_SEARCH_ENGINE,
@@ -43,15 +42,8 @@ function formatPricePer1k(price: string): string {
 }
 
 export function OrganizationWebSearchSettings() {
-	const queryClient = useQueryClient();
 	const { selectedOrganization } = useDashboardState();
-	const api = useApi();
-	const updateOrganization = api.useMutation("patch", "/orgs/{id}", {
-		onSuccess: () => {
-			const queryKey = api.queryOptions("get", "/orgs").queryKey;
-			void queryClient.invalidateQueries({ queryKey });
-		},
-	});
+	const updateOrganization = useUpdateOrganization();
 
 	const savedEngine = resolveGatewayWebSearchEngine(
 		selectedOrganization?.webSearchEngine,

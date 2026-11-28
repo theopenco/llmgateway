@@ -21,23 +21,15 @@ import {
 	TableRow,
 } from "@/lib/components/table";
 
-interface Discount {
-	id: string;
-	organizationId: string | null;
-	provider: string | null;
-	model: string | null;
-	discountPercent: string;
-	reason: string | null;
-	expiresAt: string | null;
-	createdAt: string;
-	updatedAt: string;
-}
+import type { paths } from "@/lib/api/v1";
+
+export type DiscountsData =
+	paths["/orgs/{id}/discounts"]["get"]["responses"][200]["content"]["application/json"];
+
+type Discount = DiscountsData["orgDiscounts"][number];
 
 interface DiscountsClientProps {
-	data: {
-		orgDiscounts: Discount[];
-		globalDiscounts: Discount[];
-	};
+	data: DiscountsData;
 }
 
 function formatPercent(decimal: string): string {

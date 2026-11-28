@@ -13,6 +13,7 @@ import { DateRangePicker } from "@/components/date-range-picker";
 import { OrgStatusToggleButton } from "@/components/org-status-toggle-button";
 import { OrganizationFiltersBar } from "@/components/organization-filters";
 import { PlanTermBadge } from "@/components/plan-term-badge";
+import { SignInPrompt } from "@/components/sign-in-prompt";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,6 +50,23 @@ import { OrganizationsSearchForm } from "./search-form";
 
 import type { DateRangeParams, SortBy, SortOrder } from "./organizations-href";
 import type { OrganizationFilters } from "@/lib/organization-filters";
+
+const SORT_BY: readonly SortBy[] = [
+	"name",
+	"billingEmail",
+	"kind",
+	"plan",
+	"devPlan",
+	"credits",
+	"createdAt",
+	"status",
+	"totalCreditsAllTime",
+	"totalSubscriptionValue",
+	"totalSpent",
+	"totalRequests",
+	"totalTokens",
+];
+const SORT_ORDER: readonly SortOrder[] = ["asc", "desc"];
 
 function SortableHeader({
 	label,
@@ -145,26 +163,6 @@ function getDevPlanBadgeVariant(devPlan: string) {
 	}
 }
 
-function SignInPrompt() {
-	return (
-		<div className="flex min-h-screen items-center justify-center px-4">
-			<div className="w-full max-w-md text-center">
-				<div className="mb-8">
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Admin Dashboard
-					</h1>
-					<p className="mt-2 text-sm text-muted-foreground">
-						Sign in to access the admin dashboard
-					</p>
-				</div>
-				<Button asChild size="lg" className="w-full">
-					<Link href="/login">Sign In</Link>
-				</Button>
-			</div>
-		</div>
-	);
-}
-
 export default async function OrganizationsPage({
 	searchParams,
 }: {
@@ -184,10 +182,11 @@ export default async function OrganizationsPage({
 	await requireSession();
 
 	const params = await searchParams;
-	const page = Math.max(1, parseInt(params?.page ?? "1", 10));
+	const parsedPage = parseInt(params?.page ?? "1", 10);
+	const page = Number.isNaN(parsedPage) ? 1 : Math.max(1, parsedPage);
 	const search = params?.search ?? "";
-	const sortBy = (params?.sortBy as SortBy) || "createdAt";
-	const sortOrder = (params?.sortOrder as SortOrder) || "desc";
+	const sortBy = SORT_BY.find((v) => v === params?.sortBy) ?? "createdAt";
+	const sortOrder = SORT_ORDER.find((v) => v === params?.sortOrder) ?? "desc";
 	const filters = parseOrganizationFilters(params ?? {});
 	const limit = 25;
 	const offset = (page - 1) * limit;
@@ -208,7 +207,7 @@ export default async function OrganizationsPage({
 		from && to ? `${formatDay(from)} – ${formatDay(to)}` : "all time";
 
 	const $api = await createServerApiClient();
-	const { data } = await $api.GET("/admin/organizations", {
+	const { data, response } = await $api.GET("/admin/organizations", {
 		params: {
 			query: {
 				limit,
@@ -225,8 +224,19 @@ export default async function OrganizationsPage({
 		},
 	});
 
-	if (!data) {
+	if (response.status === 401) {
 		return <SignInPrompt />;
+	}
+
+	if (!data) {
+		return (
+			<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
+				<h1 className="text-3xl font-semibold tracking-tight">Organizations</h1>
+				<p className="py-8 text-center text-sm text-muted-foreground">
+					Failed to load organizations
+				</p>
+			</div>
+		);
 	}
 
 	const totalPages = Math.ceil(data.total / limit);

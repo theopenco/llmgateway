@@ -151,6 +151,25 @@ export function ManageOrgDialog({
 		if (next) {
 			manageMutation.reset();
 			setValidationError(null);
+			setNameValue(orgName);
+			setPlanValue(plan === "pro" || plan === "enterprise" ? plan : "free");
+			setSeatsValue(seats === null ? "" : String(seats));
+			setApiKeyLimitValue(apiKeyLimit === null ? "" : String(apiKeyLimit));
+			setProjectLimitValue(projectLimit === null ? "" : String(projectLimit));
+			setTrustTierValue(null);
+			setContentFilterTierValue(
+				contentFilterTierOverride === null ||
+					contentFilterTierOverride === undefined
+					? "auto"
+					: String(contentFilterTierOverride),
+			);
+			setContentFilterLogOnlyValue(contentFilterLogOnly ?? false);
+			setStartedAtValue(toDateInputValue(planStartedAt));
+			setExpiresAtValue(toDateInputValue(planExpiresAt));
+			setTrialActiveValue(isTrialActive);
+			setTrialStartValue(toDateInputValue(trialStartDate));
+			setTrialEndValue(toDateInputValue(trialEndDate));
+			setTrialDaysValue(String(ENTERPRISE_TRIAL_DAYS));
 		}
 		setOpen(next);
 	};

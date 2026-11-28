@@ -49,7 +49,7 @@ export function getMaxCreditTopUpAmount(
 	return low;
 }
 
-const PLATFORM_FEE_PERCENTAGE = 0.05;
+export const PLATFORM_FEE_PERCENTAGE = 0.05;
 export const INTERNATIONAL_CARD_FEE_PERCENTAGE = 0.015;
 
 export function calculateFees(input: FeeCalculationInput): FeeBreakdown {

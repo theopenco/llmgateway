@@ -5,20 +5,10 @@ import { useCallback } from "react";
 
 import { CostByModelChart } from "@/components/cost-by-model-chart";
 import { useHistoryClient } from "@/lib/history-client";
+import { parseTokenWindow } from "@/lib/token-window";
 import { parseUsageBreakdown } from "@/lib/usage-breakdown";
 
 import type { OrganizationCostGroupBy, TokenWindow } from "@/lib/types";
-
-const validWindows = new Set<TokenWindow>([
-	"1h",
-	"4h",
-	"12h",
-	"1d",
-	"7d",
-	"30d",
-	"90d",
-	"365d",
-]);
 
 const breakdownNouns: Record<
 	OrganizationCostGroupBy,
@@ -30,16 +20,9 @@ const breakdownNouns: Record<
 	user: { singular: "User", plural: "users" },
 };
 
-function parseWindow(value: string | null): TokenWindow {
-	if (value && validWindows.has(value as TokenWindow)) {
-		return value as TokenWindow;
-	}
-	return "1d";
-}
-
 export function OrgCostByModel({ orgId }: { orgId: string }) {
 	const searchParams = useSearchParams();
-	const window = parseWindow(searchParams.get("window"));
+	const window = parseTokenWindow(searchParams.get("window"));
 	const { groupBy, modelView } = parseUsageBreakdown(
 		searchParams,
 		"organization",

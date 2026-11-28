@@ -3,14 +3,18 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-import { isHttpUrl } from "./carrier-profile";
+import {
+	isHttpUrl,
+	profileFieldError,
+	REQUIRED_PROFILE_KEYS,
+	URL_PROFILE_KEYS,
+} from "./carrier-profile";
 
-export interface CarrierLinks {
-	website: string;
-	privacyPolicyUrl: string;
-	termsUrl: string;
-	statusPageUrl: string;
-}
+import type { ProfileDraft, ProfileKey } from "./carrier-profile";
+
+type CarrierLinkKey = (typeof URL_PROFILE_KEYS)[number];
+
+export type CarrierLinks = Pick<ProfileDraft, CarrierLinkKey>;
 
 export const EMPTY_CARRIER_LINKS: CarrierLinks = {
 	website: "",
@@ -19,43 +23,35 @@ export const EMPTY_CARRIER_LINKS: CarrierLinks = {
 	statusPageUrl: "",
 };
 
-const FIELDS: {
-	key: keyof CarrierLinks;
-	label: string;
-	placeholder: string;
-	required: boolean;
-}[] = [
-	{
-		key: "website",
-		label: "Website",
-		placeholder: "https://acme.ai",
-		required: true,
-	},
-	{
-		key: "privacyPolicyUrl",
+const FIELD_COPY: Record<
+	CarrierLinkKey,
+	{ label: string; placeholder: string }
+> = {
+	website: { label: "Website", placeholder: "https://acme.ai" },
+	privacyPolicyUrl: {
 		label: "Privacy policy URL",
 		placeholder: "https://acme.ai/privacy",
-		required: true,
 	},
-	{
-		key: "termsUrl",
+	termsUrl: {
 		label: "Terms of use URL",
 		placeholder: "https://acme.ai/terms",
-		required: true,
 	},
-	{
-		key: "statusPageUrl",
+	statusPageUrl: {
 		label: "Status page",
 		placeholder: "https://status.acme.ai",
-		required: false,
 	},
-];
+};
+
+const FIELDS = URL_PROFILE_KEYS.map((key) => ({
+	key,
+	...FIELD_COPY[key],
+	required: (REQUIRED_PROFILE_KEYS as readonly ProfileKey[]).includes(key),
+}));
 
 export function carrierLinksValid(links: CarrierLinks): boolean {
-	return FIELDS.every(({ key, required }) => {
-		const value = links[key].trim();
-		return value ? isHttpUrl(value) : !required;
-	});
+	return URL_PROFILE_KEYS.every(
+		(key) => profileFieldError(key, links) === null,
+	);
 }
 
 export function carrierLinksBody(links: CarrierLinks) {

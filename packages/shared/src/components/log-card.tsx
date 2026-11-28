@@ -27,7 +27,7 @@ import {
 	Zap,
 } from "lucide-react";
 import prettyBytes from "pretty-bytes";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { CredentialSourceBadge } from "@/components/credential-source-badge";
 import { RoutingMetadataExpired } from "@/components/routing-metadata-expired";
@@ -442,9 +442,13 @@ export function LogCard({
 	const [imagePreviewLoading, setImagePreviewLoading] = useState(false);
 	const [inputPreviewLoading, setInputPreviewLoading] = useState(false);
 
-	const messagesHaveRedactedInput =
-		messages !== undefined &&
-		JSON.stringify(messages).includes("[base64_image_input_redacted]");
+	const messagesHaveRedactedInput = useMemo(
+		() =>
+			isExpanded &&
+			messages !== undefined &&
+			JSON.stringify(messages).includes("[base64_image_input_redacted]"),
+		[isExpanded, messages],
+	);
 
 	const formattedTime = formatDistanceToNow(new Date(log.createdAt), {
 		addSuffix: true,

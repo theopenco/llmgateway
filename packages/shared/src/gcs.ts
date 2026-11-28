@@ -118,7 +118,7 @@ function getTestSignedUrl(uri: string, ttlSeconds: number): string {
 	}
 
 	const baseUrl =
-		process.env.LLM_GOOGLE_VERTEX_TEST_SIGNED_URL_BASE_URL?.trim() ??
+		process.env.LLM_GOOGLE_VERTEX_TEST_SIGNED_URL_BASE_URL?.trim() ||
 		"https://storage.googleapis.com";
 
 	return `${baseUrl.replace(/\/$/, "")}/${parsed.bucket}/${encodeObjectPath(parsed.objectPath)}?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Expires=${ttlSeconds}&X-Goog-Signature=test`;

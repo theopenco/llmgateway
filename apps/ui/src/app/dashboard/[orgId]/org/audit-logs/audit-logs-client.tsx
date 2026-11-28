@@ -110,6 +110,7 @@ export function AuditLogsClient() {
 	const [isLoading, setIsLoading] = useState(true);
 	const [isLoadingMore, setIsLoadingMore] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
 	const [nextCursor, setNextCursor] = useState<string | null>(null);
 	const [hasMore, setHasMore] = useState(false);
 	const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -173,6 +174,9 @@ export function AuditLogsClient() {
 	// Fetch audit logs with pagination
 	const fetchAuditLogs = useCallback(
 		async (cursor?: string) => {
+			const reportError = (message: string) =>
+				cursor ? setLoadMoreError(message) : setError(message);
+			setLoadMoreError(null);
 			try {
 				const isInitialLoad = !cursor;
 				if (isInitialLoad) {
@@ -200,7 +204,7 @@ export function AuditLogsClient() {
 				});
 
 				if (!response.data) {
-					setError("Failed to load audit logs");
+					reportError("Failed to load audit logs");
 					return;
 				}
 
@@ -216,7 +220,7 @@ export function AuditLogsClient() {
 				setHasMore(data.pagination.hasMore);
 				setError(null);
 			} catch {
-				setError("Failed to load audit logs");
+				reportError("Failed to load audit logs");
 			} finally {
 				setIsLoading(false);
 				setIsLoadingMore(false);
@@ -544,13 +548,22 @@ export function AuditLogsClient() {
 								</div>
 							)}
 							{hasMore && (
-								<div className="flex justify-center pt-4">
+								<div className="flex flex-col items-center gap-2 pt-4">
+									{loadMoreError && (
+										<p className="text-sm text-red-800 dark:text-red-400">
+											{loadMoreError}
+										</p>
+									)}
 									<Button
 										onClick={() => fetchAuditLogs(nextCursor ?? undefined)}
 										disabled={isLoadingMore}
 										variant="outline"
 									>
-										{isLoadingMore ? "Loading..." : "Load More"}
+										{isLoadingMore
+											? "Loading..."
+											: loadMoreError
+												? "Retry"
+												: "Load More"}
 									</Button>
 								</div>
 							)}

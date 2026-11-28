@@ -98,10 +98,7 @@ export function SystemBannerForm({ banner }: SystemBannerFormProps) {
 					id="system-banner-enabled"
 					checked={enabled}
 					disabled={pending || readOnly || (!enabled && !trimmedMessage)}
-					onCheckedChange={(checked) => {
-						setEnabled(checked);
-						save(checked);
-					}}
+					onCheckedChange={(checked) => save(checked)}
 				/>
 				<Label htmlFor="system-banner-enabled">
 					{enabled ? "Live on all sites" : "Hidden"}

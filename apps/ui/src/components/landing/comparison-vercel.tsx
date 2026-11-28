@@ -268,10 +268,14 @@ export function ComparisonVercel() {
 
 				<div className="text-center mt-8">
 					<div className="flex flex-col sm:flex-row gap-4 justify-center">
-						<Button size="lg" className="bg-primary hover:bg-primary/90">
+						<Button
+							asChild
+							size="lg"
+							className="bg-primary hover:bg-primary/90"
+						>
 							<AuthLink href="/signup">Start Free with LLM Gateway</AuthLink>
 						</Button>
-						<Button size="lg" variant="outline">
+						<Button asChild size="lg" variant="outline">
 							<Link href="/pricing">View Pricing Details</Link>
 						</Button>
 					</div>

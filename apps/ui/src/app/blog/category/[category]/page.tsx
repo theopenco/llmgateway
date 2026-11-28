@@ -2,6 +2,10 @@ import { notFound } from "next/navigation";
 
 import { BlogList } from "@/components/blog/list";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import {
+	findBlogCategoryLabel,
+	getBlogCategories,
+} from "@/lib/blog-categories";
 import { slugify } from "@/lib/slugify";
 
 import { allBlogs } from "content-collections";
@@ -21,25 +25,11 @@ interface CategoryPageProps {
 	params: Promise<{ category: string }>;
 }
 
-function findCategoryLabel(slug: string) {
-	for (const post of allBlogs) {
-		if (post.draft) {
-			continue;
-		}
-		for (const category of post.categories ?? []) {
-			if (slugify(category) === slug) {
-				return category;
-			}
-		}
-	}
-	return null;
-}
-
 export default async function BlogCategoryPage({ params }: CategoryPageProps) {
 	const { category } = await params;
 	const slug = slugify(decodeURIComponent(category));
 
-	if (!findCategoryLabel(slug)) {
+	if (!findBlogCategoryLabel(slug)) {
 		notFound();
 	}
 
@@ -67,11 +57,9 @@ export default async function BlogCategoryPage({ params }: CategoryPageProps) {
 }
 
 export function generateStaticParams() {
-	const slugs = new Set<string>();
-	for (const post of allBlogs) {
-		(post.categories ?? []).forEach((c: string) => slugs.add(slugify(c)));
-	}
-	return Array.from(slugs).map((category) => ({ category }));
+	return Array.from(getBlogCategories().keys()).map((category) => ({
+		category,
+	}));
 }
 
 export async function generateMetadata({
@@ -79,7 +67,7 @@ export async function generateMetadata({
 }: CategoryPageProps): Promise<Metadata> {
 	const { category } = await params;
 	const slug = slugify(decodeURIComponent(category));
-	const label = findCategoryLabel(slug);
+	const label = findBlogCategoryLabel(slug);
 
 	if (!label) {
 		notFound();

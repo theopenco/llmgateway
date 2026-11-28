@@ -18,30 +18,13 @@ import {
 	useUsageMode,
 } from "@/components/usage-mode-selector";
 import { useApi } from "@/lib/fetch-client";
+import { parseTokenWindow } from "@/lib/token-window";
 import { pickCost, pickRequests } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
 import type { TokenWindow } from "@/lib/types";
-
-const validWindows = new Set<TokenWindow>([
-	"1h",
-	"4h",
-	"12h",
-	"1d",
-	"7d",
-	"30d",
-	"90d",
-	"365d",
-]);
-
-function parseWindow(value: string | null): TokenWindow {
-	if (value && validWindows.has(value as TokenWindow)) {
-		return value as TokenWindow;
-	}
-	return "1d";
-}
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -107,7 +90,7 @@ export function ProjectMetricsSection({
 }) {
 	const searchParams = useSearchParams();
 
-	const selectedWindow = parseWindow(searchParams.get("window"));
+	const selectedWindow = parseTokenWindow(searchParams.get("window"));
 	const usageMode = useUsageMode();
 	const api = useApi();
 	const {

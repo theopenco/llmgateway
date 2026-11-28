@@ -90,7 +90,23 @@ import { detectCsvFormat } from "@llmgateway/shared";
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
 import type { ChartConfig } from "@/components/ui/chart";
+import type { DateFormat } from "@llmgateway/shared";
 import type { ReactNode } from "react";
+
+function formatBucketLabel(
+	value: unknown,
+	timeZone: string,
+	preset: DateFormat,
+): string {
+	if (typeof value !== "string" || !value) {
+		return "";
+	}
+	const date = new Date(value.length === 10 ? `${value}T00:00:00Z` : value);
+	if (Number.isNaN(date.getTime())) {
+		return value;
+	}
+	return formatDateTime(date, timeZone, preset);
+}
 
 type GroupBy = "model" | "family" | "source" | "mode" | "kind" | "providerKey";
 type ModelView = "mapping" | "canonical" | "provider";
@@ -1089,15 +1105,7 @@ export function GlobalStatsClient({
 									: "request count"}{" "}
 							per {hourly ? "hour" : "UTC day"}
 							{showTimeseriesBreakdown
-								? ` broken down by ${
-										groupBy === "model"
-											? modelView === "provider"
-												? "provider"
-												: modelView === "canonical"
-													? "canonical model"
-													: "mapping"
-											: breakdownNounSingular.toLowerCase()
-									}`
+								? ` broken down by ${exportDimension}`
 								: ` across all ${breakdownNoun}`}
 							.{scopeParts.length > 0 ? ` ${scopeLabel} traffic only.` : ""}
 							{familySummary?.timeseriesPartial
@@ -1176,22 +1184,13 @@ export function GlobalStatsClient({
 										axisLine={false}
 										tickMargin={8}
 										minTickGap={32}
-										tickFormatter={(value) => {
-											if (typeof value !== "string" || !value) {
-												return "";
-											}
-											const date = new Date(
-												value.length === 10 ? `${value}T00:00:00Z` : value,
-											);
-											if (Number.isNaN(date.getTime())) {
-												return value;
-											}
-											return formatDateTime(
-												date,
+										tickFormatter={(value) =>
+											formatBucketLabel(
+												value,
 												timeZone,
 												hourly ? "hourMinute" : "monthDayHourMinute",
-											);
-										}}
+											)
+										}
 									/>
 									<YAxis
 										tickLine={false}
@@ -1203,22 +1202,13 @@ export function GlobalStatsClient({
 										content={
 											<ChartTooltipContent
 												className="w-[220px]"
-												labelFormatter={(value) => {
-													if (typeof value !== "string" || !value) {
-														return "";
-													}
-													const date = new Date(
-														value.length === 10 ? `${value}T00:00:00Z` : value,
-													);
-													if (Number.isNaN(date.getTime())) {
-														return value;
-													}
-													return formatDateTime(
-														date,
+												labelFormatter={(value) =>
+													formatBucketLabel(
+														value,
 														timeZone,
 														"monthDayYearHourMinuteZone",
-													);
-												}}
+													)
+												}
 												formatter={(value, name, item) =>
 													showTimeseriesBreakdown ? (
 														<div className="flex w-full items-center gap-2">

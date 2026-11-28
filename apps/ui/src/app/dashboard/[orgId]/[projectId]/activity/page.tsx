@@ -18,6 +18,11 @@ export default async function ActivityPage({
 		provider?: string;
 		model?: string;
 		apiKeyId?: string;
+		errorType?: string;
+		usedMode?: string;
+		customHeaderKey?: string;
+		customHeaderValue?: string;
+		sessionId?: string;
 		limit?: string;
 	}>;
 }) {
@@ -58,6 +63,24 @@ export default async function ActivityPage({
 	}
 	if (searchParamsData?.apiKeyId && searchParamsData.apiKeyId !== "all") {
 		logsQueryParams.apiKeyId = searchParamsData.apiKeyId;
+	}
+	if (searchParamsData?.errorType && searchParamsData.errorType !== "all") {
+		logsQueryParams.errorType = searchParamsData.errorType;
+	}
+	if (searchParamsData?.usedMode && searchParamsData.usedMode !== "all") {
+		logsQueryParams.usedMode = searchParamsData.usedMode;
+	}
+	const customHeaderKey = searchParamsData?.customHeaderKey?.trim();
+	if (customHeaderKey) {
+		logsQueryParams.customHeaderKey = customHeaderKey;
+	}
+	const customHeaderValue = searchParamsData?.customHeaderValue?.trim();
+	if (customHeaderValue) {
+		logsQueryParams.customHeaderValue = customHeaderValue;
+	}
+	const sessionId = searchParamsData?.sessionId?.trim();
+	if (sessionId) {
+		logsQueryParams.sessionId = sessionId;
 	}
 
 	if (searchParamsData?.limit) {

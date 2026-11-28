@@ -293,18 +293,27 @@ function findLikelyBase64Run(content: string, minLength = 200) {
 	return false;
 }
 
-function isRawBase64ImageContent(content: string) {
-	let hasBase64Char = false;
+const RAW_BASE64_IMAGE_SIGNATURES = [
+	{ prefix: "iVBORw0KGgo", mimeType: "image/png" },
+	{ prefix: "/9j/", mimeType: "image/jpeg" },
+	{ prefix: "R0lGOD", mimeType: "image/gif" },
+	{ prefix: "UklGR", mimeType: "image/webp" },
+];
+
+function rawBase64ImageSrc(content: string): string | null {
 	for (const char of content) {
-		if (isWhitespace(char)) {
-			continue;
+		if (!isWhitespace(char) && !isBase64ImageChar(char)) {
+			return null;
 		}
-		if (!isBase64ImageChar(char)) {
-			return false;
-		}
-		hasBase64Char = true;
 	}
-	return hasBase64Char;
+	const compacted = compactBase64(content);
+	if (compacted.length === 0 || compacted.length % 4 !== 0) {
+		return null;
+	}
+	const signature = RAW_BASE64_IMAGE_SIGNATURES.find(({ prefix }) =>
+		compacted.startsWith(prefix),
+	);
+	return signature ? `data:${signature.mimeType};base64,${compacted}` : null;
 }
 
 function shouldTryRenderImageContent(content: string) {
@@ -314,10 +323,17 @@ function shouldTryRenderImageContent(content: string) {
 	);
 }
 
-function extractBase64Images(
-	content: string,
-): Array<{ src: string; index: number }> {
-	const images: Array<{ src: string; index: number }> = [];
+interface Base64Image {
+	src: string;
+	index: number;
+}
+
+function parseBase64ImageContent(content: string): {
+	images: Base64Image[];
+	text: string;
+} {
+	const images: Base64Image[] = [];
+	let text = "";
 
 	let searchFrom = 0;
 	while (searchFrom < content.length) {
@@ -337,6 +353,7 @@ function extractBase64Images(
 			}
 			end++;
 		}
+		text += `${content.slice(searchFrom, dataUrlStart)}[image ${images.length + 1}]`;
 		images.push({
 			src: compactBase64(content.slice(dataUrlStart, end)),
 			index: images.length,
@@ -344,14 +361,18 @@ function extractBase64Images(
 		searchFrom = end;
 	}
 
-	// If no data URLs found, try treating the entire content as raw base64
-	if (images.length === 0 && isRawBase64ImageContent(content)) {
-		images.push({
-			src: `data:image/png;base64,${compactBase64(content)}`,
-			index: 0,
-		});
+	if (images.length === 0) {
+		const rawSrc = rawBase64ImageSrc(content);
+		return rawSrc
+			? { images: [{ src: rawSrc, index: 0 }], text: "" }
+			: { images: [], text: content };
 	}
-	return images;
+	text += content.slice(searchFrom);
+	return { images, text };
+}
+
+function extractBase64Images(content: string): Base64Image[] {
+	return parseBase64ImageContent(content).images;
 }
 
 function extractMessageImages(
@@ -403,7 +424,7 @@ function stringifyMessagesCompact(messages: unknown): string {
 }
 
 function ImageContentRenderer({ content }: { content: string }) {
-	const images = extractBase64Images(content);
+	const { images, text } = parseBase64ImageContent(content);
 
 	if (images.length === 0) {
 		return (
@@ -429,6 +450,11 @@ function ImageContentRenderer({ content }: { content: string }) {
 					</div>
 				))}
 			</div>
+			{text.trim() && (
+				<pre className="max-h-80 text-xs overflow-auto whitespace-pre-wrap break-all font-mono bg-muted/30 rounded-md p-3">
+					{text}
+				</pre>
+			)}
 		</div>
 	);
 }

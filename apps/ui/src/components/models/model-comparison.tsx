@@ -776,7 +776,16 @@ export function ModelComparison() {
 							<Button
 								variant="outline"
 								size="sm"
-								onClick={() => updateParams(rightModelId, leftModelId)}
+								onClick={() =>
+									updateParams(
+										rightModelId,
+										leftModelId,
+										queryRightProviderId,
+										queryLeftProviderId,
+										queryRightRegion,
+										queryLeftRegion,
+									)
+								}
 							>
 								Swap Models
 							</Button>

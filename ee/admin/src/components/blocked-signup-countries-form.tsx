@@ -79,6 +79,7 @@ export function BlockedSignupCountriesForm({
 					onChange={(event) => {
 						setValue(event.target.value);
 						setSaved(false);
+						mutation.reset();
 					}}
 				/>
 				{!readOnly && (

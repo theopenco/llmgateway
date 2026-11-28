@@ -37,6 +37,7 @@ import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode, pickCost, pickRequests } from "@/lib/usage-mode";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { Route } from "next";
 
@@ -76,7 +77,7 @@ export function MemberDetailClient() {
 	const currentUserRole = teamData?.members.find(
 		(member) => member.userId === user?.id,
 	)?.role;
-	const isAdmin = currentUserRole === "owner" || currentUserRole === "admin";
+	const isAdmin = isOrganizationAdmin(currentUserRole);
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const showUsage = isEnterprise && isAdmin;
 
@@ -381,7 +382,7 @@ export function MemberDetailClient() {
 						<CostByModelCard
 							activity={activity}
 							loading={isLoading}
-							description={`Top models by cost for ${memberName}`}
+							description={`Top models for ${memberName}`}
 						/>
 
 						<Card>

@@ -52,7 +52,7 @@ export function OnboardingWizard() {
 	const api = useApi();
 	const fetchClient = useFetchClient();
 	const config = useAppConfig();
-	const { data: project } = useDefaultProject();
+	const { data: project, isLoading: projectLoading } = useDefaultProject();
 
 	const [copied, setCopied] = useState(false);
 	const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
@@ -83,7 +83,8 @@ export function OnboardingWizard() {
 		{ enabled: !!project?.id, staleTime: Infinity },
 	);
 	const apiKey = ensureKey.data?.token ?? null;
-	const apiKeyLoading = ensureKey.isPending;
+	const apiKeyLoading =
+		projectLoading || (!!project?.id && ensureKey.isPending);
 
 	const handleCopyKey = () => {
 		if (!apiKey) {

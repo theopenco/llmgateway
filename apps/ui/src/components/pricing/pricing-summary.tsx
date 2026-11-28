@@ -3,11 +3,13 @@ import Link from "next/link";
 import { CiteThis } from "@/components/seo/cite-this";
 import { DataAsOf } from "@/components/seo/data-as-of";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 const rows = [
 	{
 		option: "Pay-as-you-go credits",
 		price: "No subscription",
-		fee: "5% on credit purchases",
+		fee: `${MARKETING_STATS.platformFee} on credit purchases`,
 		tokens: "Provider list rates",
 	},
 	{
@@ -48,7 +50,8 @@ export function PricingSummary() {
 			</h2>
 			<p className="mt-4 text-muted-foreground md:text-lg">
 				LLM Gateway charges the provider&apos;s per-token rate with no markup on
-				tokens. Buying credits adds a flat 5% platform fee, plus 1.5% for
+				tokens. Buying credits adds a flat {MARKETING_STATS.platformFee}{" "}
+				platform fee, plus {MARKETING_STATS.internationalCardFee} for
 				international cards. Using your own provider keys is free, and so is
 				self-hosting the open-source gateway.
 			</p>

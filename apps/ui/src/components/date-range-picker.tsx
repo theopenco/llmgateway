@@ -1,26 +1,16 @@
 "use client";
 
-import {
-	endOfMonth,
-	endOfQuarter,
-	endOfWeek,
-	endOfYear,
-	format,
-	getQuarter,
-	startOfMonth,
-	startOfQuarter,
-	startOfWeek,
-	startOfYear,
-	subDays,
-	subMonths,
-	subQuarters,
-	subWeeks,
-	subYears,
-} from "date-fns";
+import { format, startOfWeek } from "date-fns";
 import { ChevronDownIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { parseDay } from "@/components/dashboard/usage-comparison";
+import {
+	buildDatePresets,
+	findMatchingPreset,
+	type DatePreset,
+} from "@/components/date-presets";
 import { GENERATED_RANGE_PARAM } from "@/hooks/useZonedRangeDefaults";
 import { Button } from "@/lib/components/button";
 import { Calendar } from "@/lib/components/calendar";
@@ -42,19 +32,9 @@ import type { DateRange } from "react-day-picker";
 
 const DEFAULT_PRESET = "this_week";
 
-interface DatePreset {
-	label: string;
-	value: string;
-	getRange: () => { from: Date; to: Date };
-}
-
 interface DateRangePickerProps {
 	buildUrl: (path?: string) => string;
 	path?: string;
-}
-
-function getQuarterLabel(date: Date): string {
-	return `Q${getQuarter(date)} ${format(date, "yyyy")}`;
 }
 
 /** `timeZone` anchors every preset on that zone's calendar day. The calendar
@@ -64,141 +44,10 @@ function buildPresets(timeZone: string): DatePreset[] {
 	// Local midnight of the display zone's today: a Date whose *calendar* fields
 	// are the ones the presets should reason about.
 	const today = new Date(`${formatDayKey(new Date(), timeZone)}T00:00:00`);
-	return [
-		{
-			label: "Custom",
-			value: "custom",
-			getRange: () => ({
-				from: startOfWeek(today, { weekStartsOn: 1 }),
-				to: today,
-			}),
-		},
-		{
-			label: "Today",
-			value: "today",
-			getRange: () => ({ from: today, to: today }),
-		},
-		{
-			label: "This week",
-			value: "this_week",
-			getRange: () => ({
-				from: startOfWeek(today, { weekStartsOn: 1 }),
-				to: today,
-			}),
-		},
-		{
-			label: "This month",
-			value: "this_month",
-			getRange: () => ({ from: startOfMonth(today), to: today }),
-		},
-		{
-			label: "This year",
-			value: "this_year",
-			getRange: () => ({ from: startOfYear(today), to: today }),
-		},
-		{
-			label: "Last week",
-			value: "last_week",
-			getRange: () => {
-				const lw = subWeeks(today, 1);
-				return {
-					from: startOfWeek(lw, { weekStartsOn: 1 }),
-					to: endOfWeek(lw, { weekStartsOn: 1 }),
-				};
-			},
-		},
-		{
-			label: "Last month",
-			value: "last_month",
-			getRange: () => {
-				const lm = subMonths(today, 1);
-				return { from: startOfMonth(lm), to: endOfMonth(lm) };
-			},
-		},
-		{
-			label: "Last year",
-			value: "last_year",
-			getRange: () => {
-				const ly = subYears(today, 1);
-				return { from: startOfYear(ly), to: endOfYear(ly) };
-			},
-		},
-		{
-			label: "Last 30 days",
-			value: "last_30_days",
-			getRange: () => ({ from: subDays(today, 29), to: today }),
-		},
-		{
-			label: "Last 90 days",
-			value: "last_90_days",
-			getRange: () => ({ from: subDays(today, 89), to: today }),
-		},
-		{
-			label: "Last 6 months",
-			value: "last_6_months",
-			getRange: () => ({ from: subMonths(today, 6), to: today }),
-		},
-		{
-			label: `This quarter (${getQuarterLabel(today)})`,
-			value: "this_quarter",
-			getRange: () => ({ from: startOfQuarter(today), to: today }),
-		},
-		{
-			label: `Last quarter (${getQuarterLabel(subQuarters(today, 1))})`,
-			value: "last_quarter",
-			getRange: () => {
-				const lq = subQuarters(today, 1);
-				return { from: startOfQuarter(lq), to: endOfQuarter(lq) };
-			},
-		},
-		{
-			label: `2 quarters ago (${getQuarterLabel(subQuarters(today, 2))})`,
-			value: "2_quarters_ago",
-			getRange: () => {
-				const q = subQuarters(today, 2);
-				return { from: startOfQuarter(q), to: endOfQuarter(q) };
-			},
-		},
-		{
-			label: `3 quarters ago (${getQuarterLabel(subQuarters(today, 3))})`,
-			value: "3_quarters_ago",
-			getRange: () => {
-				const q = subQuarters(today, 3);
-				return { from: startOfQuarter(q), to: endOfQuarter(q) };
-			},
-		},
-		{
-			label: "All time",
-			value: "all_time",
-			getRange: () => ({ from: new Date(2020, 0, 1), to: today }),
-		},
-	];
-}
-
-function findMatchingPreset(
-	from: Date,
-	to: Date,
-	presets: DatePreset[],
-): string {
-	// "This week" is the default window and goes first: on a Monday it covers
-	// the same single day as "Today", and the default must keep its own name.
-	const ordered = [...presets].sort(
-		(a, b) =>
-			Number(b.value === DEFAULT_PRESET) - Number(a.value === DEFAULT_PRESET),
-	);
-	for (const preset of ordered) {
-		if (preset.value === "custom") {
-			continue;
-		}
-		const range = preset.getRange();
-		if (
-			format(from, "yyyy-MM-dd") === format(range.from, "yyyy-MM-dd") &&
-			format(to, "yyyy-MM-dd") === format(range.to, "yyyy-MM-dd")
-		) {
-			return preset.value;
-		}
-	}
-	return "custom";
+	return buildDatePresets(today, () => ({
+		from: startOfWeek(today, { weekStartsOn: 1 }),
+		to: today,
+	}));
 }
 
 /** `timeZone` anchors the *default* window on that zone's calendar day. The
@@ -210,14 +59,11 @@ function getDateRangeFromParams(
 	searchParams: URLSearchParams,
 	timeZone: string,
 ) {
-	const fromParam = searchParams.get("from");
-	const toParam = searchParams.get("to");
+	const from = parseDay(searchParams.get("from"));
+	const to = parseDay(searchParams.get("to"));
 
-	if (fromParam && toParam) {
-		return {
-			from: new Date(fromParam + "T00:00:00"),
-			to: new Date(toParam + "T00:00:00"),
-		};
+	if (from && to && from <= to) {
+		return { from, to };
 	}
 
 	const defaults = thisWeekDayKeyRange(new Date(), timeZone);
@@ -319,7 +165,7 @@ export function DateRangePicker({ buildUrl, path }: DateRangePickerProps) {
 		[displayTimeZone],
 	);
 	const activePreset = useMemo(
-		() => findMatchingPreset(from, to, presets),
+		() => findMatchingPreset(from, to, presets, DEFAULT_PRESET),
 		[from, to, presets],
 	);
 

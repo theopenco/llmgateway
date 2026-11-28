@@ -16,6 +16,8 @@ import {
 import { useUser } from "@/hooks/useUser";
 import { toast } from "@/lib/components/use-toast";
 
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
+
 import type { IamRule } from "@/components/iam/iam-rules-editor";
 import type { Route } from "next";
 
@@ -36,7 +38,7 @@ export function MemberIamClient() {
 	const currentUserRole = teamData?.members.find(
 		(member) => member.userId === user?.id,
 	)?.role;
-	const isAdmin = currentUserRole === "owner" || currentUserRole === "admin";
+	const isAdmin = isOrganizationAdmin(currentUserRole);
 	const isSelf = userId === user?.id;
 
 	const { data: managedRulesData, isLoading: isManagedRulesLoading } =

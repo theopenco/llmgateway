@@ -27,6 +27,8 @@ import {
 } from "@/lib/components/select";
 import { useFetchClient } from "@/lib/fetch-client";
 
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
+
 import { ContactSalesCard } from "./contact-sales-card";
 
 import type { paths } from "@/lib/api/v1";
@@ -91,7 +93,7 @@ export function SecurityEventsClient() {
 
 	const canViewEvents =
 		selectedOrganization?.enterpriseAccess === true &&
-		(currentUserRole === "owner" || currentUserRole === "admin");
+		isOrganizationAdmin(currentUserRole);
 
 	const fetchStats = useCallback(async () => {
 		try {
@@ -200,7 +202,7 @@ export function SecurityEventsClient() {
 		);
 	}
 
-	if (currentUserRole !== "owner" && currentUserRole !== "admin") {
+	if (!isOrganizationAdmin(currentUserRole)) {
 		return (
 			<Card>
 				<CardHeader>

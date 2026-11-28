@@ -3,6 +3,8 @@
 import { CodePanel } from "@/components/home/code-panel";
 import { usePostHog } from "@/lib/posthog";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 import type { BundledLanguage } from "shiki";
 
 const FILE_BY_LANG: Record<string, string> = {
@@ -24,7 +26,7 @@ function agentPrompt(
 		: "Keep the user's LLM Gateway API key out of version control.";
 	return `Use LLM Gateway's ${feature} feature in this project.
 
-LLM Gateway is an OpenAI-compatible gateway at https://api.llmgateway.io/v1 that routes to 200+ models with one API key. Create a key at https://llmgateway.io/dashboard. ${key}
+LLM Gateway is an OpenAI-compatible gateway at https://api.llmgateway.io/v1 that routes to ${MARKETING_STATS.models} models with one API key. Create a key at https://llmgateway.io/dashboard. ${key}
 
 Reference snippet:
 

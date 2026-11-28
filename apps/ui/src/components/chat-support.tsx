@@ -211,15 +211,17 @@ export function ChatSupport({
 					api: "/api/chat-support",
 					body: { clientId },
 				}),
+				onFinish: () => {
+					void queryClient.invalidateQueries({
+						queryKey: conversationQueryKey,
+					});
+				},
 			}),
-		[clientId],
+		[clientId, conversationQueryKey, queryClient],
 	);
 
 	const { messages, sendMessage, status, setMessages, error } = useChat({
 		chat,
-		onFinish: () => {
-			void queryClient.invalidateQueries({ queryKey: conversationQueryKey });
-		},
 	});
 
 	const isLoading = status === "streaming" || status === "submitted";

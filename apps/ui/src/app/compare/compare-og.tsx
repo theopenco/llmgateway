@@ -21,18 +21,14 @@ interface CompareOgImageOptions {
 	iconSize?: number;
 }
 
-/**
- * Shared "LLM Gateway vs X" card behind every /compare page, so the seven
- * comparisons stay visually identical and a new competitor only needs a mark
- * and a subtitle.
- */
-export function compareOgImage({
-	competitor,
-	subtitle,
-	Icon,
-	iconSize,
-}: CompareOgImageOptions) {
-	return new ImageResponse(
+export function CompareOgFrame({
+	label,
+	children,
+}: {
+	label: string;
+	children: React.ReactNode;
+}) {
+	return (
 		<div
 			style={{
 				width: "100%",
@@ -48,7 +44,6 @@ export function compareOgImage({
 				boxSizing: "border-box",
 			}}
 		>
-			{/* Header with logo */}
 			<div
 				style={{
 					display: "flex",
@@ -70,11 +65,40 @@ export function compareOgImage({
 				>
 					<span style={{ color: "#ffffff", fontWeight: 600 }}>LLM Gateway</span>
 					<span style={{ opacity: 0.6 }}>•</span>
-					<span>Comparison</span>
+					<span>{label}</span>
 				</div>
 			</div>
 
-			{/* Main content */}
+			{children}
+
+			<div
+				style={{
+					display: "flex",
+					flexDirection: "row",
+					justifyContent: "flex-end",
+					fontSize: 20,
+					color: "#9CA3AF",
+				}}
+			>
+				<span>llmgateway.io</span>
+			</div>
+		</div>
+	);
+}
+
+/**
+ * Shared "LLM Gateway vs X" card behind every /compare page, so the seven
+ * comparisons stay visually identical and a new competitor only needs a mark
+ * and a subtitle.
+ */
+export function compareOgImage({
+	competitor,
+	subtitle,
+	Icon,
+	iconSize,
+}: CompareOgImageOptions) {
+	return new ImageResponse(
+		<CompareOgFrame label="Comparison">
 			<div
 				style={{
 					display: "flex",
@@ -171,20 +195,7 @@ export function compareOgImage({
 					</p>
 				</div>
 			</div>
-
-			{/* Footer */}
-			<div
-				style={{
-					display: "flex",
-					flexDirection: "row",
-					justifyContent: "flex-end",
-					fontSize: 20,
-					color: "#9CA3AF",
-				}}
-			>
-				<span>llmgateway.io</span>
-			</div>
-		</div>,
+		</CompareOgFrame>,
 		compareOgSize,
 	);
 }

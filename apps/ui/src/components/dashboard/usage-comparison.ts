@@ -34,7 +34,7 @@ export function parseUsageComparisonMode(
 	}
 }
 
-function parseDay(value: string | null): Date | null {
+export function parseDay(value: string | null): Date | null {
 	if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
 		return null;
 	}

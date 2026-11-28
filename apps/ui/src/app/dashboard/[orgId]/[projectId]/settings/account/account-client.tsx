@@ -256,7 +256,16 @@ export function AccountClient() {
 							)}
 						</CardContent>
 						<CardFooter className="flex justify-between">
-							<Button variant="outline">Cancel</Button>
+							<Button
+								variant="outline"
+								onClick={() => {
+									setName(user?.name ?? "");
+									setEmail(user?.email ?? "");
+									setCurrentPassword("");
+								}}
+							>
+								Cancel
+							</Button>
 							<Button
 								onClick={handleUpdateUser}
 								disabled={

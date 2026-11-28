@@ -124,7 +124,7 @@ export default function Login() {
 				onSuccess: () => {
 					queryClient.clear();
 					toast.success("Login successful");
-					router.push("/");
+					router.push(returnUrl);
 				},
 				onError: (ctx) => {
 					toast.error(ctx.error.message ?? "An unknown error occurred", {

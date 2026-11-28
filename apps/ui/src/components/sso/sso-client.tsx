@@ -15,6 +15,7 @@ import { useState } from "react";
 import { ContactSalesLink } from "@/components/contact-sales";
 import { ProjectMultiSelect } from "@/components/projects/project-multi-select";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
+import { useUpdateOrganization } from "@/hooks/useOrganization";
 import { getApiErrorMessage } from "@/lib/api-error";
 import { Alert, AlertDescription } from "@/lib/components/alert";
 import {
@@ -282,15 +283,7 @@ export function SsoClient() {
 		"/sso/team-mappings/{id}",
 	);
 	const saveDefaultProjects = api.useMutation("put", "/sso/default-projects");
-	const updateOrganization = api.useMutation("patch", "/orgs/{id}", {
-		onSuccess: () => {
-			// The auto-join domain lives on the organization, which the dashboard
-			// reads from the /orgs list query.
-			void queryClient.refetchQueries({
-				queryKey: api.queryOptions("get", "/orgs").queryKey,
-			});
-		},
-	});
+	const updateOrganization = useUpdateOrganization();
 
 	function invalidateProviders() {
 		void queryClient.invalidateQueries({
@@ -356,10 +349,10 @@ export function SsoClient() {
 			invalidateDefaultProjects();
 		} catch (error) {
 			toast({
-				title:
-					error instanceof Error
-						? error.message
-						: "Failed to save default project access",
+				title: getApiErrorMessage(
+					error,
+					"Failed to save default project access",
+				),
 				variant: "destructive",
 			});
 		}
@@ -400,8 +393,7 @@ export function SsoClient() {
 			invalidateProviders();
 		} catch (error) {
 			toast({
-				title:
-					error instanceof Error ? error.message : "Failed to update domains",
+				title: getApiErrorMessage(error, "Failed to update domains"),
 				variant: "destructive",
 			});
 		}
@@ -419,8 +411,7 @@ export function SsoClient() {
 			invalidateMappings();
 		} catch (error) {
 			toast({
-				title:
-					error instanceof Error ? error.message : "Failed to create mapping",
+				title: getApiErrorMessage(error, "Failed to create mapping"),
 				variant: "destructive",
 			});
 		}
@@ -503,14 +494,11 @@ export function SsoClient() {
 			setDomain("");
 			setEntryPoint("");
 			setCert("");
-			setEnforced(true);
+			setEnforced(false);
 			invalidateProviders();
 		} catch (error) {
 			toast({
-				title:
-					error instanceof Error
-						? error.message
-						: "Failed to create connection",
+				title: getApiErrorMessage(error, "Failed to create connection"),
 				variant: "destructive",
 			});
 		}

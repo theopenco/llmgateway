@@ -28,11 +28,7 @@ import { useApi } from "@/lib/fetch-client";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
 
-import type { paths } from "@/lib/api/v1";
-import type { Log } from "@llmgateway/db";
-
-type ApiLog =
-	paths["/logs"]["get"]["responses"][200]["content"]["application/json"]["logs"][number];
+import { type ApiLog, toUiLog } from "./log-utils";
 
 interface Session {
 	id: string;
@@ -72,26 +68,12 @@ const SOURCE_OPTIONS = [
 	{ value: "soulforge", label: "SoulForge" },
 ] as const;
 
-function toUiLog(log: ApiLog): Partial<Log> {
-	return {
-		...log,
-		createdAt: new Date(log.createdAt),
-		updatedAt: new Date(log.updatedAt),
-		lastVideoDownloadedAt: log.lastVideoDownloadedAt
-			? new Date(log.lastVideoDownloadedAt)
-			: null,
-		videoDownloadCount: log.videoDownloadCount ?? undefined,
-		toolChoice: log.toolChoice as any,
-		customHeaders: log.customHeaders as any,
-	};
-}
-
-function buildSession(logs: ApiLog[], index: number): Session {
+function buildSession(logs: ApiLog[]): Session {
 	const startTime = new Date(logs[0].createdAt);
 	const endTime = new Date(logs[logs.length - 1].createdAt);
 
 	return {
-		id: `session-${index}`,
+		id: `session-${logs[logs.length - 1].id}`,
 		source: logs[0].source ?? "unknown",
 		startTime,
 		endTime,
@@ -132,7 +114,7 @@ function groupLogsIntoSessions(logs: ApiLog[]): Session[] {
 			(sorted[i].source ?? "") !== (sorted[i - 1].source ?? "");
 
 		if (currTime - prevTime > SESSION_GAP_MS || sourceChanged) {
-			sessions.push(buildSession(currentSession, sessions.length));
+			sessions.push(buildSession(currentSession));
 			currentSession = [sorted[i]];
 		} else {
 			currentSession.push(sorted[i]);
@@ -140,7 +122,7 @@ function groupLogsIntoSessions(logs: ApiLog[]): Session[] {
 	}
 
 	if (currentSession.length > 0) {
-		sessions.push(buildSession(currentSession, sessions.length));
+		sessions.push(buildSession(currentSession));
 	}
 
 	return sessions.reverse();

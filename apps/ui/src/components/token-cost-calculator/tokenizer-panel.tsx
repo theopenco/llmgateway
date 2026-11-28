@@ -120,6 +120,9 @@ function readSeedFromUrl(): {
 export function TokenizerPanel() {
 	const seed = useRef(readSeedFromUrl());
 	const [text, setText] = useState("");
+	const [seedInputTokens, setSeedInputTokens] = useState(
+		() => seed.current.inputTokens,
+	);
 	const [outputTokens, setOutputTokens] = useState(seed.current.outputTokens);
 	const [requests, setRequests] = useState(seed.current.requests);
 	const [copied, setCopied] = useState(false);
@@ -131,13 +134,18 @@ export function TokenizerPanel() {
 		return countTokens(text.slice(0, MAX_TOKENIZE_CHARS));
 	}, [text]);
 
+	const updateText = (next: string) => {
+		setSeedInputTokens(0);
+		setText(next);
+	};
+
 	const truncated = text.length > MAX_TOKENIZE_CHARS;
 	const charCount = text.length;
 	const wordCount = useMemo(() => countWords(text), [text]);
 
 	// When there's pasted text we count it live; otherwise fall back to the seed
 	// from a shared link so the comparison still renders.
-	const inputTokens = text.trim() ? liveTokens : seed.current.inputTokens;
+	const inputTokens = text.trim() ? liveTokens : seedInputTokens;
 
 	// Keep the URL in sync so the comparison is shareable / bookmarkable.
 	useEffect(() => {
@@ -228,7 +236,7 @@ export function TokenizerPanel() {
 							<button
 								key={sample.label}
 								type="button"
-								onClick={() => setText(sample.text)}
+								onClick={() => updateText(sample.text)}
 								className="text-[11px] px-2 py-0.5 rounded-full border border-border text-muted-foreground hover:border-blue-500/40 hover:text-foreground transition-colors"
 							>
 								{sample.label}
@@ -237,7 +245,7 @@ export function TokenizerPanel() {
 						{text && (
 							<button
 								type="button"
-								onClick={() => setText("")}
+								onClick={() => updateText("")}
 								className="text-[11px] px-2 py-0.5 rounded-full border border-border text-muted-foreground hover:border-red-500/40 hover:text-red-500 transition-colors"
 							>
 								Clear
@@ -249,7 +257,7 @@ export function TokenizerPanel() {
 				<Textarea
 					id="tokenizer-input"
 					value={text}
-					onChange={(e) => setText(e.target.value)}
+					onChange={(e) => updateText(e.target.value)}
 					placeholder="Type or paste text here to count its exact tokens and see what it costs on every major model…"
 					className="mt-3 min-h-[160px] font-mono text-sm leading-relaxed resize-y"
 					spellCheck={false}

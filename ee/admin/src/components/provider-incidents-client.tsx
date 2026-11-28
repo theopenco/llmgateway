@@ -134,7 +134,7 @@ export function ProviderIncidentsClient({
 				},
 			},
 		},
-		{ ...queryOptions, enabled: mapping !== null },
+		{ ...queryOptions, enabled: mapping !== null && !groupByError },
 	);
 	const activeQuery = mapping !== null ? filteredQuery : allQuery;
 	const data = activeQuery.data;

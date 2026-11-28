@@ -873,7 +873,10 @@ export function ProviderSection({
 						>
 							<button
 								type="button"
-								onClick={() => setSelectedServiceTierId("standard")}
+								onClick={(e) => {
+									e.stopPropagation();
+									setSelectedServiceTierId("standard");
+								}}
 								className={cn(
 									"inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-medium leading-none transition-colors",
 									activeServiceTierId === "standard"
@@ -901,7 +904,10 @@ export function ProviderSection({
 									<button
 										key={tier.id}
 										type="button"
-										onClick={() => setSelectedServiceTierId(tier.id)}
+										onClick={(e) => {
+											e.stopPropagation();
+											setSelectedServiceTierId(tier.id);
+										}}
 										className={cn(
 											"inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-medium leading-none transition-colors",
 											isSelected
@@ -1338,7 +1344,10 @@ export function ProviderSection({
 											<button
 												key={mode}
 												type="button"
-												onClick={() => setTimeBasedPricingMode(mode)}
+												onClick={(e) => {
+													e.stopPropagation();
+													setTimeBasedPricingMode(mode);
+												}}
 												className={cn(
 													"h-6 rounded px-2 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
 													isSelected
@@ -1397,6 +1406,7 @@ export function ProviderSection({
 											<TooltipTrigger asChild>
 												<button
 													type="button"
+													onClick={(e) => e.stopPropagation()}
 													className="ml-1 inline-flex align-middle text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
 													aria-label="Show schedule in your time zone"
 												>

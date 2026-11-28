@@ -866,6 +866,43 @@ function parseConditionValue(
 	return text;
 }
 
+function ConditionValueInput({
+	condition,
+	onCommit,
+}: {
+	condition: DynamicRouteCondition;
+	onCommit: (text: string) => void;
+}) {
+	const committedText = conditionValueText(condition);
+	const [text, setText] = useState(committedText);
+
+	useEffect(() => {
+		setText(committedText);
+	}, [committedText, condition.op]);
+
+	const commit = () => {
+		if (text !== committedText) {
+			onCommit(text);
+		}
+	};
+
+	return (
+		<Input
+			className="h-7 text-xs"
+			placeholder={condition.op === "in" ? "a, b, c" : "value"}
+			type={condition.op === "gt" || condition.op === "lt" ? "number" : "text"}
+			value={text}
+			onChange={(e) => setText(e.target.value)}
+			onBlur={commit}
+			onKeyDown={(e) => {
+				if (e.key === "Enter") {
+					commit();
+				}
+			}}
+		/>
+	);
+}
+
 function ConditionalInspector({
 	node,
 	onChange,
@@ -989,19 +1026,12 @@ function ConditionalInspector({
 							)}
 						</select>
 						{condition.op !== "exists" && (
-							<Input
-								className="h-7 text-xs"
-								placeholder={condition.op === "in" ? "a, b, c" : "value"}
-								type={
-									condition.op === "gt" || condition.op === "lt"
-										? "number"
-										: "text"
-								}
-								value={conditionValueText(condition)}
-								onChange={(e) =>
+							<ConditionValueInput
+								condition={condition}
+								onCommit={(text) =>
 									updateCondition(index, (c) => ({
 										...c,
-										value: parseConditionValue(c.op, e.target.value),
+										value: parseConditionValue(c.op, text),
 									}))
 								}
 							/>

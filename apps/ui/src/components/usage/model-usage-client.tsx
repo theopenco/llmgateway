@@ -21,6 +21,8 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
+
 import {
 	isModelGroupBy,
 	parseModelUsageGroupBy,
@@ -82,9 +84,7 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 	const currentUserRole = teamData?.members.find(
 		(member) => member.userId === user?.id,
 	)?.role;
-	const canGroupByUser =
-		isEnterprise &&
-		(currentUserRole === "owner" || currentUserRole === "admin");
+	const canGroupByUser = isEnterprise && isOrganizationAdmin(currentUserRole);
 
 	// Get groupBy, apiKeyId and timeRange from URL.
 	const groupBy = resolveGroupBy(
@@ -92,7 +92,7 @@ export function ModelUsageClient({ projectId }: ModelUsageClientProps) {
 		canGroupByUser,
 	);
 	const apiKeyId = searchParams.get("apiKeyId") ?? undefined;
-	const timeRange = (searchParams.get("timeRange") as TimeRangeValue) ?? "24h";
+	const timeRange = (searchParams.get("timeRange") as TimeRangeValue) || "24h";
 
 	// Function to update apiKeyId in URL
 	const updateApiKeyIdInUrl = (newApiKeyId: string | undefined) => {

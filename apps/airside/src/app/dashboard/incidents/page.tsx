@@ -96,7 +96,8 @@ function IncidentsContent() {
 		},
 		{
 			...queryOptions,
-			enabled: !!company && (mapping !== null || model !== null),
+			enabled:
+				!!company && !groupByError && (mapping !== null || model !== null),
 		},
 	);
 

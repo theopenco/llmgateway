@@ -49,6 +49,17 @@ import { cn } from "@/lib/utils";
 
 import { ChatSupportAccount } from "./chat-support-account";
 
+function getInitials(name?: string | null) {
+	return name
+		? name
+				.split(" ")
+				.map((w) => w[0])
+				.join("")
+				.slice(0, 2)
+				.toUpperCase()
+		: "?";
+}
+
 function timeAgo(dateString: string): string {
 	const now = Date.now();
 	const then = new Date(dateString).getTime();
@@ -352,15 +363,8 @@ export function ChatSupportLogsClient() {
 		(id: string) => {
 			setSelectedId(id);
 			setReplyText("");
-			const conv = conversations.find((c) => c.id === id);
-			if (conv && canManage) {
-				markRead({
-					params: { path: { id } },
-					body: { messageCount: conv.messageCount },
-				});
-			}
 		},
-		[conversations, markRead, setSelectedId, canManage],
+		[setSelectedId],
 	);
 
 	const handleReplySubmit = (e: React.FormEvent) => {
@@ -599,14 +603,7 @@ export function ChatSupportLogsClient() {
 															: "bg-muted text-muted-foreground",
 													)}
 												>
-													{conv.name
-														? conv.name
-																.split(" ")
-																.map((w) => w[0])
-																.join("")
-																.slice(0, 2)
-																.toUpperCase()
-														: "?"}
+													{getInitials(conv.name)}
 												</div>
 												{conv.escalatedAt && (
 													<span className="absolute -right-0.5 -top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-amber-500">
@@ -724,14 +721,7 @@ export function ChatSupportLogsClient() {
 									<ArrowLeft aria-hidden="true" className="h-4 w-4" />
 								</button>
 								<div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">
-									{detail.name
-										? detail.name
-												.split(" ")
-												.map((w) => w[0])
-												.join("")
-												.slice(0, 2)
-												.toUpperCase()
-										: "?"}
+									{getInitials(detail.name)}
 								</div>
 								<div className="min-w-0 flex-1">
 									<p className="truncate text-sm font-medium text-foreground">
@@ -924,14 +914,7 @@ export function ChatSupportLogsClient() {
 							{/* User profile header */}
 							<div className="flex flex-col items-center gap-3 border-b border-border/60 px-6 py-6">
 								<div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-lg font-semibold text-primary">
-									{(detail?.name ?? selectedConv?.name)
-										? (detail?.name ?? selectedConv?.name ?? "")
-												.split(" ")
-												.map((w) => w[0])
-												.join("")
-												.slice(0, 2)
-												.toUpperCase()
-										: "?"}
+									{getInitials(detail?.name ?? selectedConv?.name)}
 								</div>
 								<div className="flex max-w-full flex-col items-center text-center">
 									<p className="text-sm font-semibold text-foreground">
@@ -1135,20 +1118,9 @@ export function ChatSupportLogsClient() {
 										size="sm"
 										className="w-full"
 										disabled={archiveMutation.isPending}
-										onClick={() => {
-											if (selectedId) {
-												archiveMutation.mutate({
-													params: { path: { id: selectedId } },
-													body: {
-														archived: !(
-															detail?.archivedAt ?? selectedConv?.archivedAt
-														),
-													},
-												});
-											}
-										}}
+										onClick={handleToggleArchive}
 									>
-										{(detail?.archivedAt ?? selectedConv?.archivedAt) ? (
+										{isArchived ? (
 											<>
 												<ArchiveRestore className="mr-2 h-3.5 w-3.5" />
 												Unarchive

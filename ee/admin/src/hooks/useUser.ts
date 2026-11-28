@@ -1,6 +1,6 @@
 "use client";
 import { useQueryClient } from "@tanstack/react-query";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 import { useApi } from "@/lib/fetch-client";
@@ -23,7 +23,6 @@ export interface UseUserOptions {
 export function useUser(options?: UseUserOptions) {
 	const router = useRouter();
 	const api = useApi();
-	const pathname = usePathname();
 
 	const { data, isLoading, error, errorUpdatedAt } = api.useQuery(
 		"get",
@@ -35,22 +34,6 @@ export function useUser(options?: UseUserOptions) {
 			refetchOnWindowFocus: false,
 		},
 	);
-
-	// Check for onboarding completion for all authenticated users
-	useEffect(() => {
-		if (!data?.user || isLoading) {
-			return;
-		}
-
-		const currentPath = pathname;
-		const isAuthPage = ["/login", "/signup"].includes(currentPath);
-		const isLandingPage = currentPath === "/";
-
-		// Don't redirect if already on auth pages
-		if (isAuthPage || isLandingPage) {
-			// No action needed for auth/landing pages
-		}
-	}, [data?.user, isLoading, router, pathname]);
 
 	// Handle existing redirect logic
 	useEffect(() => {

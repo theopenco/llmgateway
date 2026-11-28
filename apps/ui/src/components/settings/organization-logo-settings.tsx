@@ -1,16 +1,15 @@
 "use client";
-import { useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import { useRef, useState } from "react";
 
 import { OrganizationAvatar } from "@/components/dashboard/organization-avatar";
+import { useUpdateOrganization } from "@/hooks/useOrganization";
 import { Button } from "@/lib/components/button";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { Separator } from "@/lib/components/separator";
 import { toast } from "@/lib/components/use-toast";
 import { useDashboardContext } from "@/lib/dashboard-context";
-import { useApi } from "@/lib/fetch-client";
 
 // Logos are stored inline as small data URLs, so images are downscaled in the
 // browser before upload. 256px is plenty for the sidebar switcher.
@@ -59,17 +58,10 @@ async function fileToLogoDataUrl(file: File): Promise<string> {
 }
 
 export function OrganizationLogoSettings() {
-	const queryClient = useQueryClient();
 	const { selectedOrganization } = useDashboardContext();
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
-	const api = useApi();
-	const updateOrganization = api.useMutation("patch", "/orgs/{id}", {
-		onSuccess: async () => {
-			const queryKey = api.queryOptions("get", "/orgs").queryKey;
-			await queryClient.refetchQueries({ queryKey });
-		},
-	});
+	const updateOrganization = useUpdateOrganization();
 
 	const [pendingLogo, setPendingLogo] = useState<string | null>(null);
 

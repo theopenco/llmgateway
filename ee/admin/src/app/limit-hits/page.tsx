@@ -55,7 +55,7 @@ export default async function LimitHitsPage({
 	await requireSession();
 
 	const params = await searchParams;
-	const rawDays = Number(params.days ?? "7");
+	const rawDays = params.days?.trim() ? Number(params.days) : 7;
 	const days = Number.isFinite(rawDays)
 		? Math.min(Math.max(Math.round(rawDays), 1), 90)
 		: 7;
@@ -149,6 +149,8 @@ export default async function LimitHitsPage({
 					defaultValue={days}
 					className="w-20"
 					type="number"
+					min={1}
+					max={90}
 				/>
 				<button
 					type="submit"

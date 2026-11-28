@@ -282,7 +282,10 @@ export function AirsideListingsTable({
 											variant="destructive"
 											size="sm"
 											data-testid={`reject-relist-${listing.id}`}
-											onClick={() => setRejecting(listing)}
+											onClick={() => {
+												setReviewNote("");
+												setRejecting(listing);
+											}}
 										>
 											Reject
 										</Button>
@@ -367,7 +370,13 @@ export function AirsideListingsTable({
 						onChange={(event) => setReviewNote(event.target.value)}
 					/>
 					<DialogFooter>
-						<Button variant="outline" onClick={() => setRejecting(null)}>
+						<Button
+							variant="outline"
+							onClick={() => {
+								setRejecting(null);
+								setReviewNote("");
+							}}
+						>
 							Cancel
 						</Button>
 						<Button

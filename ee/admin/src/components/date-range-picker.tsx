@@ -1,7 +1,11 @@
 "use client";
 
 import { endOfMonth, format, startOfMonth } from "date-fns";
-import { ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
+import {
+	ChevronDownIcon,
+	ChevronLeftIcon,
+	ChevronRightIcon,
+} from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
@@ -187,6 +191,16 @@ function MonthRangePicker({ from, to, onSelect }: MonthRangePickerProps) {
 					{renderYearPanel(leftYear)}
 					{renderYearPanel(rightYear)}
 				</div>
+				<button
+					type="button"
+					onClick={() =>
+						setLeftYear((y) => Math.min(y + 1, today.getFullYear() - 1))
+					}
+					disabled={rightYear >= today.getFullYear()}
+					className="mt-1 rounded p-1 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-30"
+				>
+					<ChevronRightIcon className="h-4 w-4" />
+				</button>
 			</div>
 			{pendingFrom && (
 				<p className="mt-2 text-center text-xs text-muted-foreground">

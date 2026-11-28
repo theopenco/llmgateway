@@ -8,6 +8,7 @@ import { CostByModelTimeseriesChart } from "@/components/cost-by-model-timeserie
 import { useUsageMode } from "@/components/usage-mode-selector";
 import { useApi } from "@/lib/fetch-client";
 import { useHistoryClient } from "@/lib/history-client";
+import { parseTokenWindow, TOKEN_WINDOW_DAYS } from "@/lib/token-window";
 import { parseUsageBreakdown } from "@/lib/usage-breakdown";
 
 import {
@@ -22,34 +23,6 @@ import type {
 	ProjectCostTimeseriesGroupBy,
 	TokenWindow,
 } from "@/lib/types";
-
-const windowDays: Record<TokenWindow, number> = {
-	"1h": 1 / 24,
-	"4h": 4 / 24,
-	"12h": 0.5,
-	"1d": 1,
-	"7d": 7,
-	"30d": 30,
-	"90d": 90,
-	"365d": 365,
-};
-const validWindows = new Set<TokenWindow>([
-	"1h",
-	"4h",
-	"12h",
-	"1d",
-	"7d",
-	"30d",
-	"90d",
-	"365d",
-]);
-
-function parseWindow(value: string | null): TokenWindow {
-	if (value && validWindows.has(value as TokenWindow)) {
-		return value as TokenWindow;
-	}
-	return "1d";
-}
 
 interface ProjectTimeseriesProps {
 	orgId: string;
@@ -67,7 +40,7 @@ export function ProjectCostByModelTimeseries({
 	projectId: string;
 }) {
 	const params = useSearchParams();
-	const window = parseWindow(params.get("window"));
+	const window = parseTokenWindow(params.get("window"));
 	const { groupBy, modelView } = parseUsageBreakdown(params, "project");
 	const props = { orgId, projectId, window, groupBy, modelView };
 	return groupBy === "source" ? (
@@ -84,7 +57,7 @@ function ProjectUsageTimeseries({
 	groupBy,
 	modelView,
 }: ProjectTimeseriesProps) {
-	const controls = useUsageTimeseriesControls(windowDays[window]);
+	const controls = useUsageTimeseriesControls(TOKEN_WINDOW_DAYS[window]);
 	const mode = useUsageMode();
 	const api = useApi();
 	const query = api.useQuery(

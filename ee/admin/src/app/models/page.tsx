@@ -1,5 +1,4 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import Link from "next/link";
 import { Suspense } from "react";
 
 import { CatalogFiltersBar } from "@/components/catalog-filters";
@@ -10,6 +9,7 @@ import {
 	FilterNavigationResults,
 } from "@/components/filter-navigation";
 import { ModelsTable } from "@/components/models-table";
+import { SignInPrompt } from "@/components/sign-in-prompt";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { TokenBreakdown } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
@@ -41,27 +41,6 @@ type ModelSortBy = NonNullable<
 	paths["/admin/models"]["get"]["parameters"]["query"]
 >["sortBy"];
 type SortOrder = "asc" | "desc";
-
-function SignInPrompt() {
-	return (
-		<div className="flex min-h-screen items-center justify-center px-4">
-			<div className="w-full max-w-md text-center">
-				<div className="mb-8">
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Admin Dashboard
-					</h1>
-					<p className="mt-2 text-sm text-muted-foreground">
-						Sign in to access the admin dashboard
-					</p>
-				</div>
-				<Button asChild size="lg" className="w-full">
-					<Link href="/login">Sign In</Link>
-				</Button>
-			</div>
-		</div>
-	);
-}
-
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
 	currency: "USD",
@@ -145,9 +124,7 @@ export default async function ModelsPage({
 							<div>
 								<span className="text-muted-foreground">Total Requests</span>
 								<p className="text-xl font-semibold tabular-nums">
-									{formatCompactNumber(
-										data.models.reduce((s, m) => s + m.logsCount, 0),
-									)}
+									{formatCompactNumber(data.totalRequests)}
 								</p>
 							</div>
 							<div>

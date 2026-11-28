@@ -14,12 +14,16 @@ import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { Slider } from "@/lib/components/slider";
 
+const MIN_SPEND = 100;
+const MAX_SPEND = 500000;
+
 function formatCurrency(value: number): string {
 	return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export function CostCalculator({ discount }: { discount: number }) {
 	const [monthlySpend, setMonthlySpend] = useState(72000);
+	const [spendInput, setSpendInput] = useState("72000");
 
 	// eslint-disable-next-line no-mixed-operators
 	const multiplier = 1 - discount / 100;
@@ -39,15 +43,24 @@ export function CostCalculator({ discount }: { discount: number }) {
 								</span>
 								<Input
 									type="number"
-									value={monthlySpend}
+									value={spendInput}
 									min={100}
 									max={500000}
 									step={100}
 									onChange={(e) => {
+										setSpendInput(e.target.value);
 										const parsed = parseFloat(e.target.value);
-										if (!isNaN(parsed)) {
-											setMonthlySpend(Math.min(500000, Math.max(100, parsed)));
+										if (parsed >= MIN_SPEND && parsed <= MAX_SPEND) {
+											setMonthlySpend(parsed);
 										}
+									}}
+									onBlur={() => {
+										const parsed = parseFloat(spendInput);
+										const clamped = isNaN(parsed)
+											? monthlySpend
+											: Math.min(MAX_SPEND, Math.max(MIN_SPEND, parsed));
+										setMonthlySpend(clamped);
+										setSpendInput(String(clamped));
 									}}
 									className="w-36 text-right pl-7"
 								/>
@@ -61,6 +74,7 @@ export function CostCalculator({ discount }: { discount: number }) {
 							onValueChange={([v]) => {
 								if (v !== undefined) {
 									setMonthlySpend(v);
+									setSpendInput(String(v));
 								}
 							}}
 						/>

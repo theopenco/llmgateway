@@ -39,8 +39,15 @@ export function timeRange(call: Pick<CrmCall, "startAt" | "endAt" | "allDay">) {
 	return `${fmt(call.startAt)} – ${fmt(call.endAt)}`;
 }
 
-function dayLabel(iso: string) {
-	const d = new Date(iso);
+export function callStart(call: Pick<CrmCall, "startAt" | "allDay">) {
+	if (call.allDay) {
+		const [year, month, day] = call.startAt.slice(0, 10).split("-").map(Number);
+		return new Date(year!, month! - 1, day!);
+	}
+	return new Date(call.startAt);
+}
+
+function dayLabel(d: Date) {
 	const today = new Date();
 	const tomorrow = new Date(today.getTime() + 86_400_000);
 	if (d.toDateString() === today.toDateString()) {
@@ -101,7 +108,7 @@ export function AttendeeChips({
 }
 
 function CallRow({ call }: { call: CrmCall }) {
-	const started = new Date(call.startAt).getTime() <= Date.now();
+	const started = callStart(call).getTime() <= Date.now();
 	return (
 		<li>
 			<Link
@@ -181,8 +188,11 @@ export function CrmCalls() {
 		{ staleTime: 60_000 },
 	);
 	const groups = new Map<string, CrmCall[]>();
-	for (const call of data?.calls ?? []) {
-		const key = new Date(call.startAt).toDateString();
+	const sortedCalls = [...(data?.calls ?? [])].sort(
+		(a, b) => callStart(a).getTime() - callStart(b).getTime(),
+	);
+	for (const call of sortedCalls) {
+		const key = callStart(call).toDateString();
 		groups.set(key, [...(groups.get(key) ?? []), call]);
 	}
 	const connected = data?.calendars.filter((c) => c.calendar) ?? [];
@@ -282,7 +292,7 @@ export function CrmCalls() {
 			{Array.from(groups.entries()).map(([key, calls]) => (
 				<section key={key}>
 					<h2 className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-						{dayLabel(calls[0]!.startAt)}
+						{dayLabel(callStart(calls[0]!))}
 						<span className="ml-2 font-mono">{calls.length}</span>
 					</h2>
 					<ul className="divide-y divide-border/70 overflow-hidden rounded-xl border border-border/70 bg-card">

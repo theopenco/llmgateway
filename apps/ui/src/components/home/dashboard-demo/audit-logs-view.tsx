@@ -171,6 +171,11 @@ export function AuditLogsView() {
 					</div>
 
 					<div className="space-y-4 @3xl/demo:hidden">
+						{logs.length === 0 && (
+							<div className="p-8 text-center text-muted-foreground">
+								No audit logs found
+							</div>
+						)}
 						{logs.map((log) => (
 							<Card key={log.id}>
 								<CardContent className="pt-4">

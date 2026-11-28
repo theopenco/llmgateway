@@ -560,12 +560,10 @@ export const NovitaIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 		xmlns="http://www.w3.org/2000/svg"
 		className={cn("h-10 w-10 text-black dark:text-white", props.className)}
 	>
-		<g clipPath="url(#clip0_1923_1287)">
-			<path
-				d="M24 18.8323V18.8326H14.3246L9.16716 13.6751V18.8326H0V18.8314L9.16716 9.66422V4H9.16774L24 18.8323Z"
-				fill="currentColor"
-			/>
-		</g>
+		<path
+			d="M24 18.8323V18.8326H14.3246L9.16716 13.6751V18.8326H0V18.8314L9.16716 9.66422V4H9.16774L24 18.8323Z"
+			fill="currentColor"
+		/>
 	</svg>
 );
 
@@ -1461,10 +1459,6 @@ export const providerLogoUrls: Partial<
 		Icon ? [[provider, withProviderMark(provider, Icon)]] : [],
 	),
 );
-
-export const getProviderLogoDarkModeClasses = () => {
-	return "";
-};
 
 /** The icon shipped with the app for a provider, if any. */
 export const getBundledProviderIcon = (

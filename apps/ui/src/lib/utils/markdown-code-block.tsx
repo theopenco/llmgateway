@@ -150,16 +150,11 @@ function extractFileInfo(className: string | undefined): {
 
 	for (const part of parts) {
 		// Check for language-xxx or lang-xxx
-		const langMatch = part.match(/^(?:language|lang)-([A-Za-z0-9_-]+)/);
+		const langMatch = part.match(/^(?:language|lang)-([^:\s]+)(?::(\S+))?$/);
 		if (langMatch) {
-			const langPart = langMatch[1];
-			// Check if it includes a filename like "typescript:ai-sdk.ts"
-			const colonIndex = langPart.indexOf(":");
-			if (colonIndex > 0) {
-				language = normalizeLanguageName(langPart.substring(0, colonIndex));
-				filename = langPart.substring(colonIndex + 1);
-			} else {
-				language = normalizeLanguageName(langPart);
+			language = normalizeLanguageName(langMatch[1]);
+			if (langMatch[2]) {
+				filename = langMatch[2];
 			}
 			continue;
 		}

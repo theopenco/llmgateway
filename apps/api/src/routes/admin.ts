@@ -7971,6 +7971,7 @@ const modelsListSchema = z.object({
 	total: z.number(),
 	limit: z.number(),
 	offset: z.number(),
+	totalRequests: z.number(),
 	totalTokens: z.number(),
 	totalCost: z.number(),
 	...tokenBreakdownShape,
@@ -8158,6 +8159,10 @@ admin.openapi(getModelStats, async (c) => {
 
 		const totalsQuery = db
 			.select({
+				totalRequests:
+					sql<number>`COALESCE(SUM(COALESCE(${modelAggSub.logsCount}, 0)), 0)`.as(
+						"totalRequests",
+					),
 				totalTokens:
 					sql<number>`COALESCE(SUM(COALESCE(${modelAggSub.totalTokens}, 0)), 0)`.as(
 						"totalTokens",
@@ -8271,6 +8276,7 @@ admin.openapi(getModelStats, async (c) => {
 			total,
 			limit,
 			offset,
+			totalRequests: Number(totalsResult?.totalRequests ?? 0),
 			totalTokens: totalTokensAgg,
 			totalCost: totalCostAgg,
 			...toTokenBreakdown(totalsResult),
@@ -8301,10 +8307,21 @@ admin.openapi(getModelStats, async (c) => {
 		}),
 	);
 
-	const [countResult] = await db
-		.select({ count: sql<number>`COUNT(*)`.as("count") })
-		.from(tables.model)
-		.where(rowsWhereClause);
+	const [[countResult], [totalsResult]] = await Promise.all([
+		db
+			.select({ count: sql<number>`COUNT(*)`.as("count") })
+			.from(tables.model)
+			.where(rowsWhereClause),
+		db
+			.select({
+				totalRequests:
+					sql<number>`COALESCE(SUM(${tables.model.logsCount}), 0)`.as(
+						"totalRequests",
+					),
+			})
+			.from(tables.model)
+			.where(whereClause),
+	]);
 
 	const total = Number(countResult?.count ?? 0);
 
@@ -8386,6 +8403,7 @@ admin.openapi(getModelStats, async (c) => {
 		total,
 		limit,
 		offset,
+		totalRequests: Number(totalsResult?.totalRequests ?? 0),
 		totalTokens: 0,
 		totalCost: 0,
 		...EMPTY_TOKEN_BREAKDOWN,

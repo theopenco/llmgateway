@@ -33,9 +33,20 @@ export function batchSupportDescription(
 }
 
 export function getMappingCapabilities(
-	mapping: Partial<Pick<ApiModelProviderMapping, MappingCapabilityKey>>,
+	mapping: Partial<
+		Pick<
+			ApiModelProviderMapping,
+			MappingCapabilityKey | "realtimeTranscription"
+		>
+	>,
 ) {
-	return MAPPING_CAPABILITIES.filter(({ key }) =>
-		key === "batchEndpoints" ? hasBatchSupport(mapping) : Boolean(mapping[key]),
-	);
+	return MAPPING_CAPABILITIES.filter(({ key }) => {
+		if (key === "batchEndpoints") {
+			return hasBatchSupport(mapping);
+		}
+		if (key === "realtime") {
+			return Boolean(mapping.realtime || mapping.realtimeTranscription);
+		}
+		return Boolean(mapping[key]);
+	});
 }

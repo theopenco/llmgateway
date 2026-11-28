@@ -10,6 +10,7 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/components/ui/popover";
+import { parseTokenWindow } from "@/lib/token-window";
 
 import type { TokenWindow } from "@/lib/types";
 
@@ -42,9 +43,7 @@ export function TokenTimeRangeToggle({
 	const pathname = usePathname();
 	const [open, setOpen] = useState(false);
 	const param = searchParams.get("window");
-	const current = windowOptions.some((option) => option.value === param)
-		? (param as TokenWindow)
-		: initial;
+	const current = parseTokenWindow(param, initial);
 
 	const selected = windowOptions.find((o) => o.value === current);
 
