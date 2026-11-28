@@ -96,6 +96,7 @@ import {
 	shouldShowDeactivationNotice,
 	type ModelMappingStatus,
 } from "@/deactivation";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
@@ -137,7 +138,6 @@ import {
 	isUseCaseCategory,
 	providerRowPassesFilters,
 } from "./use-case-filters";
-import { useIsMobile } from "./use-mobile";
 
 import type {
 	ApiModel,
@@ -1741,87 +1741,31 @@ export function AllModels({
 			}
 
 			// Capability filters
-			if (
-				filters.capabilities.streaming &&
-				!model.providerDetails.some((p) =>
-					matchesCapability("streaming", p.provider),
-				)
-			) {
-				return false;
-			}
-			if (
-				filters.capabilities.vision &&
-				!model.providerDetails.some((p) =>
-					matchesCapability("vision", p.provider),
-				)
-			) {
-				return false;
-			}
-			if (
-				filters.capabilities.tools &&
-				!model.providerDetails.some((p) =>
-					matchesCapability("tools", p.provider),
-				)
-			) {
-				return false;
-			}
-			for (const key of ["audioInput", "document", "realtime"] as const) {
+			for (const [toggleKey, capability] of [
+				["streaming", "streaming"],
+				["vision", "vision"],
+				["tools", "tools"],
+				["audioInput", "audioInput"],
+				["document", "document"],
+				["realtime", "realtime"],
+				["reasoning", "reasoning"],
+				["reasoningBudget", "reasoningMaxTokens"],
+				["jsonOutput", "jsonOutput"],
+				["jsonOutputSchema", "jsonOutputSchema"],
+				["webSearch", "webSearch"],
+				["batch", "batch"],
+				["discounted", "discounted"],
+			] as const) {
 				if (
-					filters.capabilities[key] &&
-					!model.providerDetails.some((p) => matchesCapability(key, p.provider))
+					filters.capabilities[toggleKey] &&
+					!model.providerDetails.some((p) =>
+						matchesCapability(capability, p.provider),
+					)
 				) {
 					return false;
 				}
 			}
-			if (
-				filters.capabilities.reasoning &&
-				!model.providerDetails.some((p) =>
-					matchesCapability("reasoning", p.provider),
-				)
-			) {
-				return false;
-			}
-			if (
-				filters.capabilities.reasoningBudget &&
-				!model.providerDetails.some((p) =>
-					matchesCapability("reasoningMaxTokens", p.provider),
-				)
-			) {
-				return false;
-			}
-			if (
-				filters.capabilities.jsonOutput &&
-				!model.providerDetails.some((p) =>
-					matchesCapability("jsonOutput", p.provider),
-				)
-			) {
-				return false;
-			}
-			if (
-				filters.capabilities.jsonOutputSchema &&
-				!model.providerDetails.some((p) =>
-					matchesCapability("jsonOutputSchema", p.provider),
-				)
-			) {
-				return false;
-			}
 			if (!matchesOutputCapabilities(filters.capabilities, model.output)) {
-				return false;
-			}
-			if (
-				filters.capabilities.webSearch &&
-				!model.providerDetails.some((p) =>
-					matchesCapability("webSearch", p.provider),
-				)
-			) {
-				return false;
-			}
-			if (
-				filters.capabilities.batch &&
-				!model.providerDetails.some((p) =>
-					matchesCapability("batch", p.provider),
-				)
-			) {
 				return false;
 			}
 			if (filters.capabilities.free) {
@@ -1840,14 +1784,6 @@ export function AllModels({
 				if (!model.free || hasNonTokenPrice) {
 					return false;
 				}
-			}
-			if (
-				filters.capabilities.discounted &&
-				!model.providerDetails.some((p) =>
-					matchesCapability("discounted", p.provider),
-				)
-			) {
-				return false;
 			}
 
 			// Provider filter
@@ -2250,11 +2186,15 @@ export function AllModels({
 		if (sortField === field) {
 			const newDir: SortDirection = sortDirection === "asc" ? "desc" : "asc";
 			setSortDirection(newDir);
-			updateUrlWithFilters({ sortDir: newDir });
+			updateUrlWithFilters({ sortDir: newDir, page: undefined });
 		} else {
 			setSortField(field);
 			setSortDirection("asc");
-			updateUrlWithFilters({ sortField: field, sortDir: "asc" });
+			updateUrlWithFilters({
+				sortField: field,
+				sortDir: "asc",
+				page: undefined,
+			});
 		}
 	};
 
@@ -2355,6 +2295,7 @@ export function AllModels({
 										});
 										const urlUpdates: Record<string, string | undefined> = {
 											category: value !== defaultCategory ? value : undefined,
+											page: undefined,
 										};
 										for (const key of staleKeys) {
 											urlUpdates[key] = undefined;
@@ -2433,6 +2374,7 @@ export function AllModels({
 										setFilters((prev) => ({ ...prev, tier: value }));
 										updateUrlWithFilters({
 											tier: value !== "all" ? value : undefined,
+											page: undefined,
 										});
 									}}
 								>
@@ -2679,6 +2621,7 @@ export function AllModels({
 														[key]: "true",
 														sortField: "discount",
 														sortDir: "desc",
+														page: undefined,
 													});
 												} else {
 													setSortField(null);
@@ -2687,11 +2630,13 @@ export function AllModels({
 														[key]: undefined,
 														sortField: undefined,
 														sortDir: undefined,
+														page: undefined,
 													});
 												}
 											} else {
 												updateUrlWithFilters({
 													[key]: pressed ? "true" : undefined,
+													page: undefined,
 												});
 											}
 										}}
@@ -2735,6 +2680,7 @@ export function AllModels({
 								}));
 								updateUrlWithFilters({
 									provider: value === "all" ? undefined : value,
+									page: undefined,
 								});
 							}}
 						>
@@ -2908,7 +2854,10 @@ export function AllModels({
 										...prev,
 										inputPrice: { ...prev.inputPrice, min: value },
 									}));
-									updateUrlWithFilters({ inputPriceMin: value ?? undefined });
+									updateUrlWithFilters({
+										inputPriceMin: value ?? undefined,
+										page: undefined,
+									});
 								}}
 								className="h-8"
 							/>
@@ -2922,7 +2871,10 @@ export function AllModels({
 										...prev,
 										inputPrice: { ...prev.inputPrice, max: value },
 									}));
-									updateUrlWithFilters({ inputPriceMax: value ?? undefined });
+									updateUrlWithFilters({
+										inputPriceMax: value ?? undefined,
+										page: undefined,
+									});
 								}}
 								className="h-8"
 							/>
@@ -2985,7 +2937,10 @@ export function AllModels({
 										...prev,
 										outputPrice: { ...prev.outputPrice, min: value },
 									}));
-									updateUrlWithFilters({ outputPriceMin: value ?? undefined });
+									updateUrlWithFilters({
+										outputPriceMin: value ?? undefined,
+										page: undefined,
+									});
 								}}
 								className="h-8"
 							/>
@@ -2999,7 +2954,10 @@ export function AllModels({
 										...prev,
 										outputPrice: { ...prev.outputPrice, max: value },
 									}));
-									updateUrlWithFilters({ outputPriceMax: value ?? undefined });
+									updateUrlWithFilters({
+										outputPriceMax: value ?? undefined,
+										page: undefined,
+									});
 								}}
 								className="h-8"
 							/>
@@ -3019,7 +2977,10 @@ export function AllModels({
 										...prev,
 										contextSize: { ...prev.contextSize, min: value },
 									}));
-									updateUrlWithFilters({ contextSizeMin: value ?? undefined });
+									updateUrlWithFilters({
+										contextSizeMin: value ?? undefined,
+										page: undefined,
+									});
 								}}
 								className="h-8"
 							/>
@@ -3033,7 +2994,10 @@ export function AllModels({
 										...prev,
 										contextSize: { ...prev.contextSize, max: value },
 									}));
-									updateUrlWithFilters({ contextSizeMax: value ?? undefined });
+									updateUrlWithFilters({
+										contextSizeMax: value ?? undefined,
+										page: undefined,
+									});
 								}}
 								className="h-8"
 							/>

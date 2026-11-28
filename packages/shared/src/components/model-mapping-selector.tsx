@@ -75,7 +75,7 @@ interface MappingEntry {
 }
 
 function normalize(value: string): string {
-	return value.toLowerCase().replace(/[-_\s.]+/g, "");
+	return value.toLowerCase().replace(/[-_\s./:]+/g, "");
 }
 
 function EntryIcon({
@@ -184,7 +184,7 @@ export function ModelMappingSelector({
 	const filteredEntries = React.useMemo(() => {
 		const tokens = deferredSearch
 			.toLowerCase()
-			.split(/[-_\s.]+/)
+			.split(/[-_\s./:]+/)
 			.filter(Boolean);
 		if (tokens.length === 0) {
 			return entries;

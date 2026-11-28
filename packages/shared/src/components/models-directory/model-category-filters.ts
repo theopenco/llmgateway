@@ -2,6 +2,23 @@ import { discountFraction } from "@/lib/discount";
 
 import type { ApiModel, ApiModelProviderMapping } from "./api-types";
 
+export type CategoryFilterModel = Pick<
+	ApiModel,
+	"id" | "family" | "free" | "output" | "premium"
+>;
+
+export type CategoryFilterMapping = Pick<
+	ApiModelProviderMapping,
+	| "vision"
+	| "webSearch"
+	| "reasoning"
+	| "tools"
+	| "discount"
+	| "contextSize"
+	| "inputPrice"
+	| "outputPrice"
+>;
+
 export type ModelCategoryFilter =
 	| "text"
 	| "text-to-image"
@@ -307,7 +324,7 @@ export function isTextOutput(output: string[] | null | undefined): boolean {
 	);
 }
 
-function isCheapMapping(mapping: ApiModelProviderMapping): boolean {
+function isCheapMapping(mapping: CategoryFilterMapping): boolean {
 	if (mapping.inputPrice === null || mapping.outputPrice === null) {
 		return false;
 	}
@@ -319,8 +336,8 @@ function isCheapMapping(mapping: ApiModelProviderMapping): boolean {
 
 export function applyCategoryFilter(
 	categoryFilter: ModelCategoryFilter | undefined,
-	model: ApiModel,
-	mappings: ApiModelProviderMapping[],
+	model: CategoryFilterModel,
+	mappings: CategoryFilterMapping[],
 ): boolean {
 	switch (categoryFilter) {
 		case "text":
