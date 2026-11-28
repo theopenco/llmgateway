@@ -128,6 +128,17 @@ export const AGENTS: AgentDefinition[] = [
 
 export const ALL_CODING_AGENT_SOURCES = AGENTS.flatMap((a) => a.sources);
 
+const AGENT_BY_SOURCE = new Map<string, AgentDefinition>();
+for (const agent of AGENTS) {
+	for (const source of agent.sources) {
+		AGENT_BY_SOURCE.set(source.toLowerCase(), agent);
+	}
+}
+
+export function agentForSource(source: string): AgentDefinition | undefined {
+	return AGENT_BY_SOURCE.get(source.toLowerCase());
+}
+
 export interface ModelUsage {
 	id: string;
 	provider: string;

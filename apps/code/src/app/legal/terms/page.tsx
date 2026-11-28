@@ -2,6 +2,19 @@ import Link from "next/link";
 
 import { LegalSummary } from "@/components/LegalSummary";
 
+import {
+	DEV_PLAN_DAILY_PERCENT,
+	DEV_PLAN_INCLUDED_RESET_PASSES,
+	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
+	DEV_PLAN_RENEWAL_ROLLOVER_PERCENT,
+	DEV_PLAN_RESET_PASS_PRICES,
+	getDevPlanCreditsLimit,
+	getDevPlanRenewalRolloverCap,
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
+	type DevPlanTier,
+} from "@llmgateway/shared";
+
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -18,7 +31,46 @@ export const metadata: Metadata = {
 	},
 };
 
+const TIERS: DevPlanTier[] = ["lite", "pro", "max"];
+
+function percent(fraction: number): string {
+	return `${Math.round(fraction * 100)}%`;
+}
+
 export default function TermsPage() {
+	const rolloverPercent = percent(DEV_PLAN_RENEWAL_ROLLOVER_PERCENT);
+	const allowanceRows: { label: string; values: string[] }[] = [
+		{
+			label: "Standard monthly allowance (provider-rate usage)",
+			values: TIERS.map((tier) => `$${getDevPlanCreditsLimit(tier)}`),
+		},
+		{
+			label: `Maximum carry-over at renewal (${rolloverPercent})`,
+			values: TIERS.map(
+				(tier) =>
+					`$${getDevPlanRenewalRolloverCap(getDevPlanCreditsLimit(tier))}`,
+			),
+		},
+		{
+			label: "Daily cap across all models (rolling 24 hours)",
+			values: TIERS.map((tier) => percent(DEV_PLAN_DAILY_PERCENT[tier])),
+		},
+		{
+			label: "Premium weekly cap",
+			values: TIERS.map((tier) =>
+				percent(DEV_PLAN_PREMIUM_WEEKLY_PERCENT[tier]),
+			),
+		},
+		{
+			label: "Price per Reset Pass",
+			values: TIERS.map((tier) => `$${DEV_PLAN_RESET_PASS_PRICES[tier]}`),
+		},
+		{
+			label: "Included Reset Passes per billing cycle",
+			values: TIERS.map((tier) => String(DEV_PLAN_INCLUDED_RESET_PASSES[tier])),
+		},
+	];
+
 	return (
 		<>
 			<h1>DevPass Supplemental Terms of Use</h1>
@@ -181,21 +233,23 @@ export default function TermsPage() {
 				processed request causes us to incur real, non-recoverable AI provider
 				costs. As a limited goodwill exception, we may make a full self-service
 				refund available for an eligible DevPass plan payment if you request it
-				from your billing dashboard within 14 days of purchase and have used
-				less than 10% of the monthly allowance. The payment and account must
-				also meet the eligibility requirements shown in the billing dashboard.
-				Once usage reaches the applicable limit, a refund is not available. Any
-				reference to a &ldquo;first-month guarantee&rdquo; means only this
-				limited goodwill option and does not create a broader right to a refund.
+				from your billing dashboard within {SELF_REFUND_WINDOW_DAYS} days of
+				purchase and have used less than {SELF_REFUND_USAGE_PERCENT}% of the
+				monthly allowance. The payment and account must also meet the
+				eligibility requirements shown in the billing dashboard. Once usage
+				reaches the applicable limit, a refund is not available. Any reference
+				to a &ldquo;first-month guarantee&rdquo; means only this limited
+				goodwill option and does not create a broader right to a refund.
 			</p>
 			<p>
 				The limit is measured against the applicable monthly allowance,
 				including any carried-over or rolled-over allowance, not the payment
-				amount. Usage must remain below 10%; usage at or above 10% is
-				ineligible. Plan payments made before October 15, 2026, at 00:00 UTC,
-				retain a 20% limit for their existing 14-day refund window. Eligible
-				renewals, upgrades, and subscription restarts remain subject to the same
-				checks; a later payment does not automatically qualify for a refund.
+				amount. Usage must remain below {SELF_REFUND_USAGE_PERCENT}%; usage at
+				or above {SELF_REFUND_USAGE_PERCENT}% is ineligible. Plan payments made
+				before October 15, 2026, at 00:00 UTC, retain a 20% limit for their
+				existing 14-day refund window. Eligible renewals, upgrades, and
+				subscription restarts remain subject to the same checks; a later payment
+				does not automatically qualify for a refund.
 			</p>
 			<p>
 				If the refund option is available, select <strong>Refund</strong> on the
@@ -241,10 +295,10 @@ export default function TermsPage() {
 			<p>
 				<strong>Carry-over at renewal.</strong> When a paid renewal starts a new
 				billing cycle, allowance left unused in the cycle that ended is added to
-				the new cycle&rsquo;s allowance, up to 50% of the standard monthly
-				allowance of the tier the new cycle is billed at, including after a
-				scheduled upgrade or downgrade. The amount is recalculated at every
-				renewal from the allowance unused at that time, so carried-over
+				the new cycle&rsquo;s allowance, up to {rolloverPercent} of the standard
+				monthly allowance of the tier the new cycle is billed at, including
+				after a scheduled upgrade or downgrade. The amount is recalculated at
+				every renewal from the allowance unused at that time, so carried-over
 				allowance never exceeds that limit and anything above it expires.
 				Carried-over allowance has no cash value, is not refundable or
 				transferable, and is forfeited when your subscription ends or is
@@ -270,46 +324,14 @@ export default function TermsPage() {
 						</tr>
 					</thead>
 					<tbody>
-						<tr>
-							<th scope="row">
-								Standard monthly allowance (provider-rate usage)
-							</th>
-							<td>$58</td>
-							<td>$158</td>
-							<td>$358</td>
-						</tr>
-						<tr>
-							<th scope="row">Maximum carry-over at renewal (50%)</th>
-							<td>$29</td>
-							<td>$79</td>
-							<td>$179</td>
-						</tr>
-						<tr>
-							<th scope="row">
-								Daily cap across all models (rolling 24 hours)
-							</th>
-							<td>8%</td>
-							<td>9%</td>
-							<td>10%</td>
-						</tr>
-						<tr>
-							<th scope="row">Premium weekly cap</th>
-							<td>10%</td>
-							<td>12%</td>
-							<td>15%</td>
-						</tr>
-						<tr>
-							<th scope="row">Price per Reset Pass</th>
-							<td>$5</td>
-							<td>$15</td>
-							<td>$45</td>
-						</tr>
-						<tr>
-							<th scope="row">Included Reset Passes per billing cycle</th>
-							<td>0</td>
-							<td>0</td>
-							<td>2</td>
-						</tr>
+						{allowanceRows.map((row) => (
+							<tr key={row.label}>
+								<th scope="row">{row.label}</th>
+								{row.values.map((value, index) => (
+									<td key={TIERS[index]}>{value}</td>
+								))}
+							</tr>
+						))}
 					</tbody>
 				</table>
 			</div>

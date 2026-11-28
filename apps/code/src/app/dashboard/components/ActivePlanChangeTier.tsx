@@ -527,9 +527,10 @@ function TierChangePreviewCopy({
 			current billing period, when you&apos;ll move to {plan.name} ($
 			{plan.price}/mo, ${plan.usage} in usage) at your next renewal, with up to{" "}
 			{renewalCarryOverCap(plan)} of what you haven&apos;t used carried over.
-			The downgrade only takes effect at renewal, and until then you won&apos;t
-			be able to upgrade or change your plan. No refund is issued for the
-			current period and no charge is due today.
+			The downgrade only takes effect at renewal. Until then you can still
+			upgrade immediately, which replaces the scheduled change, or cancel the
+			scheduled downgrade. No refund is issued for the current period and no
+			charge is due today.
 		</span>
 	);
 }

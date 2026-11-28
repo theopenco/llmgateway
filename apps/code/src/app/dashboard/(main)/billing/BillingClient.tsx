@@ -11,7 +11,10 @@ import { toast } from "sonner";
 
 import { usePlans } from "@/app/dashboard/plans";
 import { CHANGE_PLAN_SECTION_ID } from "@/app/dashboard/types";
-import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
+import {
+	invalidateDevPlanStatus,
+	useDevPlanStatus,
+} from "@/app/dashboard/useDevPlanStatus";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAppConfig } from "@/lib/config";
@@ -33,6 +36,12 @@ import type { paths } from "@/lib/api/v1";
 
 type PaymentMethod =
 	paths["/dev-plans/payment-method"]["get"]["responses"]["200"]["content"]["application/json"];
+
+function errorMessage(error: unknown): string | undefined {
+	return error && typeof error === "object" && "message" in error
+		? String((error as { message: unknown }).message)
+		: undefined;
+}
 
 const ActivePlanChangeTier = dynamic(
 	() => import("@/app/dashboard/components/ActivePlanChangeTier"),
@@ -120,13 +129,7 @@ export default function BillingClient({
 			},
 		});
 
-	const invalidateStatus = () =>
-		queryClient.invalidateQueries({
-			predicate: (query) => {
-				const key = query.queryKey;
-				return Array.isArray(key) && key[1] === "/dev-plans/status";
-			},
-		});
+	const invalidateStatus = () => invalidateDevPlanStatus(queryClient);
 
 	const cancelMutation = api.useMutation("post", "/dev-plans/cancel");
 	const resumeMutation = api.useMutation("post", "/dev-plans/resume");
@@ -232,12 +235,8 @@ export default function BillingClient({
 					: "Plan updated",
 			);
 		} catch (error) {
-			const message =
-				error && typeof error === "object" && "message" in error
-					? String((error as { message: unknown }).message)
-					: undefined;
 			toast.error("Failed to change plan", {
-				description: message,
+				description: errorMessage(error),
 			});
 		} finally {
 			setSubscribingTier(null);
@@ -251,12 +250,8 @@ export default function BillingClient({
 			await invalidateStatus();
 			toast.success("Scheduled plan change cancelled");
 		} catch (error) {
-			const message =
-				error && typeof error === "object" && "message" in error
-					? String((error as { message: unknown }).message)
-					: undefined;
 			toast.error("Failed to cancel plan change", {
-				description: message,
+				description: errorMessage(error),
 			});
 		} finally {
 			setIsCancellingDowngrade(false);
@@ -278,12 +273,8 @@ export default function BillingClient({
 				{ description: "You keep your current allowance until then." },
 			);
 		} catch (error) {
-			const message =
-				error && typeof error === "object" && "message" in error
-					? String((error as { message: unknown }).message)
-					: undefined;
 			toast.error("Failed to change plan", {
-				description: message,
+				description: errorMessage(error),
 			});
 		} finally {
 			setSubscribingTier(null);

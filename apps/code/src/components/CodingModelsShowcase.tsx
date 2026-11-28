@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 
@@ -38,9 +39,6 @@ function formatPrice(price: number): string {
 	const perMillion = price * 1e6;
 	if (perMillion < 0.01) {
 		return perMillion.toFixed(4);
-	}
-	if (perMillion < 1) {
-		return perMillion.toFixed(2);
 	}
 	return perMillion.toFixed(2);
 }
@@ -103,7 +101,12 @@ export function CodingModelsShowcase({
 	});
 
 	const copyToClipboard = async (modelId: string) => {
-		await navigator.clipboard.writeText(modelId);
+		try {
+			await navigator.clipboard.writeText(modelId);
+		} catch {
+			toast.error("Could not copy model ID");
+			return;
+		}
 		setCopiedModel(modelId);
 		setTimeout(() => setCopiedModel(null), 2000);
 	};

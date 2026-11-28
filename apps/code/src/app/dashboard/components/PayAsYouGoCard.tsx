@@ -6,6 +6,7 @@ import { usePostHog } from "posthog-js/react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { invalidateDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -30,18 +31,6 @@ interface PayAsYouGoCardProps {
 }
 
 const PRESET_AMOUNTS = [10, 25, 50, 100];
-
-async function invalidateDevPlanStatus(
-	queryClient: ReturnType<typeof useQueryClient>,
-) {
-	await queryClient.invalidateQueries({
-		predicate: (query) => {
-			const key = query.queryKey;
-			return Array.isArray(key) && key[1] === "/dev-plans/status";
-		},
-	});
-}
-
 // Pay-as-you-go overflow: the visa-page "border crossing" that keeps a
 // traveler moving once the plan allowance runs out. Opt-in on purpose —
 // a plan is a hard cap until the user says otherwise.

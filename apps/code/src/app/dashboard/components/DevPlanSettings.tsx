@@ -1,8 +1,10 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { invalidateDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
 import { Label } from "@/components/ui/label";
 import {
 	Select,
@@ -82,6 +84,7 @@ export default function DevPlanSettings({
 	zeroDataRetentionEnabled,
 }: DevPlanSettingsProps) {
 	const api = useApi();
+	const queryClient = useQueryClient();
 
 	const [routingStrategy, setRoutingStrategy] = useState<RoutingStrategy>(
 		initialRoutingStrategy,
@@ -121,6 +124,7 @@ export default function DevPlanSettings({
 			await updateSettingsMutation.mutateAsync({
 				body: { defaultRoutingStrategy: strategy },
 			});
+			await invalidateDevPlanStatus(queryClient);
 			toast.success("Routing strategy updated");
 		} catch {
 			setRoutingStrategy(previous);
@@ -138,6 +142,7 @@ export default function DevPlanSettings({
 			await updateSettingsMutation.mutateAsync({
 				body: { blockApiTraining: enabled },
 			});
+			await invalidateDevPlanStatus(queryClient);
 			toast.success(
 				enabled ? "No-training routing enabled" : "Standard routing enabled",
 			);
@@ -161,6 +166,7 @@ export default function DevPlanSettings({
 			await updateSettingsMutation.mutateAsync({
 				body: { devPlanServiceTier: tier },
 			});
+			await invalidateDevPlanStatus(queryClient);
 			toast.success(
 				tier === "flex"
 					? "Requests default to flex processing"
@@ -186,6 +192,7 @@ export default function DevPlanSettings({
 			await updateSettingsMutation.mutateAsync({
 				body: { providerCacheControlMode: option.value },
 			});
+			await invalidateDevPlanStatus(queryClient);
 			toast.success(option.toast);
 		} catch {
 			setProviderCacheControlMode(previous);
@@ -209,6 +216,7 @@ export default function DevPlanSettings({
 			await updateSettingsMutation.mutateAsync({
 				body: { providerCacheAutoTtl: option.value },
 			});
+			await invalidateDevPlanStatus(queryClient);
 			toast.success("Automatic cache duration updated");
 		} catch {
 			setProviderCacheAutoTtl(previous);

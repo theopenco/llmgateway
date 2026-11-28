@@ -1,21 +1,13 @@
 import Link from "next/link";
 
 import {
-	AGENTS,
+	agentForSource,
 	formatTokens,
-	type AgentDefinition,
 } from "@/app/dashboard/components/coding-agents-shared";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { LeaderboardEntry } from "@/lib/leaderboard";
-
-const AGENT_BY_SOURCE = new Map<string, AgentDefinition>();
-for (const agent of AGENTS) {
-	for (const source of agent.sources) {
-		AGENT_BY_SOURCE.set(source.toLowerCase(), agent);
-	}
-}
 
 function initials(name: string | null, username: string): string {
 	const source = name?.trim() || username;
@@ -41,9 +33,7 @@ function rankAccent(rank: number): string {
 
 function LeaderboardRow({ entry }: { entry: LeaderboardEntry }) {
 	const displayName = entry.name?.trim() || entry.username;
-	const agent = entry.topAgent
-		? AGENT_BY_SOURCE.get(entry.topAgent.toLowerCase())
-		: undefined;
+	const agent = entry.topAgent ? agentForSource(entry.topAgent) : undefined;
 	const AgentIcon = agent?.icon;
 	const isTop = entry.rank <= 3;
 
