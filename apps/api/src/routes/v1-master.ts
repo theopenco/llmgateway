@@ -102,6 +102,7 @@ interface AuthenticatedMasterKey {
 	id: string;
 	organizationId: string;
 	createdBy: string;
+	issuerRole: "owner" | "admin";
 }
 
 declare module "hono" {
@@ -155,10 +156,27 @@ v1Master.use("*", async (c, next) => {
 		});
 	}
 
+	// Issuing requires owner or admin (master-keys.ts); revoke on demotion.
+	const issuer = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: row.createdBy },
+			organizationId: { eq: row.organizationId },
+		},
+		columns: { role: true },
+	});
+
+	if (!issuer || (issuer.role !== "owner" && issuer.role !== "admin")) {
+		throw new HTTPException(403, {
+			message:
+				"Master key issuer is no longer an owner or admin of this organization",
+		});
+	}
+
 	c.set("masterKey", {
 		id: row.id,
 		organizationId: row.organizationId,
 		createdBy: row.createdBy,
+		issuerRole: issuer.role,
 	});
 
 	void db
@@ -1336,6 +1354,18 @@ async function loadMemberForOrg(memberRef: string, organizationId: string) {
 	return membership;
 }
 
+// Mirror requireMemberIamAccess (team.ts): admins cannot touch owner IAM rules.
+function assertIssuerCanManageMember(
+	masterKey: AuthenticatedMasterKey,
+	membership: { role: string },
+) {
+	if (masterKey.issuerRole === "admin" && membership.role === "owner") {
+		throw new HTTPException(403, {
+			message: "Admin-issued master keys cannot access owner IAM rules",
+		});
+	}
+}
+
 const memberParamDescription =
 	"Member reference: a membership id or the member's email address";
 
@@ -1378,6 +1408,7 @@ v1Master.openapi(createMemberIamRule, async (c) => {
 	validateIamRuleInput(ruleData);
 
 	const membership = await loadMemberForOrg(member, masterKey.organizationId);
+	assertIssuerCanManageMember(masterKey, membership);
 
 	const [rule] = await cdb
 		.insert(tables.userIamRule)
@@ -1436,6 +1467,7 @@ v1Master.openapi(listMemberIamRules, async (c) => {
 	const { member } = c.req.param();
 
 	const membership = await loadMemberForOrg(member, masterKey.organizationId);
+	assertIssuerCanManageMember(masterKey, membership);
 
 	const rules = await db.query.userIamRule.findMany({
 		where: { userOrganizationId: { eq: membership.id } },
@@ -1482,6 +1514,7 @@ v1Master.openapi(updateMemberIamRule, async (c) => {
 	const updates = c.req.valid("json");
 
 	const membership = await loadMemberForOrg(member, masterKey.organizationId);
+	assertIssuerCanManageMember(masterKey, membership);
 
 	const existingRule = await db.query.userIamRule.findFirst({
 		where: { id: { eq: ruleId }, userOrganizationId: { eq: membership.id } },
@@ -1563,6 +1596,7 @@ v1Master.openapi(deleteMemberIamRule, async (c) => {
 	const { member, ruleId } = c.req.param();
 
 	const membership = await loadMemberForOrg(member, masterKey.organizationId);
+	assertIssuerCanManageMember(masterKey, membership);
 
 	const existingRule = await db.query.userIamRule.findFirst({
 		where: { id: { eq: ruleId }, userOrganizationId: { eq: membership.id } },

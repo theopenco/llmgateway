@@ -24,6 +24,7 @@ export type {
 
 export { systemRules, presetTopics } from "./rules/index.js";
 export { systemRuleCatalog } from "./catalog.js";
+export { userRegexError } from "./rules/safe-regex.js";
 
 // Re-export db types for convenience
 export type {

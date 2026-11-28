@@ -574,7 +574,7 @@ describe("API key compliance policies", () => {
 		).toBeNull();
 	});
 	test.each(["developer", "project_admin", "removed"] as const)(
-		"master issuer %s cannot change compliance after losing admin access",
+		"master issuer %s cannot change keys after losing admin access",
 		async (role) => {
 			await update(policy);
 			const token = `mk-${crypto.randomUUID()}`;
@@ -629,7 +629,7 @@ describe("API key compliance policies", () => {
 						description: "Unrelated token operation",
 					})
 				).status,
-			).toBe(200);
+			).toBe(403);
 			expect(
 				(await db.query.apiKey.findFirst({ where: { id: keyId } }))
 					?.providerCompliancePolicy,

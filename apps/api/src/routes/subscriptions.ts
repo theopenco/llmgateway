@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { getBillingOrganization } from "@/lib/billing-organization.js";
+import { requirePriceId } from "@/lib/required-price-id.js";
 import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 import { createRoute } from "@/utils/create-route.js";
@@ -97,23 +98,17 @@ subscriptions.openapi(createProSubscription, async (c) => {
 		});
 	}
 
+	const priceId = requirePriceId(
+		billingCycle === "yearly"
+			? "STRIPE_PRO_YEARLY_PRICE_ID"
+			: "STRIPE_PRO_MONTHLY_PRICE_ID",
+	);
+
+	let session;
 	try {
 		const stripeCustomerId = await ensureStripeCustomer(organization.id);
 
-		// Determine which price ID to use based on billing cycle
-		const priceId =
-			billingCycle === "yearly"
-				? process.env.STRIPE_PRO_YEARLY_PRICE_ID
-				: process.env.STRIPE_PRO_MONTHLY_PRICE_ID;
-
-		if (!priceId) {
-			throw new HTTPException(500, {
-				message: `STRIPE_PRO_${billingCycle === "yearly" ? "YEARLY_" : "MONTHLY_"}PRICE_ID environment variable is not set`,
-			});
-		}
-
-		// Create Stripe Checkout session
-		const session = await getStripe().checkout.sessions.create({
+		session = await getStripe().checkout.sessions.create({
 			customer: stripeCustomerId,
 			mode: "subscription",
 			line_items: [
@@ -141,35 +136,35 @@ subscriptions.openapi(createProSubscription, async (c) => {
 				},
 			},
 		});
-
-		if (!session.url) {
-			throw new HTTPException(500, {
-				message: "Failed to generate checkout URL",
-			});
-		}
-
-		await logAuditEvent({
-			organizationId: organization.id,
-			userId: user.id,
-			action: "subscription.create",
-			resourceType: "subscription",
-			metadata: {
-				billingCycle,
-			},
-		});
-
-		return c.json({
-			checkoutUrl: session.url,
-		});
 	} catch (error) {
 		logger.error(
 			"Stripe checkout session error",
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		throw new HTTPException(500, {
-			message: `Failed to create checkout session: ${error}`,
+			message: "Failed to create checkout session",
 		});
 	}
+
+	if (!session.url) {
+		throw new HTTPException(500, {
+			message: "Failed to generate checkout URL",
+		});
+	}
+
+	await logAuditEvent({
+		organizationId: organization.id,
+		userId: user.id,
+		action: "subscription.create",
+		resourceType: "subscription",
+		metadata: {
+			billingCycle,
+		},
+	});
+
+	return c.json({
+		checkoutUrl: session.url,
+	});
 });
 
 const cancelProSubscription = createRoute({

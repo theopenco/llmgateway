@@ -73,6 +73,7 @@ import {
 	releaseVideoSubmission,
 	reserveVideoSubmission,
 } from "@/lib/video-submission-reservation.js";
+import { upstreamUrlForLog } from "@/videos/upstream-url-for-log.js";
 import {
 	inlineVideoResponse,
 	videoProxyResponse,
@@ -3595,7 +3596,7 @@ async function fetchUpstreamJson(
 				? body.error.message
 				: `Upstream provider error (${response.status})`;
 		logger.warn("Upstream video request failed", {
-			url,
+			url: upstreamUrlForLog(url),
 			status: response.status,
 			body,
 		});
@@ -3614,7 +3615,7 @@ async function fetchUpstreamJson(
 
 	if (upstreamApplicationError) {
 		logger.warn("Upstream video request returned an application error", {
-			url,
+			url: upstreamUrlForLog(url),
 			status: upstreamApplicationError.status,
 			body,
 		});

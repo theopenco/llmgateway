@@ -19,6 +19,7 @@ import {
 	hasRefundAction,
 	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
+import { assertSsoDomainsUnclaimed } from "@/lib/sso-domains.js";
 import {
 	getUserProjectIds,
 	getAdminOrganizationIds,
@@ -893,6 +894,7 @@ organization.openapi(updateOrganization, async (c) => {
 						"Invalid or disallowed domain. Use a corporate domain like acme.com (consumer email domains are not allowed).",
 				});
 			}
+			await assertSsoDomainsUnclaimed([normalized], id);
 			normalizedSsoDomain = normalized;
 		}
 	}

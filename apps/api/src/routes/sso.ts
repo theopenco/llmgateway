@@ -6,10 +6,15 @@ import { z } from "zod";
 import { apiAuth } from "@/auth/config.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
 import { getOrgProjectsOldestFirst } from "@/lib/sso-default-projects.js";
-import { normalizeSsoDomains } from "@/lib/sso-domains.js";
+import {
+	assertSsoDomainsUnclaimed,
+	isPublicSuffix,
+	normalizeSsoDomains,
+} from "@/lib/sso-domains.js";
 import { recomputeRoleForGroupName } from "@/lib/sso-roles.js";
 import { recomputeTeamForGroupName } from "@/lib/sso-teams.js";
 import { createRoute } from "@/utils/create-route.js";
+import { CONSUMER_EMAIL_DOMAINS } from "@/utils/sso-domain.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { and, db, eq, isNull, shortid, tables } from "@llmgateway/db";
@@ -210,6 +215,18 @@ function parseDomainsOrThrow(input: string): string {
 			message: "At least one email domain is required",
 		});
 	}
+	const consumer = domains.filter((d) => CONSUMER_EMAIL_DOMAINS.has(d));
+	if (consumer.length > 0) {
+		throw new HTTPException(400, {
+			message: `Public email domain(s) cannot be used for SSO: ${consumer.join(", ")}`,
+		});
+	}
+	const publicSuffixes = domains.filter(isPublicSuffix);
+	if (publicSuffixes.length > 0) {
+		throw new HTTPException(400, {
+			message: `Public suffix domain(s) cannot be used for SSO: ${publicSuffixes.join(", ")}`,
+		});
+	}
 	return domains.join(",");
 }
 
@@ -332,6 +349,7 @@ sso.openapi(register, async (c) => {
 	await assertEnterpriseOrgAccess(user.id, organizationId);
 
 	const normalizedDomain = parseDomainsOrThrow(domain);
+	await assertSsoDomainsUnclaimed(normalizedDomain.split(","), organizationId);
 
 	// One SSO connection per organization: reject a second registration so the
 	// slug stays a stable, single identifier for the org's IdP.
@@ -634,6 +652,12 @@ sso.openapi(updateProvider, async (c) => {
 	});
 	if (!current) {
 		throw new HTTPException(404, { message: "SSO provider not found" });
+	}
+	if (normalizedDomain !== undefined) {
+		await assertSsoDomainsUnclaimed(
+			normalizedDomain.split(","),
+			organizationId,
+		);
 	}
 
 	const [provider] = await db

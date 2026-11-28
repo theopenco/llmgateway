@@ -1247,4 +1247,74 @@ describe("organization route", () => {
 			expect(response.status).toBe(403);
 		});
 	});
+
+	describe("SSO auto-join domain", () => {
+		const OTHER_ORG_ID = "auto-join-claim-other-org";
+
+		beforeEach(async () => {
+			await db
+				.update(tables.organization)
+				.set({ plan: "enterprise" })
+				.where(eq(tables.organization.id, "test-org-id"));
+			await db.insert(tables.organization).values({
+				id: OTHER_ORG_ID,
+				name: "Other Auto-Join Org",
+				billingEmail: "other-auto-join@example.com",
+				plan: "enterprise",
+			});
+			await db.insert(tables.ssoProvider).values({
+				issuer: "https://idp.example.org",
+				domain: "victim.example.org",
+				providerId: "auto-join-claim-other",
+				organizationId: OTHER_ORG_ID,
+				enforced: true,
+				domainVerified: true,
+			});
+		});
+
+		const patchAutoJoin = async (ssoAutoJoinDomain: string) =>
+			await app.request("/orgs/test-org-id", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify({ ssoAutoJoinDomain }),
+			});
+
+		const storedAutoJoinDomain = async () =>
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: "test-org-id" } },
+					columns: { ssoAutoJoinDomain: true },
+				})
+			)?.ssoAutoJoinDomain;
+
+		test.each(["victim.example.org", "example.org", "eu.victim.example.org"])(
+			"rejects a domain overlapping another organization's SSO domain (%s)",
+			async (domain) => {
+				expect((await patchAutoJoin(domain)).status).toBe(409);
+				expect(await storedAutoJoinDomain()).toBeNull();
+			},
+		);
+
+		test.each(["co.uk", "github.io"])(
+			"rejects a public suffix (%s)",
+			async (domain) => {
+				expect((await patchAutoJoin(domain)).status).toBe(400);
+			},
+		);
+
+		test("accepts a claim held only by a deleted organization", async () => {
+			await db
+				.update(tables.organization)
+				.set({ status: "deleted" })
+				.where(eq(tables.organization.id, OTHER_ORG_ID));
+
+			expect((await patchAutoJoin("victim.example.org")).status).toBe(200);
+			expect(await storedAutoJoinDomain()).toBe("victim.example.org");
+		});
+
+		test("accepts an unrelated corporate domain", async () => {
+			expect((await patchAutoJoin("acme.example.com")).status).toBe(200);
+			expect(await storedAutoJoinDomain()).toBe("acme.example.com");
+		});
+	});
 });

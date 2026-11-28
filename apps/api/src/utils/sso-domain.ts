@@ -4,6 +4,7 @@ import {
 } from "@/lib/enterprise-seats.js";
 import { licenseSeatDetail, notifyOrgLimit } from "@/lib/org-limit-alerts.js";
 import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
+import { isPublicSuffix } from "@/lib/sso-domains.js";
 import { recomputeUserTeam } from "@/lib/sso-teams.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -55,10 +56,14 @@ export function extractEmailDomain(email: string): string | null {
 
 /**
  * Whether a normalized domain may be configured for SSO auto-join: well-formed
- * and not a known consumer email provider.
+ * and not a consumer email provider or public suffix.
  */
 export function isConfigurableDomain(domain: string): boolean {
-	return DOMAIN_PATTERN.test(domain) && !CONSUMER_EMAIL_DOMAINS.has(domain);
+	return (
+		DOMAIN_PATTERN.test(domain) &&
+		!CONSUMER_EMAIL_DOMAINS.has(domain) &&
+		!isPublicSuffix(domain)
+	);
 }
 
 interface AutoJoinParams {
