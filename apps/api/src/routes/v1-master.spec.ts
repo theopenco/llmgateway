@@ -157,6 +157,63 @@ describe("v1/master cache invalidation", () => {
 		expect(res.status).toBe(200);
 	});
 
+	test.each(["removed", "demoted"] as const)(
+		"rejects keys whose issuer was %s from the organization",
+		async (change) => {
+			if (change === "removed") {
+				await db
+					.delete(tables.userOrganization)
+					.where(eq(tables.userOrganization.id, "test-user-org-id"));
+			} else {
+				await db
+					.update(tables.userOrganization)
+					.set({ role: "developer" })
+					.where(eq(tables.userOrganization.id, "test-user-org-id"));
+			}
+			const jsonHeaders = authHeaders({ "Content-Type": "application/json" });
+
+			const create = await app.request("/v1/master/projects", {
+				method: "POST",
+				headers: jsonHeaders,
+				body: JSON.stringify({ name: "Issuer Gone" }),
+			});
+			expect(create.status).toBe(403);
+
+			const update = await app.request("/v1/master/projects/test-project-id", {
+				method: "PATCH",
+				headers: jsonHeaders,
+				body: JSON.stringify({ name: "Renamed" }),
+			});
+			expect(update.status).toBe(403);
+
+			const remove = await app.request("/v1/master/projects/test-project-id", {
+				method: "DELETE",
+				headers: authHeaders(),
+			});
+			expect(remove.status).toBe(403);
+
+			const keyUpdate = await app.request("/v1/master/keys/test-api-key-id", {
+				method: "PATCH",
+				headers: jsonHeaders,
+				body: JSON.stringify({ description: "Renamed" }),
+			});
+			expect(keyUpdate.status).toBe(403);
+
+			const projects = await db.query.project.findMany({
+				where: { organizationId: { eq: "test-org-id" } },
+			});
+			expect(projects).toHaveLength(1);
+			expect(projects[0]).toMatchObject({
+				name: "Test Project",
+				status: "active",
+			});
+			const apiKey = await db.query.apiKey.findFirst({
+				where: { id: { eq: "test-api-key-id" } },
+			});
+			expect(apiKey?.description).toBe("Test API Key");
+		},
+	);
+
 	test("GET /keys hides playground session keys", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "playground-session-key",

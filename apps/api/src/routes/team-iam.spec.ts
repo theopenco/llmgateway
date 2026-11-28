@@ -463,6 +463,12 @@ describe("master key member IAM rules", () => {
 			autoTopUpThreshold: "10",
 			autoTopUpAmount: "10",
 		});
+		await db.insert(tables.userOrganization).values({
+			id: "other-master-org-owner",
+			userId: "test-user-id",
+			organizationId: "other-master-org",
+			role: "owner",
+		});
 		const otherToken = `mk-${crypto.randomUUID()}`;
 		await db.insert(tables.masterKey).values({
 			id: "other-master-key-id",
