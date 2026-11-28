@@ -50,7 +50,6 @@ async function pingApi(): Promise<void> {
 			"INSERT INTO responses (timestamp, status_code, duration_ms, response_payload) VALUES (?, ?, ?, ?)",
 			[timestamp, response.status, duration, payload]
 		);
-		saveDb();
 		console.log(
 			`[${timestamp}] Status: ${response.status}, Duration: ${duration.toFixed(2)}ms`
 		);
@@ -63,7 +62,6 @@ async function pingApi(): Promise<void> {
 			"INSERT INTO responses (timestamp, status_code, duration_ms, response_payload) VALUES (?, ?, ?, ?)",
 			[timestamp, 0, duration, JSON.stringify({ error: errorMessage })]
 		);
-		saveDb();
 		console.log(
 			`[${timestamp}] Error: ${errorMessage}, Duration: ${duration.toFixed(2)}ms`
 		);
@@ -79,6 +77,11 @@ async function main(): Promise<void> {
 
 	await pingApi();
 	setInterval(pingApi, INTERVAL_MS);
+	setInterval(saveDb, 30_000);
+	process.on("SIGINT", () => {
+		saveDb();
+		process.exit(0);
+	});
 }
 
 void main();

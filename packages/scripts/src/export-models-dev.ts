@@ -26,6 +26,11 @@ import { fileURLToPath } from "url";
 
 import { models, type ModelDefinition } from "@llmgateway/models";
 
+function formatCost(n: number): string {
+	const [integer, decimals = ""] = n.toFixed(6).replace(/0+$/, "").split(".");
+	return `${integer}.${decimals.padEnd(2, "0")}`;
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -237,9 +242,9 @@ function generateModelToml(model: ModelDefinition): string | null {
 		open_weights: isOpenWeights(model.id, model.family),
 		status,
 		cost: {
-			input: Math.round(inputCost * 100) / 100,
-			output: Math.round(outputCost * 100) / 100,
-			cache_read: cacheReadCost ? Math.round(cacheReadCost * 100) / 100 : undefined,
+			input: Number(inputCost.toFixed(6)),
+			output: Number(outputCost.toFixed(6)),
+			cache_read: cacheReadCost ? Number(cacheReadCost.toFixed(6)) : undefined,
 		},
 		limit: {
 			context: activeProvider.contextSize ?? 128000,
@@ -275,10 +280,10 @@ function generateModelToml(model: ModelDefinition): string | null {
 
 	// Cost section
 	lines.push("[cost]");
-	lines.push(`input = ${modelData.cost.input.toFixed(2)}`);
-	lines.push(`output = ${modelData.cost.output.toFixed(2)}`);
+	lines.push(`input = ${formatCost(modelData.cost.input)}`);
+	lines.push(`output = ${formatCost(modelData.cost.output)}`);
 	if (modelData.cost.cache_read !== undefined) {
-		lines.push(`cache_read = ${modelData.cost.cache_read.toFixed(2)}`);
+		lines.push(`cache_read = ${formatCost(modelData.cost.cache_read)}`);
 	}
 	lines.push("");
 

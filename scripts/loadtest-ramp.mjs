@@ -16,7 +16,11 @@ if (!API_KEY) {
 
 const RATE = Number(process.env.RATE) || 100; // target (peak) requests per second
 const DURATION_SEC = Number(process.env.DURATION_SEC) || 60; // hold time at peak
-const WARMUP_SEC = Number(process.env.WARMUP_SEC) || 60; // linear ramp duration
+const warmupRaw = process.env.WARMUP_SEC?.trim();
+const WARMUP_SEC =
+	warmupRaw && Number.isFinite(Number(warmupRaw)) && Number(warmupRaw) >= 0
+		? Number(warmupRaw)
+		: 60; // linear ramp duration
 
 const payload = {
 	model: MODEL,
