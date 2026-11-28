@@ -110,7 +110,7 @@ function isRenderableSpec(value: unknown): value is Spec {
 	);
 }
 
-const DEFAULT_CANVAS_MODEL = "anthropic/claude-sonnet-4-20250514";
+const DEFAULT_CANVAS_MODEL = "anthropic/claude-sonnet-5-5";
 
 const EMPTY_SPEC_JSON = JSON.stringify(emptySpec, null, 2);
 const EMPTY_SPEC_COMPACT_JSON = JSON.stringify(emptySpec);
