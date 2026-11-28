@@ -46,12 +46,18 @@ export interface CodingSandbox {
 
 function codingTests(context: BenchmarkRunContext): CodingTestCase[] {
 	const offset = context.seed % 17;
-	return [
-		{ input: [1, 2, 3], expected: 14 + offset },
-		{ input: [-2, 5], expected: 21 + offset },
-		{ input: [10], expected: 30 + offset },
-		{ input: [], expected: offset },
-	];
+	const expected = (values: number[]) => {
+		let total = offset;
+		for (const [index, value] of values.entries()) {
+			const weighted = value * (index + 1);
+			total += weighted;
+		}
+		return total;
+	};
+	return [[1, 2, 3], [-2, 5], [10], []].map((input) => ({
+		input,
+		expected: expected(input),
+	}));
 }
 
 export function createSandboxedCodingCase(

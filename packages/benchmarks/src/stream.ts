@@ -378,7 +378,10 @@ export async function executeStreamingRequest({
 			consumeLine(line);
 		}
 	} catch (error) {
-		streamError = { code: "stream_read_error", message: errorMessage(error) };
+		streamError = {
+			code: error instanceof DOMException ? error.name : "stream_read_error",
+			message: errorMessage(error),
+		};
 	}
 
 	const usage = createUsage(usageRaw);
