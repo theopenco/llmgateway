@@ -111,6 +111,7 @@ export default function ResetPassCard({
 	const [stampOverlay, setStampOverlay] = useState<
 		{ kind: "redeemed" } | { kind: "purchased"; amount: number } | null
 	>(null);
+	const [purchaseId, setPurchaseId] = useState(() => crypto.randomUUID());
 	const reduceMotion = useReducedMotion();
 
 	const available = includedRemaining + purchased;
@@ -344,7 +345,13 @@ export default function ResetPassCard({
 							</Button>
 						)}
 						{price !== null && !purchaseBlocked && (
-							<AlertDialog>
+							<AlertDialog
+								onOpenChange={(open) => {
+									if (open) {
+										setPurchaseId(crypto.randomUUID());
+									}
+								}}
+							>
 								<AlertDialogTrigger asChild>
 									<Button
 										size="sm"
@@ -372,7 +379,9 @@ export default function ResetPassCard({
 									<AlertDialogFooter>
 										<AlertDialogCancel>Not now</AlertDialogCancel>
 										<AlertDialogAction
-											onClick={() => purchaseMutation.mutate({})}
+											onClick={() =>
+												purchaseMutation.mutate({ body: { purchaseId } })
+											}
 										>
 											Charge ${price}
 										</AlertDialogAction>
