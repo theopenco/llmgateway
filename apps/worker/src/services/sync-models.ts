@@ -7,11 +7,9 @@ import {
 	model,
 	modelProviderMapping,
 	providerDraftModel,
-	log,
 	eq,
 	and,
 	sql,
-	isNotNull,
 	isNull,
 	notInArray,
 } from "@llmgateway/db";
@@ -341,121 +339,14 @@ export async function syncProvidersAndModels() {
 
 		logger.info(`Synced ${models.length} models`);
 
-		const mappingCount = await database.select().from(modelProviderMapping);
-		logger.info(`Total model-provider mappings: ${mappingCount.length}`);
+		const [{ count }] = await database
+			.select({ count: sql<number>`count(*)::int` })
+			.from(modelProviderMapping);
+		logger.info(`Total model-provider mappings: ${count}`);
 
 		logger.info("Providers and models sync completed successfully");
 	} catch (error) {
 		logger.error("Error syncing providers and models:", error as Error);
-		throw error;
-	}
-}
-
-export async function updateTimingAverages() {
-	logger.info("Starting timing averages update...");
-
-	try {
-		const database = db;
-		const usedModelWithRegionSql = sql<string>`split_part(${log.usedModel}, '/', 2)`;
-		const usedBaseModelSql = sql<string>`split_part(${usedModelWithRegionSql}, ':', 1)`;
-		const usedRegionSql = sql<
-			string | null
-		>`nullif(split_part(${usedModelWithRegionSql}, ':', 2), '')`;
-
-		// Update provider averages
-		const providerAverages = await database
-			.select({
-				providerId: log.usedProvider,
-				avgTimeToFirstToken: sql<number>`avg(${log.timeToFirstToken})`.as(
-					"avgTimeToFirstToken",
-				),
-				avgTimeToFirstReasoningToken:
-					sql<number>`avg(${log.timeToFirstReasoningToken})`.as(
-						"avgTimeToFirstReasoningToken",
-					),
-			})
-			.from(log)
-			.where(and(isNotNull(log.timeToFirstToken), eq(log.streamed, true)))
-			.groupBy(log.usedProvider);
-
-		for (const avg of providerAverages) {
-			await database
-				.update(provider)
-				.set({
-					avgTimeToFirstToken: avg.avgTimeToFirstToken,
-					avgTimeToFirstReasoningToken: avg.avgTimeToFirstReasoningToken,
-					statsUpdatedAt: new Date(),
-				})
-				.where(eq(provider.id, avg.providerId));
-		}
-
-		// Update model averages
-		const modelAverages = await database
-			.select({
-				modelId: usedBaseModelSql.as("modelId"),
-				avgTimeToFirstToken: sql<number>`avg(${log.timeToFirstToken})`.as(
-					"avgTimeToFirstToken",
-				),
-				avgTimeToFirstReasoningToken:
-					sql<number>`avg(${log.timeToFirstReasoningToken})`.as(
-						"avgTimeToFirstReasoningToken",
-					),
-			})
-			.from(log)
-			.where(and(isNotNull(log.timeToFirstToken), eq(log.streamed, true)))
-			.groupBy(usedBaseModelSql);
-
-		for (const avg of modelAverages) {
-			await database
-				.update(model)
-				.set({
-					avgTimeToFirstToken: avg.avgTimeToFirstToken,
-					avgTimeToFirstReasoningToken: avg.avgTimeToFirstReasoningToken,
-					statsUpdatedAt: new Date(),
-				})
-				.where(eq(model.id, avg.modelId));
-		}
-
-		// Update model-provider mapping averages
-		const mappingAverages = await database
-			.select({
-				modelId: usedBaseModelSql.as("modelId"),
-				providerId: log.usedProvider,
-				region: usedRegionSql.as("region"),
-				avgTimeToFirstToken: sql<number>`avg(${log.timeToFirstToken})`.as(
-					"avgTimeToFirstToken",
-				),
-				avgTimeToFirstReasoningToken:
-					sql<number>`avg(${log.timeToFirstReasoningToken})`.as(
-						"avgTimeToFirstReasoningToken",
-					),
-			})
-			.from(log)
-			.where(and(isNotNull(log.timeToFirstToken), eq(log.streamed, true)))
-			.groupBy(usedBaseModelSql, log.usedProvider, usedRegionSql);
-
-		for (const avg of mappingAverages) {
-			await database
-				.update(modelProviderMapping)
-				.set({
-					avgTimeToFirstToken: avg.avgTimeToFirstToken,
-					avgTimeToFirstReasoningToken: avg.avgTimeToFirstReasoningToken,
-					statsUpdatedAt: new Date(),
-				})
-				.where(
-					and(
-						eq(modelProviderMapping.modelId, avg.modelId),
-						eq(modelProviderMapping.providerId, avg.providerId),
-						avg.region
-							? eq(modelProviderMapping.region, avg.region)
-							: isNull(modelProviderMapping.region),
-					),
-				);
-		}
-
-		logger.info("Timing averages update completed successfully");
-	} catch (error) {
-		logger.error("Error updating timing averages:", error as Error);
 		throw error;
 	}
 }

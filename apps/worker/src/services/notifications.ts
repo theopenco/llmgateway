@@ -203,6 +203,11 @@ export async function processNotifications(now = new Date()): Promise<void> {
 			continue;
 		}
 		const scope = await getApiKeyScope(userId, projects);
+		const userProjects = new Map(
+			(
+				await db.query.project.findMany({ where: { id: { in: projects } } })
+			).map((p) => [p.id, p]),
+		);
 		const userPreferences = preferences.filter((p) => p.userId === userId);
 		const budget = userPreferences.find((p) => p.type === "budget");
 		if (budget) {
@@ -242,9 +247,7 @@ export async function processNotifications(now = new Date()): Promise<void> {
 					if (!isNearBudget(entry.usage, entry.limit, budget.budgetThreshold)) {
 						continue;
 					}
-					const project = await db.query.project.findFirst({
-						where: { id: key.projectId },
-					});
+					const project = userProjects.get(key.projectId);
 					if (!project) {
 						continue;
 					}
@@ -273,9 +276,7 @@ export async function processNotifications(now = new Date()): Promise<void> {
 			continue;
 		}
 		const projectNames = new Map(
-			(
-				await db.query.project.findMany({ where: { id: { in: projects } } })
-			).map((p) => [p.id, p.name]),
+			[...userProjects.values()].map((p) => [p.id, p.name]),
 		);
 		const model = sql<string>`split_part(split_part(${apiKeyHourlyModelStats.usedModel}, '/', 2), ':', 1)`;
 		const region = sql<string>`split_part(${apiKeyHourlyModelStats.usedModel}, ':', 2)`;
@@ -494,29 +495,60 @@ export async function deliverNotificationEmails(
 	// One email per recipient and category, so a scan that detects several
 	// events at once (e.g. right after opting in) does not flood the inbox.
 	const batches = new Map<string, { email: string; items: PendingItem[] }>();
+	const cached = <T>(
+		cache: Map<string, Promise<T>>,
+		key: string,
+		load: () => Promise<T>,
+	): Promise<T> => {
+		let value = cache.get(key);
+		if (!value) {
+			value = load();
+			cache.set(key, value);
+		}
+		return value;
+	};
+	const recipients = new Map<string, Promise<{ email: string } | undefined>>();
+	const suppressions = new Map<string, Promise<boolean>>();
+	const optOuts = new Map<string, Promise<boolean>>();
+	const emailPreferences = new Map<string, Promise<boolean>>();
+	const orgRecipients = new Map<string, Promise<boolean>>();
+	const scopes = new Map<string, ReturnType<typeof getApiKeyScope>>();
 	for (const item of pending) {
-		const recipient = await db.query.user.findFirst({
-			where: { id: item.userId, status: "active", emailVerified: true },
-		});
+		const recipient = await cached(
+			recipients,
+			item.userId,
+			async () =>
+				await db.query.user.findFirst({
+					where: { id: item.userId, status: "active", emailVerified: true },
+				}),
+		);
 		// The address, not the user, owns the suppression: unsubscribing from an
 		// inbox must stick even if the same person holds several accounts.
 		const suppressed = recipient
-			? await isEmailSuppressed(recipient.email, item.type)
+			? await cached(suppressions, `${recipient.email}:${item.type}`, () =>
+					isEmailSuppressed(recipient.email, item.type),
+				)
 			: false;
 		if (item.organizationId) {
+			const organizationId = item.organizationId;
 			// Org alerts: the org enabled email; recipients opt out via their own
 			// preference. Skips are final, so the row leaves the pending queue.
-			const optedOut = await db.query.notificationPreference.findFirst({
-				where: { userId: item.userId, type: item.type, email: false },
-			});
+			const optedOut = await cached(
+				optOuts,
+				`${item.userId}:${item.type}`,
+				async () =>
+					!!(await db.query.notificationPreference.findFirst({
+						where: { userId: item.userId, type: item.type, email: false },
+					})),
+			);
 			if (
 				!recipient ||
 				optedOut ||
 				suppressed ||
-				!(await isOrgAlertRecipient(
-					item.userId,
-					item.organizationId,
-					item.type,
+				!(await cached(
+					orgRecipients,
+					`${item.userId}:${organizationId}:${item.type}`,
+					() => isOrgAlertRecipient(item.userId, organizationId, item.type),
 				))
 			) {
 				await db
@@ -538,9 +570,14 @@ export async function deliverNotificationEmails(
 					.where(eq(notification.id, item.id));
 				continue;
 			}
-			const preference = await db.query.notificationPreference.findFirst({
-				where: { userId: item.userId, type: item.type, email: true },
-			});
+			const preference = await cached(
+				emailPreferences,
+				`${item.userId}:${item.type}`,
+				async () =>
+					!!(await db.query.notificationPreference.findFirst({
+						where: { userId: item.userId, type: item.type, email: true },
+					})),
+			);
 			if (!preference) {
 				continue;
 			}
@@ -548,9 +585,14 @@ export async function deliverNotificationEmails(
 			if (
 				item.type !== "model_price_change" &&
 				!canReadEvent(
-					await getApiKeyScope(
+					await cached(
+						scopes,
 						item.userId,
-						await getUserProjectIds(item.userId),
+						async () =>
+							await getApiKeyScope(
+								item.userId,
+								await getUserProjectIds(item.userId),
+							),
 					),
 					item,
 				)

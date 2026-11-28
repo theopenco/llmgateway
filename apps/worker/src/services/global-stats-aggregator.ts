@@ -45,6 +45,16 @@ const MAX_BUCKETS_PER_TICK =
 	Number(process.env.GLOBAL_STATS_MAX_BUCKETS_PER_TICK) || 100;
 
 const HOUR_MS = 60 * 60 * 1000;
+
+const UPSERT_CHUNK_SIZE = 500;
+
+function chunkRows<T>(rows: T[]): T[][] {
+	const chunks: T[][] = [];
+	for (let offset = 0; offset < rows.length; offset += UPSERT_CHUNK_SIZE) {
+		chunks.push(rows.slice(offset, offset + UPSERT_CHUNK_SIZE));
+	}
+	return chunks;
+}
 const DAY_MS = 24 * HOUR_MS;
 
 // Bucket size for the incremental walker. Defaults to 1 hour for production,
@@ -195,20 +205,22 @@ export async function aggregateWindowIntoStats(
 		.where(window)
 		.groupBy(log.usedModel, log.usedProvider, log.usedMode, ORG_KIND_SQL);
 
-	for (const row of modelRows) {
-		const { usedModel, usedProvider, usedMode, orgKind, ...stats } = row;
+	const modelValues = modelRows.map(
+		({ usedModel, usedProvider, usedMode, orgKind, ...stats }) => ({
+			...(hourly
+				? { hourTimestamp: sql`${bucketTimestamp}::timestamp` }
+				: { dayTimestamp: sql`${bucketTimestamp}::timestamp` }),
+			usedModel,
+			usedProvider,
+			usedMode,
+			orgKind,
+			...stats,
+		}),
+	);
+	for (const chunk of chunkRows(modelValues)) {
 		await database
 			.insert(modelTable)
-			.values({
-				...(hourly
-					? { hourTimestamp: sql`${bucketTimestamp}::timestamp` }
-					: { dayTimestamp: sql`${bucketTimestamp}::timestamp` }),
-				usedModel,
-				usedProvider,
-				usedMode,
-				orgKind,
-				...stats,
-			})
+			.values(chunk)
 			.onConflictDoUpdate({
 				target: [
 					modelTableTimestamp,
@@ -240,19 +252,21 @@ export async function aggregateWindowIntoStats(
 			ORG_KIND_SQL,
 		);
 
-	for (const row of sourceRows) {
-		const { source, usedMode, orgKind, ...stats } = row;
+	const sourceValues = sourceRows.map(
+		({ source, usedMode, orgKind, ...stats }) => ({
+			...(hourly
+				? { hourTimestamp: sql`${bucketTimestamp}::timestamp` }
+				: { dayTimestamp: sql`${bucketTimestamp}::timestamp` }),
+			source,
+			usedMode,
+			orgKind,
+			...stats,
+		}),
+	);
+	for (const chunk of chunkRows(sourceValues)) {
 		await database
 			.insert(sourceTable)
-			.values({
-				...(hourly
-					? { hourTimestamp: sql`${bucketTimestamp}::timestamp` }
-					: { dayTimestamp: sql`${bucketTimestamp}::timestamp` }),
-				source,
-				usedMode,
-				orgKind,
-				...stats,
-			})
+			.values(chunk)
 			.onConflictDoUpdate({
 				target: [
 					sourceTableTimestamp,
@@ -315,28 +329,30 @@ export async function aggregateProviderKeyWindowIntoStats(
 			ORG_KIND_SQL,
 		);
 
-	for (const row of providerKeyRows) {
-		const {
+	const keyValues = providerKeyRows.map(
+		({
 			providerKeyId,
 			usedModel,
 			usedProvider,
 			usedMode,
 			orgKind,
 			...stats
-		} = row;
+		}) => ({
+			...(hourly
+				? { hourTimestamp: sql`${bucketTimestamp}::timestamp` }
+				: { dayTimestamp: sql`${bucketTimestamp}::timestamp` }),
+			providerKeyId,
+			usedModel,
+			usedProvider,
+			usedMode,
+			orgKind,
+			...stats,
+		}),
+	);
+	for (const chunk of chunkRows(keyValues)) {
 		await database
 			.insert(keyTable)
-			.values({
-				...(hourly
-					? { hourTimestamp: sql`${bucketTimestamp}::timestamp` }
-					: { dayTimestamp: sql`${bucketTimestamp}::timestamp` }),
-				providerKeyId,
-				usedModel,
-				usedProvider,
-				usedMode,
-				orgKind,
-				...stats,
-			})
+			.values(chunk)
 			.onConflictDoUpdate({
 				target: [
 					keyTableTimestamp,

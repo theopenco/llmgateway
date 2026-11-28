@@ -654,9 +654,12 @@ export async function processNextModelVerification(
 				? checks.map((check) => ({
 						...check,
 						status: "skipped" as const,
-						feedback: infrastructureError
-							? "Operator gateway verification is currently unavailable."
-							: "Scheduled verification is currently unavailable.",
+						feedback:
+							infrastructureError instanceof AirsideGatewayInfrastructureError
+								? "Operator gateway verification is currently unavailable."
+								: infrastructureError
+									? feedback
+									: "Scheduled verification is currently unavailable.",
 					}))
 				: terminalChecks(checks, feedback);
 		const completed = await db

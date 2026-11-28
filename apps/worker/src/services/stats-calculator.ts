@@ -791,9 +791,10 @@ async function calculateModelHistoryForMinute(
 	const presentKeys = modelHistoryValues.map(
 		(row) => `${row.modelId}|${row.usedMode}`,
 	);
+	const presentKeySet = new Set(presentKeys);
 	if (
 		!minuteAlreadyWritten ||
-		[...(writeCache?.keys() ?? [])].some((key) => !presentKeys.includes(key))
+		[...(writeCache?.keys() ?? [])].some((key) => !presentKeySet.has(key))
 	) {
 		await database.delete(modelHistory).where(
 			and(
@@ -814,7 +815,7 @@ async function calculateModelHistoryForMinute(
 	}
 	if (writeCache) {
 		for (const key of writeCache.keys()) {
-			if (!presentKeys.includes(key)) {
+			if (!presentKeySet.has(key)) {
 				writeCache.delete(key);
 			}
 		}
@@ -1231,9 +1232,10 @@ async function calculateHistoryForMinute(
 	const presentKeys = mappingHistoryValues.map(
 		(row) => `${row.modelProviderMappingId}|${row.usedMode}`,
 	);
+	const presentKeySet = new Set(presentKeys);
 	if (
 		!minuteAlreadyWritten ||
-		[...(writeCache?.keys() ?? [])].some((key) => !presentKeys.includes(key))
+		[...(writeCache?.keys() ?? [])].some((key) => !presentKeySet.has(key))
 	) {
 		await database.delete(modelProviderMappingHistory).where(
 			and(
@@ -1254,7 +1256,7 @@ async function calculateHistoryForMinute(
 	}
 	if (writeCache) {
 		for (const key of writeCache.keys()) {
-			if (!presentKeys.includes(key)) {
+			if (!presentKeySet.has(key)) {
 				writeCache.delete(key);
 			}
 		}
@@ -2084,6 +2086,63 @@ function rollingStatsChanged(
 	return sql`(${table.logsCount}, ${table.errorsCount}, ${table.clientErrorsCount}, ${table.gatewayErrorsCount}, ${table.upstreamErrorsCount}, ${table.cachedCount}) is distinct from (${stats.totalLogs}::int, ${stats.totalErrors}::int, ${stats.totalClientErrors}::int, ${stats.totalGatewayErrors}::int, ${stats.totalUpstreamErrors}::int, ${stats.totalCached}::int)`;
 }
 
+const ROLLING_STATS_UPDATE_CHUNK_SIZE = 1000;
+
+const ROLLING_STATS_COLUMNS = [
+	["logsCount", "logs"],
+	["errorsCount", "errors"],
+	["clientErrorsCount", "client_errors"],
+	["gatewayErrorsCount", "gateway_errors"],
+	["upstreamErrorsCount", "upstream_errors"],
+	["cachedCount", "cached"],
+] as const;
+
+async function updateRollingStats(
+	table: typeof provider | typeof model | typeof modelProviderMapping,
+	rows: Array<[string, RollingStats]>,
+	onlyChanged: boolean,
+	updatedAt: Date,
+): Promise<void> {
+	const timestamp = sql`${formatUTCTimestamp(updatedAt)}::timestamp`;
+	const assignments = sql.join(
+		ROLLING_STATS_COLUMNS.map(
+			([key, alias]) =>
+				sql`${sql.identifier(table[key].name)} = v.${sql.identifier(alias)}`,
+		),
+		sql`, `,
+	);
+	const changed = onlyChanged
+		? sql` and (${sql.join(
+				ROLLING_STATS_COLUMNS.map(([key]) => table[key]),
+				sql`, `,
+			)}) is distinct from (${sql.join(
+				ROLLING_STATS_COLUMNS.map(
+					([, alias]) => sql`v.${sql.identifier(alias)}`,
+				),
+				sql`, `,
+			)})`
+		: sql``;
+	const sortedRows = [...rows].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+	for (
+		let offset = 0;
+		offset < sortedRows.length;
+		offset += ROLLING_STATS_UPDATE_CHUNK_SIZE
+	) {
+		const values = sql.join(
+			sortedRows
+				.slice(offset, offset + ROLLING_STATS_UPDATE_CHUNK_SIZE)
+				.map(
+					([id, stats]) =>
+						sql`(${id}::text, ${stats.totalLogs}::int, ${stats.totalErrors}::int, ${stats.totalClientErrors}::int, ${stats.totalGatewayErrors}::int, ${stats.totalUpstreamErrors}::int, ${stats.totalCached}::int)`,
+				),
+			sql`, `,
+		);
+		await db.execute(
+			sql`update ${table} set ${assignments}, ${sql.identifier(table.statsUpdatedAt.name)} = ${timestamp}, ${sql.identifier(table.updatedAt.name)} = ${timestamp} from (values ${values}) as v(id, logs, errors, client_errors, gateway_errors, upstream_errors, cached) where ${table.id} = v.id${changed}`,
+		);
+	}
+}
+
 export async function calculateAggregatedStatistics() {
 	logger.debug("Starting aggregated statistics calculation...");
 
@@ -2210,85 +2269,39 @@ export async function calculateAggregatedStatistics() {
 			}
 		}
 
-		for (const [providerId, agg] of providerMap) {
-			await database
-				.update(provider)
-				.set({
-					logsCount: agg.totalLogs,
-					errorsCount: agg.totalErrors,
-					clientErrorsCount: agg.totalClientErrors,
-					gatewayErrorsCount: agg.totalGatewayErrors,
-					upstreamErrorsCount: agg.totalUpstreamErrors,
-					cachedCount: agg.totalCached,
-					statsUpdatedAt: new Date(),
-					updatedAt: new Date(),
-				})
-				.where(eq(provider.id, providerId));
-		}
+		await updateRollingStats(provider, [...providerMap], false, new Date());
 
 		logger.debug(`Updated statistics for ${providerMap.size} providers`);
 
-		for (const [modelId, agg] of modelMap) {
-			await database
-				.update(model)
-				.set({
-					logsCount: agg.totalLogs,
-					errorsCount: agg.totalErrors,
-					clientErrorsCount: agg.totalClientErrors,
-					gatewayErrorsCount: agg.totalGatewayErrors,
-					upstreamErrorsCount: agg.totalUpstreamErrors,
-					cachedCount: agg.totalCached,
-					statsUpdatedAt: new Date(),
-					updatedAt: new Date(),
-				})
-				.where(and(eq(model.id, modelId), rollingStatsChanged(model, agg)));
-		}
+		await updateRollingStats(model, [...modelMap], true, new Date());
 
 		logger.debug(`Updated statistics for ${modelMap.size} models`);
 
-		let mappingUpdateCount = 0;
-
+		const mappingRows: Array<[string, RollingStats]> = [];
 		for (const row of mappingAggregates) {
 			const mappingId = row.modelProviderMappingId;
 			if (!mappingId) {
 				continue;
 			}
-
-			const totalLogs = Number(row.totalLogs ?? 0);
-			const totalErrors = Number(row.totalErrors ?? 0);
-			const totalClientErrors = Number(row.totalClientErrors ?? 0);
-			const totalGatewayErrors = Number(row.totalGatewayErrors ?? 0);
-			const totalUpstreamErrors = Number(row.totalUpstreamErrors ?? 0);
-			const totalCached = Number(row.totalCached ?? 0);
-
-			await database
-				.update(modelProviderMapping)
-				.set({
-					logsCount: totalLogs,
-					errorsCount: totalErrors,
-					clientErrorsCount: totalClientErrors,
-					gatewayErrorsCount: totalGatewayErrors,
-					upstreamErrorsCount: totalUpstreamErrors,
-					cachedCount: totalCached,
-					statsUpdatedAt: new Date(),
-					updatedAt: new Date(),
-				})
-				.where(
-					and(
-						eq(modelProviderMapping.id, mappingId),
-						rollingStatsChanged(modelProviderMapping, {
-							totalLogs,
-							totalErrors,
-							totalClientErrors,
-							totalGatewayErrors,
-							totalUpstreamErrors,
-							totalCached,
-						}),
-					),
-				);
-
-			mappingUpdateCount++;
+			mappingRows.push([
+				mappingId,
+				{
+					totalLogs: Number(row.totalLogs ?? 0),
+					totalErrors: Number(row.totalErrors ?? 0),
+					totalClientErrors: Number(row.totalClientErrors ?? 0),
+					totalGatewayErrors: Number(row.totalGatewayErrors ?? 0),
+					totalUpstreamErrors: Number(row.totalUpstreamErrors ?? 0),
+					totalCached: Number(row.totalCached ?? 0),
+				},
+			]);
 		}
+		await updateRollingStats(
+			modelProviderMapping,
+			mappingRows,
+			true,
+			new Date(),
+		);
+		const mappingUpdateCount = mappingRows.length;
 
 		const idle: RollingStats = {
 			totalLogs: 0,

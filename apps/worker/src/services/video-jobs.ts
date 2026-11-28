@@ -77,6 +77,8 @@ class VideoBillingPendingError extends Error {}
 
 const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
 const WEBHOOK_DELIVERY_TIMEOUT_MS = 30_000;
+const WEBHOOK_DELIVERY_CLAIM_TTL_MS = WEBHOOK_DELIVERY_TIMEOUT_MS * 2;
+const WEBHOOK_DELIVERY_BATCH_SIZE = 25;
 // A failed video job is reported by an upstream status poll that itself
 // returned 200, so there is no real upstream status code to surface. 502 is a
 // stand-in that matches the status this path has always stamped on the log
@@ -1408,10 +1410,7 @@ function getVideoPricing(job: VideoJobRecord): Record<string, string> | null {
 }
 
 function getVideoRequestPrice(job: VideoJobRecord): number | null {
-	const model = models.find((item) => item.id === job.model);
-	const mapping = model?.providers.find(
-		(provider) => provider.providerId === job.usedProvider,
-	) as ProviderModelMapping | undefined;
+	const mapping = getVideoMapping(job);
 	if (mapping?.requestPrice === undefined) {
 		return null;
 	}
@@ -1420,10 +1419,7 @@ function getVideoRequestPrice(job: VideoJobRecord): number | null {
 }
 
 function getVideoImageInputPrice(job: VideoJobRecord): number | null {
-	const model = models.find((item) => item.id === job.model);
-	const mapping = model?.providers.find(
-		(provider) => provider.providerId === job.usedProvider,
-	) as ProviderModelMapping | undefined;
+	const mapping = getVideoMapping(job);
 	if (mapping?.imageInputPrice === undefined) {
 		return null;
 	}
@@ -2559,6 +2555,21 @@ async function fetchUpstreamContentMetadata(
 	}
 }
 
+function logVideoJobBookkeepingError(
+	message: string,
+	error: unknown,
+	job: VideoJobRecord,
+): void {
+	logger.error(
+		message,
+		error instanceof Error ? error : new Error(String(error)),
+		{
+			videoJobId: job.id,
+			upstreamId: job.upstreamId,
+		},
+	);
+}
+
 async function claimDueVideoJobsForPolling(
 	now: Date,
 ): Promise<VideoJobRecord[]> {
@@ -2745,11 +2756,19 @@ export async function processPendingVideoJobs(): Promise<void> {
 				error instanceof VideoBillingPendingError ||
 				hasPendingVideoBilling(job)
 			) {
-				await deferVideoJobBilling(
-					job,
-					billingStatus,
-					error instanceof Error ? error : new Error(String(error)),
-				);
+				try {
+					await deferVideoJobBilling(
+						job,
+						billingStatus,
+						error instanceof Error ? error : new Error(String(error)),
+					);
+				} catch (deferError) {
+					logVideoJobBookkeepingError(
+						"Error deferring video job billing",
+						deferError,
+						job,
+					);
+				}
 				continue;
 			}
 			const message = error instanceof Error ? error.message : String(error);
@@ -2803,20 +2822,59 @@ export async function processPendingVideoJobs(): Promise<void> {
 							llmgateway_poll_error_count: nextErrorCount,
 							llmgateway_last_poll_error: message,
 						});
-				const updatedJob = await db
+				try {
+					const updatedJob = await db
+						.update(tables.videoJob)
+						.set({
+							status: "failed",
+							progress: 100,
+							error: clientFacingVideoJobError(
+								job.usedProvider,
+								extractError(failedResponse),
+							),
+							completedAt: now,
+							lastPolledAt: now,
+							nextPollAt: now,
+							pollAttemptCount: job.pollAttemptCount + 1,
+							upstreamStatusResponse: failedResponse,
+						})
+						.where(
+							and(
+								matchVideoJobSnapshot(job),
+								isNull(tables.videoJob.resultLoggedAt),
+								videoBillingNotQuarantined(),
+							),
+						)
+						.returning()
+						.then((rows) => rows[0]);
+
+					if (updatedJob) {
+						await finalizeVideoJob(updatedJob);
+					}
+				} catch (failError) {
+					logVideoJobBookkeepingError(
+						"Error failing video job after poll errors",
+						failError,
+						job,
+					);
+				}
+				continue;
+			}
+
+			try {
+				await db
 					.update(tables.videoJob)
 					.set({
-						status: "failed",
-						progress: 100,
-						error: clientFacingVideoJobError(
-							job.usedProvider,
-							extractError(failedResponse),
-						),
-						completedAt: now,
 						lastPolledAt: now,
-						nextPollAt: now,
+						nextPollAt: new Date(
+							Date.now() + calculateNextVideoPollErrorDelayMs(nextErrorCount),
+						),
 						pollAttemptCount: job.pollAttemptCount + 1,
-						upstreamStatusResponse: failedResponse,
+						upstreamStatusResponse: {
+							...currentStatusResponse,
+							llmgateway_poll_error_count: nextErrorCount,
+							llmgateway_last_poll_error: message,
+						},
 					})
 					.where(
 						and(
@@ -2824,37 +2882,14 @@ export async function processPendingVideoJobs(): Promise<void> {
 							isNull(tables.videoJob.resultLoggedAt),
 							videoBillingNotQuarantined(),
 						),
-					)
-					.returning()
-					.then((rows) => rows[0]);
-
-				if (updatedJob) {
-					await finalizeVideoJob(updatedJob);
-				}
-				continue;
-			}
-
-			await db
-				.update(tables.videoJob)
-				.set({
-					lastPolledAt: now,
-					nextPollAt: new Date(
-						Date.now() + calculateNextVideoPollErrorDelayMs(nextErrorCount),
-					),
-					pollAttemptCount: job.pollAttemptCount + 1,
-					upstreamStatusResponse: {
-						...currentStatusResponse,
-						llmgateway_poll_error_count: nextErrorCount,
-						llmgateway_last_poll_error: message,
-					},
-				})
-				.where(
-					and(
-						matchVideoJobSnapshot(job),
-						isNull(tables.videoJob.resultLoggedAt),
-						videoBillingNotQuarantined(),
-					),
+					);
+			} catch (backoffError) {
+				logVideoJobBookkeepingError(
+					"Error recording video job poll backoff",
+					backoffError,
+					job,
 				);
+			}
 		}
 	}
 
@@ -2893,6 +2928,13 @@ export async function processPendingVideoJobs(): Promise<void> {
 			);
 		}
 	}
+}
+
+function pendingWebhookDelivery(deliveryId: string) {
+	return and(
+		eq(tables.webhookDeliveryLog.id, deliveryId),
+		eq(tables.webhookDeliveryLog.status, "pending"),
+	);
 }
 
 async function markVideoCallbackFailed(videoJobId: string): Promise<void> {
@@ -2972,7 +3014,7 @@ async function deliverWebhook(
 						responseBody: responseText,
 						error: null,
 					})
-					.where(eq(tables.webhookDeliveryLog.id, delivery.id));
+					.where(pendingWebhookDelivery(delivery.id));
 
 				await tx
 					.update(tables.videoJob)
@@ -2998,14 +3040,14 @@ async function deliverWebhook(
 					responseBody: responseText,
 					error: `Unexpected webhook response status ${response.status}`,
 				})
-				.where(eq(tables.webhookDeliveryLog.id, delivery.id));
+				.where(pendingWebhookDelivery(delivery.id));
 
 			await markVideoCallbackFailed(job.id);
 			return;
 		}
 
 		await db.transaction(async (tx) => {
-			await tx
+			const claimed = await tx
 				.update(tables.webhookDeliveryLog)
 				.set({
 					status: "retrying",
@@ -3016,7 +3058,11 @@ async function deliverWebhook(
 					responseBody: responseText,
 					error: `Unexpected webhook response status ${response.status}`,
 				})
-				.where(eq(tables.webhookDeliveryLog.id, delivery.id));
+				.where(pendingWebhookDelivery(delivery.id))
+				.returning({ id: tables.webhookDeliveryLog.id });
+			if (claimed.length === 0) {
+				return;
+			}
 
 			await tx.insert(tables.webhookDeliveryLog).values({
 				videoJobId: job.id,
@@ -3053,14 +3099,14 @@ async function deliverWebhook(
 					requestBody: JSON.parse(payload) as Record<string, unknown>,
 					error: message,
 				})
-				.where(eq(tables.webhookDeliveryLog.id, delivery.id));
+				.where(pendingWebhookDelivery(delivery.id));
 
 			await markVideoCallbackFailed(job.id);
 			return;
 		}
 
 		await db.transaction(async (tx) => {
-			await tx
+			const claimed = await tx
 				.update(tables.webhookDeliveryLog)
 				.set({
 					status: "retrying",
@@ -3069,7 +3115,11 @@ async function deliverWebhook(
 					requestBody: JSON.parse(payload) as Record<string, unknown>,
 					error: message,
 				})
-				.where(eq(tables.webhookDeliveryLog.id, delivery.id));
+				.where(pendingWebhookDelivery(delivery.id))
+				.returning({ id: tables.webhookDeliveryLog.id });
+			if (claimed.length === 0) {
+				return;
+			}
 
 			await tx.insert(tables.webhookDeliveryLog).values({
 				videoJobId: job.id,
@@ -3084,20 +3134,46 @@ async function deliverWebhook(
 	}
 }
 
-export async function processPendingWebhookDeliveries(): Promise<void> {
-	const dueDeliveries = await db
-		.select()
-		.from(tables.webhookDeliveryLog)
-		.where(
-			and(
-				eq(tables.webhookDeliveryLog.status, "pending"),
-				lte(tables.webhookDeliveryLog.nextRetryAt, new Date()),
-			),
-		)
-		.limit(25);
+async function claimNextDueWebhookDelivery(): Promise<
+	WebhookDeliveryRecord | undefined
+> {
+	return await db.transaction(async (tx) => {
+		const now = new Date();
+		const [delivery] = await tx
+			.select()
+			.from(tables.webhookDeliveryLog)
+			.where(
+				and(
+					eq(tables.webhookDeliveryLog.status, "pending"),
+					lte(tables.webhookDeliveryLog.nextRetryAt, now),
+				),
+			)
+			.limit(1)
+			.for("update", { skipLocked: true });
 
-	for (const delivery of dueDeliveries) {
+		if (!delivery) {
+			return undefined;
+		}
+
+		const claimedUntil = new Date(
+			now.getTime() + WEBHOOK_DELIVERY_CLAIM_TTL_MS,
+		);
+		await tx
+			.update(tables.webhookDeliveryLog)
+			.set({ nextRetryAt: claimedUntil })
+			.where(eq(tables.webhookDeliveryLog.id, delivery.id));
+
+		return { ...delivery, nextRetryAt: claimedUntil };
+	});
+}
+
+export async function processPendingWebhookDeliveries(): Promise<void> {
+	for (let i = 0; i < WEBHOOK_DELIVERY_BATCH_SIZE; i++) {
 		if (isStopRequested()) {
+			break;
+		}
+		const delivery = await claimNextDueWebhookDelivery();
+		if (!delivery) {
 			break;
 		}
 		const job = await db
@@ -3115,7 +3191,7 @@ export async function processPendingWebhookDeliveries(): Promise<void> {
 					lastTriedAt: new Date(),
 					error: "Video job or callback configuration no longer exists",
 				})
-				.where(eq(tables.webhookDeliveryLog.id, delivery.id));
+				.where(pendingWebhookDelivery(delivery.id));
 			if (job) {
 				await markVideoCallbackFailed(job.id);
 			}

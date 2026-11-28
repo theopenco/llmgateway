@@ -1110,6 +1110,33 @@ async function refreshHourStats(hourTimestamp: string, window: LogWindow) {
 	return projects.length;
 }
 
+async function recalculateBucketsByHour(
+	buckets: { projectId: string; hourTimestamp: string }[],
+	phase: string,
+) {
+	const projectsByHour = new Map<string, string[]>();
+	for (const { projectId, hourTimestamp } of buckets) {
+		const projectIds = projectsByHour.get(hourTimestamp) ?? [];
+		projectIds.push(projectId);
+		projectsByHour.set(hourTimestamp, projectIds);
+	}
+	for (const [hourTimestamp, projectIds] of projectsByHour) {
+		for (
+			let offset = 0;
+			offset < projectIds.length;
+			offset += STATS_READ_BATCH_SIZE
+		) {
+			await recalculateBucket(
+				projectIds.slice(offset, offset + STATS_READ_BATCH_SIZE),
+				hourTimestamp,
+			);
+		}
+		logger.info(
+			`[${phase}] Processed hour=${hourTimestamp}: ${projectIds.length} project buckets`,
+		);
+	}
+}
+
 // Batch size per run (shared by both phases)
 const STATS_BATCH_SIZE = Number(process.env.STATS_BATCH_SIZE) || 100;
 
@@ -1195,15 +1222,7 @@ export async function aggregateHistoricalStats() {
 					`[stale] Found ${staleBuckets.length} stale project-hour buckets with new logs (oldest: ${staleBuckets[0].hourTimestamp}, newest: ${staleBuckets[staleBuckets.length - 1].hourTimestamp})`,
 				);
 
-				for (let i = 0; i < staleBuckets.length; i++) {
-					const bucket = staleBuckets[i];
-
-					await recalculateBucket([bucket.projectId], bucket.hourTimestamp);
-
-					logger.info(
-						`[stale] Processed bucket ${i + 1}/${staleBuckets.length}: project=${bucket.projectId} hour=${bucket.hourTimestamp}`,
-					);
-				}
+				await recalculateBucketsByHour(staleBuckets, "stale");
 
 				totalBucketsProcessed += staleBuckets.length;
 
@@ -1266,15 +1285,7 @@ export async function aggregateHistoricalStats() {
 					`[backfill] Found ${backfillBuckets.length} unprocessed project-hour buckets (oldest: ${backfillBuckets[0].hourTimestamp}, newest: ${backfillBuckets[backfillBuckets.length - 1].hourTimestamp})`,
 				);
 
-				for (let i = 0; i < backfillBuckets.length; i++) {
-					const bucket = backfillBuckets[i];
-
-					await recalculateBucket([bucket.projectId], bucket.hourTimestamp);
-
-					logger.info(
-						`[backfill] Processed bucket ${i + 1}/${backfillBuckets.length}: project=${bucket.projectId} hour=${bucket.hourTimestamp}`,
-					);
-				}
+				await recalculateBucketsByHour(backfillBuckets, "backfill");
 
 				totalBucketsProcessed += backfillBuckets.length;
 

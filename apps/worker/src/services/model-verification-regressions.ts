@@ -54,55 +54,82 @@ const CHECK_FIELDS: Record<string, (keyof ProviderModelVerificationTarget)[]> =
 		web_search: ["webSearchFormat"],
 	};
 
-/** Compare the last actual observation, not any historical pass: recovery re-arms alerts. */
-export function regressedVerificationChecks(
+function failingDeclaredChecks(
 	current: Verification,
-	history: Verification[],
-): string[] {
+): { id: string; labels: string[] }[] {
 	const declared = new Set(
 		createQueuedModelVerificationChecks(current.target).map(
 			(check) => check.id,
 		),
 	);
 	return current.checks
-		.filter((check) => {
-			if (!declared.has(check.id)) {
-				return false;
-			}
-			const failures = [
+		.filter((check) => declared.has(check.id))
+		.map((check) => ({
+			id: check.id,
+			labels: [
 				...(check.status === "failed" ? [""] : []),
 				...(check.probes ?? [])
 					.filter((probe) => probe.status === "failed")
 					.map((probe) => probe.label),
-			];
-			return failures.some((label) => {
-				for (const previous of history) {
-					if (!sameVerificationDeployment(current.target, previous.target)) {
-						continue;
-					}
-					if (
-						(CHECK_FIELDS[check.id] ?? []).some(
-							(key) =>
-								JSON.stringify(current.target[key] ?? null) !==
-								JSON.stringify(previous.target[key] ?? null),
-						)
-					) {
-						continue;
-					}
-					const oldCheck = previous.checks.find(
-						(candidate) => candidate.id === check.id,
-					);
-					const status = label
-						? oldCheck?.probes?.find((probe) => probe.label === label)?.status
-						: oldCheck?.status;
-					if (status === "passed" || status === "failed") {
-						return status === "passed";
-					}
-				}
-				return false;
-			});
-		})
-		.map((check) => check.id);
+			],
+		}));
+}
+
+function lastObservedStatus(
+	current: Verification,
+	checkId: string,
+	label: string,
+	history: Verification[],
+): "passed" | "failed" | undefined {
+	for (const previous of history) {
+		if (!sameVerificationDeployment(current.target, previous.target)) {
+			continue;
+		}
+		if (
+			(CHECK_FIELDS[checkId] ?? []).some(
+				(key) =>
+					JSON.stringify(current.target[key] ?? null) !==
+					JSON.stringify(previous.target[key] ?? null),
+			)
+		) {
+			continue;
+		}
+		const oldCheck = previous.checks.find(
+			(candidate) => candidate.id === checkId,
+		);
+		const status = label
+			? oldCheck?.probes?.find((probe) => probe.label === label)?.status
+			: oldCheck?.status;
+		if (status === "passed" || status === "failed") {
+			return status;
+		}
+	}
+	return undefined;
+}
+
+function historyResolvesFailures(
+	current: Verification,
+	history: Verification[],
+): boolean {
+	return failingDeclaredChecks(current).every(({ id, labels }) =>
+		labels.every(
+			(label) => lastObservedStatus(current, id, label, history) !== undefined,
+		),
+	);
+}
+
+/** Compare the last actual observation, not any historical pass: recovery re-arms alerts. */
+export function regressedVerificationChecks(
+	current: Verification,
+	history: Verification[],
+): string[] {
+	return failingDeclaredChecks(current)
+		.filter(({ id, labels }) =>
+			labels.some(
+				(label) => lastObservedStatus(current, id, label, history) === "passed",
+			),
+		)
+		.map(({ id }) => id);
 }
 
 function publicIdentifier(value: string): string {
@@ -397,7 +424,7 @@ export async function deliverModelVerificationRegressions(
 					)
 					.limit(100);
 				history.push(...page);
-				if (page.length < 100) {
+				if (page.length < 100 || historyResolvesFailures(job, history)) {
 					break;
 				}
 				before = page[page.length - 1].createdAt.toISOString();
