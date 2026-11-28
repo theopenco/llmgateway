@@ -39,8 +39,13 @@ afterAll(() => {
 });
 
 function decode(html: string): string {
-	return html
-		.replace(/<[^>]+>/g, "")
+	let text = html;
+	let previous = "";
+	while (text !== previous) {
+		previous = text;
+		text = text.replace(/<[^>]*>/g, "");
+	}
+	return text
 		.replace(/&#x27;/g, "'")
 		.replace(/&amp;/g, "&")
 		.replace(/\s+/g, " ")
