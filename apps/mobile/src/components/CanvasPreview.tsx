@@ -149,7 +149,8 @@ export const CanvasPreview = function CanvasPreview({
 					}
 					if (event.type === "link") {
 						if (!/^https?:\/\//i.test(event.url)) {
-							throw new Error("This preview link must use HTTP or HTTPS.");
+							onError(new Error("This preview link must use HTTP or HTTPS."));
+							return;
 						}
 						void Linking.openURL(event.url).catch(onError);
 					}

@@ -40,6 +40,7 @@ function SettingsForm({ onClose, webSearch, onSaved }: SettingsProps) {
 	);
 	const [error, setError] = useState<unknown>();
 	const submit = () => {
+		setError(undefined);
 		try {
 			const settings = chatSettingsFromFields(draft, temperature, maxTokens);
 			preferences.save.mutate(settings, {
@@ -112,14 +113,15 @@ function SettingsForm({ onClose, webSearch, onSaved }: SettingsProps) {
 				title="Reset settings"
 				secondary
 				busy={preferences.save.isPending}
-				onPress={() =>
+				onPress={() => {
+					setError(undefined);
 					preferences.save.mutate(defaultChatSettings, {
 						onSuccess: () => {
 							onSaved?.(defaultChatSettings);
 							onClose();
 						},
-					})
-				}
+					});
+				}}
 			/>
 			<Button title="Cancel" secondary onPress={onClose} />
 		</Screen>

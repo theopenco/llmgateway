@@ -33,9 +33,12 @@ export function MediaPlayer({ uri }: { uri: string }) {
 		setReady(true);
 	});
 	useEvent(player, "onProgress", (event) => setPosition(event.currentTime));
-	useEvent(player, "onPlaybackStateChange", (event) =>
-		setPlaying(event.isPlaying),
-	);
+	useEvent(player, "onPlaybackStateChange", (event) => {
+		setPlaying(event.isPlaying);
+		if (event.isPlaying) {
+			setEnded(false);
+		}
+	});
 	useEvent(player, "onEnd", () => {
 		setEnded(true);
 		setPlaying(false);
