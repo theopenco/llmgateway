@@ -125,9 +125,23 @@ function base64url(data: Buffer | string): string {
 	return buf.toString("base64url");
 }
 
+function isServiceAccountKey(value: unknown): value is ServiceAccountKey {
+	if (typeof value !== "object" || value === null) {
+		return false;
+	}
+	const candidate = value as Record<string, unknown>;
+	return (
+		typeof candidate.client_email === "string" &&
+		candidate.client_email.length > 0 &&
+		typeof candidate.private_key === "string" &&
+		candidate.private_key.length > 0
+	);
+}
+
 function parseServiceAccount(json: string): ServiceAccountKey | null {
 	try {
-		return JSON.parse(json) as ServiceAccountKey;
+		const parsed: unknown = JSON.parse(json);
+		return isServiceAccountKey(parsed) ? parsed : null;
 	} catch (err) {
 		logger.warn(
 			"Failed to parse GCP service account JSON",

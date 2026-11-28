@@ -1025,18 +1025,12 @@ export function getProviderEndpoint(
 						variant,
 					);
 
-				if (model && useResponsesApiEnv !== "false") {
-					const modelDef = models.find((m) => m.id === (modelId ?? model));
-					const providerMapping = modelDef?.providers.find(
-						(p) => p.providerId === "azure",
-					);
-					const supportsResponsesApi =
-						(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
-						true;
-
-					if (supportsResponsesApi) {
-						return `${url}/openai/v1/responses?api-version=preview`;
-					}
+				if (
+					model &&
+					useResponsesApiEnv !== "false" &&
+					providerMapping?.supportsResponsesApi === true
+				) {
+					return `${url}/openai/v1/responses?api-version=preview`;
 				}
 				return `${url}/openai/v1/chat/completions`;
 			}
@@ -1050,18 +1044,8 @@ export function getProviderEndpoint(
 				return `${url}/v1/images/generations`;
 			}
 			// Use responses endpoint for models that support responses API
-			if (model) {
-				const modelDef = models.find((m) => m.id === (modelId ?? model));
-				const providerMapping = modelDef?.providers.find(
-					(p) => p.providerId === "openai",
-				);
-				const supportsResponsesApi =
-					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
-					true;
-
-				if (supportsResponsesApi) {
-					return `${url}/v1/responses`;
-				}
+			if (model && providerMapping?.supportsResponsesApi === true) {
+				return `${url}/v1/responses`;
 			}
 			return `${url}/v1/chat/completions`;
 		}
@@ -1093,17 +1077,8 @@ export function getProviderEndpoint(
 			// completion. So use the Responses API only for non-streaming requests
 			// (where reasoning matters and chunking doesn't); stream over the Chat
 			// Completions endpoint, which emits incremental content deltas.
-			if (!stream && model) {
-				const modelDef = models.find((m) => m.id === (modelId ?? model));
-				const providerMapping = modelDef?.providers.find(
-					(p) => p.providerId === "sakana",
-				);
-				const supportsResponsesApi =
-					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
-					true;
-				if (supportsResponsesApi) {
-					return `${url}/v1/responses`;
-				}
+			if (!stream && model && providerMapping?.supportsResponsesApi === true) {
+				return `${url}/v1/responses`;
 			}
 			return `${url}/v1/chat/completions`;
 		}
@@ -1115,18 +1090,8 @@ export function getProviderEndpoint(
 		case "meta": {
 			// Muse Spark only exposes reasoning (as summaries) through the
 			// Responses API — Chat Completions redacts reasoning_content entirely.
-			if (model) {
-				const modelDef = models.find((m) => m.id === (modelId ?? model));
-				const providerMapping = modelDef?.providers.find(
-					(p) => p.providerId === provider,
-				);
-				const supportsResponsesApi =
-					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
-					true;
-
-				if (supportsResponsesApi) {
-					return `${url}/v1/responses`;
-				}
+			if (model && providerMapping?.supportsResponsesApi === true) {
+				return `${url}/v1/responses`;
 			}
 			return `${url}/v1/chat/completions`;
 		}

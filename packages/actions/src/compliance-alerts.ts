@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { db, getEffectiveProviders } from "@llmgateway/db";
 import {
+	getCatalogueMappingDataPolicy,
 	getCompliantProvidersForModel,
 	isLiveMapping,
 	type ModelMappingAvailability,
@@ -167,7 +168,13 @@ export async function getModelAvailability(
 	const byModel = new Map<string, ModelMappingAvailability[]>();
 	for (const mapping of mappings) {
 		const list = byModel.get(mapping.modelId) ?? [];
-		list.push(mapping);
+		list.push({
+			...mapping,
+			dataPolicy: getCatalogueMappingDataPolicy(
+				mapping.providerId,
+				mapping.modelId,
+			),
+		});
 		byModel.set(mapping.modelId, list);
 	}
 	for (const modelId of modelIds) {

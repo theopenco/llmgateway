@@ -157,31 +157,22 @@ export async function materializeAirsideModel(
 					regionPrice.cachedInputPrice ?? filing.cachedInputPrice,
 				requestPrice: regionPrice.requestPrice ?? filing.requestPrice,
 			};
-			const existingRegion = await tx
-				.select({ id: tables.modelProviderMapping.id })
-				.from(tables.modelProviderMapping)
-				.where(
-					and(
-						eq(tables.modelProviderMapping.modelId, model.modelName),
-						eq(tables.modelProviderMapping.providerId, model.providerId),
-						eq(tables.modelProviderMapping.region, regionPrice.region),
-					),
-				)
-				.limit(1)
-				.$withCache(false);
-			if (existingRegion.length > 0) {
-				await tx
-					.update(tables.modelProviderMapping)
-					.set(regionValues)
-					.where(eq(tables.modelProviderMapping.id, existingRegion[0].id));
-			} else {
-				await tx.insert(tables.modelProviderMapping).values({
+			await tx
+				.insert(tables.modelProviderMapping)
+				.values({
 					modelId: model.modelName,
 					providerId: model.providerId,
 					region: regionPrice.region,
 					...regionValues,
+				})
+				.onConflictDoUpdate({
+					target: [
+						tables.modelProviderMapping.modelId,
+						tables.modelProviderMapping.providerId,
+						tables.modelProviderMapping.region,
+					],
+					set: regionValues,
 				});
-			}
 		}
 		const filedRegions = regionPrices.map((regionPrice) => regionPrice.region);
 		await tx

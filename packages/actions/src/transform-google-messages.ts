@@ -437,64 +437,67 @@ export async function transformGoogleMessages(
 		const parts: GooglePart[] = [];
 
 		if (Array.isArray(m.content)) {
-			for (const content of m.content) {
-				if (isTextContent(content)) {
-					const textPart: GooglePart = { text: content.text };
-					// Check for thought_signature in extra_content
-					const extraContent = content.extra_content;
-					if (extraContent?.google?.thought_signature) {
-						textPart.thoughtSignature = extraContent.google.thought_signature;
+			const resolvedParts = await Promise.all(
+				m.content.map(async (content): Promise<GooglePart> => {
+					if (isTextContent(content)) {
+						const textPart: GooglePart = { text: content.text };
+						// Check for thought_signature in extra_content
+						const extraContent = content.extra_content;
+						if (extraContent?.google?.thought_signature) {
+							textPart.thoughtSignature = extraContent.google.thought_signature;
+						}
+						return textPart;
 					}
-					parts.push(textPart);
-				} else if (isImageUrlContent(content)) {
-					parts.push(
-						await toInlineImagePart(
+					if (isImageUrlContent(content)) {
+						return await toInlineImagePart(
 							content.image_url.url,
 							isProd,
 							maxImageSizeMB,
 							userPlan,
-						),
-					);
-				} else if (isInputAudioContent(content)) {
-					const mimeType = resolveGoogleAudioMime(
-						content.input_audio.format as GoogleAudioFormat,
-						providerId,
-					);
-					parts.push({
-						inline_data: {
-							mime_type: mimeType,
-							data: content.input_audio.data,
-						},
-					});
-				} else if (isFileContent(content)) {
-					if (!content.file.file_data) {
-						throw new InvalidFileContentError(
-							"Google providers require base64 file_data on `file` content blocks; file_id references are not supported.",
 						);
 					}
-					const parsed = parseFileDataUrl(content.file.file_data);
-					if (!parsed) {
-						throw new InvalidFileContentError(
-							"Invalid file_data: expected a base64-encoded data URL (e.g. 'data:application/pdf;base64,...').",
+					if (isInputAudioContent(content)) {
+						const mimeType = resolveGoogleAudioMime(
+							content.input_audio.format as GoogleAudioFormat,
+							providerId,
 						);
+						return {
+							inline_data: {
+								mime_type: mimeType,
+								data: content.input_audio.data,
+							},
+						};
 					}
-					// MIME support varies across Gemini models, so we don't pre-validate;
-					// Google's API is authoritative. If it rejects with "Unsupported MIME
-					// type: X", `parseGoogleUpstreamDocumentError` (called by the gateway
-					// after the upstream call) re-emits it as a typed
-					// UnsupportedDocumentFormatError -> clean HTTP 400 for the client.
-					parts.push({
-						inline_data: {
-							mime_type: parsed.mimeType,
-							data: parsed.data,
-						},
-					});
-				} else {
+					if (isFileContent(content)) {
+						if (!content.file.file_data) {
+							throw new InvalidFileContentError(
+								"Google providers require base64 file_data on `file` content blocks; file_id references are not supported.",
+							);
+						}
+						const parsed = parseFileDataUrl(content.file.file_data);
+						if (!parsed) {
+							throw new InvalidFileContentError(
+								"Invalid file_data: expected a base64-encoded data URL (e.g. 'data:application/pdf;base64,...').",
+							);
+						}
+						// MIME support varies across Gemini models, so we don't pre-validate;
+						// Google's API is authoritative. If it rejects with "Unsupported MIME
+						// type: X", `parseGoogleUpstreamDocumentError` (called by the gateway
+						// after the upstream call) re-emits it as a typed
+						// UnsupportedDocumentFormatError -> clean HTTP 400 for the client.
+						return {
+							inline_data: {
+								mime_type: parsed.mimeType,
+								data: parsed.data,
+							},
+						};
+					}
 					throw new Error(
 						`Not supported content type yet: ${(content as any).type}`,
 					);
-				}
-			}
+				}),
+			);
+			parts.push(...resolvedParts);
 		} else {
 			// String content
 			parts.push({ text: m.content ?? "" });
