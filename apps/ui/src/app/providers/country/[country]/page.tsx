@@ -11,6 +11,7 @@ import {
 	customCarrierGridProviders,
 	declaredComplianceByProvider,
 	listedProviders,
+	uploadedMarksByProvider,
 } from "@/lib/providers-catalog";
 
 import { getProviderCountries } from "@llmgateway/models";
@@ -68,11 +69,7 @@ export default async function ProviderCountryPage({
 
 	const { apiProviders, modelCounts, extraProviders, countryProviders } =
 		await loadCountryProviders(country.code);
-	const uploadedLogos = Object.fromEntries(
-		apiProviders
-			.map((p) => [p.id, p.airsideIconUrl ?? p.airsideLogoUrl])
-			.filter((entry): entry is [string, string] => Boolean(entry[1])),
-	);
+	const uploadedLogos = uploadedMarksByProvider(apiProviders);
 	const modelCount = modelCountForProviders(countryProviders, modelCounts);
 
 	const countryUrl = `https://llmgateway.io/providers/country/${country.code.toLowerCase()}`;

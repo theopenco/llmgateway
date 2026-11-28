@@ -6,12 +6,12 @@ import { notFound } from "next/navigation";
 
 import { ContentConversionRail } from "@/components/content-conversion-rail";
 import { ContentNextStep } from "@/components/content-next-step";
+import { CopyMarkdownButton } from "@/components/copy-markdown-button";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { JsonLd } from "@/components/seo/json-ld";
 import { pageTitle } from "@/lib/page-title";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
-
-import { CopyMarkdownButton } from "./copy-markdown-button";
 
 import type { Guide } from "content-collections";
 import type { Metadata } from "next";
@@ -96,20 +96,8 @@ export default async function GuidePage({ params }: GuidePageProps) {
 
 	return (
 		<>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(articleSchema),
-				}}
-			/>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(breadcrumbSchema),
-				}}
-			/>
+			<JsonLd data={articleSchema} />
+			<JsonLd data={breadcrumbSchema} />
 			<HeroRSC />
 			<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white pt-30">
 				<main className="container mx-auto px-4 py-8">

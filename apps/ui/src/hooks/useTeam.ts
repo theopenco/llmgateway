@@ -4,6 +4,20 @@ import { useApi } from "@/lib/fetch-client";
 
 import type { paths } from "@/lib/api/v1";
 
+function useInvalidateMembers(organizationId: string) {
+	const queryClient = useQueryClient();
+
+	return () => {
+		void queryClient.invalidateQueries({
+			queryKey: [
+				"get",
+				"/team/{organizationId}/members",
+				{ params: { path: { organizationId } } },
+			],
+		});
+	};
+}
+
 export type TeamMembersData =
 	paths["/team/{organizationId}/members"]["get"]["responses"][200]["content"]["application/json"];
 
@@ -163,118 +177,70 @@ export function useDeleteMemberIamRule(
 
 export function useAddTeamMember(organizationId: string) {
 	const api = useApi();
-	const queryClient = useQueryClient();
+	const invalidateMembers = useInvalidateMembers(organizationId);
 
 	return api.useMutation("post", "/team/{organizationId}/members", {
-		onSuccess: () => {
-			void queryClient.invalidateQueries({
-				queryKey: [
-					"get",
-					"/team/{organizationId}/members",
-					{ params: { path: { organizationId } } },
-				],
-			});
-		},
+		onSuccess: invalidateMembers,
 	});
 }
 
 export function useUpdateTeamMember(organizationId: string) {
 	const api = useApi();
-	const queryClient = useQueryClient();
+	const invalidateMembers = useInvalidateMembers(organizationId);
 
 	return api.useMutation("patch", "/team/{organizationId}/members/{memberId}", {
-		onSuccess: () => {
-			void queryClient.invalidateQueries({
-				queryKey: [
-					"get",
-					"/team/{organizationId}/members",
-					{ params: { path: { organizationId } } },
-				],
-			});
-		},
+		onSuccess: invalidateMembers,
 	});
 }
 
 export function useUpdateMemberBudget(organizationId: string) {
 	const api = useApi();
-	const queryClient = useQueryClient();
+	const invalidateMembers = useInvalidateMembers(organizationId);
 
 	return api.useMutation(
 		"patch",
 		"/team/{organizationId}/members/{memberId}/budget",
 		{
-			onSuccess: () => {
-				void queryClient.invalidateQueries({
-					queryKey: [
-						"get",
-						"/team/{organizationId}/members",
-						{ params: { path: { organizationId } } },
-					],
-				});
-			},
+			onSuccess: invalidateMembers,
 		},
 	);
 }
 
 export function useUpdateDefaultDeveloperBudget(organizationId: string) {
 	const api = useApi();
-	const queryClient = useQueryClient();
+	const invalidateMembers = useInvalidateMembers(organizationId);
 
 	return api.useMutation(
 		"patch",
 		"/team/{organizationId}/default-developer-budget",
 		{
-			onSuccess: () => {
-				void queryClient.invalidateQueries({
-					queryKey: [
-						"get",
-						"/team/{organizationId}/members",
-						{ params: { path: { organizationId } } },
-					],
-				});
-			},
+			onSuccess: invalidateMembers,
 		},
 	);
 }
 
 export function useRevokeTeamInvite(organizationId: string) {
 	const api = useApi();
-	const queryClient = useQueryClient();
+	const invalidateMembers = useInvalidateMembers(organizationId);
 
 	return api.useMutation(
 		"delete",
 		"/team/{organizationId}/invites/{inviteId}",
 		{
-			onSuccess: () => {
-				void queryClient.invalidateQueries({
-					queryKey: [
-						"get",
-						"/team/{organizationId}/members",
-						{ params: { path: { organizationId } } },
-					],
-				});
-			},
+			onSuccess: invalidateMembers,
 		},
 	);
 }
 
 export function useRemoveTeamMember(organizationId: string) {
 	const api = useApi();
-	const queryClient = useQueryClient();
+	const invalidateMembers = useInvalidateMembers(organizationId);
 
 	return api.useMutation(
 		"delete",
 		"/team/{organizationId}/members/{memberId}",
 		{
-			onSuccess: () => {
-				void queryClient.invalidateQueries({
-					queryKey: [
-						"get",
-						"/team/{organizationId}/members",
-						{ params: { path: { organizationId } } },
-					],
-				});
-			},
+			onSuccess: invalidateMembers,
 		},
 	);
 }

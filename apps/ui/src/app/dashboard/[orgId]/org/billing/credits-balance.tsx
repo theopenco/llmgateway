@@ -3,6 +3,7 @@
 import { AlertCircle, CheckCircle, Clock, CreditCard } from "lucide-react";
 import { useEffect, useRef } from "react";
 
+import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { Button } from "@/lib/components/button";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
@@ -113,9 +114,9 @@ export function CreditsBalance() {
 					</div>
 				</div>
 				{runwayDays !== null && runwayDays < 3 && hasUsage && (
-					<Button size="sm" asChild>
-						<a href="#top-up">Top up now</a>
-					</Button>
+					<TopUpCreditsDialog>
+						<Button size="sm">Top up now</Button>
+					</TopUpCreditsDialog>
 				)}
 			</div>
 

@@ -1,7 +1,5 @@
 "use client";
 
-import { addDays, differenceInCalendarDays, format } from "date-fns";
-import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
 	Bar,
@@ -13,7 +11,6 @@ import {
 	YAxis,
 } from "recharts";
 
-import { getDateRangeFromParams } from "@/components/date-range-picker";
 import { useUsageMode } from "@/components/shared/usage-mode-selector";
 import {
 	toApiGroupBy,
@@ -52,7 +49,6 @@ import {
 
 import type { TimeRangeValue } from "@/components/time-range-picker";
 import type {
-	ActivitT,
 	ActivityApiKeyUsage,
 	ActivityModelUsage,
 	ActivityUserUsage,
@@ -153,7 +149,7 @@ function getSeriesColor(_series: string, index: number): string {
 }
 
 function isHourlyRange(
-	timeRange: TimeRangeValue | undefined,
+	timeRange: TimeRangeValue,
 ): timeRange is "1h" | "4h" | "24h" {
 	return timeRange === "1h" || timeRange === "4h" || timeRange === "24h";
 }
@@ -292,19 +288,16 @@ const CustomTooltip = ({
 type BreakdownField = "requests" | "cost" | "tokens" | "cacheRate";
 
 interface ActivityChartProps {
-	initialData?: ActivitT;
 	apiKeyId?: string;
-	timeRange?: TimeRangeValue;
+	timeRange: TimeRangeValue;
 	groupBy?: ModelUsageGroupBy;
 }
 
 export function ActivityChart({
-	initialData,
 	apiKeyId,
 	timeRange,
 	groupBy = "model",
 }: ActivityChartProps) {
-	const searchParams = useSearchParams();
 	const [breakdownField, setBreakdownField] =
 		useState<BreakdownField>("requests");
 	const [showAllModels, setShowAllModels] = useState(false);
@@ -314,38 +307,16 @@ export function ActivityChart({
 
 	const hourly = isHourlyRange(timeRange);
 
-	// Build query params based on whether we're using timeRange or date range
 	const queryParams = useMemo(() => {
 		const apiGroupBy = toApiGroupBy(groupBy);
-		const breakdownParam =
-			apiGroupBy === "model" ? {} : { groupBy: apiGroupBy };
-		const timezone = displayTimeZone;
-		if (timeRange) {
-			return {
-				timeRange,
-				timezone,
-				...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
-				...(apiKeyId ? { apiKeyId } : {}),
-				...breakdownParam,
-			};
-		}
-		const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 		return {
-			from: format(from, "yyyy-MM-dd"),
-			to: format(to, "yyyy-MM-dd"),
-			timezone,
+			timeRange,
+			timezone: displayTimeZone,
 			...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
 			...(apiKeyId ? { apiKeyId } : {}),
-			...breakdownParam,
+			...(apiGroupBy === "model" ? {} : { groupBy: apiGroupBy }),
 		};
-	}, [
-		timeRange,
-		searchParams,
-		selectedProject?.id,
-		apiKeyId,
-		groupBy,
-		displayTimeZone,
-	]);
+	}, [timeRange, selectedProject?.id, apiKeyId, groupBy, displayTimeZone]);
 
 	const {
 		data: rawData,
@@ -362,7 +333,6 @@ export function ActivityChart({
 		{
 			// The cache-rate view reads its own endpoint.
 			enabled: !!selectedProject?.id && breakdownField !== "cacheRate",
-			initialData: timeRange ? undefined : initialData,
 		},
 	);
 
@@ -381,20 +351,15 @@ export function ActivityChart({
 	);
 
 	const periodLabel = useMemo(() => {
-		if (timeRange) {
-			const hours = getTimeRangeHours(timeRange);
-			if (hours < 24) {
-				return `last ${hours} hour${hours > 1 ? "s" : ""}`;
-			}
-			if (hours === 24) {
-				return "last 24 hours";
-			}
-			return `last ${hours / 24} days`;
+		const hours = getTimeRangeHours(timeRange);
+		if (hours < 24) {
+			return `last ${hours} hour${hours > 1 ? "s" : ""}`;
 		}
-		const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
-		const days = differenceInCalendarDays(to, from) + 1;
-		return `${days} days`;
-	}, [timeRange, searchParams, displayTimeZone]);
+		if (hours === 24) {
+			return "last 24 hours";
+		}
+		return `last ${hours / 24} days`;
+	}, [timeRange]);
 
 	const seriesNoun = DIMENSION_LABELS[groupBy].noun;
 	const cardTitle = DIMENSION_LABELS[groupBy].cardTitle;
@@ -512,20 +477,8 @@ export function ActivityChart({
 		);
 	}
 
-	// Generate the expected time slots (hourly or daily). For timeRange queries
-	// the backend already returns padded, ordered buckets in the requested
-	// timezone, so use them as-is instead of regenerating them locally.
-	const slots: string[] = [];
-	if (timeRange) {
-		slots.push(...data.activity.map((item) => item.date));
-	} else {
-		const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
-		const totalDays = differenceInCalendarDays(to, from) + 1;
-		for (let i = 0; i < totalDays; i++) {
-			const date = addDays(from, i);
-			slots.push(format(date, "yyyy-MM-dd"));
-		}
-	}
+	// The backend returns padded, ordered buckets in the requested timezone.
+	const slots = data.activity.map((item) => item.date);
 
 	// Create a map of existing data by date/timestamp
 	const dataByDate = new Map(data.activity.map((item) => [item.date, item]));

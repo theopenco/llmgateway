@@ -368,19 +368,10 @@ function buildBucket(
 	const creditsRequestCount = sum((row) => row.creditsRequestCount);
 	const apiKeysRequestCount = sum((row) => row.apiKeysRequestCount);
 
-	let inputCost = 0;
-	let outputCost = 0;
-	let cachedInputCost = 0;
-	let cacheWriteInputCost = 0;
-	modelBreakdown.forEach((row, index) => {
-		const model = MODELS[index];
-		inputCost +=
-			(row.inputTokens - row.cachedTokens - row.cacheWriteTokens) *
-			model.inputPrice;
-		cacheWriteInputCost += row.cacheWriteTokens * model.inputPrice * 1.25;
-		cachedInputCost += row.cachedTokens * model.cachedInputPrice;
-		outputCost += row.outputTokens * model.outputPrice;
-	});
+	const inputCost = sum((row) => row.inputCost);
+	const outputCost = sum((row) => row.outputCost);
+	const cachedInputCost = sum((row) => row.cachedInputCost);
+	const cacheWriteInputCost = sum((row) => row.cacheWriteInputCost);
 
 	const errorRate = errorSpike
 		? vary(0.021, 0.004, seed * 3)

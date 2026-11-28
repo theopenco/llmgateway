@@ -38,21 +38,17 @@ export function Countdown({ expiresAt }: CountdownProps) {
 	const [time, setTime] = useState(() => getTimeRemaining(expiresAt));
 
 	useEffect(() => {
-		const current = getTimeRemaining(expiresAt);
-		setTime(current);
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const tick = () => {
+			const current = getTimeRemaining(expiresAt);
+			setTime(current);
+			if (!current.expired) {
+				timer = setTimeout(tick, current.days > 0 ? 60000 : 1000);
+			}
+		};
+		tick();
 
-		if (current.expired) {
-			return;
-		}
-
-		const interval = setInterval(
-			() => {
-				setTime(getTimeRemaining(expiresAt));
-			},
-			current.diff < 60 * 60 * 1000 ? 1000 : 60000,
-		);
-
-		return () => clearInterval(interval);
+		return () => clearTimeout(timer);
 	}, [expiresAt]);
 
 	// Clock-derived text can never match between the server render and

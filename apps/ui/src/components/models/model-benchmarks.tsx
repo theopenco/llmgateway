@@ -36,7 +36,7 @@ export function ModelBenchmarks({
 	const providers = data?.providers ?? [];
 	const arena = data?.arena;
 	const hasProviderData = providers.some((p) => p.logsCount > 0);
-	const hasArenaData = arena?.text !== null || arena?.code !== null;
+	const hasArenaData = Boolean(arena?.text ?? arena?.code);
 
 	if (isLoading) {
 		return (

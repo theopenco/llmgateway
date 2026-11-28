@@ -25,6 +25,7 @@ import {
 	CardTitle,
 } from "@/lib/components/card";
 import { fetchModelDiscounts, fetchProviders } from "@/lib/fetch-models";
+import { buildFaqSchema } from "@/lib/model-faq";
 import { getCheapestOgMapping } from "@/lib/model-og";
 
 import {
@@ -141,44 +142,27 @@ export default async function ModelUptimePage({ params }: PageProps) {
 		],
 	};
 
-	const faqSchema = {
-		"@context": "https://schema.org",
-		"@type": "FAQPage",
-		mainEntity: [
-			{
-				"@type": "Question",
-				name: `How is ${modelLabel} uptime measured?`,
-				acceptedAnswer: {
-					"@type": "Answer",
-					text: `Uptime is the share of valid requests that completed successfully over the last 24 hours. Client errors (4xx from your request) are excluded so the number reflects service reliability, not invalid requests.`,
-				},
-			},
-			{
-				"@type": "Question",
-				name: `Which providers serve ${modelLabel}?`,
-				acceptedAnswer: {
-					"@type": "Answer",
-					text: `${modelLabel} is currently served by ${providerCount} provider${providerCount === 1 ? "" : "s"}: ${providerNames.join(", ")}. LLM Gateway routes requests to the best healthy provider in real time.`,
-				},
-			},
-			{
-				"@type": "Question",
-				name: `What is TTFT and why does it matter?`,
-				acceptedAnswer: {
-					"@type": "Answer",
-					text: `TTFT (time to first token) is the latency between the request and the first streamed token. Lower TTFT means the model starts responding faster — critical for chat UIs and agent loops.`,
-				},
-			},
-			{
-				"@type": "Question",
-				name: `How often does this page update?`,
-				acceptedAnswer: {
-					"@type": "Answer",
-					text: `Charts refresh every minute and aggregate the most recent 24 hours of traffic across all LLM Gateway projects, bucketed by hour. The current hour fills in as traffic arrives.`,
-				},
-			},
-		],
-	};
+	const faqs = [
+		{
+			question: `How is ${modelLabel} uptime measured?`,
+			answer: `Uptime is the share of valid requests that completed successfully over the last 24 hours. Client errors (4xx from your request) are excluded so the number reflects service reliability, not invalid requests.`,
+		},
+		{
+			question: `Which providers serve ${modelLabel}?`,
+			answer: `${modelLabel} is currently served by ${providerCount} provider${providerCount === 1 ? "" : "s"}: ${providerNames.join(", ")}. LLM Gateway routes requests to the best healthy provider in real time.`,
+		},
+		{
+			question: "What is TTFT and why does it matter?",
+			answer:
+				"TTFT (time to first token) is the latency between the request and the first streamed token. Lower TTFT means the model starts responding faster — critical for chat UIs and agent loops.",
+		},
+		{
+			question: "How often does this page update?",
+			answer:
+				"Charts refresh every minute and aggregate the most recent 24 hours of traffic across all LLM Gateway projects, bucketed by hour. The current hour fills in as traffic arrives.",
+		},
+	];
+	const faqSchema = buildFaqSchema(faqs);
 
 	return (
 		<>
@@ -313,22 +297,13 @@ export default async function ModelUptimePage({ params }: PageProps) {
 							Frequently asked questions
 						</h2>
 						<div className="grid gap-4 md:grid-cols-2">
-							<FaqItem
-								question={`How is ${modelLabel} uptime measured?`}
-								answer={`Uptime is the share of valid requests that completed successfully over the last 24 hours. Client errors (4xx from your request) are excluded so the number reflects service reliability, not invalid requests.`}
-							/>
-							<FaqItem
-								question={`Which providers serve ${modelLabel}?`}
-								answer={`${modelLabel} is currently served by ${providerCount} provider${providerCount === 1 ? "" : "s"}: ${providerNames.join(", ")}. LLM Gateway routes requests to the best healthy provider in real time.`}
-							/>
-							<FaqItem
-								question="What is TTFT and why does it matter?"
-								answer="TTFT (time to first token) is the latency between the request and the first streamed token. Lower TTFT means the model starts responding faster — critical for chat UIs and agent loops."
-							/>
-							<FaqItem
-								question="How often does this page update?"
-								answer="Charts refresh every minute and aggregate the most recent 24 hours of traffic across all LLM Gateway projects, bucketed by hour. The current hour fills in as traffic arrives."
-							/>
+							{faqs.map((faq) => (
+								<FaqItem
+									key={faq.question}
+									question={faq.question}
+									answer={faq.answer}
+								/>
+							))}
 						</div>
 					</section>
 				</div>

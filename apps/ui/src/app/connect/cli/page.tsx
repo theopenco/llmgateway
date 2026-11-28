@@ -419,9 +419,9 @@ export default function ConnectCliPage() {
 									onValueChange={(id) => {
 										setSelectedOrgId(id);
 										setSelectedProjectId(undefined);
-										createApiKey.reset();
+										keyMutation.reset();
 									}}
-									disabled={createApiKey.isPending}
+									disabled={keyMutation.isPending}
 								>
 									<SelectTrigger id="connect-org" className="w-full">
 										<SelectValue />
@@ -443,9 +443,9 @@ export default function ConnectCliPage() {
 									value={pickedProject.id}
 									onValueChange={(id) => {
 										setSelectedProjectId(id);
-										createApiKey.reset();
+										keyMutation.reset();
 									}}
-									disabled={createApiKey.isPending}
+									disabled={keyMutation.isPending}
 								>
 									<SelectTrigger id="connect-project" className="w-full">
 										<SelectValue />

@@ -80,8 +80,8 @@ export function CostByModelOverTimeCard({
 	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
 	const series = useMemo(
-		() => buildModelTimeseries(activity, modelView),
-		[activity, modelView],
+		() => buildModelTimeseries(activity, modelView, 10, activeMetric),
+		[activity, modelView, activeMetric],
 	);
 
 	const bucket = useMemo<"hour" | "day">(() => {

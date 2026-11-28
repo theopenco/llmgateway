@@ -8,6 +8,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import confetti from "canvas-confetti";
+import { Decimal } from "decimal.js";
 import {
 	ChevronDown,
 	Coins,
@@ -49,9 +50,37 @@ import {
 import { formatNumber } from "@llmgateway/shared/number-format";
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
+import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type React from "react";
 
 const COMMITTED_USE_HINT_MIN_AMOUNT = CREDIT_TOP_UP_MAX_AMOUNT / 2;
+
+function applyTopUpToOrgCache(
+	queryClient: QueryClient,
+	orgsQueryKey: QueryKey,
+	organizationId: string | undefined,
+	amount: number,
+) {
+	queryClient.setQueryData<{
+		organizations: { id: string; credits: string }[];
+	}>(orgsQueryKey, (old) => {
+		if (!old?.organizations?.length) {
+			return old;
+		}
+		const targetId = organizationId ?? old.organizations[0]?.id;
+		return {
+			...old,
+			organizations: old.organizations.map((org) =>
+				org.id === targetId
+					? {
+							...org,
+							credits: new Decimal(org.credits ?? 0).plus(amount).toString(),
+						}
+					: org,
+			),
+		};
+	});
+}
 
 export function TopUpCreditsButton() {
 	return (
@@ -813,25 +842,7 @@ function PaymentStep({
 				// Payment succeeded — optimistically update cached credits
 				// so the UI reflects the change immediately, then invalidate
 				// in the background to sync with the server.
-				queryClient.setQueryData<{
-					organizations: { id: string; credits: string }[];
-				}>(orgsQueryKey, (old) => {
-					if (!old?.organizations?.length) {
-						return old;
-					}
-					const targetId = organizationId ?? old.organizations[0]?.id;
-					return {
-						...old,
-						organizations: old.organizations.map((org) =>
-							org.id === targetId
-								? {
-										...org,
-										credits: String(Number(org.credits ?? 0) + amount),
-									}
-								: org,
-						),
-					};
-				});
+				applyTopUpToOrgCache(queryClient, orgsQueryKey, organizationId, amount);
 
 				if (saveCard) {
 					void queryClient.invalidateQueries({
@@ -1249,25 +1260,7 @@ function ConfirmPaymentStep({
 			// Payment succeeded — optimistically update cached credits
 			// so the UI reflects the change immediately, then invalidate
 			// in the background to sync with the server.
-			queryClient.setQueryData<{
-				organizations: { id: string; credits: string }[];
-			}>(orgsQueryKey, (old) => {
-				if (!old?.organizations?.length) {
-					return old;
-				}
-				const targetId = organizationId ?? old.organizations[0]?.id;
-				return {
-					...old,
-					organizations: old.organizations.map((org) =>
-						org.id === targetId
-							? {
-									...org,
-									credits: String(Number(org.credits ?? 0) + amount),
-								}
-							: org,
-					),
-				};
-			});
+			applyTopUpToOrgCache(queryClient, orgsQueryKey, organizationId, amount);
 
 			onSuccess();
 		} catch (error) {

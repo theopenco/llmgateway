@@ -3,6 +3,7 @@ import { CopilotCostCalculatorContent } from "@/components/copilot-cost-calculat
 import { COPILOT_CALCULATOR_FAQ } from "@/components/copilot-cost-calculator/faq-data";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { JsonLd } from "@/components/seo/json-ld";
 
 import type { Metadata } from "next";
 
@@ -97,21 +98,7 @@ const faqSchema = {
 export default function CopilotCostCalculatorPage() {
 	return (
 		<div>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }}
-			/>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(appSchema) }}
-			/>
-			<script
-				type="application/ld+json"
-				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
-			/>
+			<JsonLd data={[breadcrumbSchema, appSchema, faqSchema]} />
 			<HeroRSC />
 			<CopilotCostCalculatorClient />
 			<CopilotCostCalculatorContent />

@@ -5,13 +5,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { ChangelogTags } from "@/components/changelog-tags";
+import { CopyMarkdownButton } from "@/components/copy-markdown-button";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { changelogProducts } from "@/lib/changelog";
 import { pageTitle } from "@/lib/page-title";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
-import { CopyMarkdownButton } from "./copy-markdown-button";
 import { allChangelogs } from "content-collections";
 
 import type { Changelog } from "content-collections";

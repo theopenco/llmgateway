@@ -377,11 +377,31 @@ interface DraftConfig {
 const DEFAULT_CLASSIFIER_MODEL = "jev-1.14.0";
 const DECISION_MODELS = listDecisionModels();
 
+const DEFAULT_MAX_FILE_SIZE_MB = 10;
+const MIN_MAX_FILE_SIZE_MB = 1;
+const MAX_MAX_FILE_SIZE_MB = 100;
+
+function parseMaxFileSizeMb(value: string): number | null {
+	const parsed = Number(value);
+	if (value.trim() === "" || !Number.isInteger(parsed)) {
+		return null;
+	}
+	return parsed;
+}
+
+function clampMaxFileSizeMb(value: string): number {
+	const parsed = parseMaxFileSizeMb(value);
+	if (parsed === null) {
+		return DEFAULT_MAX_FILE_SIZE_MB;
+	}
+	return Math.min(MAX_MAX_FILE_SIZE_MB, Math.max(MIN_MAX_FILE_SIZE_MB, parsed));
+}
+
 const DEFAULT_DRAFT: DraftConfig = {
 	inheritOrganization: true,
 	enabled: false,
 	systemRules: DEFAULT_SYSTEM_RULES,
-	maxFileSizeMb: 10,
+	maxFileSizeMb: DEFAULT_MAX_FILE_SIZE_MB,
 	allowedFileTypes: DEFAULT_ALLOWED_FILE_TYPES,
 	classifierModel: DEFAULT_CLASSIFIER_MODEL,
 };
@@ -552,6 +572,7 @@ function GuardrailsForm({
 	const [error, setError] = useState<string | null>(null);
 	const [showAddRule, setShowAddRule] = useState(false);
 	const [newRule, setNewRule] = useState<NewRuleDraft>(EMPTY_RULE);
+	const [maxFileSizeInput, setMaxFileSizeInput] = useState<string | null>(null);
 
 	const saveMutation = useSaveGuardrailConfig(scope);
 	const createRuleMutation = useCreateGuardrailRule(scope);
@@ -952,14 +973,27 @@ function GuardrailsForm({
 							<Label>Maximum File Size (MB)</Label>
 							<Input
 								type="number"
-								value={shown.maxFileSizeMb}
+								min={MIN_MAX_FILE_SIZE_MB}
+								max={MAX_MAX_FILE_SIZE_MB}
+								step={1}
+								value={maxFileSizeInput ?? shown.maxFileSizeMb}
 								disabled={!editable}
-								onChange={(e) =>
+								onChange={(e) => {
+									setMaxFileSizeInput(e.target.value);
+									if (parseMaxFileSizeMb(e.target.value) !== null) {
+										setDraft({
+											...draft,
+											maxFileSizeMb: clampMaxFileSizeMb(e.target.value),
+										});
+									}
+								}}
+								onBlur={(e) => {
 									setDraft({
 										...draft,
-										maxFileSizeMb: parseInt(e.target.value, 10) || 10,
-									})
-								}
+										maxFileSizeMb: clampMaxFileSizeMb(e.target.value),
+									});
+									setMaxFileSizeInput(null);
+								}}
 								className="w-32"
 							/>
 						</div>

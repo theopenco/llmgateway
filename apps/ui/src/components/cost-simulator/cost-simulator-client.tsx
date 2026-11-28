@@ -47,6 +47,8 @@ import {
 
 import type { ProviderDefinition } from "@llmgateway/models";
 
+const COMPETITOR_FEE_RATE = 0.055;
+
 // ─── Derived model lists from @llmgateway/models ─────────────────────────────
 
 const now = new Date();
@@ -309,10 +311,11 @@ function TextSimulator() {
 		const uncachedInput = avgInputTokens * (1 - cacheRate) * inputPricePerToken;
 		const outputCost = avgOutputTokens * outputPricePerToken;
 		const basePerRequest = cachedInput + uncachedInput + outputCost;
+		const fullInputCost = avgInputTokens * inputPricePerToken;
+		const uncachedPerRequest = fullInputCost + outputCost;
 
-		// Competitors add 5.5% platform fee on top
 		const baseMonthly = basePerRequest * monthlyRequests;
-		const competitorMonthly = baseMonthly * 1.055;
+		const competitorMonthly = baseMonthly * (1 + COMPETITOR_FEE_RATE);
 
 		const gatewayPerRequest = basePerRequest;
 		const gatewayMonthly = calculateFees({ amount: baseMonthly }).totalAmount;
@@ -324,7 +327,7 @@ function TextSimulator() {
 				: "0";
 
 		return {
-			basePerRequest,
+			uncachedPerRequest,
 			competitorMonthly,
 			gatewayPerRequest,
 			gatewayMonthly,
@@ -497,7 +500,7 @@ function TextSimulator() {
 								{formatCurrency(costs.competitorMonthly)}
 							</p>
 							<p className="text-xs text-muted-foreground mt-1">
-								/month with 5.5% fee
+								/month with {COMPETITOR_FEE_RATE * 100}% fee
 							</p>
 						</Card>
 
@@ -574,7 +577,7 @@ function TextSimulator() {
 									Base cost per request
 								</span>
 								<span className="font-mono font-medium">
-									{formatCurrency(costs.basePerRequest)}
+									{formatCurrency(costs.uncachedPerRequest)}
 								</span>
 							</div>
 							<div className="flex items-center justify-between text-sm">
@@ -614,7 +617,8 @@ function TextSimulator() {
 							<div>
 								<p className="text-sm font-medium">No Hidden Fees</p>
 								<p className="text-xs text-muted-foreground mt-0.5">
-									No token markup — 5% fee on credits, 0% with your own keys
+									No token markup — {MARKETING_STATS.platformFee} fee on
+									credits, 0% with your own keys
 								</p>
 							</div>
 						</div>
@@ -672,7 +676,7 @@ function ImageSimulator() {
 
 		const dailyCost = pricePerImage * imagesPerDay;
 		const monthlyCost = dailyCost * 30;
-		const competitorMonthly = monthlyCost * 1.055;
+		const competitorMonthly = monthlyCost * (1 + COMPETITOR_FEE_RATE);
 		const gatewayMonthly = calculateFees({ amount: monthlyCost }).totalAmount;
 		const savings = competitorMonthly - gatewayMonthly;
 

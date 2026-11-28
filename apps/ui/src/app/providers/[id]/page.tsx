@@ -117,7 +117,11 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 
 	const provider = providerDefinitions.find((p) => p.id === id);
 
-	if (!provider || provider.name === "LLM Gateway") {
+	if (provider?.name === "LLM Gateway") {
+		notFound();
+	}
+
+	if (!provider) {
 		const dynamicPage = await renderDynamicProviderPage(id);
 		if (dynamicPage) {
 			return dynamicPage;
@@ -393,7 +397,11 @@ export async function generateMetadata({
 			modelCount === 1 ? "model" : "models"
 		} through LLM Gateway's OpenAI-compatible API with per-token pricing, automatic fallback, caching, and cost analytics.`;
 
-	if (!provider || provider.name === "LLM Gateway") {
+	if (provider?.name === "LLM Gateway") {
+		return {};
+	}
+
+	if (!provider) {
 		const apiProvider = (await fetchProviders()).find((p) => p.id === id);
 		if (!apiProvider) {
 			return {};

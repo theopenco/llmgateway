@@ -44,6 +44,7 @@ import { useApi } from "@/lib/fetch-client";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
 
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { DailyActivity } from "@/types/activity";
 
@@ -100,9 +101,7 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 	const currentUserRole = teamData?.members.find(
 		(member) => member.userId === user?.id,
 	)?.role;
-	const canGroupByUser =
-		isEnterprise &&
-		(currentUserRole === "owner" || currentUserRole === "admin");
+	const canGroupByUser = isEnterprise && isOrganizationAdmin(currentUserRole);
 
 	const groupBy = resolveGroupBy(
 		parseGroupBy(searchParams.get("groupBy")),

@@ -574,13 +574,11 @@ function NavigationItem({
 
 function ProjectSettingsSection({
 	isActive,
-	isMobile,
-	toggleSidebar,
+	onNavigate,
 	showEnterpriseBadge,
 }: {
 	isActive: (path: string) => boolean;
-	isMobile: boolean;
-	toggleSidebar: () => void;
+	onNavigate: () => void;
 	showEnterpriseBadge: boolean;
 }) {
 	const { buildUrl } = useDashboardNavigation();
@@ -593,16 +591,12 @@ function ProjectSettingsSection({
 		>
 			<SidebarMenuButton
 				asChild
-				isActive={isActive("settings/preferences")}
+				isActive={PROJECT_SETTINGS.some((item) => isActive(item.href))}
 				tooltip="Settings"
 			>
 				<Link
 					href={buildUrl("settings/preferences")}
-					onClick={() => {
-						if (isMobile) {
-							toggleSidebar();
-						}
-					}}
+					onClick={onNavigate}
 					prefetch={true}
 				>
 					<AnimatedSettings isHovered={isHovered} />
@@ -615,11 +609,7 @@ function ProjectSettingsSection({
 						<SidebarMenuSubButton asChild isActive={isActive(item.href)}>
 							<Link
 								href={buildUrl(item.href)}
-								onClick={() => {
-									if (isMobile) {
-										toggleSidebar();
-									}
-								}}
+								onClick={onNavigate}
 								prefetch={true}
 							>
 								<span>{item.label}</span>
@@ -656,16 +646,14 @@ function OrgNavItem({
 	label,
 	icon: Icon,
 	isActive,
-	isMobile,
-	toggleSidebar,
+	onNavigate,
 	showEnterpriseBadge = false,
 }: {
 	href: string;
 	label: string;
 	icon: AnimatedIconComponent;
 	isActive: boolean;
-	isMobile: boolean;
-	toggleSidebar: () => void;
+	onNavigate: () => void;
 	showEnterpriseBadge?: boolean;
 }) {
 	const [isHovered, setIsHovered] = useState(false);
@@ -676,15 +664,7 @@ function OrgNavItem({
 			onMouseLeave={() => setIsHovered(false)}
 		>
 			<SidebarMenuButton asChild isActive={isActive} tooltip={label}>
-				<Link
-					href={href as Route}
-					onClick={() => {
-						if (isMobile) {
-							toggleSidebar();
-						}
-					}}
-					prefetch={true}
-				>
+				<Link href={href as Route} onClick={onNavigate} prefetch={true}>
 					<Icon isHovered={isHovered} />
 					<span>{label}</span>
 					{showEnterpriseBadge && <EnterpriseIndicator />}
@@ -696,14 +676,12 @@ function OrgNavItem({
 
 function OrganizationSection({
 	isActive,
-	isMobile,
-	toggleSidebar,
+	onNavigate,
 	searchParams,
 	isEnterprise,
 }: {
 	isActive: (path: string) => boolean;
-	isMobile: boolean;
-	toggleSidebar: () => void;
+	onNavigate: () => void;
 	searchParams: ReadonlyURLSearchParams;
 	isEnterprise: boolean;
 }) {
@@ -726,8 +704,7 @@ function OrganizationSection({
 							label={item.label}
 							icon={item.icon}
 							isActive={isActive(item.href)}
-							isMobile={isMobile}
-							toggleSidebar={toggleSidebar}
+							onNavigate={onNavigate}
 							showEnterpriseBadge={item.enterpriseGated && showEnterpriseBadge}
 						/>
 					))}
@@ -746,11 +723,7 @@ function OrganizationSection({
 						>
 							<Link
 								href={buildOrgUrl("org/billing")}
-								onClick={() => {
-									if (isMobile) {
-										toggleSidebar();
-									}
-								}}
+								onClick={onNavigate}
 								prefetch={true}
 							>
 								<AnimatedSettings isHovered={settingsHovered} />
@@ -771,11 +744,7 @@ function OrganizationSection({
 														) as Route)
 													: buildOrgUrl(item.href)
 											}
-											onClick={() => {
-												if (isMobile) {
-													toggleSidebar();
-												}
-											}}
+											onClick={onNavigate}
 											prefetch={true}
 										>
 											<span>{item.label}</span>
@@ -797,13 +766,11 @@ function OrganizationSection({
 // Organization resources available to project-scoped developers.
 function DeveloperOrgSection({
 	isActive,
-	isMobile,
-	toggleSidebar,
+	onNavigate,
 	isEnterprise,
 }: {
 	isActive: (path: string) => boolean;
-	isMobile: boolean;
-	toggleSidebar: () => void;
+	onNavigate: () => void;
 	isEnterprise: boolean;
 }) {
 	const { buildOrgUrl } = useDashboardNavigation();
@@ -820,8 +787,7 @@ function DeveloperOrgSection({
 						label="Models"
 						icon={AnimatedBotMessageSquare}
 						isActive={isActive("org/models")}
-						isMobile={isMobile}
-						toggleSidebar={toggleSidebar}
+						onNavigate={onNavigate}
 					/>
 					{isEnterprise && (
 						<OrgNavItem
@@ -829,8 +795,7 @@ function DeveloperOrgSection({
 							label="Skills"
 							icon={AnimatedTerminal}
 							isActive={isActive("org/skills")}
-							isMobile={isMobile}
-							toggleSidebar={toggleSidebar}
+							onNavigate={onNavigate}
 						/>
 					)}
 				</SidebarMenu>
@@ -842,8 +807,7 @@ function DeveloperOrgSection({
 function ToolsResourceItem({
 	item,
 	isActive,
-	isMobile,
-	toggleSidebar,
+	onNavigate,
 }: {
 	item: {
 		href: string;
@@ -852,8 +816,7 @@ function ToolsResourceItem({
 		internal: boolean;
 	};
 	isActive: (path: string) => boolean;
-	isMobile: boolean;
-	toggleSidebar: () => void;
+	onNavigate: () => void;
 }) {
 	const [isHovered, setIsHovered] = useState(false);
 
@@ -868,15 +831,7 @@ function ToolsResourceItem({
 					isActive={isActive(item.href)}
 					tooltip={item.label}
 				>
-					<Link
-						href={item.href as Route}
-						onClick={() => {
-							if (isMobile) {
-								toggleSidebar();
-							}
-						}}
-						prefetch={true}
-					>
+					<Link href={item.href as Route} onClick={onNavigate} prefetch={true}>
 						<item.icon isHovered={isHovered} />
 						<span>{item.label}</span>
 					</Link>
@@ -887,11 +842,7 @@ function ToolsResourceItem({
 						href={item.href}
 						target="_blank"
 						rel="noopener noreferrer"
-						onClick={() => {
-							if (isMobile) {
-								toggleSidebar();
-							}
-						}}
+						onClick={onNavigate}
 					>
 						<item.icon isHovered={isHovered} />
 						<span>{item.label}</span>
@@ -906,8 +857,7 @@ function ToolsResourceItem({
 function ToolsResourcesSection({
 	toolsResources,
 	isActive,
-	isMobile,
-	toggleSidebar,
+	onNavigate,
 }: {
 	toolsResources: readonly {
 		href: string;
@@ -916,8 +866,7 @@ function ToolsResourcesSection({
 		internal: boolean;
 	}[];
 	isActive: (path: string) => boolean;
-	isMobile: boolean;
-	toggleSidebar: () => void;
+	onNavigate: () => void;
 }) {
 	return (
 		<SidebarGroup>
@@ -931,8 +880,7 @@ function ToolsResourcesSection({
 							key={item.href}
 							item={item}
 							isActive={isActive}
-							isMobile={isMobile}
-							toggleSidebar={toggleSidebar}
+							onNavigate={onNavigate}
 						/>
 					))}
 				</SidebarMenu>
@@ -1007,13 +955,11 @@ function ThemeSelect() {
 
 function UserDropdownMenu({
 	user,
-	isMobile,
-	toggleSidebar,
+	onNavigate,
 	onLogout,
 }: {
 	user: User;
-	isMobile: boolean;
-	toggleSidebar: () => void;
+	onNavigate: () => void;
 	onLogout: () => void;
 }) {
 	const { buildUrl, buildOrgUrl } = useDashboardNavigation();
@@ -1076,11 +1022,7 @@ function UserDropdownMenu({
 											) as Route)
 										: urlBuilder(item.href)
 								}
-								onClick={() => {
-									if (isMobile) {
-										toggleSidebar();
-									}
-								}}
+								onClick={onNavigate}
 								prefetch={true}
 							>
 								<item.icon className="mr-2 h-4 w-4" />
@@ -1335,7 +1277,8 @@ export function DashboardSidebar({
 				(item) =>
 					isOrgAdmin ||
 					item.href === "org/models" ||
-					item.href === "org/skills",
+					(item.href === "org/skills" &&
+						selectedOrganization?.enterpriseAccess === true),
 			).map((item) => ({
 				href: buildOrgUrl(item.href),
 				label: item.label,
@@ -1546,8 +1489,7 @@ export function DashboardSidebar({
 						</SidebarGroup>
 						<DeveloperOrgSection
 							isActive={isActive}
-							isMobile={isMobile}
-							toggleSidebar={toggleSidebar}
+							onNavigate={handleNavClick}
 							isEnterprise={selectedOrganization?.enterpriseAccess === true}
 						/>
 					</>
@@ -1569,8 +1511,7 @@ export function DashboardSidebar({
 									))}
 									<ProjectSettingsSection
 										isActive={isActive}
-										isMobile={isMobile}
-										toggleSidebar={toggleSidebar}
+										onNavigate={handleNavClick}
 										showEnterpriseBadge={
 											selectedOrganization?.enterpriseAccess !== true
 										}
@@ -1582,16 +1523,14 @@ export function DashboardSidebar({
 						{isOrgAdmin ? (
 							<OrganizationSection
 								isActive={isActive}
-								isMobile={isMobile}
-								toggleSidebar={toggleSidebar}
+								onNavigate={handleNavClick}
 								searchParams={searchParams}
 								isEnterprise={selectedOrganization?.enterpriseAccess === true}
 							/>
 						) : (
 							<DeveloperOrgSection
 								isActive={isActive}
-								isMobile={isMobile}
-								toggleSidebar={toggleSidebar}
+								onNavigate={handleNavClick}
 								isEnterprise={selectedOrganization?.enterpriseAccess === true}
 							/>
 						)}
@@ -1599,8 +1538,7 @@ export function DashboardSidebar({
 						<ToolsResourcesSection
 							toolsResources={toolsResources}
 							isActive={isActive}
-							isMobile={isMobile}
-							toggleSidebar={toggleSidebar}
+							onNavigate={handleNavClick}
 						/>
 					</>
 				)}
@@ -1623,8 +1561,7 @@ export function DashboardSidebar({
 					<SidebarMenuItem>
 						<UserDropdownMenu
 							user={user}
-							isMobile={isMobile}
-							toggleSidebar={toggleSidebar}
+							onNavigate={handleNavClick}
 							onLogout={logout}
 						/>
 					</SidebarMenuItem>

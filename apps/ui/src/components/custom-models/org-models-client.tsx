@@ -63,6 +63,7 @@ import {
 } from "@llmgateway/models";
 import { failureLabel } from "@llmgateway/shared";
 import { AllModels } from "@llmgateway/shared/components";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { paths } from "@/lib/api/v1";
 import type {
@@ -104,7 +105,7 @@ export function OrgModelsClient({
 	const currentUserRole = teamData?.members.find(
 		(member) => member.userId === user?.id,
 	)?.role;
-	const isOrgAdmin = currentUserRole === "owner" || currentUserRole === "admin";
+	const isOrgAdmin = isOrganizationAdmin(currentUserRole);
 	const canManage = isEnterprise && isOrgAdmin;
 
 	const providerKeysQueryKey = api.queryOptions(

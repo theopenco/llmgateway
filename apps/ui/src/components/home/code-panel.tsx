@@ -89,6 +89,16 @@ export function CodePanel({
 	} | null>(null);
 	const rootRef = useRef<HTMLDivElement>(null);
 	const [nearView, setNearView] = useState(false);
+	const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	useEffect(
+		() => () => {
+			if (copiedTimerRef.current) {
+				clearTimeout(copiedTimerRef.current);
+			}
+		},
+		[],
+	);
 
 	useEffect(() => {
 		const node = rootRef.current;
@@ -146,7 +156,10 @@ export function CodePanel({
 			await navigator.clipboard.writeText(kind === "code" ? code : agentPrompt);
 			setCopied(kind);
 			onCopy?.(kind);
-			setTimeout(() => setCopied(null), 1600);
+			if (copiedTimerRef.current) {
+				clearTimeout(copiedTimerRef.current);
+			}
+			copiedTimerRef.current = setTimeout(() => setCopied(null), 1600);
 		} catch {
 			setCopied(null);
 		}

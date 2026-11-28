@@ -3,11 +3,22 @@
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { useState } from "react";
 
+import { toast } from "@/lib/components/use-toast";
+
 export function CopyMarkdownButton({ content }: { content: string }) {
 	const [copied, setCopied] = useState(false);
 
 	const handleCopy = async () => {
-		await navigator.clipboard.writeText(content);
+		try {
+			await navigator.clipboard.writeText(content);
+		} catch {
+			toast({
+				title: "Could not copy Markdown",
+				description: "Clipboard access is unavailable in this browser.",
+				variant: "destructive",
+			});
+			return;
+		}
 		setCopied(true);
 		setTimeout(() => setCopied(false), 2000);
 	};

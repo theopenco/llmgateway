@@ -3,13 +3,19 @@
 import { ArrowLeft, ShieldAlert, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { IamRulesEditor } from "@/components/iam/iam-rules-editor";
 import {
 	ProjectMultiSelect,
 	type OrgProject,
 } from "@/components/projects/project-multi-select";
+import {
+	BUDGET_PERIOD_UNITS,
+	parseBudgetForm,
+	toastInvalidBudget,
+	type BudgetPeriodUnit,
+} from "@/components/team/budget-limits-form";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	useAssignOrganizationTeam,
@@ -67,9 +73,6 @@ import { useApi } from "@/lib/fetch-client";
 
 import type { IamRule } from "@/components/iam/iam-rules-editor";
 import type { Route } from "next";
-
-const periodUnits = ["hour", "day", "week", "month"] as const;
-const nonNegativeDecimalPattern = /^\d+(?:\.\d+)?$/;
 
 type Confirmation =
 	| { type: "projects" }
@@ -155,25 +158,85 @@ export function OrganizationTeamDetailClient() {
 	const [usageLimit, setUsageLimit] = useState("");
 	const [periodLimit, setPeriodLimit] = useState("");
 	const [periodValue, setPeriodValue] = useState("1");
-	const [periodUnit, setPeriodUnit] =
-		useState<(typeof periodUnits)[number]>("month");
+	const [periodUnit, setPeriodUnit] = useState<BudgetPeriodUnit>("month");
 	const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
 	const [assignUnassigned, setAssignUnassigned] = useState(false);
+	const seeded = useRef<{
+		teamId: string;
+		name: string;
+		projects: string;
+		budget: string;
+	} | null>(null);
 
 	useEffect(() => {
 		if (!team) {
 			return;
 		}
-		setName(team.name);
-		setSelectedProjects(team.projects.map((project) => project.id));
-		setMaxApiKeys(
-			team.budget.maxApiKeys === null ? "" : String(team.budget.maxApiKeys),
-		);
-		setUsageLimit(team.budget.usageLimit ?? "");
-		setPeriodLimit(team.budget.periodUsageLimit ?? "");
-		setPeriodValue(String(team.budget.periodUsageDurationValue ?? 1));
-		setPeriodUnit(team.budget.periodUsageDurationUnit ?? "month");
-	}, [team]);
+		const previous = seeded.current?.teamId === team.id ? seeded.current : null;
+		const serverProjects = team.projects.map((project) => project.id);
+		const serverBudget = {
+			maxApiKeys:
+				team.budget.maxApiKeys === null ? "" : String(team.budget.maxApiKeys),
+			usageLimit: team.budget.usageLimit ?? "",
+			periodLimit: team.budget.periodUsageLimit ?? "",
+			periodValue: String(team.budget.periodUsageDurationValue ?? 1),
+			periodUnit: team.budget.periodUsageDurationUnit ?? "month",
+		};
+		const server = {
+			teamId: team.id,
+			name: team.name,
+			projects: JSON.stringify(serverProjects),
+			budget: JSON.stringify(serverBudget),
+		};
+		const current = {
+			name,
+			projects: JSON.stringify(selectedProjects),
+			budget: JSON.stringify({
+				maxApiKeys,
+				usageLimit,
+				periodLimit,
+				periodValue,
+				periodUnit,
+			}),
+		};
+		const shouldSeed = (section: "name" | "projects" | "budget") =>
+			!previous ||
+			current[section] === previous[section] ||
+			current[section] === server[section];
+		const next = { ...server };
+
+		if (shouldSeed("name")) {
+			setName(server.name);
+		} else if (previous) {
+			next.name = previous.name;
+		}
+		if (shouldSeed("projects")) {
+			if (current.projects !== server.projects) {
+				setSelectedProjects(serverProjects);
+			}
+		} else if (previous) {
+			next.projects = previous.projects;
+		}
+		if (shouldSeed("budget")) {
+			setMaxApiKeys(serverBudget.maxApiKeys);
+			setUsageLimit(serverBudget.usageLimit);
+			setPeriodLimit(serverBudget.periodLimit);
+			setPeriodValue(serverBudget.periodValue);
+			setPeriodUnit(serverBudget.periodUnit);
+		} else if (previous) {
+			next.budget = previous.budget;
+		}
+		seeded.current = next;
+	}, [
+		team,
+		name,
+		selectedProjects,
+		maxApiKeys,
+		usageLimit,
+		periodLimit,
+		periodValue,
+		periodUnit,
+	]);
 
 	if (isLoading) {
 		return (
@@ -211,6 +274,7 @@ export function OrganizationTeamDetailClient() {
 			params: { path: { organizationId, teamId } },
 			body: { name: name.trim() },
 		});
+		setName(name.trim());
 		toast({ title: "Team name saved" });
 	};
 
@@ -236,40 +300,20 @@ export function OrganizationTeamDetailClient() {
 	};
 
 	const saveBudget = async () => {
-		const hasPeriod = periodLimit.trim() !== "";
-		const normalizedMaxApiKeys = maxApiKeys.trim();
-		const normalizedUsageLimit = usageLimit.trim();
-		const normalizedPeriodLimit = periodLimit.trim();
-		const normalizedPeriodValue = periodValue.trim();
-		if (
-			(normalizedMaxApiKeys !== "" &&
-				(!Number.isInteger(Number(normalizedMaxApiKeys)) ||
-					Number(normalizedMaxApiKeys) < 0)) ||
-			(normalizedUsageLimit !== "" &&
-				!nonNegativeDecimalPattern.test(normalizedUsageLimit)) ||
-			(normalizedPeriodLimit !== "" &&
-				!nonNegativeDecimalPattern.test(normalizedPeriodLimit)) ||
-			(hasPeriod &&
-				(!Number.isInteger(Number(normalizedPeriodValue)) ||
-					Number(normalizedPeriodValue) < 1))
-		) {
-			toast({
-				title: "Enter valid budget ceilings",
-				description:
-					"Spend must be non-negative and windows use whole numbers.",
-				variant: "destructive",
-			});
+		const body = parseBudgetForm({
+			maxApiKeys,
+			usageLimit,
+			periodUsageLimit: periodLimit,
+			periodValue,
+			periodUnit,
+		});
+		if (!body) {
+			toastInvalidBudget();
 			return;
 		}
 		await updateBudget.mutateAsync({
 			params: { path: { organizationId, teamId } },
-			body: {
-				maxApiKeys: maxApiKeys.trim() === "" ? null : Number(maxApiKeys),
-				usageLimit: usageLimit.trim() || null,
-				periodUsageLimit: hasPeriod ? periodLimit.trim() : null,
-				periodUsageDurationValue: hasPeriod ? Number(periodValue) : null,
-				periodUsageDurationUnit: hasPeriod ? periodUnit : null,
-			},
+			body,
 		});
 		toast({ title: "Budget ceilings saved" });
 	};
@@ -592,7 +636,7 @@ export function OrganizationTeamDetailClient() {
 						<Select
 							value={periodUnit}
 							onValueChange={(value) =>
-								setPeriodUnit(value as typeof periodUnit)
+								setPeriodUnit(value as BudgetPeriodUnit)
 							}
 							disabled={!isEnterprise || !periodLimit}
 						>
@@ -600,7 +644,7 @@ export function OrganizationTeamDetailClient() {
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								{periodUnits.map((unit) => (
+								{BUDGET_PERIOD_UNITS.map((unit) => (
 									<SelectItem key={unit} value={unit}>
 										{unit}
 									</SelectItem>

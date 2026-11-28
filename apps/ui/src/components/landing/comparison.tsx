@@ -1,9 +1,11 @@
-import { Check, X } from "lucide-react";
+import { Check } from "lucide-react";
 import Link from "next/link";
 
-import { AuthLink } from "@/components/shared/auth-link";
+import {
+	ComparisonCtas,
+	ComparisonTable,
+} from "@/components/landing/comparison-table";
 import { Badge } from "@/lib/components/badge";
-import { Button } from "@/lib/components/button";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
 
@@ -116,17 +118,6 @@ const comparisonData = [
 ];
 
 export function Comparison() {
-	const renderFeatureValue = (value: boolean | string) => {
-		if (typeof value === "boolean") {
-			return value ? (
-				<Check className="h-5 w-5 text-green-600 dark:text-green-400" />
-			) : (
-				<X className="h-5 w-5 text-red-600 dark:text-red-400" />
-			);
-		}
-		return <span className="text-sm font-medium text-foreground">{value}</span>;
-	};
-
 	return (
 		<section className="w-full py-12 md:py-24 lg:py-32 bg-background">
 			<div className="container px-4 md:px-6 max-w-5xl mx-auto">
@@ -175,83 +166,23 @@ export function Comparison() {
 					</div>
 				</div>
 
-				<div className="bg-card rounded-lg border border-border overflow-hidden shadow-sm">
-					<div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 sm:p-6 bg-muted/50 border-b border-border">
-						<div className="hidden md:block" />
-						<div className="text-center">
-							<div className="border-2 border-primary rounded-lg p-4 bg-background shadow-sm h-full">
-								<h3 className="font-bold text-lg mb-1 text-foreground">
-									LLM Gateway
-								</h3>
-								<p className="text-sm text-muted-foreground mb-2">
-									OPEN & FLEXIBLE
-								</p>
-								<p className="text-2xl font-bold text-primary">From $0</p>
-								<p className="text-xs text-muted-foreground mt-1">
-									Free core; hosting costs separate
-								</p>
-							</div>
-						</div>
-						<div className="text-center">
-							<div className="border border-border rounded-lg p-4 bg-background h-full">
-								<h3 className="font-bold text-lg mb-1 text-foreground">
-									OpenRouter
-								</h3>
-								<p className="text-sm text-muted-foreground mb-2">
-									HOSTED MODEL MARKETPLACE
-								</p>
-								<p className="text-2xl font-bold text-foreground">From $0</p>
-								<p className="text-xs text-muted-foreground mt-1">
-									Credit-based pricing
-								</p>
-							</div>
-						</div>
-					</div>
+				<ComparisonTable
+					llmgateway={{
+						tagline: "OPEN & FLEXIBLE",
+						price: "From $0",
+						note: "Free core; hosting costs separate",
+					}}
+					competitor={{
+						name: "OpenRouter",
+						tagline: "HOSTED MODEL MARKETPLACE",
+						price: "From $0",
+						note: "Credit-based pricing",
+					}}
+					competitorKey="openrouter"
+					data={comparisonData}
+				/>
 
-					{comparisonData.map((category, categoryIndex) => (
-						<div key={categoryIndex}>
-							{categoryIndex > 0 && (
-								<div className="border-t-2 border-border/50" />
-							)}
-
-							{category.features.map((feature, featureIndex) => (
-								<div
-									key={featureIndex}
-									className="grid grid-cols-3 gap-4 p-6 border-b border-border/50 hover:bg-muted/30 transition-colors"
-								>
-									<div>
-										<h4 className="font-semibold text-foreground mb-1">
-											{feature.title}
-										</h4>
-										<p className="text-sm text-muted-foreground">
-											{feature.description}
-										</p>
-									</div>
-									<div className="flex justify-center items-center">
-										{renderFeatureValue(feature.llmgateway)}
-									</div>
-									<div className="flex justify-center items-center">
-										{renderFeatureValue(feature.openrouter)}
-									</div>
-								</div>
-							))}
-						</div>
-					))}
-				</div>
-
-				<div className="text-center mt-8">
-					<div className="flex flex-col sm:flex-row gap-4 justify-center">
-						<Button size="lg" className="bg-primary hover:bg-primary/90">
-							<AuthLink href="/signup">Start Free with LLM Gateway</AuthLink>
-						</Button>
-						<Button size="lg" variant="outline">
-							<Link href={"/pricing" as any}>View Pricing Details</Link>
-						</Button>
-					</div>
-					<p className="text-sm text-muted-foreground mt-3">
-						No credit card required • Self-host option available • Enterprise
-						support available
-					</p>
+				<ComparisonCtas>
 					<p className="text-sm text-muted-foreground mt-3">
 						Weighing more options? See the{" "}
 						<Link
@@ -262,7 +193,7 @@ export function Comparison() {
 						</Link>
 						.
 					</p>
-				</div>
+				</ComparisonCtas>
 			</div>
 		</section>
 	);

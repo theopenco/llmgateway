@@ -1,3 +1,5 @@
+import { DEVPASS_PRICE_RANGE } from "./calc";
+
 export interface CopilotCalculatorFaqItem {
 	question: string;
 	answer: string;
@@ -31,8 +33,7 @@ export const COPILOT_CALCULATOR_FAQ: CopilotCalculatorFaqItem[] = [
 	},
 	{
 		question: "What if I want a flat monthly price per developer?",
-		answer:
-			"DevPass plans give each developer a flat monthly allowance ($29–$179/month) usable across coding agents like DevPass Code, Claude Code, and Cline, with 2× the plan price in monthly usage value. It's the predictable-seat model Copilot used to be, but with model choice.",
+		answer: `DevPass plans give each developer a flat monthly allowance ($${DEVPASS_PRICE_RANGE.min}–$${DEVPASS_PRICE_RANGE.max}/month) usable across coding agents like DevPass Code, Claude Code, and Cline, with 2× the plan price in monthly usage value. It's the predictable-seat model Copilot used to be, but with model choice.`,
 	},
 	{
 		question: "How accurate are these estimates?",

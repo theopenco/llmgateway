@@ -1,27 +1,19 @@
 "use client";
-import { useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import { useState } from "react";
 
+import { useUpdateOrganization } from "@/hooks/useOrganization";
 import { Button } from "@/lib/components/button";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { Separator } from "@/lib/components/separator";
 import { toast } from "@/lib/components/use-toast";
 import { useDashboardContext } from "@/lib/dashboard-context";
-import { useApi } from "@/lib/fetch-client";
 
 export function OrganizationNameSettings() {
-	const queryClient = useQueryClient();
 	const { selectedOrganization } = useDashboardContext();
 
-	const api = useApi();
-	const updateOrganization = api.useMutation("patch", "/orgs/{id}", {
-		onSuccess: async () => {
-			const queryKey = api.queryOptions("get", "/orgs").queryKey;
-			await queryClient.refetchQueries({ queryKey });
-		},
-	});
+	const updateOrganization = useUpdateOrganization();
 
 	const [name, setName] = useState<string>(selectedOrganization?.name ?? "");
 

@@ -8,6 +8,7 @@ import {
 	customCarrierGridProviders,
 	declaredComplianceByProvider,
 	listedProviders,
+	uploadedMarksByProvider,
 } from "@/lib/providers-catalog";
 
 import type { Metadata } from "next";
@@ -70,11 +71,7 @@ export default async function ProvidersPage() {
 		fetchProviders(),
 		fetchModels(),
 	]);
-	const uploadedLogos = Object.fromEntries(
-		apiProviders
-			.map((p) => [p.id, p.airsideIconUrl ?? p.airsideLogoUrl])
-			.filter((entry): entry is [string, string] => Boolean(entry[1])),
-	);
+	const uploadedLogos = uploadedMarksByProvider(apiProviders);
 	const modelCounts = countApiModelsByProvider(apiModels);
 
 	const extraProviders = customCarrierGridProviders(apiProviders, modelCounts);

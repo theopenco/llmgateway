@@ -130,7 +130,7 @@ export function NewOrganizationDialog({
 						</Button>
 						<Button
 							type="submit"
-							disabled={createOrgMutation.isPending ?? !orgName.trim()}
+							disabled={Boolean(createOrgMutation.isPending) || !orgName.trim()}
 						>
 							{createOrgMutation.isPending
 								? "Creating..."

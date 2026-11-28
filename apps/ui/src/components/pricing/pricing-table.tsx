@@ -21,7 +21,7 @@ interface PricingFeature {
 const pricingFeatures: PricingFeature[] = [
 	{
 		name: "Platform Fees",
-		free: "5% on credit usage",
+		free: `${MARKETING_STATS.platformFee} on credit usage`,
 		enterprise: "Volume discounts",
 	},
 	{
@@ -235,10 +235,10 @@ const pricingFeatures: PricingFeature[] = [
 	},
 	{
 		name: "Token Pricing",
-		description: "Model pricing details. Non-US cards: +1.5% intl fee",
+		description: `Model pricing details. Non-US cards: +${MARKETING_STATS.internationalCardFee} intl fee`,
 		learnMoreLink: "/models",
 		learnMoreText: "See model prices →",
-		free: "Pay per token + 5% fee",
+		free: `Pay per token + ${MARKETING_STATS.platformFee} fee`,
 		enterprise: "Volume discounts",
 	},
 	{

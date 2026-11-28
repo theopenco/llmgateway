@@ -39,9 +39,7 @@ import {
 	formatPricePerMillion,
 	formatTokenCount,
 	formatUsd,
-	getCheapestProvider,
 	getModelById,
-	getOfficialProvider,
 	getProviderName,
 	getTextModels,
 	parseModelFromSelector,
@@ -306,10 +304,13 @@ function EstimatePanel() {
 
 	return (
 		<div className="space-y-6">
-			{rows.map((row, index) => (
+			{calculations.rowDetails.map((detail, index) => (
 				<ModelRowCard
-					key={row.id}
-					row={row}
+					key={detail.row.id}
+					row={detail.row}
+					model={detail.model}
+					officialMapping={detail.officialMapping}
+					cheapestMapping={detail.cheapestMapping}
 					index={index}
 					canRemove={rows.length > 1}
 					onUpdate={updateRow}
@@ -335,24 +336,23 @@ function EstimatePanel() {
 
 function ModelRowCard({
 	row,
+	model,
+	officialMapping,
+	cheapestMapping,
 	index,
 	canRemove,
 	onUpdate,
 	onRemove,
 }: {
 	row: ModelRow;
+	model: ModelDefinition | null;
+	officialMapping: ProviderModelMapping | null;
+	cheapestMapping: ProviderModelMapping | null;
 	index: number;
 	canRemove: boolean;
 	onUpdate: (id: string, update: Partial<Omit<ModelRow, "id">>) => void;
 	onRemove: (id: string) => void;
 }) {
-	const parsed = parseModelFromSelector(row.selectorValue);
-	const model = parsed ? getModelById(parsed.modelId) : undefined;
-	const officialMapping = model ? getOfficialProvider(model) : undefined;
-	const cheapestMapping = model
-		? getCheapestProvider(model, row.inputTokens, row.outputTokens)
-		: undefined;
-
 	const handlePreset = (preset: (typeof TOKEN_PRESETS)[number]) => {
 		onUpdate(row.id, {
 			inputTokens: preset.input,

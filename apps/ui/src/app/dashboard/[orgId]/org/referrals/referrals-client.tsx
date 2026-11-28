@@ -1,5 +1,6 @@
 "use client";
 
+import { Decimal } from "decimal.js";
 import { Copy, Gift, Check, AlertCircle, Mail } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -13,29 +14,19 @@ import {
 } from "@/lib/components/card";
 import { useDashboardContext } from "@/lib/dashboard-context";
 
-interface Transaction {
-	id: string;
-	createdAt: string;
-	type:
-		| "credit_topup"
-		| "subscription_start"
-		| "subscription_cancel"
-		| "subscription_end";
-	creditAmount: string | null;
-	amount: string | null;
-	status: "pending" | "completed" | "failed";
-	description: string | null;
-}
-
-interface ReferralsClientProps {
-	transactions: Transaction[];
+export interface ReferralStats {
+	netPaidTopUps: string;
+	minNetTopUps: number | null;
+	eligible: boolean;
 	referredCount: number;
 }
 
 export function ReferralsClient({
-	transactions,
+	netPaidTopUps,
+	minNetTopUps,
+	eligible: isEligible,
 	referredCount,
-}: ReferralsClientProps) {
+}: ReferralStats) {
 	const { selectedOrganization } = useDashboardContext();
 	const [copiedKey, setCopiedKey] = useState<string | null>(null);
 	const [origin, setOrigin] = useState("https://llmgateway.io");
@@ -44,16 +35,20 @@ export function ReferralsClient({
 		setOrigin(window.location.origin);
 	}, []);
 
-	// Display only: the API enforces the real rule (net paid top-ups, refunds
-	// subtracted) when a referral is recorded.
-	const totalTopUps = transactions
-		.filter(
-			(t) =>
-				t.type === "credit_topup" && t.status === "completed" && t.creditAmount,
-		)
-		.reduce((sum, t) => sum + Number(t.creditAmount ?? 0), 0);
-
-	const isEligible = totalTopUps >= 100;
+	const totalTopUps = Decimal.max(0, new Decimal(netPaidTopUps));
+	const progress =
+		minNetTopUps !== null && minNetTopUps > 0
+			? {
+					remaining: Decimal.max(
+						0,
+						new Decimal(minNetTopUps).minus(totalTopUps),
+					),
+					percent: Decimal.min(
+						100,
+						totalTopUps.dividedBy(minNetTopUps).times(100),
+					).toNumber(),
+				}
+			: null;
 
 	const rootLink = selectedOrganization
 		? `${origin}/?ref=${selectedOrganization.id}`
@@ -88,8 +83,9 @@ export function ReferralsClient({
 									Not Eligible Yet
 								</CardTitle>
 								<CardDescription>
-									You need to top up at least $100 in credits to become eligible
-									for the referral program
+									{minNetTopUps !== null
+										? `You need to top up at least $${minNetTopUps} in credits to become eligible for the referral program`
+										: "You need to top up more credits to become eligible for the referral program"}
 								</CardDescription>
 							</CardHeader>
 							<CardContent>
@@ -103,18 +99,22 @@ export function ReferralsClient({
 												${totalTopUps.toFixed(2)}
 											</span>
 										</div>
-										<div className="mt-2 h-2 rounded-full bg-background overflow-hidden">
-											<div
-												className="h-full bg-primary transition-all duration-300"
-												style={{
-													width: `${Math.min((totalTopUps / 100) * 100, 100)}%`,
-												}}
-											/>
-										</div>
-										<p className="mt-2 text-xs text-muted-foreground">
-											${Math.max(0, 100 - totalTopUps).toFixed(2)} more to
-											unlock referrals
-										</p>
+										{progress && (
+											<>
+												<div className="mt-2 h-2 rounded-full bg-background overflow-hidden">
+													<div
+														className="h-full bg-primary transition-all duration-300"
+														style={{
+															width: `${progress.percent}%`,
+														}}
+													/>
+												</div>
+												<p className="mt-2 text-xs text-muted-foreground">
+													${progress.remaining.toFixed(2)} more to unlock
+													referrals
+												</p>
+											</>
+										)}
 									</div>
 									<p className="text-sm text-muted-foreground">
 										Once eligible, you&apos;ll earn 1% of all LLM spending from

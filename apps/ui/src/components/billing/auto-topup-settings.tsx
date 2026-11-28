@@ -275,8 +275,7 @@ function AutoTopUpSettings() {
 							!isOwner ||
 							Boolean(updateOrganization.isPending) ||
 							threshold < 5 ||
-							amount < 10 ||
-							amount > CREDIT_TOP_UP_MAX_AMOUNT ||
+							!isAmountValid ||
 							(enabled && feeDataLoading)
 						}
 					>

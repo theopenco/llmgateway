@@ -77,17 +77,12 @@ export function MasterKeysClient() {
 					</CreateMasterKeyDialog>
 				</div>
 				<div className="space-y-4">
-					<div className="hidden md:block">
-						<Card className="gap-0">
-							<CardHeader />
-							<CardContent>
-								<MasterKeysList organizationId={organizationId} />
-							</CardContent>
-						</Card>
-					</div>
-					<div className="md:hidden">
-						<MasterKeysList organizationId={organizationId} />
-					</div>
+					<Card className="gap-0 rounded-none border-0 bg-transparent py-0 shadow-none md:rounded-xl md:border md:bg-card md:py-6 md:shadow-sm">
+						<CardHeader className="hidden md:grid" />
+						<CardContent className="px-0 md:px-6">
+							<MasterKeysList organizationId={organizationId} />
+						</CardContent>
+					</Card>
 				</div>
 			</div>
 		</div>

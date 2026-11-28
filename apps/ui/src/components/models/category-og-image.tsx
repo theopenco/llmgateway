@@ -1,22 +1,18 @@
 import { ImageResponse } from "next/og";
 
-import { discountFraction } from "@/lib/discount";
 import { fetchModels } from "@/lib/fetch-models";
 import {
-	CHEAPEST_MAX_INPUT_PRICE_PER_M,
-	CHEAPEST_MAX_OUTPUT_PRICE_PER_M,
-	curatedCategoryModelIds,
-	isTextOutput,
-	LONG_CONTEXT_MIN_TOKENS,
-	OPEN_SOURCE_FAMILIES,
-	OPEN_SOURCE_MODEL_IDS,
+	applyCategoryFilter,
+	type ModelCategoryFilter,
 } from "@/lib/model-category-filters";
 
-import {
-	models as modelDefinitions,
-	type ModelDefinition,
-	type ProviderModelMapping,
-} from "@llmgateway/models";
+import { models as modelDefinitions } from "@llmgateway/models";
+
+import type {
+	CategoryFilterMapping,
+	CategoryFilterModel,
+} from "@/lib/model-category-filters";
+import type { ModelDefinition } from "@llmgateway/models";
 
 export const ogSize = {
 	width: 1200,
@@ -30,10 +26,9 @@ interface CategoryOgConfig {
 	accentColor: string;
 	accentColorDim: string;
 	iconSvgPath: string;
-	countFilter?: (model: ModelDefinition) => boolean;
 }
 
-export const categoryConfigs: Record<string, CategoryOgConfig> = {
+export const categoryConfigs: Record<ModelCategoryFilter, CategoryOgConfig> = {
 	text: {
 		title: "Text Generation",
 		subtitle: "Chat, code, and content creation models",
@@ -41,10 +36,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		accentColorDim: "#1E3A5F",
 		// Lucide "Type" icon path
 		iconSvgPath: "M4 7V4h16v3 M9 20h6 M12 4v16",
-		countFilter: (m) =>
-			!m.output?.includes("image") &&
-			!m.output?.includes("video") &&
-			!m.output?.includes("embedding"),
 	},
 	"text-to-image": {
 		title: "Text to Image",
@@ -54,7 +45,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "ImagePlus" icon path
 		iconSvgPath:
 			"M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7 M16 5h6 M19 2v6 M21 15l-5-5L5 21",
-		countFilter: (m) => m.output?.includes("image") === true,
 	},
 	"image-to-image": {
 		title: "Image to Image",
@@ -64,9 +54,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "Repeat2" / arrows icon path
 		iconSvgPath:
 			"M17 1l4 4-4 4 M3 11V9a4 4 0 0 1 4-4h14 M7 23l-4-4 4-4 M21 13v2a4 4 0 0 1-4 4H3",
-		countFilter: (m) =>
-			m.output?.includes("image") === true &&
-			m.providers.some((p) => (p as ProviderModelMapping).vision),
 	},
 	video: {
 		title: "Video Generation",
@@ -76,7 +63,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "Video" icon path
 		iconSvgPath:
 			"M22 8l-6 4 6 4V8Z M14 6H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2Z",
-		countFilter: (m) => m.output?.includes("video") === true,
 	},
 	embedding: {
 		title: "Embeddings",
@@ -86,7 +72,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "Boxes" icon path
 		iconSvgPath:
 			"M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z M7 16.5l-4.74-2.85 M7 16.5l5-3 M7 16.5v5.17 M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z M17 16.5l-5-3 M17 16.5l4.74-2.85 M17 16.5v5.17 M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z M12 8L7.26 5.15 M12 8l4.74-2.85 M12 8v5.5",
-		countFilter: (m) => m.output?.includes("embedding") === true,
 	},
 	decisions: {
 		title: "Decisions",
@@ -96,7 +81,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "SlidersHorizontal" icon path
 		iconSvgPath:
 			"M21 4h-7 M10 4H3 M21 12h-9 M8 12H3 M21 20h-5 M12 20H3 M14 2v4 M8 10v4 M16 18v4",
-		countFilter: (m) => m.output?.includes("decision") === true,
 	},
 	"web-search": {
 		title: "Web Search",
@@ -106,8 +90,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "Globe" icon path
 		iconSvgPath:
 			"M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Z M2 12h20 M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z",
-		countFilter: (m) =>
-			m.providers.some((p) => (p as ProviderModelMapping).webSearch),
 	},
 	vision: {
 		title: "Vision",
@@ -117,8 +99,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "Eye" icon path
 		iconSvgPath:
 			"M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
-		countFilter: (m) =>
-			m.providers.some((p) => (p as ProviderModelMapping).vision),
 	},
 	reasoning: {
 		title: "Reasoning",
@@ -128,8 +108,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "Brain" icon path
 		iconSvgPath:
 			"M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z M12 5v13",
-		countFilter: (m) =>
-			m.providers.some((p) => (p as ProviderModelMapping).reasoning),
 	},
 	tools: {
 		title: "Tool Calling",
@@ -139,8 +117,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "Wrench" icon path
 		iconSvgPath:
 			"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z",
-		countFilter: (m) =>
-			m.providers.some((p) => (p as ProviderModelMapping).tools),
 	},
 	discounted: {
 		title: "Discounted",
@@ -159,7 +135,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "Users" icon path
 		iconSvgPath:
 			"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75",
-		countFilter: (m) => curatedCategoryModelIds.roleplay.has(m.id),
 	},
 	coding: {
 		title: "Coding",
@@ -168,7 +143,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		accentColorDim: "#312E81",
 		// Lucide "Code" icon path
 		iconSvgPath: "m16 18 6-6-6-6 M8 6l-6 6 6 6",
-		countFilter: (m) => curatedCategoryModelIds.coding.has(m.id),
 	},
 	"creative-writing": {
 		title: "Creative Writing",
@@ -178,7 +152,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "PenLine" icon path
 		iconSvgPath:
 			"M12 20h9 M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z",
-		countFilter: (m) => curatedCategoryModelIds["creative-writing"].has(m.id),
 	},
 	translation: {
 		title: "Translation",
@@ -188,7 +161,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "Languages" icon path
 		iconSvgPath:
 			"M5 8l6 6 M4 14l6-6 2-3 M2 5h12 M7 2h1 M22 22l-5-10-5 10 M14 18h6",
-		countFilter: (m) => curatedCategoryModelIds.translation.has(m.id),
 	},
 	math: {
 		title: "Math",
@@ -198,7 +170,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "Calculator" icon path
 		iconSvgPath:
 			"M4 2h16a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z M8 6h8 M16 14v4 M16 10h.01 M12 10h.01 M8 10h.01 M12 14h.01 M8 14h.01 M12 18h.01 M8 18h.01",
-		countFilter: (m) => curatedCategoryModelIds.math.has(m.id),
 	},
 	"cyber-security": {
 		title: "Cyber Security",
@@ -208,7 +179,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "ShieldCheck" icon path
 		iconSvgPath:
 			"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z M9 12l2 2 4-4",
-		countFilter: (m) => curatedCategoryModelIds["cyber-security"].has(m.id),
 	},
 	"reverse-engineering": {
 		title: "Reverse Engineering",
@@ -218,8 +188,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "Cpu" icon path
 		iconSvgPath:
 			"M12 20v2 M12 2v2 M17 20v2 M17 2v2 M2 12h2 M2 17h2 M2 7h2 M20 12h2 M20 17h2 M20 7h2 M7 20v2 M7 2v2 M4 4h16v16H4z M9 9h6v6H9z",
-		countFilter: (m) =>
-			curatedCategoryModelIds["reverse-engineering"].has(m.id),
 	},
 	"long-context": {
 		title: "Long Context",
@@ -228,13 +196,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		accentColorDim: "#78350F",
 		// Lucide "AlignLeft" icon path
 		iconSvgPath: "M21 6H3 M15 12H3 M17 18H3",
-		countFilter: (m) =>
-			isTextOutput(m.output) &&
-			m.providers.some(
-				(p) =>
-					((p as ProviderModelMapping).contextSize ?? 0) >=
-					LONG_CONTEXT_MIN_TOKENS,
-			),
 	},
 	cheapest: {
 		title: "Cheapest",
@@ -243,20 +204,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		accentColorDim: "#064E3B",
 		// Lucide "DollarSign" icon path
 		iconSvgPath: "M12 2v20 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
-		countFilter: (m) =>
-			isTextOutput(m.output) &&
-			(m.free === true ||
-				m.providers.some((p) => {
-					const mapping = p as ProviderModelMapping;
-					return (
-						mapping.inputPrice !== undefined &&
-						mapping.outputPrice !== undefined &&
-						parseFloat(mapping.inputPrice) * 1e6 <=
-							CHEAPEST_MAX_INPUT_PRICE_PER_M &&
-						parseFloat(mapping.outputPrice) * 1e6 <=
-							CHEAPEST_MAX_OUTPUT_PRICE_PER_M
-					);
-				})),
 	},
 	"open-source": {
 		title: "Open Source",
@@ -266,9 +213,6 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 		// Lucide "Package" icon path
 		iconSvgPath:
 			"M7.5 4.27l9 5.15 M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z M3.3 7l8.7 5 8.7-5 M12 22V12",
-		countFilter: (m) =>
-			isTextOutput(m.output) &&
-			(OPEN_SOURCE_FAMILIES.has(m.family) || OPEN_SOURCE_MODEL_IDS.has(m.id)),
 	},
 	premium: {
 		title: "Premium Models",
@@ -280,31 +224,57 @@ export const categoryConfigs: Record<string, CategoryOgConfig> = {
 	},
 };
 
+// Discounts are live data that only the API models carry; every other
+// category counts the static catalogue so its route stays prerendered.
+const LIVE_CATEGORIES: ReadonlySet<ModelCategoryFilter> =
+	new Set<ModelCategoryFilter>(["discounted", "premium"]);
+
+function toCategoryFilterInput(definition: ModelDefinition): {
+	model: CategoryFilterModel;
+	mappings: CategoryFilterMapping[];
+} {
+	return {
+		model: {
+			id: definition.id,
+			family: definition.family,
+			free: definition.free ?? null,
+			output: definition.output ?? null,
+			premium: false,
+		},
+		mappings: definition.providers.map((mapping) => ({
+			vision: mapping.vision ?? null,
+			webSearch: mapping.webSearch ?? null,
+			reasoning: mapping.reasoning ?? null,
+			tools: mapping.tools ?? null,
+			discount: null,
+			contextSize: mapping.contextSize ?? null,
+			inputPrice: mapping.inputPrice ?? null,
+			outputPrice: mapping.outputPrice ?? null,
+		})),
+	};
+}
+
 async function getCategoryModelCount(
-	categoryKey: string,
-	config: CategoryOgConfig,
+	categoryKey: ModelCategoryFilter,
 ): Promise<number> {
-	if (categoryKey === "discounted") {
-		const models = await fetchModels();
-		return models.filter((model) =>
-			model.mappings.some((mapping) => discountFraction(mapping.discount) > 0),
-		).length;
+	if (!LIVE_CATEGORIES.has(categoryKey)) {
+		return modelDefinitions.filter((definition) => {
+			const { model, mappings } = toCategoryFilterInput(definition);
+			return applyCategoryFilter(categoryKey, model, mappings);
+		}).length;
 	}
+	const models = await fetchModels();
+	return models.filter((model) =>
+		applyCategoryFilter(categoryKey, model, model.mappings),
+	).length;
+}
 
-	// Premium depends on live discounts, which only the API models carry.
-	if (categoryKey === "premium") {
-		const models = await fetchModels();
-		return models.filter((model) => model.premium).length;
-	}
-
-	return config.countFilter
-		? modelDefinitions.filter(config.countFilter).length
-		: 0;
+function isCategoryKey(key: string): key is ModelCategoryFilter {
+	return Object.hasOwn(categoryConfigs, key);
 }
 
 export async function generateCategoryOgImage(categoryKey: string) {
-	const config = categoryConfigs[categoryKey];
-	if (!config) {
+	if (!isCategoryKey(categoryKey)) {
 		return new ImageResponse(
 			<div
 				style={{
@@ -327,7 +297,8 @@ export async function generateCategoryOgImage(categoryKey: string) {
 		);
 	}
 
-	const modelCount = await getCategoryModelCount(categoryKey, config);
+	const config = categoryConfigs[categoryKey];
+	const modelCount = await getCategoryModelCount(categoryKey);
 
 	return new ImageResponse(
 		<div
@@ -516,38 +487,40 @@ export async function generateCategoryOgImage(categoryKey: string) {
 						gap: 16,
 					}}
 				>
-					<div
-						style={{
-							display: "flex",
-							flexDirection: "row",
-							alignItems: "baseline",
-							gap: 10,
-							backgroundColor: "#0A0A0A",
-							border: "1px solid #1F2937",
-							borderRadius: 12,
-							padding: "12px 24px",
-						}}
-					>
-						<span
+					{modelCount > 0 && (
+						<div
 							style={{
-								fontSize: 36,
-								fontWeight: 700,
-								color: config.accentColor,
-								fontVariantNumeric: "tabular-nums",
+								display: "flex",
+								flexDirection: "row",
+								alignItems: "baseline",
+								gap: 10,
+								backgroundColor: "#0A0A0A",
+								border: "1px solid #1F2937",
+								borderRadius: 12,
+								padding: "12px 24px",
 							}}
 						>
-							{modelCount}
-						</span>
-						<span
-							style={{
-								fontSize: 20,
-								color: "#6B7280",
-								fontWeight: 500,
-							}}
-						>
-							{modelCount === 1 ? "model" : "models"} available
-						</span>
-					</div>
+							<span
+								style={{
+									fontSize: 36,
+									fontWeight: 700,
+									color: config.accentColor,
+									fontVariantNumeric: "tabular-nums",
+								}}
+							>
+								{modelCount}
+							</span>
+							<span
+								style={{
+									fontSize: 20,
+									color: "#6B7280",
+									fontWeight: 500,
+								}}
+							>
+								{modelCount === 1 ? "model" : "models"} available
+							</span>
+						</div>
+					)}
 				</div>
 			</div>
 

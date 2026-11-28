@@ -341,9 +341,10 @@ export function AppsGrid({ apps }: AppsGridProps) {
 	const maxTokens = ranked[0]?.totalTokens ?? 0;
 
 	const isFiltered = filtered.length !== ranked.length;
-	const podium = isFiltered ? [] : filtered.slice(0, 3);
-	const gridApps = isFiltered ? filtered.slice(0, 12) : filtered.slice(3, 12);
-	const listApps = isFiltered ? filtered.slice(12) : filtered.slice(12);
+	const showPodium = !isFiltered && filtered.length >= 3;
+	const podium = showPodium ? filtered.slice(0, 3) : [];
+	const gridApps = filtered.slice(showPodium ? 3 : 0, 12);
+	const listApps = filtered.slice(12);
 
 	return (
 		<div className="space-y-12">
@@ -386,7 +387,7 @@ export function AppsGrid({ apps }: AppsGridProps) {
 				</div>
 			) : (
 				<>
-					{podium.length === 3 && (
+					{showPodium && (
 						<section className="space-y-4">
 							<div className="flex items-baseline justify-between">
 								<h2 className="font-display text-2xl font-bold tracking-tight">
@@ -423,7 +424,7 @@ export function AppsGrid({ apps }: AppsGridProps) {
 					{gridApps.length > 0 && (
 						<section className="space-y-4">
 							<h2 className="font-display text-xl font-semibold tracking-tight text-muted-foreground">
-								{isFiltered ? "Results" : "More apps"}
+								{showPodium ? "More apps" : "Results"}
 							</h2>
 							<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 								{gridApps.map((app) => (

@@ -2,27 +2,12 @@ import { fetchServerData } from "@/lib/server-api";
 
 import { DiscountsClient } from "./discounts-client";
 
-interface Discount {
-	id: string;
-	organizationId: string | null;
-	provider: string | null;
-	model: string | null;
-	discountPercent: string;
-	reason: string | null;
-	expiresAt: string | null;
-	createdAt: string;
-	updatedAt: string;
-}
-
-interface DiscountsData {
-	orgDiscounts: Discount[];
-	globalDiscounts: Discount[];
-}
+import type { DiscountsData } from "./discounts-client";
 
 async function fetchDiscounts(orgId: string): Promise<DiscountsData> {
 	const data = await fetchServerData<DiscountsData>(
 		"GET",
-		"/orgs/{id}/discounts" as any,
+		"/orgs/{id}/discounts",
 		{
 			params: {
 				path: { id: orgId },

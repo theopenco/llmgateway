@@ -25,6 +25,7 @@ import { LogCard } from "@/components/dashboard/log-card";
 import {
 	type DateRange,
 	DateRangeSelect,
+	getRelativeTimeRange,
 } from "@/components/date-range-select";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -55,8 +56,9 @@ import { cn } from "@/lib/utils";
 import { LOG_ERROR_TYPE_LABELS, LOG_ERROR_TYPES } from "@llmgateway/shared";
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
+import { toUiLog } from "./log-utils";
+
 import type { paths } from "@/lib/api/v1";
-import type { Log } from "@llmgateway/db";
 
 const UnifiedFinishReason = {
 	COMPLETED: "completed",
@@ -68,9 +70,6 @@ const UnifiedFinishReason = {
 	CANCELED: "canceled",
 	UNKNOWN: "unknown",
 } as const;
-
-type ApiLog =
-	paths["/logs"]["get"]["responses"][200]["content"]["application/json"]["logs"][number];
 
 interface ProviderOption {
 	id: string;
@@ -92,20 +91,6 @@ interface RecentLogsProps {
 	modelOptions: ModelOption[];
 	projectId: string | null;
 	orgId?: string | null;
-}
-
-function toUiLog(log: ApiLog): Partial<Log> {
-	return {
-		...log,
-		createdAt: new Date(log.createdAt),
-		updatedAt: new Date(log.updatedAt),
-		lastVideoDownloadedAt: log.lastVideoDownloadedAt
-			? new Date(log.lastVideoDownloadedAt)
-			: null,
-		videoDownloadCount: log.videoDownloadCount ?? undefined,
-		toolChoice: log.toolChoice as any,
-		customHeaders: log.customHeaders as any,
-	};
 }
 
 const TOPUP_PROMPT_DISMISSED_KEY = "first-log-topup-dismissed";
@@ -194,7 +179,13 @@ export function RecentLogs({
 	const [dateRangeResetKey, setDateRangeResetKey] = useState(0);
 
 	// Initialize state from URL parameters
-	const [dateRange, setDateRange] = useState<DateRange | undefined>();
+	const [datePreset, setDatePreset] = useState<string | undefined>(() => {
+		const preset = searchParams.get("range");
+		return preset && getRelativeTimeRange(preset) ? preset : undefined;
+	});
+	const [dateRange, setDateRange] = useState<DateRange | undefined>(() =>
+		datePreset ? getRelativeTimeRange(datePreset) : undefined,
+	);
 	const [unifiedFinishReason, setUnifiedFinishReason] = useState<
 		string | undefined
 	>(searchParams.get("unifiedFinishReason") ?? undefined);
@@ -270,6 +261,16 @@ export function RecentLogs({
 		},
 		[router, searchParams],
 	);
+
+	useEffect(() => {
+		if (!searchParams.has("startDate") && !searchParams.has("endDate")) {
+			return;
+		}
+		const params = new URLSearchParams(searchParams.toString());
+		params.delete("startDate");
+		params.delete("endDate");
+		router.replace(`?${params.toString()}`, { scroll: false });
+	}, [router, searchParams]);
 
 	// Track scroll position
 	useLayoutEffect(() => {
@@ -355,6 +356,9 @@ export function RecentLogs({
 
 	const shouldUseInitialData =
 		!dateRange &&
+		!searchParams.get("range") &&
+		!searchParams.get("startDate") &&
+		!searchParams.get("endDate") &&
 		unifiedFinishReason ===
 			(searchParams.get("unifiedFinishReason") ?? undefined) &&
 		provider === (searchParams.get("provider") ?? undefined) &&
@@ -446,13 +450,10 @@ export function RecentLogs({
 		});
 	}, [deferredModelSearch, modelOptions, provider]);
 
-	const handleDateRangeChange = (_value: string, range: DateRange) => {
+	const handleDateRangeChange = (value: string, range: DateRange) => {
+		setDatePreset(value);
 		setDateRange(range);
-		// Update URL with date range
-		updateUrlWithFilters({
-			startDate: range.start?.toISOString(),
-			endDate: range.end?.toISOString(),
-		});
+		updateUrlWithFilters({ range: value });
 	};
 
 	const handleProviderChange = useCallback(
@@ -498,6 +499,7 @@ export function RecentLogs({
 	const clearAllFilters = useCallback(() => {
 		isFilteringRef.current = true;
 		scrollPositionRef.current = window.scrollY;
+		setDatePreset(undefined);
 		setDateRange(undefined);
 		setDateRangeResetKey((key) => key + 1);
 		setUnifiedFinishReason(undefined);
@@ -510,8 +512,7 @@ export function RecentLogs({
 		setCustomHeaderValue("");
 		setSessionId("");
 		updateUrlWithFilters({
-			startDate: undefined,
-			endDate: undefined,
+			range: undefined,
 			unifiedFinishReason: undefined,
 			provider: undefined,
 			model: undefined,
@@ -584,6 +585,7 @@ export function RecentLogs({
 					<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
 						<DateRangeSelect
 							key={dateRangeResetKey}
+							value={datePreset}
 							onChange={handleDateRangeChange}
 							className="w-full"
 						/>

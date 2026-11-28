@@ -7,6 +7,7 @@ import { notFound } from "next/navigation";
 import { ContentMentions } from "@/components/blog/content-mentions";
 import { ContentConversionRail } from "@/components/content-conversion-rail";
 import { ContentNextStep } from "@/components/content-next-step";
+import { CopyMarkdownButton } from "@/components/copy-markdown-button";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { blogAuthorSlug } from "@/lib/blog-authors";
@@ -14,8 +15,6 @@ import { serializeJsonLd } from "@/lib/json-ld";
 import { pageTitle } from "@/lib/page-title";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 import { plainTextFromMarkdown } from "@/lib/utils/plain-text";
-
-import { CopyMarkdownButton } from "./copy-markdown-button";
 
 import type { Blog } from "content-collections";
 import type { Metadata, Route } from "next";
@@ -156,7 +155,7 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(breadcrumbSchema),
+					__html: serializeJsonLd(breadcrumbSchema),
 				}}
 			/>
 			{faqSchema ? (
@@ -164,7 +163,7 @@ export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
 					type="application/ld+json"
 					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 					dangerouslySetInnerHTML={{
-						__html: JSON.stringify(faqSchema),
+						__html: serializeJsonLd(faqSchema),
 					}}
 				/>
 			) : null}

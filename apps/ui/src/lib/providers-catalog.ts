@@ -137,3 +137,14 @@ export function countModelsForProviders(providerIds: Set<string>) {
 export const listedModelCount = countModelsForProviders(
 	new Set(listedProviders.map((provider) => provider.id)),
 );
+
+/** Carrier-uploaded marks per provider: square icon first, wordmark as fallback. */
+export function uploadedMarksByProvider(
+	apiProviders: ApiProvider[],
+): Record<string, string> {
+	return Object.fromEntries(
+		apiProviders
+			.map((p) => [p.id, p.airsideIconUrl ?? p.airsideLogoUrl])
+			.filter((entry): entry is [string, string] => Boolean(entry[1])),
+	);
+}

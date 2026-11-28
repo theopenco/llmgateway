@@ -464,11 +464,6 @@ export function DemoSidebarBody({
 						className="pl-8 pr-8"
 						aria-label="Search sidebar links"
 					/>
-					{!searchQuery && (
-						<kbd className="pointer-events-none absolute right-4 top-1/2 -translate-y-[calc(50%+2px)] rounded border border-border bg-muted px-1.5 font-mono text-[0.65rem] text-muted-foreground">
-							/
-						</kbd>
-					)}
 				</div>
 			</SidebarHeader>
 			<SidebarContent>
@@ -515,7 +510,9 @@ export function DemoSidebarBody({
 									))}
 									<SettingsItem
 										parentHref="settings/preferences"
-										parentActive={isActive("settings/preferences")}
+										parentActive={PROJECT_SETTINGS.some((item) =>
+											isActive(item.href),
+										)}
 										items={PROJECT_SETTINGS}
 										isActive={isActive}
 										collapsed={collapsed}

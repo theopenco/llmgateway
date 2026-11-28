@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 
 import {
-	aggregateCostByModel,
 	buildDimensionTimeseries,
 	buildModelTimeseries,
 	OTHER_KEY,
@@ -9,6 +8,7 @@ import {
 	STORAGE_KEY,
 	STORAGE_LABEL,
 	toDimensionRows,
+	toModelDimensionRows,
 	UNATTRIBUTED_KEY,
 	aggregateByDimension,
 } from "./chart-helpers.js";
@@ -373,13 +373,23 @@ function modelDay(costs: number[], dataStorageCost = 0) {
 
 describe("model charts", () => {
 	test("rank storage alongside models and include it in the total", () => {
-		const result = aggregateCostByModel([modelDay([1, 2], 5)], "mapping");
+		const result = aggregateByDimension(
+			toModelDimensionRows([modelDay([1, 2], 5)]),
+		);
 		expect(result.totalCost).toBe(8);
-		expect(result.models[0]).toMatchObject({
-			model: STORAGE_LABEL,
+		expect(result.items[0]).toMatchObject({
+			key: STORAGE_KEY,
+			label: STORAGE_LABEL,
 			cost: 5,
 			requestCount: 0,
 		});
+	});
+
+	test("rank the top N by the selected metric", () => {
+		const activity = [modelDay([5, 0])];
+		activity[0].modelBreakdown[1].requestCount = 100;
+		const series = buildModelTimeseries(activity, "mapping", 1, "requestCount");
+		expect(series.models).toEqual(["openai/model-1", OTHER_LABEL]);
 	});
 
 	test("collapse models past the top N into Other", () => {

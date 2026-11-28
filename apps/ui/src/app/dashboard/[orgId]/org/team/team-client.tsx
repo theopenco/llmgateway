@@ -28,6 +28,10 @@ import {
 	UsageModeSelector,
 	useUsageMode,
 } from "@/components/shared/usage-mode-selector";
+import {
+	BudgetLimitsFields,
+	useBudgetFormState,
+} from "@/components/team/budget-limits-form";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import {
 	useTeamMembers,
@@ -281,8 +285,6 @@ type TeamMember = NonNullable<
 	ReturnType<typeof useTeamMembers>["data"]
 >["members"][number];
 
-const PERIOD_UNITS = ["hour", "day", "week", "month"] as const;
-
 function budgetBadges(budget: TeamMember["budget"]): string[] {
 	const badges: string[] = [];
 	if (!budget) {
@@ -322,22 +324,7 @@ function ManageBudgetDialog({
 }) {
 	const updateBudget = useUpdateMemberBudget(organizationId);
 	const budget = member.budget;
-
-	const [maxApiKeys, setMaxApiKeys] = useState(
-		budget && budget.maxApiKeys !== null ? String(budget.maxApiKeys) : "",
-	);
-	const [usageLimit, setUsageLimit] = useState(budget?.usageLimit ?? "");
-	const [periodUsageLimit, setPeriodUsageLimit] = useState(
-		budget?.periodUsageLimit ?? "",
-	);
-	const [periodValue, setPeriodValue] = useState(
-		budget && budget.periodUsageDurationValue !== null
-			? String(budget.periodUsageDurationValue)
-			: "1",
-	);
-	const [periodUnit, setPeriodUnit] = useState<(typeof PERIOD_UNITS)[number]>(
-		budget?.periodUsageDurationUnit ?? "month",
-	);
+	const form = useBudgetFormState(budget);
 
 	const memberName = member.user.name ?? member.user.email;
 	const periodSpend = member.spend?.currentPeriods.find(
@@ -347,8 +334,10 @@ function ManageBudgetDialog({
 	)?.usage;
 
 	const handleSave = async () => {
-		const trimmedPeriodLimit = periodUsageLimit.trim();
-		const hasPeriod = trimmedPeriodLimit !== "";
+		const body = form.toBody();
+		if (!body) {
+			return;
+		}
 
 		await updateBudget.mutateAsync({
 			params: {
@@ -357,13 +346,7 @@ function ManageBudgetDialog({
 					memberId: member.id,
 				},
 			},
-			body: {
-				maxApiKeys: maxApiKeys.trim() === "" ? null : Number(maxApiKeys),
-				usageLimit: usageLimit.trim() === "" ? null : usageLimit.trim(),
-				periodUsageLimit: hasPeriod ? trimmedPeriodLimit : null,
-				periodUsageDurationValue: hasPeriod ? Number(periodValue) : null,
-				periodUsageDurationUnit: hasPeriod ? periodUnit : null,
-			},
+			body,
 		});
 
 		toast({
@@ -407,70 +390,7 @@ function ManageBudgetDialog({
 						</div>
 					</div>
 
-					<div className="space-y-2">
-						<Label htmlFor="max-api-keys">Max active API keys</Label>
-						<Input
-							id="max-api-keys"
-							type="number"
-							min={0}
-							placeholder="Unlimited"
-							value={maxApiKeys}
-							onChange={(e) => setMaxApiKeys(e.target.value)}
-						/>
-					</div>
-
-					<div className="space-y-2">
-						<Label htmlFor="usage-limit">Total spend limit ($)</Label>
-						<Input
-							id="usage-limit"
-							type="number"
-							min={0}
-							step="0.01"
-							placeholder="Unlimited"
-							value={usageLimit}
-							onChange={(e) => setUsageLimit(e.target.value)}
-						/>
-					</div>
-
-					<div className="space-y-2">
-						<Label htmlFor="period-usage-limit">Period spend limit ($)</Label>
-						<Input
-							id="period-usage-limit"
-							type="number"
-							min={0}
-							step="0.01"
-							placeholder="No period limit"
-							value={periodUsageLimit}
-							onChange={(e) => setPeriodUsageLimit(e.target.value)}
-						/>
-						<div className="flex items-center gap-2">
-							<span className="text-muted-foreground text-sm">per</span>
-							<Input
-								type="number"
-								min={1}
-								className="w-20"
-								value={periodValue}
-								onChange={(e) => setPeriodValue(e.target.value)}
-							/>
-							<Select
-								value={periodUnit}
-								onValueChange={(value) =>
-									setPeriodUnit(value as (typeof PERIOD_UNITS)[number])
-								}
-							>
-								<SelectTrigger className="w-[130px]">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									{PERIOD_UNITS.map((unit) => (
-										<SelectItem key={unit} value={unit}>
-											{unit}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</div>
-					</div>
+					<BudgetLimitsFields idPrefix="" form={form} />
 				</div>
 				<DialogFooter>
 					<Button variant="outline" onClick={onClose}>
@@ -495,36 +415,17 @@ function DefaultDeveloperLimitsDialog({
 	onClose: () => void;
 }) {
 	const updateDefault = useUpdateDefaultDeveloperBudget(organizationId);
-
-	const [maxApiKeys, setMaxApiKeys] = useState(
-		budget && budget.maxApiKeys !== null ? String(budget.maxApiKeys) : "",
-	);
-	const [usageLimit, setUsageLimit] = useState(budget?.usageLimit ?? "");
-	const [periodUsageLimit, setPeriodUsageLimit] = useState(
-		budget?.periodUsageLimit ?? "",
-	);
-	const [periodValue, setPeriodValue] = useState(
-		budget && budget.periodUsageDurationValue !== null
-			? String(budget.periodUsageDurationValue)
-			: "1",
-	);
-	const [periodUnit, setPeriodUnit] = useState<(typeof PERIOD_UNITS)[number]>(
-		budget?.periodUsageDurationUnit ?? "month",
-	);
+	const form = useBudgetFormState(budget);
 
 	const handleSave = async () => {
-		const trimmedPeriodLimit = periodUsageLimit.trim();
-		const hasPeriod = trimmedPeriodLimit !== "";
+		const body = form.toBody();
+		if (!body) {
+			return;
+		}
 
 		await updateDefault.mutateAsync({
 			params: { path: { organizationId } },
-			body: {
-				maxApiKeys: maxApiKeys.trim() === "" ? null : Number(maxApiKeys),
-				usageLimit: usageLimit.trim() === "" ? null : usageLimit.trim(),
-				periodUsageLimit: hasPeriod ? trimmedPeriodLimit : null,
-				periodUsageDurationValue: hasPeriod ? Number(periodValue) : null,
-				periodUsageDurationUnit: hasPeriod ? periodUnit : null,
-			},
+			body,
 		});
 
 		toast({
@@ -552,72 +453,7 @@ function DefaultDeveloperLimitsDialog({
 					</DialogDescription>
 				</DialogHeader>
 				<div className="space-y-4 py-4">
-					<div className="space-y-2">
-						<Label htmlFor="default-max-api-keys">Max active API keys</Label>
-						<Input
-							id="default-max-api-keys"
-							type="number"
-							min={0}
-							placeholder="Unlimited"
-							value={maxApiKeys}
-							onChange={(e) => setMaxApiKeys(e.target.value)}
-						/>
-					</div>
-
-					<div className="space-y-2">
-						<Label htmlFor="default-usage-limit">Total spend limit ($)</Label>
-						<Input
-							id="default-usage-limit"
-							type="number"
-							min={0}
-							step="0.01"
-							placeholder="Unlimited"
-							value={usageLimit}
-							onChange={(e) => setUsageLimit(e.target.value)}
-						/>
-					</div>
-
-					<div className="space-y-2">
-						<Label htmlFor="default-period-usage-limit">
-							Period spend limit ($)
-						</Label>
-						<Input
-							id="default-period-usage-limit"
-							type="number"
-							min={0}
-							step="0.01"
-							placeholder="No period limit"
-							value={periodUsageLimit}
-							onChange={(e) => setPeriodUsageLimit(e.target.value)}
-						/>
-						<div className="flex items-center gap-2">
-							<span className="text-muted-foreground text-sm">per</span>
-							<Input
-								type="number"
-								min={1}
-								className="w-20"
-								value={periodValue}
-								onChange={(e) => setPeriodValue(e.target.value)}
-							/>
-							<Select
-								value={periodUnit}
-								onValueChange={(value) =>
-									setPeriodUnit(value as (typeof PERIOD_UNITS)[number])
-								}
-							>
-								<SelectTrigger className="w-[130px]">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									{PERIOD_UNITS.map((unit) => (
-										<SelectItem key={unit} value={unit}>
-											{unit}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</div>
-					</div>
+					<BudgetLimitsFields idPrefix="default-" form={form} />
 				</div>
 				<DialogFooter>
 					<Button variant="outline" onClick={onClose}>

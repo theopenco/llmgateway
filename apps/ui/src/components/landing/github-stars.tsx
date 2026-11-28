@@ -1,35 +1,9 @@
 import { Github, Star } from "lucide-react";
 
 import { getConfig } from "@/lib/config-server";
+import { fetchGitHubStars, GITHUB_REPO } from "@/lib/github";
 
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
-
-async function fetchGitHubStars(repo: string): Promise<number | null> {
-	try {
-		const res = await fetch(`https://api.github.com/repos/${repo}`, {
-			next: { revalidate: 600 },
-			headers: {
-				Accept: "application/vnd.github.v3+json",
-				"User-Agent": "LLM Gateway",
-			},
-		});
-
-		if (!res.ok) {
-			console.warn(
-				`Failed to fetch GitHub stars for ${repo}: ${res.status} ${res.statusText}`,
-			);
-			return null;
-		}
-
-		const data = await res.json();
-		return data.stargazers_count;
-	} catch (error) {
-		console.warn(`Error fetching GitHub stars for ${repo}:`, error);
-		return null;
-	}
-}
-
-const REPO = "theopenco/llmgateway";
 
 function formatNumber(num: number | null): string {
 	return num === null ? "★" : formatCompactNumber(num);
@@ -37,7 +11,7 @@ function formatNumber(num: number | null): string {
 
 export async function GitHubStars() {
 	const config = getConfig();
-	const stars = await fetchGitHubStars(REPO);
+	const stars = await fetchGitHubStars(GITHUB_REPO);
 
 	return (
 		<a

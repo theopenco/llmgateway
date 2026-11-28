@@ -40,7 +40,8 @@ export async function generateMetadata({
 	}
 
 	const title = `${info.name} invited you to join LLM Gateway`;
-	const description = info.referralBonusEnabled
+	const hasBonus = info.referralBonusEnabled && info.referralBonusPercent > 0;
+	const description = hasBonus
 		? `Sign up through ${info.name} and get a ${info.referralBonusPercent}% bonus on your first top-up.`
 		: `Sign up through ${info.name} and start using ${MARKETING_STATS.models} LLM models through one API.`;
 

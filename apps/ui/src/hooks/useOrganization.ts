@@ -1,3 +1,5 @@
+import { useQueryClient } from "@tanstack/react-query";
+
 import { useApi } from "@/lib/fetch-client";
 
 import type { Organization } from "@/lib/types";
@@ -18,4 +20,16 @@ export function useDefaultOrganization() {
 	}
 
 	return { data: data.organizations[0], error };
+}
+
+export function useUpdateOrganization() {
+	const api = useApi();
+	const queryClient = useQueryClient();
+	return api.useMutation("patch", "/orgs/{id}", {
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/orgs").queryKey,
+			});
+		},
+	});
 }

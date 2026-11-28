@@ -108,3 +108,19 @@ describe("buildModelFaqs — OCR discount", () => {
 		expect(faq.answer).toContain("$3.20 per 1,000 pages");
 	});
 });
+
+describe("buildModelFaqs — token discount", () => {
+	it("applies provider discounts to the token starting prices", () => {
+		const faqs = buildModelFaqs(model("gpt-test"), [
+			{
+				providerId: "openai",
+				inputPrice: "2e-6",
+				outputPrice: "8e-6",
+				discount: "0.2",
+			},
+		]);
+		const faq = faqs.find((f) => f.question.includes("cost"))!;
+		expect(faq.answer).toContain("$1.60 per million input tokens");
+		expect(faq.answer).toContain("$6.40 per million output tokens");
+	});
+});

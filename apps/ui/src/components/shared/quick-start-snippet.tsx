@@ -75,8 +75,18 @@ const { text } = await generateText({
 					? pythonExample
 					: aiSdkExample;
 
-	function copyCode() {
-		void navigator.clipboard.writeText(code);
+	async function copyCode() {
+		try {
+			await navigator.clipboard.writeText(code);
+		} catch {
+			toast({
+				title: "Copy failed",
+				description:
+					"Could not copy to clipboard. Select the snippet and copy it manually.",
+				variant: "destructive",
+			});
+			return;
+		}
 		onCopy?.();
 		toast({
 			title: "Copied to clipboard",
@@ -135,7 +145,7 @@ const { text } = await generateText({
 						<Button
 							variant="ghost"
 							size="sm"
-							onClick={copyCode}
+							onClick={() => void copyCode()}
 							type="button"
 							className="absolute right-2 top-2 h-7 w-7 p-0"
 						>
