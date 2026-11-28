@@ -62,6 +62,8 @@ export function ReferralBonusDialog({
 		if (next) {
 			saveMutation.reset();
 			setValidationError(null);
+			setIsEnabled(enabled);
+			setPercentValue(String(percent));
 		}
 		setOpen(next);
 	};

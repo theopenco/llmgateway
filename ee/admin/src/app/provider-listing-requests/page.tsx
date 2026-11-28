@@ -9,6 +9,7 @@ import {
 import Link from "next/link";
 
 import { SearchForm } from "@/components/search-form";
+import { SignInPrompt } from "@/components/sign-in-prompt";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,9 +24,36 @@ import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
 
-type SortBy = "createdAt" | "providerName" | "email" | "spamFilterStatus";
+import {
+	getPaymentBadgeVariant,
+	getStatusBadgeVariant,
+	getStatusLabel,
+} from "./status";
+
+const SORT_BY_VALUES = [
+	"createdAt",
+	"providerName",
+	"email",
+	"spamFilterStatus",
+] as const;
+const STATUS_VALUES = [
+	"pending",
+	"rejected",
+	"delivered",
+	"delivery_failed",
+] as const;
+
+type SortBy = (typeof SORT_BY_VALUES)[number];
 type SortOrder = "asc" | "desc";
-type Status = "pending" | "rejected" | "delivered" | "delivery_failed";
+type Status = (typeof STATUS_VALUES)[number];
+
+function isSortBy(value: string | undefined): value is SortBy {
+	return SORT_BY_VALUES.some((v) => v === value);
+}
+
+function isStatus(value: string | undefined): value is Status {
+	return STATUS_VALUES.some((v) => v === value);
+}
 
 function SortableHeader({
 	label,
@@ -84,40 +112,6 @@ function formatDate(dateString: string) {
 	});
 }
 
-function getStatusBadgeVariant(status: string) {
-	switch (status) {
-		case "delivered":
-			return "default";
-		case "rejected":
-		case "delivery_failed":
-			return "destructive";
-		case "pending":
-			return "secondary";
-		default:
-			return "outline";
-	}
-}
-
-function getStatusLabel(status: string) {
-	switch (status) {
-		case "delivery_failed":
-			return "Failed";
-		default:
-			return status.charAt(0).toUpperCase() + status.slice(1);
-	}
-}
-
-function getPaymentBadgeVariant(status: string) {
-	switch (status) {
-		case "paid":
-			return "default";
-		case "refunded":
-			return "secondary";
-		default:
-			return "outline";
-	}
-}
-
 const statusOptions: { value: Status | ""; label: string }[] = [
 	{ value: "", label: "All" },
 	{ value: "delivered", label: "Delivered" },
@@ -141,44 +135,43 @@ export default async function ProviderListingRequestsPage({
 	await requireSession();
 
 	const params = await searchParams;
-	const page = Math.max(1, parseInt(params?.page ?? "1", 10));
+	const parsedPage = parseInt(params?.page ?? "1", 10);
+	const page = Number.isNaN(parsedPage) ? 1 : Math.max(1, parsedPage);
 	const search = params?.search ?? "";
-	const status = (params?.status as Status) || "";
-	const sortBy = (params?.sortBy as SortBy) || "createdAt";
-	const sortOrder = (params?.sortOrder as SortOrder) || "desc";
+	const status: Status | "" = isStatus(params?.status) ? params.status : "";
+	const sortBy: SortBy = isSortBy(params?.sortBy) ? params.sortBy : "createdAt";
+	const sortOrder: SortOrder = params?.sortOrder === "asc" ? "asc" : "desc";
 	const archived = params?.archived === "true";
 	const limit = 25;
 	const offset = (page - 1) * limit;
 
 	const $api = await createServerApiClient();
-	const { data } = await $api.GET("/admin/provider-listing-requests", {
-		params: {
-			query: {
-				limit,
-				offset,
-				search: search || undefined,
-				status: (status as Status) || undefined,
-				archived: archived ? "true" : "false",
-				sortBy,
-				sortOrder,
+	const { data, response } = await $api.GET(
+		"/admin/provider-listing-requests",
+		{
+			params: {
+				query: {
+					limit,
+					offset,
+					search: search || undefined,
+					status: status || undefined,
+					archived: archived ? "true" : "false",
+					sortBy,
+					sortOrder,
+				},
 			},
 		},
-	});
+	);
 
 	if (!data) {
+		if (response.status === 401) {
+			return <SignInPrompt />;
+		}
 		return (
-			<div className="flex min-h-screen items-center justify-center px-4">
-				<div className="w-full max-w-md text-center">
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Admin Dashboard
-					</h1>
-					<p className="mt-2 text-sm text-muted-foreground">
-						Sign in to access the admin dashboard
-					</p>
-					<Button asChild size="lg" className="mt-6 w-full">
-						<Link href="/login">Sign In</Link>
-					</Button>
-				</div>
+			<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
+				<p className="text-muted-foreground">
+					Failed to load requests. Please try again later.
+				</p>
 			</div>
 		);
 	}

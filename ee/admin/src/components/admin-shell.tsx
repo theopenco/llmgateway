@@ -245,6 +245,7 @@ interface AdminShellProps {
 	 * on every full page load.
 	 */
 	signedIn: boolean;
+	defaultSidebarOpen: boolean;
 }
 
 function MobileHeader() {
@@ -279,7 +280,11 @@ function MobileHeader() {
 	);
 }
 
-export function AdminShell({ children, signedIn }: AdminShellProps) {
+export function AdminShell({
+	children,
+	signedIn,
+	defaultSidebarOpen,
+}: AdminShellProps) {
 	const pathname = usePathname();
 	const router = useRouter();
 	const { signOut } = useAuth();
@@ -335,7 +340,7 @@ export function AdminShell({ children, signedIn }: AdminShellProps) {
 	};
 
 	return (
-		<SidebarProvider>
+		<SidebarProvider defaultOpen={defaultSidebarOpen}>
 			<Sidebar variant="inset">
 				<SidebarHeader className="border-b border-sidebar-border/60">
 					<div className="flex h-12 items-center justify-between px-2">

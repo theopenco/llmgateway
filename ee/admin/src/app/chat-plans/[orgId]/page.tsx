@@ -9,6 +9,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { CopyableId } from "@/components/copyable-id";
+import { SignInPrompt } from "@/components/sign-in-prompt";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -120,26 +121,6 @@ function formatStatus(status: string) {
 	return status;
 }
 
-function SignInPrompt() {
-	return (
-		<div className="flex min-h-screen items-center justify-center px-4">
-			<div className="w-full max-w-md text-center">
-				<div className="mb-8">
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Admin Dashboard
-					</h1>
-					<p className="mt-2 text-sm text-muted-foreground">
-						Sign in to access the admin dashboard
-					</p>
-				</div>
-				<Button asChild size="lg" className="w-full">
-					<Link href="/login">Sign In</Link>
-				</Button>
-			</div>
-		</div>
-	);
-}
-
 export default async function ChatPlansDetailPage({
 	params,
 }: {
@@ -150,16 +131,19 @@ export default async function ChatPlansDetailPage({
 	const { orgId } = await params;
 
 	const $api = await createServerApiClient();
-	const { data } = await $api.GET("/admin/chat-plans/{orgId}", {
-		params: { path: { orgId } },
-	});
+	const { data, error, response } = await $api.GET(
+		"/admin/chat-plans/{orgId}",
+		{ params: { path: { orgId } } },
+	);
 
-	if (data === null) {
+	if (response.status === 404) {
+		notFound();
+	}
+	if (response.status === 401) {
 		return <SignInPrompt />;
 	}
-
-	if (!data) {
-		notFound();
+	if (error || !data) {
+		throw new Error("Failed to load the chat plan subscriber");
 	}
 
 	const sub = data.subscriber;

@@ -208,6 +208,11 @@ function DealStrip({ detail, m }: { detail: CrmAccountDetail; m: Mutations }) {
 					onChange={(e) => setDeal(e.target.value.replace(/[^\d.]/g, ""))}
 					onBlur={() => {
 						const next = deal ? Number(deal) : null;
+						if (next !== null && !Number.isFinite(next)) {
+							toast.error("Enter a valid amount");
+							setDeal(a.dealValue?.toString() ?? "");
+							return;
+						}
 						if (next !== a.dealValue) {
 							m.update.mutate({ ...path, body: { dealValue: next } });
 						}
@@ -971,8 +976,11 @@ function UsagePanel({ detail }: { detail: CrmAccountDetail }) {
 					Top models · 30d
 				</p>
 				<ul>
-					{detail.usage.topModels.map((mdl) => {
-						const max = detail.usage.topModels[0]?.requests ?? 1;
+					{detail.usage.topModels.map((mdl, _index, topModels) => {
+						const max = Math.max(
+							1,
+							...topModels.map((model) => Number(model.requests)),
+						);
 						return (
 							<li
 								key={`${mdl.provider}/${mdl.model}`}

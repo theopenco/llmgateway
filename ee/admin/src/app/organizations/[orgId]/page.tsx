@@ -28,6 +28,7 @@ import { LogsSection } from "@/components/logs-section";
 import { ManualCreditsDialog } from "@/components/manual-credits-dialog";
 import { PlanTermBadge } from "@/components/plan-term-badge";
 import { RefundPaymentDialog } from "@/components/refund-payment-dialog";
+import { SignInPrompt } from "@/components/sign-in-prompt";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -97,26 +98,6 @@ function formatDate(dateString: string) {
 		month: "short",
 		day: "numeric",
 	});
-}
-
-function SignInPrompt() {
-	return (
-		<div className="flex min-h-screen items-center justify-center px-4">
-			<div className="w-full max-w-md text-center">
-				<div className="mb-8">
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Admin Dashboard
-					</h1>
-					<p className="mt-2 text-sm text-muted-foreground">
-						Sign in to access the admin dashboard
-					</p>
-				</div>
-				<Button asChild size="lg" className="w-full">
-					<Link href="/login">Sign In</Link>
-				</Button>
-			</div>
-		</div>
-	);
 }
 
 function getPlanBadgeVariant(plan: string) {
@@ -289,12 +270,16 @@ export default async function OrganizationPage({
 			params: { path: { orgId } },
 		}),
 		paymentMethodsRequest,
-		$api.GET("/admin/organizations/{orgId}/guardrails", {
-			params: { path: { orgId } },
-		}),
-		$api.GET("/admin/organizations/{orgId}/sso", {
-			params: { path: { orgId } },
-		}),
+		activeTab === "guardrails"
+			? $api.GET("/admin/organizations/{orgId}/guardrails", {
+					params: { path: { orgId } },
+				})
+			: Promise.resolve(null),
+		activeTab === "sso"
+			? $api.GET("/admin/organizations/{orgId}/sso", {
+					params: { path: { orgId } },
+				})
+			: Promise.resolve(null),
 	]);
 	const transactionsData = transactionsRes.data;
 	const trustTier = orgMetricsRes.data?.trustTier;
@@ -309,10 +294,10 @@ export default async function OrganizationPage({
 	const auditLogsData = auditLogsRes.data;
 	const settingsData = settingsRes.data;
 	const paymentMethodsData = paymentMethodsRes?.data;
-	const guardrailsData = guardrailsRes.data;
-	const ssoData = ssoRes.data;
+	const guardrailsData = guardrailsRes?.data;
+	const ssoData = ssoRes?.data;
 
-	if (transactionsData === null) {
+	if (transactionsRes.response.status === 401) {
 		return <SignInPrompt />;
 	}
 

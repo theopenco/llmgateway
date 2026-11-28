@@ -128,7 +128,10 @@ export function EnterpriseDealDialog({
 		const body = {
 			amount: parsedAmount,
 			paymentMethod,
-			transactionDate: transactionDate || undefined,
+			transactionDate:
+				transactionDate && transactionDate !== deal?.createdAt.slice(0, 10)
+					? transactionDate
+					: undefined,
 			externalReference: externalReference.trim() || undefined,
 			comment: comment.trim() || undefined,
 		};

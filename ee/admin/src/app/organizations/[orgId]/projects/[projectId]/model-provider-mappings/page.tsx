@@ -13,9 +13,14 @@ import { createServerApiClient } from "@/lib/server-api";
 
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
-type SortBy = "logsCount" | "errorsCount" | "cost" | "modelId" | "providerId";
-type SortOrder = "asc" | "desc";
-
+const SORT_BY = [
+	"logsCount",
+	"errorsCount",
+	"cost",
+	"modelId",
+	"providerId",
+] as const;
+const SORT_ORDER = ["asc", "desc"] as const;
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
 	currency: "USD",
@@ -39,8 +44,8 @@ export default async function ProjectModelProviderMappingsPage({
 	const { orgId, projectId } = await params;
 	const sp = await searchParams;
 	const search = sp?.search ?? "";
-	const sortBy = (sp?.sortBy as SortBy) ?? "logsCount";
-	const sortOrder = (sp?.sortOrder as SortOrder) ?? "desc";
+	const sortBy = SORT_BY.find((v) => v === sp?.sortBy) ?? "logsCount";
+	const sortOrder = SORT_ORDER.find((v) => v === sp?.sortOrder) ?? "desc";
 	const pageWindow = parsePageWindow(sp?.window);
 	const { from, to } = windowToFromTo(pageWindow);
 	const basePath = `/organizations/${orgId}/projects/${projectId}/model-provider-mappings`;
@@ -75,7 +80,19 @@ export default async function ProjectModelProviderMappingsPage({
 	const data = statsRes.data;
 
 	if (!data) {
-		notFound();
+		return (
+			<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
+				<Button variant="ghost" size="sm" asChild className="w-fit">
+					<Link href={`/organizations/${orgId}/projects/${projectId}`}>
+						<ArrowLeft className="mr-1 h-4 w-4" />
+						Back to Project
+					</Link>
+				</Button>
+				<p className="py-8 text-center text-sm text-muted-foreground">
+					Failed to load mappings
+				</p>
+			</div>
+		);
 	}
 
 	return (

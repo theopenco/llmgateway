@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/table";
 import { contentFilterModelLabel } from "@/lib/content-filter-model";
 import { useApi } from "@/lib/fetch-client";
+import { parseTokenWindow } from "@/lib/token-window";
 
 import {
 	formatCompactNumber,
@@ -38,25 +39,6 @@ import {
 } from "@llmgateway/shared/number-format";
 
 import type { ChartConfig } from "@/components/ui/chart";
-import type { TokenWindow } from "@/lib/types";
-
-const validWindows = new Set<TokenWindow>([
-	"1h",
-	"4h",
-	"12h",
-	"1d",
-	"7d",
-	"30d",
-	"90d",
-	"365d",
-]);
-
-function parseWindow(value: string | null): TokenWindow {
-	if (value && validWindows.has(value as TokenWindow)) {
-		return value as TokenWindow;
-	}
-	return "1d";
-}
 
 const chartConfig = {
 	sampledCount: { label: "Sampled", color: "hsl(221 83% 53%)" },
@@ -71,7 +53,7 @@ const percentFormatter = new Intl.NumberFormat("en-US", {
 
 export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 	const searchParams = useSearchParams();
-	const window = parseWindow(searchParams.get("window"));
+	const window = parseTokenWindow(searchParams.get("window"));
 	const $api = useApi();
 	const { data, isLoading: loading } = $api.useQuery(
 		"get",

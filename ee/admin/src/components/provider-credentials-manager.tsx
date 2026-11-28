@@ -1860,6 +1860,14 @@ function CredentialDialog({
 		setVerifyError(undefined);
 	}, []);
 
+	useEffect(
+		() => () => {
+			verifyRequestId.current += 1;
+			selfTestRequestId.current += 1;
+		},
+		[],
+	);
+
 	const clearProbeResults = useCallback(() => {
 		selfTestRequestId.current += 1;
 		setSelfTestLoading(false);

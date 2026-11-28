@@ -14,8 +14,8 @@ import { Suspense } from "react";
 import { DashboardCostByModel } from "@/components/dashboard-cost-by-model";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { RevenueChart } from "@/components/revenue-chart";
+import { SignInPrompt } from "@/components/sign-in-prompt";
 import { SignupsChart } from "@/components/signups-chart";
-import { Button } from "@/components/ui/button";
 import { resolveDateRangeFromSearchParams } from "@/lib/date-range";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
@@ -267,26 +267,6 @@ function MetricCell({
 				)}
 			</dl>
 		</article>
-	);
-}
-
-function SignInPrompt() {
-	return (
-		<div className="flex min-h-screen items-center justify-center px-4">
-			<div className="w-full max-w-md text-center">
-				<div className="mb-8">
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Admin Dashboard
-					</h1>
-					<p className="mt-2 text-sm text-muted-foreground">
-						Sign in to access the admin dashboard
-					</p>
-				</div>
-				<Button asChild size="lg" className="w-full">
-					<Link href="/login">Sign In</Link>
-				</Button>
-			</div>
-		</div>
 	);
 }
 

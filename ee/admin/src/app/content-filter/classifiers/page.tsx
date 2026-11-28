@@ -1,6 +1,7 @@
 import { Scale } from "lucide-react";
 import Link from "next/link";
 
+import { SignInPrompt } from "@/components/sign-in-prompt";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -50,24 +51,6 @@ function rate(numerator: number, denominator: number): string {
 	return denominator > 0
 		? percentFormatter.format(numerator / denominator)
 		: "—";
-}
-
-function SignInPrompt() {
-	return (
-		<div className="flex min-h-screen items-center justify-center px-4">
-			<div className="w-full max-w-md text-center">
-				<h1 className="text-3xl font-semibold tracking-tight">
-					Admin Dashboard
-				</h1>
-				<p className="mt-2 text-sm text-muted-foreground">
-					Sign in to access the admin dashboard
-				</p>
-				<Button asChild size="lg" className="mt-8 w-full">
-					<Link href="/login">Sign In</Link>
-				</Button>
-			</div>
-		</div>
-	);
 }
 
 export default async function ContentFilterClassifiersPage({

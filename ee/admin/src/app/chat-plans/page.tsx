@@ -21,6 +21,7 @@ import { ChatPlansUsage } from "@/components/chat-plans-usage";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { RenewalCell } from "@/components/renewal-cell";
 import { SearchForm } from "@/components/search-form";
+import { SignInPrompt } from "@/components/sign-in-prompt";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -287,26 +288,6 @@ function ToggleLink({
 		>
 			{label}
 		</Link>
-	);
-}
-
-function SignInPrompt() {
-	return (
-		<div className="flex min-h-screen items-center justify-center px-4">
-			<div className="w-full max-w-md text-center">
-				<div className="mb-8">
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Admin Dashboard
-					</h1>
-					<p className="mt-2 text-sm text-muted-foreground">
-						Sign in to access the admin dashboard
-					</p>
-				</div>
-				<Button asChild size="lg" className="w-full">
-					<Link href="/login">Sign In</Link>
-				</Button>
-			</div>
-		</div>
 	);
 }
 

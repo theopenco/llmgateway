@@ -2,6 +2,7 @@ import { format } from "date-fns";
 import { ShieldAlert } from "lucide-react";
 import Link from "next/link";
 
+import { SignInPrompt } from "@/components/sign-in-prompt";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -84,24 +85,6 @@ function kindVariant(kind: string): "outline" | "destructive" | "secondary" {
 
 function formatSeen(value: string): string {
 	return value ? format(new Date(value), "MMM d HH:mm") : "—";
-}
-
-function SignInPrompt() {
-	return (
-		<div className="flex min-h-screen items-center justify-center px-4">
-			<div className="w-full max-w-md text-center">
-				<h1 className="text-3xl font-semibold tracking-tight">
-					Admin Dashboard
-				</h1>
-				<p className="mt-2 text-sm text-muted-foreground">
-					Sign in to access the admin dashboard
-				</p>
-				<Button asChild size="lg" className="mt-8 w-full">
-					<Link href="/login">Sign In</Link>
-				</Button>
-			</div>
-		</div>
-	);
 }
 
 export default async function ContentFilterErrorsPage({

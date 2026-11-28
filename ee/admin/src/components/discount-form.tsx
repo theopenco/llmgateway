@@ -132,9 +132,9 @@ function AdjustmentForm({
 	const routingPreview = !Number.isFinite(parsedValue)
 		? "Enter -10% to prioritize by 10%, or +10% to deprioritize by 10%."
 		: parsedValue < 0
-			? `Prioritized: routing compares at ${100 + parsedValue}% of the discounted price; billing is unchanged.`
+			? `Prioritized: routing compares at ${new Decimal(100).plus(parsedValue).toString()}% of the discounted price; billing is unchanged.`
 			: parsedValue > 0
-				? `Deprioritized: routing compares at ${100 + parsedValue}% of the discounted price; billing is unchanged.`
+				? `Deprioritized: routing compares at ${new Decimal(100).plus(parsedValue).toString()}% of the discounted price; billing is unchanged.`
 				: "No change to routing preference or customer billing.";
 
 	const reset = () => {
@@ -322,7 +322,7 @@ function AdjustmentForm({
 						</div>
 						<p className="text-xs text-muted-foreground">
 							{isDiscount
-								? `Customer pays ${100 - (parsedValue || 0)}% of the original price`
+								? `Customer pays ${new Decimal(100).minus(Number.isFinite(parsedValue) ? parsedValue : 0).toString()}% of the original price`
 								: routingPreview}
 						</p>
 					</div>
@@ -378,6 +378,7 @@ function AdjustmentForm({
 						<Button
 							type="button"
 							variant="outline"
+							disabled={submitting}
 							onClick={() => setOpen(false)}
 						>
 							Cancel

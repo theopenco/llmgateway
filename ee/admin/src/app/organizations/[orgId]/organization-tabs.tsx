@@ -2,7 +2,6 @@
 
 import { PrefetchKind } from "next/dist/client/components/router-reducer/router-reducer-types";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect } from "react";
 
 import { Tabs, TabsTrigger } from "@/components/ui/tabs";
 
@@ -25,14 +24,27 @@ export function OrganizationTabTrigger({
 		value,
 	);
 
-	useEffect(() => {
+	const prefetch = () => {
 		if (!active) {
 			// Dynamic tabs need their full server payload, not a partial prefetch.
 			router.prefetch(href, { kind: PrefetchKind.FULL });
 		}
-	}, [active, href, router]);
+	};
 
-	return <TabsTrigger {...props} value={value} />;
+	return (
+		<TabsTrigger
+			{...props}
+			value={value}
+			onPointerEnter={(event) => {
+				props.onPointerEnter?.(event);
+				prefetch();
+			}}
+			onFocus={(event) => {
+				props.onFocus?.(event);
+				prefetch();
+			}}
+		/>
+	);
 }
 
 export function OrganizationTabs({

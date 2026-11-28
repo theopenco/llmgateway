@@ -9,6 +9,7 @@ import {
 import Link from "next/link";
 
 import { SearchForm } from "@/components/search-form";
+import { SignInPrompt } from "@/components/sign-in-prompt";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +23,36 @@ import {
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
+
+function buildHref({
+	page,
+	search,
+	status,
+	sortBy,
+	sortOrder,
+	archived,
+}: {
+	page: number;
+	search: string;
+	status: string;
+	sortBy: string;
+	sortOrder: string;
+	archived: boolean;
+}) {
+	const params = new URLSearchParams({ page: String(page) });
+	if (search) {
+		params.set("search", search);
+	}
+	if (status) {
+		params.set("status", status);
+	}
+	params.set("sortBy", sortBy);
+	params.set("sortOrder", sortOrder);
+	if (archived) {
+		params.set("archived", "true");
+	}
+	return `/contact-submissions?${params}`;
+}
 
 type SortBy = "createdAt" | "name" | "email" | "spamFilterStatus";
 type SortOrder = "asc" | "desc";
@@ -48,10 +79,14 @@ function SortableHeader({
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "asc" ? "desc" : "asc";
 
-	const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
-	const statusParam = status ? `&status=${encodeURIComponent(status)}` : "";
-	const archivedParam = archived ? "&archived=true" : "";
-	const href = `/contact-submissions?page=1&sortBy=${sortKey}&sortOrder=${nextOrder}${searchParam}${statusParam}${archivedParam}`;
+	const href = buildHref({
+		page: 1,
+		search,
+		status,
+		sortBy: sortKey,
+		sortOrder: nextOrder,
+		archived,
+	});
 
 	return (
 		<Link
@@ -171,21 +206,7 @@ export default async function ContactSubmissionsPage({
 	});
 
 	if (!data) {
-		return (
-			<div className="flex min-h-screen items-center justify-center px-4">
-				<div className="w-full max-w-md text-center">
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Admin Dashboard
-					</h1>
-					<p className="mt-2 text-sm text-muted-foreground">
-						Sign in to access the admin dashboard
-					</p>
-					<Button asChild size="lg" className="mt-6 w-full">
-						<Link href="/login">Sign In</Link>
-					</Button>
-				</div>
-			</div>
-		);
+		return <SignInPrompt />;
 	}
 
 	const totalPages = Math.ceil(data.total / limit);
@@ -239,7 +260,14 @@ export default async function ContactSubmissionsPage({
 					</Button>
 					<Button variant={archived ? "default" : "outline"} size="sm" asChild>
 						<Link
-							href={`/contact-submissions?page=1${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}${archived ? "" : "&archived=true"}`}
+							href={buildHref({
+								page: 1,
+								search,
+								status,
+								sortBy,
+								sortOrder,
+								archived: !archived,
+							})}
 						>
 							Archived
 						</Link>
@@ -379,7 +407,14 @@ export default async function ContactSubmissionsPage({
 					<div className="flex items-center gap-2">
 						<Button variant="outline" size="sm" asChild disabled={page <= 1}>
 							<Link
-								href={`/contact-submissions?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}${archived ? "&archived=true" : ""}`}
+								href={buildHref({
+									page: page - 1,
+									search,
+									status,
+									sortBy,
+									sortOrder,
+									archived,
+								})}
 								className={page <= 1 ? "pointer-events-none opacity-50" : ""}
 							>
 								<ChevronLeft className="h-4 w-4" />
@@ -396,7 +431,14 @@ export default async function ContactSubmissionsPage({
 							disabled={page >= totalPages}
 						>
 							<Link
-								href={`/contact-submissions?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}${status ? `&status=${status}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}${archived ? "&archived=true" : ""}`}
+								href={buildHref({
+									page: page + 1,
+									search,
+									status,
+									sortBy,
+									sortOrder,
+									archived,
+								})}
 								className={
 									page >= totalPages ? "pointer-events-none opacity-50" : ""
 								}

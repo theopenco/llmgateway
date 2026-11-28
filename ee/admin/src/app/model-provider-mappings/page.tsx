@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { Suspense } from "react";
 
 import { CatalogFiltersBar } from "@/components/catalog-filters";
@@ -8,9 +7,9 @@ import {
 	FilterNavigationResults,
 } from "@/components/filter-navigation";
 import { MappingsTable } from "@/components/mappings-table";
+import { SignInPrompt } from "@/components/sign-in-prompt";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { TokenBreakdown } from "@/components/token-breakdown";
-import { Button } from "@/components/ui/button";
 import { UsageModeSelector } from "@/components/usage-mode-selector";
 import {
 	catalogExactQuery,
@@ -96,21 +95,7 @@ export default async function ModelProviderMappingsPage({
 	});
 
 	if (!data) {
-		return (
-			<div className="flex min-h-screen items-center justify-center px-4">
-				<div className="w-full max-w-md text-center">
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Admin Dashboard
-					</h1>
-					<p className="mt-2 text-sm text-muted-foreground">
-						Sign in to access the admin dashboard
-					</p>
-					<Button asChild size="lg" className="mt-6 w-full">
-						<Link href="/login">Sign In</Link>
-					</Button>
-				</div>
-			</div>
-		);
+		return <SignInPrompt />;
 	}
 
 	const totalTokens = data.totalTokens;

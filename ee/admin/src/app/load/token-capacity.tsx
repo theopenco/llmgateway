@@ -43,6 +43,7 @@ import {
 } from "@/lib/provider-cache-rate";
 import { LOAD_USAGE_MODE_DEFAULT } from "@/lib/usage-mode";
 
+import { buildCsv, detectCsvFormat, formatCsvNumber } from "@llmgateway/shared";
 import {
 	formatCompactNumber,
 	formatNumber,
@@ -213,49 +214,46 @@ export function TokenCapacity() {
 		if (!data) {
 			return;
 		}
-		const escape = (value: string | number) =>
-			`"${String(value).replace(/"/g, '""')}"`;
-		const rows = [
-			[
-				"key",
-				"label",
-				"token_type",
-				"mode",
-				"start_utc",
-				"end_utc",
-				"total_tokens",
-				"input_tokens",
-				"cached_input_tokens",
-				"output_tokens",
-				"avg_tpm",
-				"peak_tpm",
-				"peak_minute_utc",
-				"avg_tokens_per_day",
-				"peak_tokens_per_day",
-				"peak_day_utc",
-			],
-			...data.breakdown.map((row) => [
-				row.key,
-				row.label,
-				tokenType,
-				mode,
-				data.start,
-				data.end,
-				row.totalTokens,
-				row.inputTokens,
-				row.cachedTokens,
-				row.outputTokens,
-				row.avgTpm,
-				row.peakTpm,
-				row.peakMinuteAt ?? "",
-				row.avgTokensPerDay,
-				row.peakTokensPerDay,
-				row.peakDayAt ?? "",
-			]),
+		const format = detectCsvFormat();
+		const headers = [
+			"key",
+			"label",
+			"token_type",
+			"mode",
+			"start_utc",
+			"end_utc",
+			"total_tokens",
+			"input_tokens",
+			"cached_input_tokens",
+			"output_tokens",
+			"avg_tpm",
+			"peak_tpm",
+			"peak_minute_utc",
+			"avg_tokens_per_day",
+			"peak_tokens_per_day",
+			"peak_day_utc",
 		];
+		const rows = data.breakdown.map((row) => [
+			row.key,
+			row.label,
+			tokenType,
+			mode,
+			data.start,
+			data.end,
+			formatCsvNumber(row.totalTokens, format),
+			formatCsvNumber(row.inputTokens, format),
+			formatCsvNumber(row.cachedTokens, format),
+			formatCsvNumber(row.outputTokens, format),
+			formatCsvNumber(row.avgTpm, format),
+			formatCsvNumber(row.peakTpm, format),
+			row.peakMinuteAt ?? "",
+			formatCsvNumber(row.avgTokensPerDay, format),
+			formatCsvNumber(row.peakTokensPerDay, format),
+			row.peakDayAt ?? "",
+		]);
 		downloadCsv(
 			`gateway-tokens-${groupBy}-${window}-${data.asOf.slice(0, 10)}.csv`,
-			rows.map((row) => row.map(escape).join(",")).join("\n"),
+			buildCsv(headers, rows, format),
 		);
 	}
 

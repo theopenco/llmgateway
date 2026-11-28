@@ -4,6 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
 
 import { CostByModelChart } from "@/components/cost-by-model-chart";
+import { useUsageMode } from "@/components/usage-mode-selector";
 import { useHistoryClient } from "@/lib/history-client";
 
 import type { GlobalStatsModelView } from "@/lib/types";
@@ -32,6 +33,7 @@ export function DashboardCostByModel({
 	const searchParams = useSearchParams();
 	const modelView = parseModelView(searchParams.get("modelView"));
 	const history = useHistoryClient();
+	const usageMode = useUsageMode();
 
 	const setModelView = useCallback(
 		(value: GlobalStatsModelView) => {
@@ -48,9 +50,14 @@ export function DashboardCostByModel({
 			rangeTo: string | undefined,
 			view: GlobalStatsModelView,
 		) => {
-			return await history.globalCostByModel(rangeFrom, rangeTo, view);
+			return await history.globalCostByModel(
+				rangeFrom,
+				rangeTo,
+				view,
+				usageMode,
+			);
 		},
-		[history],
+		[history, usageMode],
 	);
 
 	return (

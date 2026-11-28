@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { Suspense } from "react";
 
 import { CatalogFiltersBar } from "@/components/catalog-filters";
@@ -7,9 +6,9 @@ import {
 	FilterNavigationResults,
 } from "@/components/filter-navigation";
 import { ProvidersTable } from "@/components/providers-table";
+import { SignInPrompt } from "@/components/sign-in-prompt";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { TokenBreakdown } from "@/components/token-breakdown";
-import { Button } from "@/components/ui/button";
 import { UsageModeSelector } from "@/components/usage-mode-selector";
 import { catalogFilterQuery, parseCatalogFilters } from "@/lib/catalog-filters";
 import {
@@ -26,28 +25,26 @@ import { formatCompactNumber } from "@llmgateway/shared/number-format";
 import type { paths } from "@/lib/api/v1";
 
 type ProviderSortBy = NonNullable<
-	paths["/admin/providers"]["get"]["parameters"]["query"]
->["sortBy"];
+	NonNullable<paths["/admin/providers"]["get"]["parameters"]["query"]>["sortBy"]
+>;
 type SortOrder = "asc" | "desc";
 
-function SignInPrompt() {
-	return (
-		<div className="flex min-h-screen items-center justify-center px-4">
-			<div className="w-full max-w-md text-center">
-				<div className="mb-8">
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Admin Dashboard
-					</h1>
-					<p className="mt-2 text-sm text-muted-foreground">
-						Sign in to access the admin dashboard
-					</p>
-				</div>
-				<Button asChild size="lg" className="w-full">
-					<Link href="/login">Sign In</Link>
-				</Button>
-			</div>
-		</div>
-	);
+const PROVIDER_SORT_KEYS: readonly ProviderSortBy[] = [
+	"name",
+	"status",
+	"logsCount",
+	"errorsCount",
+	"clientErrorsCount",
+	"cachedCount",
+	"totalCost",
+	"avgTimeToFirstToken",
+	"throughput",
+	"modelCount",
+	"updatedAt",
+];
+
+function parseProviderSortBy(value: string | undefined): ProviderSortBy {
+	return PROVIDER_SORT_KEYS.find((key) => key === value) ?? "logsCount";
 }
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -62,8 +59,8 @@ export default async function ProvidersPage({
 	searchParams?: Promise<Partial<Record<string, string>>>;
 }) {
 	const params = await searchParams;
-	const sortBy = (params?.sortBy as ProviderSortBy) ?? "logsCount";
-	const sortOrder = (params?.sortOrder as SortOrder) || "desc";
+	const sortBy = parseProviderSortBy(params?.sortBy);
+	const sortOrder: SortOrder = params?.sortOrder === "asc" ? "asc" : "desc";
 	const pageWindow = parsePageWindow(
 		params?.window,
 		CATALOG_PAGE_WINDOW_DEFAULT,
@@ -73,14 +70,23 @@ export default async function ProvidersPage({
 	const filters = parseCatalogFilters(params);
 
 	const $api = await createServerApiClient();
-	const { data } = await $api.GET("/admin/providers", {
+	const { data, response } = await $api.GET("/admin/providers", {
 		params: {
 			query: { sortBy, sortOrder, from, to, mode: usageMode, ...filters },
 		},
 	});
 
 	if (!data) {
-		return <SignInPrompt />;
+		if (response.status === 401 || response.status === 403) {
+			return <SignInPrompt />;
+		}
+		return (
+			<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
+				<p className="text-muted-foreground">
+					Failed to load providers. Please try again later.
+				</p>
+			</div>
+		);
 	}
 
 	return (

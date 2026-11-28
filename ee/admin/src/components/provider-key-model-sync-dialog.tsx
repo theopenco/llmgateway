@@ -30,7 +30,7 @@ export function ProviderKeyModelSyncDialog({
 	const [open, setOpen] = useState(false);
 	const $api = useApi();
 
-	const { data, isLoading } = $api.useQuery(
+	const { data, isLoading, isError, isFetching, refetch } = $api.useQuery(
 		"get",
 		"/admin/provider-credentials/{id}/model-sync-history",
 		{ params: { path: { id: providerKeyId } } },
@@ -65,6 +65,18 @@ export function ProviderKeyModelSyncDialog({
 
 				{isLoading ? (
 					<div className="h-40 animate-pulse rounded-md bg-muted" />
+				) : isError && !data ? (
+					<div className="flex flex-col items-center gap-3 py-10 text-center text-sm text-destructive">
+						<p>Couldn't load sync history.</p>
+						<Button
+							variant="outline"
+							size="sm"
+							disabled={isFetching}
+							onClick={() => void refetch()}
+						>
+							Retry
+						</Button>
+					</div>
 				) : entries.length === 0 ? (
 					<p className="py-10 text-center text-sm text-muted-foreground">
 						No sync has run for this credential yet.

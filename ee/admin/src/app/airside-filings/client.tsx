@@ -492,7 +492,12 @@ export function AirsideFilingsClient() {
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
-					{pendingClaims.length === 0 ? (
+					{claimsQuery.isError && !claimsQuery.data ? (
+						<FilingQueryError
+							message="Could not load carrier claims."
+							onRetry={() => void claimsQuery.refetch()}
+						/>
+					) : pendingClaims.length === 0 ? (
 						<p className="text-muted-foreground py-4 text-center text-sm">
 							No carriers awaiting review.
 						</p>
@@ -658,6 +663,20 @@ export function AirsideFilingsClient() {
 				</CardContent>
 			</Card>
 
+			{brandingQuery.isError && !brandingQuery.data ? (
+				<Card>
+					<CardHeader>
+						<CardTitle>Branding changes</CardTitle>
+					</CardHeader>
+					<CardContent>
+						<FilingQueryError
+							message="Could not load branding changes."
+							onRetry={() => void brandingQuery.refetch()}
+						/>
+					</CardContent>
+				</Card>
+			) : null}
+
 			{(brandingQuery.data?.total ?? 0) > 0 ? (
 				<Card>
 					<CardHeader>
@@ -779,6 +798,20 @@ export function AirsideFilingsClient() {
 							total={brandingQuery.data?.total ?? 0}
 							onPageChange={setBrandingPage}
 							testId="branding-pager"
+						/>
+					</CardContent>
+				</Card>
+			) : null}
+
+			{providerKeyQuery.isError && !providerKeyQuery.data ? (
+				<Card>
+					<CardHeader>
+						<CardTitle>Provider key changes</CardTitle>
+					</CardHeader>
+					<CardContent>
+						<FilingQueryError
+							message="Could not load provider key changes."
+							onRetry={() => void providerKeyQuery.refetch()}
 						/>
 					</CardContent>
 				</Card>
@@ -1426,7 +1459,12 @@ export function AirsideFilingsClient() {
 							</Button>
 						</form>
 					)}
-					{inviteCodes.length === 0 ? (
+					{codesQuery.isError && !codesQuery.data ? (
+						<FilingQueryError
+							message="Could not load invite codes."
+							onRetry={() => void codesQuery.refetch()}
+						/>
+					) : inviteCodes.length === 0 ? (
 						<p className="text-muted-foreground py-4 text-center text-sm">
 							No invite codes minted yet.
 						</p>
@@ -1529,6 +1567,7 @@ export function AirsideFilingsClient() {
 				onOpenChange={(open) => {
 					if (!open) {
 						setRejecting(null);
+						setRejectNote("");
 					}
 				}}
 			>

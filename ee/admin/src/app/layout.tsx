@@ -1,4 +1,5 @@
 import localFont from "next/font/local";
+import { cookies } from "next/headers";
 
 import { AdminShell } from "@/components/admin-shell";
 import { AdminRoleProvider } from "@/lib/admin-role-context";
@@ -59,6 +60,8 @@ export default async function RootLayout({
 	const config = getConfig();
 	const signedIn = await hasSessionCookie();
 	const adminRole = signedIn ? await getSessionAdminRole() : null;
+	const defaultSidebarOpen =
+		(await cookies()).get("sidebar_state")?.value !== "false";
 
 	return (
 		<html
@@ -69,7 +72,12 @@ export default async function RootLayout({
 			<body className="antialiased">
 				<Providers config={config}>
 					<AdminRoleProvider role={adminRole}>
-						<AdminShell signedIn={signedIn}>{children}</AdminShell>
+						<AdminShell
+							signedIn={signedIn}
+							defaultSidebarOpen={defaultSidebarOpen}
+						>
+							{children}
+						</AdminShell>
 					</AdminRoleProvider>
 				</Providers>
 			</body>

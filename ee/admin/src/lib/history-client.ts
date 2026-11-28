@@ -83,11 +83,17 @@ export function useHistoryClient() {
 				from: string | undefined,
 				to: string | undefined,
 				modelView: GlobalStatsModelView = "mapping",
+				mode: UsageMode = "total",
 			) {
 				const query =
 					from && to
-						? { from, to, modelView, groupBy: "model" as const }
-						: { range: "all" as const, modelView, groupBy: "model" as const };
+						? { from, to, modelView, mode, groupBy: "model" as const }
+						: {
+								range: "all" as const,
+								modelView,
+								mode,
+								groupBy: "model" as const,
+							};
 				const { data } = await $fetch.GET("/admin/global-stats", {
 					params: { query: { ...query, includeTimeseriesBreakdown: "false" } },
 				});

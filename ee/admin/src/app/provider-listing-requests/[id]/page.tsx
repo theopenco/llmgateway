@@ -1,6 +1,11 @@
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
+import {
+	getPaymentBadgeVariant,
+	getStatusBadgeVariant,
+	getStatusLabel,
+} from "@/app/provider-listing-requests/status";
 import { AdminOnly } from "@/components/role-gate";
 import { Badge } from "@/components/ui/badge";
 import { requireSession } from "@/lib/require-session";
@@ -16,40 +21,6 @@ function formatDate(dateString: string) {
 		hour: "2-digit",
 		minute: "2-digit",
 	});
-}
-
-function getStatusBadgeVariant(status: string) {
-	switch (status) {
-		case "delivered":
-			return "default";
-		case "rejected":
-		case "delivery_failed":
-			return "destructive";
-		case "pending":
-			return "secondary";
-		default:
-			return "outline";
-	}
-}
-
-function getStatusLabel(status: string) {
-	switch (status) {
-		case "delivery_failed":
-			return "Failed";
-		default:
-			return status.charAt(0).toUpperCase() + status.slice(1);
-	}
-}
-
-function getPaymentBadgeVariant(status: string) {
-	switch (status) {
-		case "paid":
-			return "default";
-		case "refunded":
-			return "secondary";
-		default:
-			return "outline";
-	}
 }
 
 function BackToRequests() {

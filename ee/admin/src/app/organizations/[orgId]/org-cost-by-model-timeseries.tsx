@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 
 import { useUsageMode } from "@/components/usage-mode-selector";
 import { useApi } from "@/lib/fetch-client";
+import { parseTokenWindow, TOKEN_WINDOW_DAYS } from "@/lib/token-window";
 import { parseUsageBreakdown } from "@/lib/usage-breakdown";
 
 import {
@@ -18,27 +19,9 @@ import type {
 	TokenWindow,
 } from "@/lib/types";
 
-const validWindows = new Set<TokenWindow>([
-	"1h",
-	"4h",
-	"12h",
-	"1d",
-	"7d",
-	"30d",
-	"90d",
-	"365d",
-]);
-
-function parseWindow(value: string | null): TokenWindow {
-	if (value && validWindows.has(value as TokenWindow)) {
-		return value as TokenWindow;
-	}
-	return "1d";
-}
-
 export function OrgCostByModelTimeseries({ orgId }: { orgId: string }) {
 	const params = useSearchParams();
-	const window = parseWindow(params.get("window"));
+	const window = parseTokenWindow(params.get("window"));
 	const { groupBy, modelView } = parseUsageBreakdown(params, "organization");
 	return (
 		<OrgUsageTimeseries
@@ -61,16 +44,7 @@ function OrgUsageTimeseries({
 	groupBy: OrganizationCostGroupBy;
 	modelView: ModelView;
 }) {
-	const days = {
-		"1h": 1 / 24,
-		"4h": 4 / 24,
-		"12h": 0.5,
-		"1d": 1,
-		"7d": 7,
-		"30d": 30,
-		"90d": 90,
-		"365d": 365,
-	}[window];
+	const days = TOKEN_WINDOW_DAYS[window];
 	const controls = useUsageTimeseriesControls(days);
 	const mode = useUsageMode();
 	const api = useApi();

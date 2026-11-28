@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { LogsSection } from "@/components/logs-section";
+import { SignInPrompt } from "@/components/sign-in-prompt";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -18,26 +19,6 @@ import { createServerApiClient } from "@/lib/server-api";
 import { PaymentsSdkSettings } from "./payments-sdk-settings";
 import { ProjectCostByModelTimeseries } from "./project-cost-by-model-timeseries";
 import { ProjectMetricsSection } from "./project-metrics";
-
-function SignInPrompt() {
-	return (
-		<div className="flex min-h-screen items-center justify-center px-4">
-			<div className="w-full max-w-md text-center">
-				<div className="mb-8">
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Admin Dashboard
-					</h1>
-					<p className="mt-2 text-sm text-muted-foreground">
-						Sign in to access the admin dashboard
-					</p>
-				</div>
-				<Button asChild size="lg" className="w-full">
-					<Link href="/login">Sign In</Link>
-				</Button>
-			</div>
-		</div>
-	);
-}
 
 function formatDate(dateString: string) {
 	return new Date(dateString).toLocaleDateString("en-US", {
@@ -68,8 +49,12 @@ export default async function ProjectDetailPage({
 	]);
 	const projectsData = projectsRes.data;
 
-	if (!projectsData) {
+	if (projectsRes.response.status === 401) {
 		return <SignInPrompt />;
+	}
+
+	if (!projectsData) {
+		notFound();
 	}
 
 	const project = projectsData.projects.find((p) => p.id === projectId);
