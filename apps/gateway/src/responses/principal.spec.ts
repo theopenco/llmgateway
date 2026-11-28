@@ -32,6 +32,7 @@ const state = vi.hoisted(() => ({
 	forward: vi.fn(),
 	budget: vi.fn(),
 	limits: vi.fn(),
+	streamSSE: vi.fn(),
 }));
 vi.mock("@/app.js", () => ({ app: { request: state.forward } }));
 vi.mock("@/lib/cached-queries.js", () => ({
@@ -51,7 +52,7 @@ vi.mock("@/lib/compliance.js", () => ({
 vi.mock("@/lib/client-error-log.js", () => ({
 	logGatewayClientError: vi.fn(),
 }));
-vi.mock("@/lib/pending-work.js", () => ({ streamSSE: vi.fn() }));
+vi.mock("@/lib/pending-work.js", () => ({ streamSSE: state.streamSSE }));
 vi.mock("@/lib/responses-context.js", () => ({
 	setResponsesContext: vi.fn(),
 	deleteResponsesContext: vi.fn(),
@@ -84,6 +85,19 @@ function session() {
 	};
 	return state.key.endUserSession;
 }
+function chatCompletion() {
+	return Response.json({
+		id: "chat",
+		model: "gpt-4o",
+		choices: [
+			{
+				message: { role: "assistant", content: "Hello" },
+				finish_reason: "stop",
+			},
+		],
+		usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5 },
+	});
+}
 function request(
 	path = "/saved",
 	body?: Record<string, unknown>,
@@ -103,6 +117,8 @@ function request(
 beforeEach(() => {
 	vi.clearAllMocks();
 	state.readAccess.mockReset();
+	state.forward.mockReset();
+	state.streamSSE.mockReset();
 	state.key.keyType = "user";
 	state.key.expiresAt = null;
 	state.key.endUserSession = undefined;
@@ -216,6 +232,116 @@ describe("Responses principals", () => {
 			expect(state.forward).not.toHaveBeenCalled();
 		},
 	);
+	it("does not store SDK responses that omit store", async () => {
+		session();
+		state.forward.mockResolvedValueOnce(chatCompletion());
+		const response = await request(
+			"/",
+			{ model: "gpt-4o", input: "hi" },
+			"https://allowed.example",
+		);
+		expect(response.status).toBe(200);
+		expect(state.forward).toHaveBeenCalledOnce();
+		expect(state.store).not.toHaveBeenCalled();
+	});
+	it("stores regular-key responses that omit store", async () => {
+		state.forward.mockResolvedValueOnce(chatCompletion());
+		const response = await request("/", { model: "gpt-4o", input: "hi" });
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({ store: true });
+		expect(state.store).toHaveBeenCalledOnce();
+		expect(state.store).toHaveBeenCalledWith(
+			"resp_response-id",
+			expect.anything(),
+			"project",
+		);
+	});
+	it.each([
+		[false, undefined],
+		[false, true],
+		[true, undefined],
+		[true, true],
+	])(
+		"echoes store false for unstored SDK responses with ZDR=%s and store=%s",
+		async (zdr, store) => {
+			session();
+			state.zdr = zdr;
+			state.forward.mockResolvedValueOnce(chatCompletion());
+			const response = await request(
+				"/",
+				{ model: "gpt-4o", input: "hi", ...(store !== undefined && { store }) },
+				"https://allowed.example",
+			);
+			expect(response.status).toBe(200);
+			expect(await response.json()).toMatchObject({
+				object: "response",
+				store: false,
+			});
+			expect(state.forward).toHaveBeenCalledOnce();
+			expect(state.store).not.toHaveBeenCalled();
+		},
+	);
+	it.each([false, true])(
+		"echoes store false in streamed SDK responses with ZDR=%s",
+		async (zdr) => {
+			session();
+			state.zdr = zdr;
+			const events: { event?: string; data: string }[] = [];
+			state.streamSSE.mockImplementationOnce(
+				async (
+					c: { body: (body: null) => Response },
+					callback: (stream: unknown) => Promise<void>,
+				) => {
+					await callback({
+						aborted: false,
+						write: vi.fn(async () => undefined),
+						writeSSE: vi.fn(async (event: { event?: string; data: string }) => {
+							events.push(event);
+						}),
+					});
+					return c.body(null);
+				},
+			);
+			const chunk = {
+				id: "chat",
+				model: "gpt-4o",
+				choices: [
+					{ index: 0, delta: { content: "Hello" }, finish_reason: "stop" },
+				],
+				usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5 },
+			};
+			state.forward.mockResolvedValueOnce(
+				new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, {
+					headers: { "Content-Type": "text/event-stream" },
+				}),
+			);
+			const response = await request(
+				"/",
+				{ model: "gpt-4o", input: "hi", stream: true },
+				"https://allowed.example",
+			);
+			expect(response.status).toBe(200);
+			const lifecycle = events
+				.filter(
+					(event) =>
+						event.event === "response.created" ||
+						event.event === "response.completed",
+				)
+				.map((event) => JSON.parse(event.data).response.store);
+			expect(lifecycle).toEqual([false, false]);
+			expect(state.store).not.toHaveBeenCalled();
+		},
+	);
+	it("still rejects regular-key responses that omit store under ZDR", async () => {
+		state.zdr = true;
+		const response = await request("/", { model: "gpt-4o", input: "hi" });
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			error: { code: "zdr_storage_conflict" },
+		});
+		expect(state.forward).not.toHaveBeenCalled();
+		expect(state.store).not.toHaveBeenCalled();
+	});
 	it.each(["/", "/compact"])(
 		"rejects SDK item references through %s",
 		async (path) => {

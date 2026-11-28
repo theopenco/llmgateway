@@ -319,7 +319,10 @@ responses.post("/", async (c) => {
 		organization,
 		authResult.apiKey,
 	);
-	if (zeroDataRetentionEnabled && req.store !== false) {
+	// SDK state is wallet-scoped; Responses storage is project-scoped.
+	const shouldStore = req.store !== false && !authResult.apiKey.endUserSession;
+	req.store = shouldStore;
+	if (zeroDataRetentionEnabled && shouldStore) {
 		return c.json(
 			{
 				error: {
@@ -332,7 +335,6 @@ responses.post("/", async (c) => {
 			400,
 		);
 	}
-	const shouldStore = req.store !== false;
 	const includeEncryptedReasoning =
 		req.include?.includes("reasoning.encrypted_content") ?? false;
 
