@@ -12,8 +12,8 @@ import {
 	eq,
 	gte,
 	isNull,
-	lt,
 	lte,
+	sql,
 	tables,
 	guardrailActionsTaken,
 	customRuleTypes,
@@ -25,6 +25,7 @@ import {
 } from "@llmgateway/db";
 import {
 	checkGuardrails,
+	compileUserRegex,
 	presetTopics,
 	systemRuleCatalog,
 } from "@llmgateway/guardrails";
@@ -183,6 +184,25 @@ function assertCustomRuleSupported(
 		throw new HTTPException(400, {
 			message: `${type} rules cannot redact; use block or warn`,
 		});
+	}
+	if (
+		config.type === "custom_regex" &&
+		compileUserRegex(config.pattern, "gi") === null
+	) {
+		throw new HTTPException(400, {
+			message: `Invalid or unsafe regex pattern: ${config.pattern}`,
+		});
+	}
+	if (config.type === "blocked_terms" && config.matchType === "regex") {
+		const flags = config.caseSensitive ? "g" : "gi";
+		const invalidTerm = config.terms.find(
+			(term) => compileUserRegex(term, flags) === null,
+		);
+		if (invalidTerm !== undefined) {
+			throw new HTTPException(400, {
+				message: `Invalid or unsafe regex pattern: ${invalidTerm}`,
+			});
+		}
 	}
 }
 
@@ -1307,21 +1327,19 @@ guardrails.openapi(listViolations, async (c) => {
 	}
 
 	if (cursor) {
-		const cursorViolation = await db.query.guardrailViolation.findFirst({
-			where: { id: { eq: cursor } },
-		});
-		if (cursorViolation) {
-			whereConditions.push(
-				lt(tables.guardrailViolation.createdAt, cursorViolation.createdAt),
-			);
-		}
+		whereConditions.push(
+			sql`(${tables.guardrailViolation.createdAt}, ${tables.guardrailViolation.id}) < (select cursor_row.created_at, cursor_row.id from ${tables.guardrailViolation} as cursor_row where cursor_row.id = ${cursor} and cursor_row.organization_id = ${organizationId})`,
+		);
 	}
 
 	const violations = await db
 		.select()
 		.from(tables.guardrailViolation)
 		.where(and(...whereConditions))
-		.orderBy(desc(tables.guardrailViolation.createdAt))
+		.orderBy(
+			desc(tables.guardrailViolation.createdAt),
+			desc(tables.guardrailViolation.id),
+		)
 		.limit(limit + 1);
 
 	const hasMore = violations.length > limit;
@@ -1392,53 +1410,68 @@ guardrails.openapi(getStats, async (c) => {
 	const windowStart = new Date();
 	windowStart.setDate(windowStart.getDate() - days);
 
-	const violations = await db.query.guardrailViolation.findMany({
-		where: {
-			organizationId: { eq: organizationId },
-			createdAt: { gte: windowStart },
-		},
-		columns: { actionTaken: true, category: true, createdAt: true },
-	});
-
 	const now = Date.now();
 	const dayMs = 24 * 60 * 60 * 1000;
 	const weekMs = 7 * dayMs;
-	const last24HoursStart = now - dayMs;
-	const last7DaysStart = now - weekMs;
+	const last24HoursStart = new Date(now - dayMs);
+	const last7DaysStart = new Date(now - weekMs);
+	const queryStart =
+		windowStart < last7DaysStart ? windowStart : last7DaysStart;
 
-	const stats = {
-		totalViolations: violations.length,
-		last24Hours: 0,
-		last7Days: 0,
+	const violation = tables.guardrailViolation;
+	const inWindow = gte(violation.createdAt, windowStart);
+	const countInWindow = (action: (typeof guardrailActionsTaken)[number]) =>
+		sql<number>`count(*) filter (where ${and(inWindow, eq(violation.actionTaken, action))})`.mapWith(
+			Number,
+		);
+
+	const [[totals], categoryCounts] = await Promise.all([
+		db
+			.select({
+				totalViolations:
+					sql<number>`count(*) filter (where ${inWindow})`.mapWith(Number),
+				last24Hours:
+					sql<number>`count(*) filter (where ${gte(violation.createdAt, last24HoursStart)})`.mapWith(
+						Number,
+					),
+				last7Days:
+					sql<number>`count(*) filter (where ${gte(violation.createdAt, last7DaysStart)})`.mapWith(
+						Number,
+					),
+				blocked: countInWindow("blocked"),
+				redacted: countInWindow("redacted"),
+				warned: countInWindow("warned"),
+			})
+			.from(violation)
+			.where(
+				and(
+					eq(violation.organizationId, organizationId),
+					gte(violation.createdAt, queryStart),
+				),
+			),
+		db
+			.select({
+				category: violation.category,
+				count: sql<number>`count(*)`.mapWith(Number),
+			})
+			.from(violation)
+			.where(and(eq(violation.organizationId, organizationId), inWindow))
+			.groupBy(violation.category),
+	]);
+
+	return c.json({
+		totalViolations: totals.totalViolations,
+		last24Hours: totals.last24Hours,
+		last7Days: totals.last7Days,
 		byAction: {
-			blocked: 0,
-			redacted: 0,
-			warned: 0,
+			blocked: totals.blocked,
+			redacted: totals.redacted,
+			warned: totals.warned,
 		},
-		byCategory: {} as Record<string, number>,
-	};
-
-	for (const v of violations) {
-		const createdAtMs = v.createdAt.getTime();
-		if (createdAtMs >= last24HoursStart) {
-			stats.last24Hours++;
-		}
-		if (createdAtMs >= last7DaysStart) {
-			stats.last7Days++;
-		}
-
-		if (v.actionTaken === "blocked") {
-			stats.byAction.blocked++;
-		} else if (v.actionTaken === "redacted") {
-			stats.byAction.redacted++;
-		} else if (v.actionTaken === "warned") {
-			stats.byAction.warned++;
-		}
-
-		stats.byCategory[v.category] = (stats.byCategory[v.category] ?? 0) + 1;
-	}
-
-	return c.json(stats);
+		byCategory: Object.fromEntries(
+			categoryCounts.map((row) => [row.category, row.count]),
+		),
+	});
 });
 
 // POST /guardrails/test/:organizationId - Test content against rules

@@ -9,6 +9,7 @@ import {
 	subscribeToNewsletter,
 	verifyNewsletterToken,
 } from "@/lib/newsletter.js";
+import { normalizeEmailForComparison } from "@/lib/referral-eligibility.js";
 import { createRoute } from "@/utils/create-route.js";
 import { EmailTimeoutError, sendTransactionalEmail } from "@/utils/email.js";
 import {
@@ -51,11 +52,7 @@ const jsonResult = (description: string) => ({
  * and on Gmail the dots and the googlemail.com domain.
  */
 function confirmationCapKey(window: string, email: string): string {
-	const at = email.lastIndexOf("@");
-	const [base] = email.slice(0, at).split("+");
-	const domain = email.slice(at + 1).replace(/^googlemail\.com$/, "gmail.com");
-	const local = domain === "gmail.com" ? base.replaceAll(".", "") : base;
-	return `newsletter_confirmation:${window}:${local}@${domain}`;
+	return `newsletter_confirmation:${window}:${normalizeEmailForComparison(email)}`;
 }
 
 async function reserveConfirmation(email: string): Promise<RateLimitState> {

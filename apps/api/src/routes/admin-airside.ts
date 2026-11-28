@@ -467,30 +467,44 @@ adminAirside.openapi(listFilings, async (c) => {
 			.where(status ? eq(table.status, status) : undefined);
 		return row?.count ?? 0;
 	};
-	const rows = await db.query.providerPriceFiling.findMany({
-		where: query.status ? { status: { eq: query.status } } : {},
-		with: {
-			draftModel: { with: { priceFilings: true } },
-			providerCompany: true,
-		},
-		orderBy: { createdAt: "desc", id: "desc" },
-		limit,
-		offset: query.offset ?? 0,
-	});
-	const routingRows = await db.query.providerRoutingFiling.findMany({
-		where: query.status ? { status: { eq: query.status } } : {},
-		with: { providerCompany: true },
-		orderBy: { createdAt: "desc", id: "desc" },
-		limit,
-		offset: query.routingOffset ?? 0,
-	});
-	const [total, pendingCount, routingTotal, routingPendingCount] =
-		await Promise.all([
-			countPrice(query.status),
-			countPrice("pending"),
-			countRouting(query.status),
-			countRouting("pending"),
-		]);
+	const [
+		rows,
+		routingRows,
+		total,
+		pendingCount,
+		routingTotal,
+		routingPendingCount,
+	] = await Promise.all([
+		db.query.providerPriceFiling.findMany({
+			where: query.status ? { status: { eq: query.status } } : {},
+			with: {
+				draftModel: {
+					with: {
+						priceFilings: {
+							where: { status: { eq: "approved" } },
+							orderBy: { createdAt: "desc" },
+							limit: 1,
+						},
+					},
+				},
+				providerCompany: true,
+			},
+			orderBy: { createdAt: "desc", id: "desc" },
+			limit,
+			offset: query.offset ?? 0,
+		}),
+		db.query.providerRoutingFiling.findMany({
+			where: query.status ? { status: { eq: query.status } } : {},
+			with: { providerCompany: true },
+			orderBy: { createdAt: "desc", id: "desc" },
+			limit,
+			offset: query.routingOffset ?? 0,
+		}),
+		countPrice(query.status),
+		countPrice("pending"),
+		countRouting(query.status),
+		countRouting("pending"),
+	]);
 	const currentSettings = routingRows.length
 		? await db.query.providerRoutingSettings.findMany({
 				where: {
@@ -843,32 +857,53 @@ type ClaimWithRelations = typeof tables.providerClaim.$inferSelect & {
 	providerCompany: typeof tables.providerCompany.$inferSelect;
 };
 
-async function serializeAdminClaim(row: ClaimWithRelations) {
-	const claimer = row.claimedBy
-		? await db.query.user.findFirst({
-				where: { id: { eq: row.claimedBy } },
-				columns: { email: true },
-			})
-		: null;
-	const domains = await db.query.providerCompanyDomain.findMany({
-		where: { providerCompanyId: { eq: row.providerCompanyId } },
-		orderBy: { createdAt: "asc" },
-	});
-	const keyIds = [row.providerKeyId, row.pendingProviderKeyId].filter(
-		(keyId): keyId is string => keyId !== null,
-	);
-	const keys =
+async function serializeAdminClaims(rows: ClaimWithRelations[]) {
+	const claimerIds = [
+		...new Set(rows.flatMap((row) => (row.claimedBy ? [row.claimedBy] : []))),
+	];
+	const companyIds = [...new Set(rows.map((row) => row.providerCompanyId))];
+	const keyIds = [
+		...new Set(
+			rows.flatMap((row) =>
+				[row.providerKeyId, row.pendingProviderKeyId].filter(
+					(keyId): keyId is string => keyId !== null,
+				),
+			),
+		),
+	];
+	const [claimers, domains, keys] = await Promise.all([
+		claimerIds.length > 0
+			? db.query.user.findMany({
+					where: { id: { in: claimerIds } },
+					columns: { id: true, email: true },
+				})
+			: [],
+		companyIds.length > 0
+			? db.query.providerCompanyDomain.findMany({
+					where: { providerCompanyId: { in: companyIds } },
+					orderBy: { createdAt: "asc" },
+				})
+			: [],
 		keyIds.length > 0
-			? await db.query.providerKey.findMany({
+			? db.query.providerKey.findMany({
 					where: {
 						id: { in: keyIds },
 						status: { notIn: [...REMOVED_PROVIDER_KEY_STATUSES] },
 					},
 					columns: { id: true, tokenMasked: true, createdAt: true },
 				})
-			: [];
+			: [],
+	]);
+	const emailByUser = new Map(claimers.map((user) => [user.id, user.email]));
+	const domainsByCompany = new Map<string, typeof domains>();
+	for (const domain of domains) {
+		const list = domainsByCompany.get(domain.providerCompanyId) ?? [];
+		list.push(domain);
+		domainsByCompany.set(domain.providerCompanyId, list);
+	}
+	const keysById = new Map(keys.map((key) => [key.id, key]));
 	const keySummary = (keyId: string | null) => {
-		const key = keys.find((k) => k.id === keyId);
+		const key = keyId ? keysById.get(keyId) : undefined;
 		return key
 			? {
 					masked: key.tokenMasked ?? "",
@@ -876,7 +911,7 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 				}
 			: null;
 	};
-	return {
+	return rows.map((row) => ({
 		id: row.id,
 		providerId: row.providerId,
 		providerName:
@@ -889,7 +924,9 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 		customBaseUrl: row.customBaseUrl,
 		matchedDomain: row.matchedDomain,
 		status: row.status,
-		claimedByEmail: claimer?.email ?? null,
+		claimedByEmail: row.claimedBy
+			? (emailByUser.get(row.claimedBy) ?? null)
+			: null,
 		reviewNote: row.reviewNote,
 		reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
 		createdAt: row.createdAt.toISOString(),
@@ -904,13 +941,20 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 			id: row.providerCompany.id,
 			name: row.providerCompany.name,
 			website: row.providerCompany.website,
-			verifiedDomains: domains.flatMap((d) =>
+			verifiedDomains: (
+				domainsByCompany.get(row.providerCompanyId) ?? []
+			).flatMap((d) =>
 				d.verifiedAt
 					? [{ domain: d.domain, method: d.verificationMethod }]
 					: [],
 			),
 		},
-	};
+	}));
+}
+
+async function serializeAdminClaim(row: ClaimWithRelations) {
+	const [claim] = await serializeAdminClaims([row]);
+	return claim;
 }
 
 const listClaims = createRoute({
@@ -984,10 +1028,7 @@ adminAirside.openapi(listClaims, async (c) => {
 		]),
 		countClaims([eq(claimTable.status, "pending")]),
 	]);
-	const claims = [];
-	for (const row of rows) {
-		claims.push(await serializeAdminClaim(row as ClaimWithRelations));
-	}
+	const claims = await serializeAdminClaims(rows as ClaimWithRelations[]);
 	return c.json({ claims, total, pendingCount });
 });
 
@@ -1206,7 +1247,7 @@ adminAirside.openapi(approveClaim, async (c) => {
 				.set({
 					providerCompanyId: claim.providerCompanyId,
 					discountPercent: "0",
-					marginPercent: String(0.2),
+					marginPercent: String(AIRSIDE_BASELINE_MARGIN),
 				})
 				.where(eq(tables.providerRoutingSettings.id, settings.id));
 		}
@@ -3073,14 +3114,14 @@ const listInviteCodes = createRoute({
 
 adminAirside.openapi(listInviteCodes, async (c) => {
 	const query = c.req.valid("query");
-	const rows = await db.query.airsideInviteCode.findMany({
-		orderBy: { createdAt: "desc", id: "desc" },
-		limit: query.limit ?? 200,
-		offset: query.offset ?? 0,
-	});
-	const [totalRow] = await db
-		.select({ count: count() })
-		.from(tables.airsideInviteCode);
+	const [rows, [totalRow]] = await Promise.all([
+		db.query.airsideInviteCode.findMany({
+			orderBy: { createdAt: "desc", id: "desc" },
+			limit: query.limit ?? 200,
+			offset: query.offset ?? 0,
+		}),
+		db.select({ count: count() }).from(tables.airsideInviteCode),
+	]);
 	const codes = rows.map((row) => row.code);
 	const redeemers = codes.length
 		? await db.query.providerCompany.findMany({

@@ -107,50 +107,50 @@ export async function getRoutingSavings({
 		lte(projectHourlyRoutingStats.hourTimestamp, endDate),
 	);
 
-	const routeRows = await db
-		.select({
-			projectId: projectHourlyRoutingStats.projectId,
-			projectName: tables.project.name,
-			routeKey: projectHourlyRoutingStats.routeKey,
-			requestCount: requestCountSum.as("requestCount"),
-			cost: costSum.as("cost"),
-			baselineCost: baselineCostSum.as("baselineCost"),
-		})
-		.from(projectHourlyRoutingStats)
-		.innerJoin(
-			tables.project,
-			eq(tables.project.id, projectHourlyRoutingStats.projectId),
-		)
-		.where(where)
-		.groupBy(
-			projectHourlyRoutingStats.projectId,
-			tables.project.name,
-			projectHourlyRoutingStats.routeKey,
-		)
-		.orderBy(desc(sql`${baselineCostSum} - ${costSum}`));
-
-	const [totalsRow] = await db
-		.select({
-			requestCount: requestCountSum.as("requestCount"),
-			cost: costSum.as("cost"),
-			baselineCost: baselineCostSum.as("baselineCost"),
-		})
-		.from(projectHourlyRoutingStats)
-		.where(where);
-
-	const dailyRows = await db
-		.select({
-			date: bucketDate(
-				projectHourlyRoutingStats.hourTimestamp,
-				timeZone,
-				false,
-			).as("date"),
-			cost: costSum.as("cost"),
-			baselineCost: baselineCostSum.as("baselineCost"),
-		})
-		.from(projectHourlyRoutingStats)
-		.where(where)
-		.groupBy(sql`1`);
+	const [routeRows, [totalsRow], dailyRows] = await Promise.all([
+		db
+			.select({
+				projectId: projectHourlyRoutingStats.projectId,
+				projectName: tables.project.name,
+				routeKey: projectHourlyRoutingStats.routeKey,
+				requestCount: requestCountSum.as("requestCount"),
+				cost: costSum.as("cost"),
+				baselineCost: baselineCostSum.as("baselineCost"),
+			})
+			.from(projectHourlyRoutingStats)
+			.innerJoin(
+				tables.project,
+				eq(tables.project.id, projectHourlyRoutingStats.projectId),
+			)
+			.where(where)
+			.groupBy(
+				projectHourlyRoutingStats.projectId,
+				tables.project.name,
+				projectHourlyRoutingStats.routeKey,
+			)
+			.orderBy(desc(sql`${baselineCostSum} - ${costSum}`)),
+		db
+			.select({
+				requestCount: requestCountSum.as("requestCount"),
+				cost: costSum.as("cost"),
+				baselineCost: baselineCostSum.as("baselineCost"),
+			})
+			.from(projectHourlyRoutingStats)
+			.where(where),
+		db
+			.select({
+				date: bucketDate(
+					projectHourlyRoutingStats.hourTimestamp,
+					timeZone,
+					false,
+				).as("date"),
+				cost: costSum.as("cost"),
+				baselineCost: baselineCostSum.as("baselineCost"),
+			})
+			.from(projectHourlyRoutingStats)
+			.where(where)
+			.groupBy(sql`1`),
+	]);
 	const dailyByDate = new Map(dailyRows.map((row) => [row.date, row]));
 
 	const routes = routeRows.map((row) => ({

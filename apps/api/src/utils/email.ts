@@ -7,6 +7,7 @@ import {
 } from "@llmgateway/shared/email";
 import {
 	buildUnsubscribeHeaders,
+	escapeHtml,
 	renderFooterHtml,
 	signUnsubscribeToken,
 } from "@llmgateway/shared/email-unsubscribe";
@@ -17,21 +18,6 @@ import {
 } from "./billing-url.js";
 
 import type { EmailCategory } from "@llmgateway/shared/email-unsubscribe";
-
-/**
- * Escapes HTML special characters to prevent XSS attacks
- */
-function escapeHtml(text: string): string {
-	const htmlEscapeMap: Record<string, string> = {
-		"&": "&amp;",
-		"<": "&lt;",
-		">": "&gt;",
-		'"': "&quot;",
-		"'": "&#x27;",
-		"/": "&#x2F;",
-	};
-	return text.replace(/[&<>"'/]/g, (char) => htmlEscapeMap[char] || char);
-}
 
 export interface TransactionalEmailOptions {
 	to: string;

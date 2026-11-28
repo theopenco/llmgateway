@@ -547,26 +547,32 @@ organization.openapi(createOrganization, async (c) => {
 		});
 	}
 
-	const [newOrganization] = await db
-		.insert(tables.organization)
-		.values({
-			name,
-			billingEmail: user.email,
-			// A flagged user cannot escape the block by creating a fresh org.
-			riskFlagged: await isUserHighRisk(user.id),
-		})
-		.returning();
+	// A flagged user cannot escape the block by creating a fresh org.
+	const riskFlagged = await isUserHighRisk(user.id);
 
-	await db.insert(tables.userOrganization).values({
-		userId: user.id,
-		organizationId: newOrganization.id,
-		role: "owner",
-	});
+	const newOrganization = await db.transaction(async (tx) => {
+		const [org] = await tx
+			.insert(tables.organization)
+			.values({
+				name,
+				billingEmail: user.email,
+				riskFlagged,
+			})
+			.returning();
 
-	await db.insert(tables.project).values({
-		name: "Default Project",
-		organizationId: newOrganization.id,
-		mode: "hybrid",
+		await tx.insert(tables.userOrganization).values({
+			userId: user.id,
+			organizationId: org.id,
+			role: "owner",
+		});
+
+		await tx.insert(tables.project).values({
+			name: "Default Project",
+			organizationId: org.id,
+			mode: "hybrid",
+		});
+
+		return org;
 	});
 
 	await logAuditEvent({

@@ -408,6 +408,23 @@ describe("admin — gateway load", () => {
 		expect(closed?.rps).toBeCloseTo(2, 6);
 	});
 
+	test("falls back to the window's grain when the requested bucket is too fine", async () => {
+		const yearly = await fetchLoad(cookie, {
+			window: "365d",
+			groupBy: "model",
+			bucket: "minute",
+		});
+		expect(yearly.bucket).toBe("day");
+		expect(yearly.data.length).toBeLessThanOrEqual(366);
+
+		const daily = await fetchLoad(cookie, {
+			window: "1d",
+			groupBy: "model",
+			bucket: "minute",
+		});
+		expect(daily.bucket).toBe("minute");
+	});
+
 	test("normalizes the in-progress bucket by its elapsed seconds", async () => {
 		const body = await fetchLoad(cookie, { window: "1h", groupBy: "model" });
 

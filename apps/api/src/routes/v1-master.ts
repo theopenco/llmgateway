@@ -184,6 +184,7 @@ async function loadApiKeyForOrg(apiKeyId: string, organizationId: string) {
 	if (
 		!apiKey ||
 		apiKey.status === "deleted" ||
+		apiKey.keyType !== "user" ||
 		!apiKey.project ||
 		apiKey.project.organizationId !== organizationId
 	) {

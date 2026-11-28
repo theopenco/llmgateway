@@ -60,13 +60,15 @@ mcp.use("*", async (c, next) => {
 			message: "The API key no longer has project access.",
 		});
 	}
-	const member = await db.query.userOrganization.findFirst({
-		where: { userId: key.createdBy, organizationId: organization.id },
-	});
-	const user = await db.query.user.findFirst({
-		where: { id: key.createdBy },
-		columns: { id: true, name: true },
-	});
+	const [member, user] = await Promise.all([
+		db.query.userOrganization.findFirst({
+			where: { userId: key.createdBy, organizationId: organization.id },
+		}),
+		db.query.user.findFirst({
+			where: { id: key.createdBy },
+			columns: { id: true, name: true },
+		}),
+	]);
 	if (!member || !user) {
 		throw new HTTPException(403, {
 			message: "Organization membership required.",

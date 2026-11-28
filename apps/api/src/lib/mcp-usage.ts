@@ -8,6 +8,7 @@ import {
 	gte,
 	inArray,
 	lt,
+	rootModelIdSql,
 	sql,
 	tables,
 	apiKeyHourlyStats,
@@ -159,7 +160,10 @@ function breakdownTable(
 		scope.type === "member" ? apiKeyHourlyModelStats : projectHourlyModelStats;
 	return {
 		table,
-		dimension: sql<string>`${groupBy === "provider" ? table.usedProvider : table.usedModel}`,
+		dimension:
+			groupBy === "provider"
+				? sql<string>`${table.usedProvider}`
+				: rootModelIdSql(table.usedModel),
 	};
 }
 
@@ -211,21 +215,27 @@ async function rank(
 	};
 }
 
-async function coverage(
+async function coveredRequestCount(
 	scope: McpUsageScope,
 	range: ReturnType<typeof dateRange>,
 	groupBy: McpUsageBreakdownInput["group_by"],
-	totalRequestCount: number,
 ) {
 	const { table } = breakdownTable(scope, groupBy);
 	const [row] = await db
 		.select({ requestCount: sum(table.requestCount) })
 		.from(table)
 		.where(scopeFilter(table, scope, range));
+	return row.requestCount;
+}
+
+function coverage(
+	requestCount: Awaited<ReturnType<typeof coveredRequestCount>>,
+	totalRequestCount: number,
+) {
 	return {
-		requestCount: row.requestCount,
+		requestCount,
 		totalRequestCount,
-		complete: row.requestCount === totalRequestCount,
+		complete: requestCount === totalRequestCount,
 	};
 }
 
@@ -233,36 +243,38 @@ export async function getMcpUsage(scope: McpUsageScope, input: McpUsageInput) {
 	const range = dateRange(input, input.granularity === "hour" ? 31 : 366);
 	const table = summaryTable(scope);
 	const bucket: SQL<string> = sql`to_char(date_trunc(${input.granularity}, ${table.hourTimestamp}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
-	const [total, series, provider, model, app] = await Promise.all([
-		totals(scope, range),
-		db
-			.select({ date: bucket, ...metrics(table) })
-			.from(table)
-			.where(scopeFilter(table, scope, range))
-			.groupBy(sql`1`)
-			.orderBy(sql`1`),
-		rank(scope, range, {
-			...input,
-			group_by: "provider",
-			sort_by: "requests",
-			limit: 1,
-			offset: 0,
-		}),
-		rank(scope, range, {
-			...input,
-			group_by: "model",
-			sort_by: "requests",
-			limit: 1,
-			offset: 0,
-		}),
-		rank(scope, range, {
-			...input,
-			group_by: "app",
-			sort_by: "requests",
-			limit: 1,
-			offset: 0,
-		}),
-	]);
+	const [total, series, provider, model, app, appRequestCount] =
+		await Promise.all([
+			totals(scope, range),
+			db
+				.select({ date: bucket, ...metrics(table) })
+				.from(table)
+				.where(scopeFilter(table, scope, range))
+				.groupBy(sql`1`)
+				.orderBy(sql`1`),
+			rank(scope, range, {
+				...input,
+				group_by: "provider",
+				sort_by: "requests",
+				limit: 1,
+				offset: 0,
+			}),
+			rank(scope, range, {
+				...input,
+				group_by: "model",
+				sort_by: "requests",
+				limit: 1,
+				offset: 0,
+			}),
+			rank(scope, range, {
+				...input,
+				group_by: "app",
+				sort_by: "requests",
+				limit: 1,
+				offset: 0,
+			}),
+			coveredRequestCount(scope, range, "app"),
+		]);
 	const { updatedAt, ...usageTotals } = total;
 	return {
 		scope,
@@ -277,7 +289,7 @@ export async function getMcpUsage(scope: McpUsageScope, input: McpUsageInput) {
 		mostUsedProvider: provider.rows[0] ?? null,
 		mostUsedModel: model.rows[0] ?? null,
 		mostUsedApp: app.rows[0] ?? null,
-		appUsageCoverage: await coverage(scope, range, "app", total.requestCount),
+		appUsageCoverage: coverage(appRequestCount, total.requestCount),
 	};
 }
 
@@ -286,9 +298,10 @@ export async function getMcpUsageBreakdown(
 	input: McpUsageBreakdownInput,
 ) {
 	const range = dateRange(input);
-	const [total, ranking] = await Promise.all([
+	const [total, ranking, requestCount] = await Promise.all([
 		totals(scope, range),
 		rank(scope, range, input),
+		coveredRequestCount(scope, range, input.group_by),
 	]);
 	return {
 		scope,
@@ -305,6 +318,6 @@ export async function getMcpUsageBreakdown(
 			offset: input.offset,
 			hasMore: ranking.hasMore,
 		},
-		coverage: await coverage(scope, range, input.group_by, total.requestCount),
+		coverage: coverage(requestCount, total.requestCount),
 	};
 }

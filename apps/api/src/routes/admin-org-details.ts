@@ -139,16 +139,14 @@ adminOrgDetails.openapi(getOrganizationAuditLogs, async (c) => {
 
 	const whereClause = and(...whereConditions);
 
-	const [countResult] = await db
+	const countQuery = db
 		.select({
 			count: sql<number>`COUNT(*)`.as("count"),
 		})
 		.from(tables.auditLog)
 		.where(whereClause);
 
-	const total = Number(countResult?.count ?? 0);
-
-	const logs = await db
+	const pageQuery = db
 		.select({
 			id: tables.auditLog.id,
 			createdAt: tables.auditLog.createdAt,
@@ -168,6 +166,9 @@ adminOrgDetails.openapi(getOrganizationAuditLogs, async (c) => {
 		.orderBy(desc(tables.auditLog.createdAt), desc(tables.auditLog.id))
 		.limit(limit)
 		.offset(offset);
+
+	const [[countResult], logs] = await Promise.all([countQuery, pageQuery]);
+	const total = Number(countResult?.count ?? 0);
 
 	return c.json({
 		auditLogs: logs.map((log) => ({

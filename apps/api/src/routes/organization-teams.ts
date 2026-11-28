@@ -185,24 +185,27 @@ function budgetFromTeam(team: typeof tables.organizationTeam.$inferSelect) {
 	};
 }
 
-async function loadTeam(organizationId: string, teamId: string) {
-	const team = await db.query.organizationTeam.findFirst({
-		where: { id: { eq: teamId }, organizationId: { eq: organizationId } },
+const teamRelations = {
+	projects: {
 		with: {
-			projects: {
-				with: {
-					project: { columns: { id: true, name: true, status: true } },
-				},
-			},
-			members: {
-				with: { user: { columns: { id: true, name: true, email: true } } },
-			},
-			iamRules: true,
+			project: { columns: { id: true, name: true, status: true } },
 		},
+	},
+	members: {
+		with: { user: { columns: { id: true, name: true, email: true } } },
+	},
+	iamRules: true,
+} as const;
+
+function findTeams(organizationId: string) {
+	return db.query.organizationTeam.findMany({
+		where: { organizationId: { eq: organizationId } },
+		orderBy: { name: "asc" },
+		with: teamRelations,
 	});
-	if (!team) {
-		throw new HTTPException(404, { message: "Team not found" });
-	}
+}
+
+function shapeTeam(team: Awaited<ReturnType<typeof findTeams>>[number]) {
 	return {
 		id: team.id,
 		name: team.name,
@@ -221,6 +224,17 @@ async function loadTeam(organizationId: string, teamId: string) {
 		})),
 		iamRules: team.iamRules,
 	};
+}
+
+async function loadTeam(organizationId: string, teamId: string) {
+	const team = await db.query.organizationTeam.findFirst({
+		where: { id: { eq: teamId }, organizationId: { eq: organizationId } },
+		with: teamRelations,
+	});
+	if (!team) {
+		throw new HTTPException(404, { message: "Team not found" });
+	}
+	return shapeTeam(team);
 }
 
 async function assertUniqueName(
@@ -266,16 +280,8 @@ organizationTeams.openapi(listTeams, async (c) => {
 	}
 	const { organizationId } = c.req.param();
 	await requireOrganizationAdmin(user.id, organizationId);
-	const rows = await db.query.organizationTeam.findMany({
-		where: { organizationId: { eq: organizationId } },
-		columns: { id: true },
-		orderBy: { name: "asc" },
-	});
-	return c.json({
-		teams: await Promise.all(
-			rows.map((row) => loadTeam(organizationId, row.id)),
-		),
-	});
+	const rows = await findTeams(organizationId);
+	return c.json({ teams: rows.map(shapeTeam) });
 });
 
 const createTeam = createRoute({

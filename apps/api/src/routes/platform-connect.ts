@@ -1,4 +1,5 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -223,16 +224,16 @@ platformConnect.openapi(createPayout, async (c) => {
 		});
 	}
 
-	const marginBalance = Number(org.endUserMarginBalance ?? "0");
-	if (marginBalance < MIN_PAYOUT_AMOUNT) {
+	const marginBalance = new Decimal(org.endUserMarginBalance ?? "0");
+	if (marginBalance.lt(MIN_PAYOUT_AMOUNT)) {
 		throw new HTTPException(400, {
 			message: `Nothing to pay out (minimum $${MIN_PAYOUT_AMOUNT}).`,
 		});
 	}
 
 	// Transfer whole cents; decrement the balance by exactly what we moved.
-	const amountCents = Math.floor(marginBalance * 100);
-	const amount = amountCents / 100;
+	const amountCents = marginBalance.mul(100).floor().toNumber();
+	const amount = new Decimal(amountCents).div(100).toFixed(2);
 
 	// Reserve the funds first with a conditional decrement so this can't race the
 	// auto-payout worker (or a concurrent request) into an overpayment. Only
@@ -294,8 +295,8 @@ platformConnect.openapi(createPayout, async (c) => {
 	await db.insert(tables.transaction).values({
 		organizationId: org.id,
 		type: "end_user_margin_payout",
-		amount: String(amount),
-		creditAmount: String(amount),
+		amount,
+		creditAmount: amount,
 		status: "completed",
 		description: `End-user margin payout (transfer ${transfer.id})`,
 	});
@@ -306,7 +307,7 @@ platformConnect.openapi(createPayout, async (c) => {
 
 	return c.json({
 		transferId: transfer.id,
-		amount: String(amount),
+		amount,
 		marginBalance: updated.endUserMarginBalance,
 	});
 });

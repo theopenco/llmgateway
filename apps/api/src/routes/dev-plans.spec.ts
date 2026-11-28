@@ -1031,7 +1031,7 @@ describe("dev plan tier changes", () => {
 			},
 		});
 		expect(transaction?.type).toBe("dev_plan_upgrade");
-		expect(transaction?.amount).toBe("79");
+		expect(transaction?.amount).toBe("79.00");
 		expect(transaction?.creditAmount).toBe(upgradedLimit);
 		expect(transaction?.stripeInvoiceId).toBe("in_upgrade");
 		expect(transaction?.stripePaymentIntentId).toBe("pi_upgrade");

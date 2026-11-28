@@ -359,7 +359,9 @@ connectors.openapi(
 				content: {
 					"application/json": {
 						schema: z
-							.object({ connectors: z.array(connectorId).max(11) })
+							.object({
+								connectors: z.array(connectorId).max(loungeConnectorIds.length),
+							})
 							.strict(),
 					},
 				},

@@ -566,9 +566,6 @@ chats.openapi(createChat, async (c) => {
 
 	const body = c.req.valid("json");
 
-	// Check if user has unlimited access via API key
-	const isUnlimited = await hasActiveApiKey(user.id);
-
 	if (body.projectId) {
 		const project = await db.query.chatProject.findFirst({
 			where: { id: { eq: body.projectId } },
@@ -613,23 +610,8 @@ chats.openapi(createChat, async (c) => {
 	// Check if user has reached the 3 chat limit (only for free users).
 	// Child comparison chats (parentChatId set) are excluded — they don't
 	// count against the quota since they're part of an existing session.
-	if (!isUnlimited && !body.parentChatId) {
-		const chatCount = await db
-			.select({ count: count() })
-			.from(tables.chat)
-			.where(
-				and(
-					eq(tables.chat.userId, user.id),
-					eq(tables.chat.status, "active"),
-					isNull(tables.chat.parentChatId),
-				),
-			);
-
-		if (chatCount[0].count >= 3) {
-			throw new HTTPException(400, {
-				message: "FREE_LIMIT_REACHED",
-			});
-		}
+	if (!body.parentChatId) {
+		await enforceActiveChatLimit(user.id);
 	}
 
 	const [newChat] = await db
@@ -866,8 +848,16 @@ chats.openapi(updateChat, async (c) => {
 		.from(tables.chat)
 		.where(and(eq(tables.chat.id, id), eq(tables.chat.userId, user.id)));
 
-	if (!existingChat) {
+	if (!existingChat || existingChat.status === "deleted") {
 		throw new HTTPException(404, { message: "Chat not found" });
+	}
+
+	if (
+		body.status === "active" &&
+		existingChat.status !== "active" &&
+		existingChat.parentChatId === null
+	) {
+		await enforceActiveChatLimit(user.id);
 	}
 
 	const isPinOnlyUpdate =
@@ -890,38 +880,39 @@ chats.openapi(updateChat, async (c) => {
 		.where(eq(tables.chat.id, id))
 		.returning();
 
-	// Get message count
-	const messageCount = await db
-		.select({ count: count() })
-		.from(tables.message)
-		.where(eq(tables.message.chatId, id));
-	const [activeShare] = await db
-		.select({
-			id: tables.chatShare.id,
-			createdAt: tables.chatShare.createdAt,
-		})
-		.from(tables.chatShare)
-		.where(
-			and(
-				eq(tables.chatShare.chatId, id),
-				isNull(tables.chatShare.deletedAt),
-				isNull(tables.chatShare.organizationId),
+	const [messageCount, [activeShare], activeOrgShares] = await Promise.all([
+		db
+			.select({ count: count() })
+			.from(tables.message)
+			.where(eq(tables.message.chatId, id)),
+		db
+			.select({
+				id: tables.chatShare.id,
+				createdAt: tables.chatShare.createdAt,
+			})
+			.from(tables.chatShare)
+			.where(
+				and(
+					eq(tables.chatShare.chatId, id),
+					isNull(tables.chatShare.deletedAt),
+					isNull(tables.chatShare.organizationId),
+				),
+			)
+			.limit(1),
+		db
+			.select({
+				id: tables.chatShare.id,
+				organizationId: tables.chatShare.organizationId,
+			})
+			.from(tables.chatShare)
+			.where(
+				and(
+					eq(tables.chatShare.chatId, id),
+					isNull(tables.chatShare.deletedAt),
+					isNotNull(tables.chatShare.organizationId),
+				),
 			),
-		)
-		.limit(1);
-	const activeOrgShares = await db
-		.select({
-			id: tables.chatShare.id,
-			organizationId: tables.chatShare.organizationId,
-		})
-		.from(tables.chatShare)
-		.where(
-			and(
-				eq(tables.chatShare.chatId, id),
-				isNull(tables.chatShare.deletedAt),
-				isNotNull(tables.chatShare.organizationId),
-			),
-		);
+	]);
 
 	return c.json({
 		chat: {
@@ -1666,6 +1657,8 @@ chats.openapi(forkChat, async (c) => {
 			role: tables.message.role,
 			content: tables.message.content,
 			images: tables.message.images,
+			audios: tables.message.audios,
+			documents: tables.message.documents,
 			reasoning: tables.message.reasoning,
 			tools: tables.message.tools,
 			sources: tables.message.sources,
@@ -1695,6 +1688,8 @@ chats.openapi(forkChat, async (c) => {
 					role: message.role,
 					content: message.content,
 					images: message.images,
+					audios: message.audios ?? null,
+					documents: message.documents ?? null,
 					reasoning: message.reasoning,
 					tools: message.tools,
 					sources: message.sources ?? null,

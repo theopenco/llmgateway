@@ -1,7 +1,6 @@
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
-import {} from "@/lib/airside-carrier-keys.js";
 import { effectiveClaimKind } from "@/lib/airside-profile.js";
 
 import {
@@ -12,8 +11,6 @@ import {
 	modelVerificationEnvironmentToken,
 } from "@llmgateway/actions";
 import { db, shortid, tables, providerKeyAllowsModel } from "@llmgateway/db";
-import {} from "@llmgateway/models";
-import {} from "@llmgateway/shared/mask-token";
 
 import type { VerificationTargetInput } from "@llmgateway/actions";
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
@@ -373,7 +370,6 @@ export async function enqueueModelVerification(
 		target: ProviderModelVerificationTarget;
 
 		requestedBy: string | null;
-		credentialSource: ModelVerificationRow["credentialSource"];
 	},
 	transaction?: DbTransaction,
 ): Promise<ModelVerificationRow> {

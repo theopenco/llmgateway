@@ -160,18 +160,20 @@ user.openapi(get, async (c) => {
 		});
 	}
 
-	const user = await db.query.user.findFirst({
-		where: {
-			id: authUser.id,
-		},
-	});
+	const [user, authInfo] = await Promise.all([
+		db.query.user.findFirst({
+			where: {
+				id: authUser.id,
+			},
+		}),
+		getUserAuthInfo(authUser.id),
+	]);
 	if (!user) {
 		throw new HTTPException(404, {
 			message: "User not found",
 		});
 	}
 
-	const authInfo = await getUserAuthInfo(authUser.id);
 	const adminRole = getAdminRole(user);
 	const license = getEnterpriseLicenseStatus();
 
@@ -380,19 +382,20 @@ user.openapi(updateUser, async (c) => {
 
 	const { email, currentPassword, ...updateData } = c.req.valid("json");
 
-	const userRecord = await db.query.user.findFirst({
-		where: {
-			id: authUser.id,
-		},
-	});
+	const [userRecord, authInfo] = await Promise.all([
+		db.query.user.findFirst({
+			where: {
+				id: authUser.id,
+			},
+		}),
+		getUserAuthInfo(authUser.id),
+	]);
 
 	if (!userRecord) {
 		throw new HTTPException(404, {
 			message: "User not found",
 		});
 	}
-
-	const authInfo = await getUserAuthInfo(authUser.id);
 
 	// Block email changes for users without password authentication
 	if (email && !authInfo.hasCredentialAccount) {

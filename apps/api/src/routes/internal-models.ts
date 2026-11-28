@@ -55,6 +55,13 @@ import type { ServerTypes } from "@/vars.js";
 
 export const internalModels = new OpenAPIHono<ServerTypes>();
 
+const modelDefinitionsById = new Map<string, (typeof modelDefinitions)[number]>(
+	modelDefinitions.map((modelDefinition) => [
+		modelDefinition.id,
+		modelDefinition,
+	]),
+);
+
 // Provider schema
 const providerSchema = z.object({
 	id: z.string(),
@@ -289,8 +296,8 @@ internalModels.openapi(getModelsRoute, async (c) => {
 		unlistedProviderIds: unlistedProviderIdsByModelId.get(model.id) ?? [],
 		mappings: (mappingsByModelId.get(model.id) ?? []).map((mapping) => {
 			const sharedMapping: ProviderModelMapping | null =
-				modelDefinitions
-					.find((modelDefinition) => modelDefinition.id === model.id)
+				modelDefinitionsById
+					.get(model.id)
 					?.providers.find(
 						(provider) => provider.providerId === mapping.providerId,
 					) ?? null;
@@ -731,39 +738,41 @@ const getProvidersRoute = createRoute({
 });
 
 internalModels.openapi(getProvidersRoute, async (c) => {
-	const providers = await db.query.provider.findMany({
-		where: {
-			status: { eq: "active" },
-		},
-		orderBy: {
-			createdAt: "desc",
-		},
-	});
-	const activeClaims = await db.query.providerClaim.findMany({
-		where: { status: { eq: "active" } },
-		columns: {
-			id: true,
-			providerId: true,
-			kind: true,
-			customName: true,
-			customDescription: true,
-			logoUrl: true,
-			iconUrl: true,
-			website: true,
-			privacyPolicyUrl: true,
-			termsUrl: true,
-			statusPageUrl: true,
-			legalEntity: true,
-			headquarters: true,
-			apiTraining: true,
-			promptLogging: true,
-			retentionPeriod: true,
-			gdpr: true,
-			soc2: true,
-			iso27001: true,
-			profileUpdatedAt: true,
-		},
-	});
+	const [providers, activeClaims] = await Promise.all([
+		db.query.provider.findMany({
+			where: {
+				status: { eq: "active" },
+			},
+			orderBy: {
+				createdAt: "desc",
+			},
+		}),
+		db.query.providerClaim.findMany({
+			where: { status: { eq: "active" } },
+			columns: {
+				id: true,
+				providerId: true,
+				kind: true,
+				customName: true,
+				customDescription: true,
+				logoUrl: true,
+				iconUrl: true,
+				website: true,
+				privacyPolicyUrl: true,
+				termsUrl: true,
+				statusPageUrl: true,
+				legalEntity: true,
+				headquarters: true,
+				apiTraining: true,
+				promptLogging: true,
+				retentionPeriod: true,
+				gdpr: true,
+				soc2: true,
+				iso27001: true,
+				profileUpdatedAt: true,
+			},
+		}),
+	]);
 	const publicProviderIds = getPublicProviderIds(activeClaims);
 	const brandingByProvider = new Map(
 		activeClaims.map((claim) => [claim.providerId, claim]),
@@ -923,7 +932,7 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 	const since = new Date(currentHour - precedingHoursMs);
 	const history = modelProviderMappingHistoryHourly;
 
-	const windowed = await db
+	const windowedQuery = db
 		.select({
 			providerId: history.providerId,
 			providerName: tables.provider.name,
@@ -977,7 +986,7 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 		)
 		.groupBy(history.providerId, tables.provider.name);
 
-	const idleProviders = await db
+	const idleProvidersQuery = db
 		.select({
 			providerId: tables.modelProviderMapping.providerId,
 			providerName: tables.provider.name,
@@ -998,6 +1007,11 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 				),
 			),
 		);
+	const [windowed, idleProviders, arenaBenchmarks] = await Promise.all([
+		windowedQuery,
+		idleProvidersQuery,
+		getArenaBenchmarks(),
+	]);
 	const seenProviders = new Set(windowed.map((row) => row.providerId));
 	for (const idle of idleProviders) {
 		if (seenProviders.has(idle.providerId)) {
@@ -1049,9 +1063,6 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 			windowHours: WINDOW_HOURS,
 		};
 	});
-
-	// Fetch Arena benchmarks
-	const arenaBenchmarks = await getArenaBenchmarks();
 
 	const textMatch = arenaBenchmarks
 		? findArenaMatch(modelId, arenaBenchmarks.text)

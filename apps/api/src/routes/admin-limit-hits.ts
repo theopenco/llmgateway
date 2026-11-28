@@ -107,7 +107,7 @@ adminLimitHits.openapi(listLimitHits, async (c) => {
 	);
 
 	const totalHitsExpr = sql<number>`SUM(${t.hitCount})::int`;
-	const rows = await db
+	const pageQuery = db
 		.select({
 			organizationId: t.organizationId,
 			organizationName: tables.organization.name,
@@ -142,12 +142,14 @@ adminLimitHits.openapi(listLimitHits, async (c) => {
 		.limit(limit)
 		.offset(offset);
 
-	const totalRows = await db
+	const totalQuery = db
 		.select({
 			total: sql<number>`COUNT(DISTINCT ${t.organizationId})::int`,
 		})
 		.from(t)
 		.where(whereClause);
+
+	const [rows, totalRows] = await Promise.all([pageQuery, totalQuery]);
 
 	return c.json({
 		organizations: rows.map((row) => ({

@@ -55,6 +55,10 @@ adminLoad.route("/", adminTokenCapacity);
 // into spaghetti; the rest is folded into a single "Other" band.
 const TOP_LOAD_SERIES = 10;
 
+// A requested grain finer than this many points falls back to the window's
+// default, which also keeps minute requests inside the minute retention.
+const MAX_LOAD_POINTS = 2_500;
+
 /**
  * How many settled buckets the headline "current" rate averages over.
  *
@@ -147,7 +151,12 @@ function resolveLoadScope(query: LoadQuery, now: Date = new Date()): LoadScope {
 			? "mapping-history"
 			: "project-stats";
 
+	const startDate = getTokenWindowStartDate(window, now);
 	let bucket = query.bucket ?? getLoadBucketForWindow(window);
+	const windowSeconds = (now.getTime() - startDate.getTime()) / 1000;
+	if (windowSeconds / BUCKET_SECONDS[bucket] > MAX_LOAD_POINTS) {
+		bucket = getLoadBucketForWindow(window);
+	}
 	// The tenant rollups have no sub-hour grain, so honouring a minute request
 	// there would label hourly rows as minutes and inflate every rate 60x.
 	if (source !== "mapping-history" && bucket === "minute") {
@@ -165,7 +174,7 @@ function resolveLoadScope(query: LoadQuery, now: Date = new Date()): LoadScope {
 		organizationId: query.organizationId,
 		projectId: query.projectId,
 		apiKeyId: query.apiKeyId,
-		startDate: getTokenWindowStartDate(window, now),
+		startDate,
 		now,
 	};
 }

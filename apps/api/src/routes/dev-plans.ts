@@ -1,4 +1,5 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
+import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -259,15 +260,20 @@ async function getOrCreatePersonalOrgApiKey(
 
 // Find the user's personal org without creating one. Used by the billing
 // payment-method routes, which only apply to users that already have a DevPass.
-async function findPersonalOrg(userId: string) {
+async function findPersonalMembership(userId: string) {
 	const userOrgs = await db.query.userOrganization.findMany({
 		where: { userId },
 		with: { organization: true },
 	});
-	return (
-		userOrgs.find((uo) => uo.organization?.kind === "devpass")?.organization ??
-		null
-	);
+	const membership = userOrgs.find((uo) => uo.organization?.kind === "devpass");
+	if (!membership?.organization) {
+		return null;
+	}
+	return { organization: membership.organization, role: membership.role };
+}
+
+async function findPersonalOrg(userId: string) {
+	return (await findPersonalMembership(userId))?.organization ?? null;
 }
 
 // Purchased Reset Passes are tier-bound: only the inventory bought for the
@@ -582,12 +588,15 @@ devPlans.openapi(subscribe, async (c) => {
 			checkoutUrl: session.url,
 		});
 	} catch (error) {
+		if (error instanceof HTTPException) {
+			throw error;
+		}
 		logger.error(
 			"Stripe checkout session error for dev plan",
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		throw new HTTPException(500, {
-			message: `Failed to create checkout session: ${error}`,
+			message: "Failed to create checkout session",
 		});
 	}
 });
@@ -662,13 +671,7 @@ devPlans.openapi(finalize, async (c) => {
 		});
 	}
 
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: { userId: user.id },
-		with: { organization: true },
-	});
-	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.kind === "devpass",
-	)?.organization;
+	const personalOrg = await findPersonalOrg(user.id);
 
 	if (!personalOrg) {
 		throw new HTTPException(404, {
@@ -789,19 +792,7 @@ devPlans.openapi(cancel, async (c) => {
 		comments: undefined,
 	};
 
-	// Find personal org
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.kind === "devpass",
-	)?.organization;
+	const personalOrg = await findPersonalOrg(user.id);
 
 	if (!personalOrg) {
 		throw new HTTPException(404, {
@@ -937,18 +928,7 @@ devPlans.openapi(resume, async (c) => {
 		});
 	}
 
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.kind === "devpass",
-	)?.organization;
+	const personalOrg = await findPersonalOrg(user.id);
 
 	if (!personalOrg) {
 		throw new HTTPException(404, {
@@ -1226,18 +1206,7 @@ devPlans.openapi(changeTier, async (c) => {
 		});
 	}
 
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.kind === "devpass",
-	)?.organization;
+	const personalOrg = await findPersonalOrg(user.id);
 
 	if (!personalOrg) {
 		throw new HTTPException(404, {
@@ -1523,8 +1492,7 @@ devPlans.openapi(changeTier, async (c) => {
 			);
 			const { invoiceId, paymentIntentId, amountPaid } =
 				getDevPlanChangeInvoiceId(updated);
-			const chargedAmount =
-				amountPaid !== null ? amountPaid / 100 : amountDueCents / 100;
+			const chargedAmount = new Decimal(amountPaid ?? amountDueCents).div(100);
 
 			// Insert the unique-stripeInvoiceId marker and reset the org to the new
 			// tier's full allowance in one transaction so they commit together.
@@ -1555,7 +1523,7 @@ devPlans.openapi(changeTier, async (c) => {
 					.values({
 						organizationId: personalOrg.id,
 						type: "dev_plan_upgrade",
-						amount: chargedAmount.toString(),
+						amount: chargedAmount.toFixed(2),
 						creditAmount: newCreditsLimit.toString(),
 						currency: "USD",
 						status: "completed",
@@ -1612,7 +1580,7 @@ devPlans.openapi(changeTier, async (c) => {
 									newTier,
 									rolloverCredits,
 								),
-								amount: chargedAmount,
+								amount: chargedAmount.toNumber(),
 							},
 						],
 						currency: "USD",
@@ -1782,18 +1750,7 @@ devPlans.openapi(cancelDowngrade, async (c) => {
 		});
 	}
 
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.kind === "devpass",
-	)?.organization;
+	const personalOrg = await findPersonalOrg(user.id);
 
 	if (!personalOrg) {
 		throw new HTTPException(404, {
@@ -1989,18 +1946,7 @@ devPlans.openapi(getStatus, async (c) => {
 		});
 	}
 
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.kind === "devpass",
-	)?.organization;
+	const personalOrg = await findPersonalOrg(user.id);
 
 	if (!personalOrg) {
 		return c.json({
@@ -2296,19 +2242,7 @@ devPlans.openapi(updateSettings, async (c) => {
 		});
 	}
 
-	// Find personal org
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.kind === "devpass",
-	)?.organization;
+	const personalOrg = await findPersonalOrg(user.id);
 
 	if (!personalOrg) {
 		throw new HTTPException(404, {
@@ -2803,10 +2737,11 @@ devPlans.openapi(getInvoices, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
-	const personalOrg = await findPersonalOrg(user.id);
-	if (!personalOrg) {
+	const personalMembership = await findPersonalMembership(user.id);
+	if (!personalMembership) {
 		return c.json({ invoices: [] });
 	}
+	const { organization: personalOrg, role } = personalMembership;
 
 	// Eligibility needs the full transaction list (refund rows, ordering across
 	// types); the dev-plan billing events are filtered out of it for display.
@@ -2816,13 +2751,6 @@ devPlans.openapi(getInvoices, async (c) => {
 		},
 		orderBy: {
 			createdAt: "desc",
-		},
-	});
-
-	const membership = await db.query.userOrganization.findFirst({
-		where: {
-			userId: { eq: user.id },
-			organizationId: { eq: personalOrg.id },
 		},
 	});
 
@@ -2849,7 +2777,7 @@ devPlans.openapi(getInvoices, async (c) => {
 			refund: hasRefundAction(t)
 				? computeSelfRefundEligibility({
 						organization: personalOrg,
-						role: membership?.role,
+						role,
 						transactions,
 						transaction: t,
 					})
@@ -2904,10 +2832,11 @@ devPlans.openapi(selfRefundInvoice, async (c) => {
 	const { invoiceId } = c.req.param();
 	const { reason, comments } = c.req.valid("json");
 
-	const personalOrg = await findPersonalOrg(user.id);
-	if (!personalOrg) {
+	const personalMembership = await findPersonalMembership(user.id);
+	if (!personalMembership) {
 		throw new HTTPException(404, { message: "No DevPass organization found" });
 	}
+	const { organization: personalOrg, role } = personalMembership;
 
 	const transactions = await db.query.transaction.findMany({
 		where: {
@@ -2919,16 +2848,9 @@ devPlans.openapi(selfRefundInvoice, async (c) => {
 		throw new HTTPException(404, { message: "Invoice not found" });
 	}
 
-	const membership = await db.query.userOrganization.findFirst({
-		where: {
-			userId: { eq: user.id },
-			organizationId: { eq: personalOrg.id },
-		},
-	});
-
 	const eligibility = computeSelfRefundEligibility({
 		organization: personalOrg,
-		role: membership?.role,
+		role,
 		transactions,
 		transaction,
 	});
@@ -3062,18 +2984,7 @@ const rotateApiKey = createRoute({
 });
 
 async function rotateDevPassApiKey(userId: string, apiKeyId: string) {
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	const personalOrg = userOrgs.find(
-		(uo) => uo.organization?.kind === "devpass",
-	)?.organization;
+	const personalOrg = await findPersonalOrg(userId);
 
 	if (!personalOrg) {
 		throw new HTTPException(404, {
@@ -3843,7 +3754,20 @@ async function resolveDevPassPaymentMethodId(
 const purchaseResetPass = createRoute({
 	method: "post",
 	path: "/reset-pass/purchase",
-	request: {},
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						// Client-generated purchase attempt id, forwarded to Stripe as
+						// the idempotency key so a resubmitted request reuses the same
+						// PaymentIntent instead of charging twice.
+						purchaseId: z.string().min(8).max(64),
+					}),
+				},
+			},
+		},
+	},
 	responses: {
 		200: {
 			content: {
@@ -3863,6 +3787,7 @@ const purchaseResetPass = createRoute({
 
 devPlans.openapi(purchaseResetPass, async (c) => {
 	const user = c.get("user");
+	const { purchaseId } = c.req.valid("json");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -3920,22 +3845,27 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 	// the Reset Pass fulfilment recovery branch instead.
 	let paymentIntent: Stripe.PaymentIntent;
 	try {
-		paymentIntent = await getStripe().paymentIntents.create({
-			amount: Math.round(price * 100),
-			currency: "usd",
-			customer: stripeCustomerId,
-			payment_method: paymentMethodId,
-			off_session: true,
-			confirm: true,
-			description: `DevPass Reset Pass (${tier.toUpperCase()})`,
-			metadata: {
-				organizationId: personalOrg.id,
-				kind: "dev_plan_reset_pass",
-				devPlan: tier,
-				userEmail: user.email,
-				userId: user.id,
+		paymentIntent = await getStripe().paymentIntents.create(
+			{
+				amount: Math.round(price * 100),
+				currency: "usd",
+				customer: stripeCustomerId,
+				payment_method: paymentMethodId,
+				off_session: true,
+				confirm: true,
+				description: `DevPass Reset Pass (${tier.toUpperCase()})`,
+				metadata: {
+					organizationId: personalOrg.id,
+					kind: "dev_plan_reset_pass",
+					devPlan: tier,
+					userEmail: user.email,
+					userId: user.id,
+				},
 			},
-		});
+			{
+				idempotencyKey: `dev-plan-reset-pass:${personalOrg.id}:${purchaseId}`,
+			},
+		);
 	} catch (err) {
 		// Stripe raises StripeCardError when the saved card can't be charged
 		// (declined, expired, insufficient funds, 3DS required off-session) —
@@ -3948,6 +3878,15 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 			logger.warn("Reset Pass charge declined", { code: stripeErr.code });
 			throw new HTTPException(402, {
 				message: `${cardErrorMessage ?? "Your card was declined."} Update your payment method on the billing page and try again.`,
+			});
+		}
+		if (
+			stripeErr?.type === "StripeIdempotencyError" ||
+			stripeErr?.code === "idempotency_error"
+		) {
+			throw new HTTPException(409, {
+				message:
+					"This purchase attempt was already submitted with different details. Start a new attempt and try again.",
 			});
 		}
 		throw err;
@@ -3986,7 +3925,9 @@ devPlans.openapi(purchaseResetPass, async (c) => {
 		devPlanResetPasses: updatedOrg
 			? getPurchasedResetPasses(updatedOrg, tier)
 			: 0,
-		amount: (paymentIntent.amount_received || paymentIntent.amount) / 100,
+		amount: new Decimal(paymentIntent.amount_received || paymentIntent.amount)
+			.div(100)
+			.toNumber(),
 	});
 });
 

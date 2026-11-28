@@ -351,13 +351,18 @@ function parseEqFilter(
 	return match ? match[1] : null;
 }
 
+function parseCount(raw: string | undefined): number {
+	const n = Number(raw);
+	if (raw === undefined || raw === "" || !Number.isFinite(n)) {
+		return 100;
+	}
+	return Math.min(200, Math.max(0, Math.floor(n)));
+}
+
 scim.get("/Users", async (c) => {
 	const orgId = c.get("scimOrgId");
 	const startIndex = Math.max(1, Number(c.req.query("startIndex")) || 1);
-	const perPage = Math.min(
-		200,
-		Math.max(0, Number(c.req.query("count")) || 100),
-	);
+	const perPage = parseCount(c.req.query("count"));
 	const filter = c.req.query("filter");
 	const emailFilter = parseEqFilter(filter, "userName");
 	const externalIdFilter = parseEqFilter(filter, "externalId");
@@ -378,12 +383,13 @@ scim.get("/Users", async (c) => {
 			user && membership
 				? [toScimUser(user, true, membership.scimExternalId)]
 				: [];
+		const page = perPage > 0 ? resources : [];
 		return scimJson({
 			schemas: [SCHEMA_LIST],
 			totalResults: resources.length,
 			startIndex,
-			itemsPerPage: resources.length,
-			Resources: resources,
+			itemsPerPage: page.length,
+			Resources: page,
 		});
 	}
 
@@ -399,12 +405,13 @@ scim.get("/Users", async (c) => {
 		const resources = membership?.user
 			? [toScimUser(membership.user, true, membership.scimExternalId)]
 			: [];
+		const page = perPage > 0 ? resources : [];
 		return scimJson({
 			schemas: [SCHEMA_LIST],
 			totalResults: resources.length,
 			startIndex,
-			itemsPerPage: resources.length,
-			Resources: resources,
+			itemsPerPage: page.length,
+			Resources: page,
 		});
 	}
 
@@ -413,14 +420,17 @@ scim.get("/Users", async (c) => {
 		.from(tables.userOrganization)
 		.where(eq(tables.userOrganization.organizationId, orgId));
 
-	const memberships = await db.query.userOrganization.findMany({
-		where: { organizationId: { eq: orgId } },
-		columns: { scimExternalId: true },
-		with: { user: { columns: { id: true, email: true, name: true } } },
-		orderBy: { createdAt: "asc" },
-		limit: perPage,
-		offset: startIndex - 1,
-	});
+	const memberships =
+		perPage > 0
+			? await db.query.userOrganization.findMany({
+					where: { organizationId: { eq: orgId } },
+					columns: { scimExternalId: true },
+					with: { user: { columns: { id: true, email: true, name: true } } },
+					orderBy: { createdAt: "asc" },
+					limit: perPage,
+					offset: startIndex - 1,
+				})
+			: [];
 
 	const rows = memberships
 		.filter((m) => m.user)
@@ -987,14 +997,24 @@ async function groupMemberUserIds(groupId: string): Promise<string[]> {
 	return rows.map((r) => r.userId);
 }
 
-async function toScimGroup(group: ScimGroupRow) {
-	const userIds = await groupMemberUserIds(group.id);
-	const users = userIds.length
+async function findUsersByIds(userIds: string[]) {
+	return userIds.length
 		? await db.query.user.findMany({
 				where: { id: { in: userIds } },
 				columns: { id: true, email: true },
 			})
 		: [];
+}
+
+async function toScimGroup(group: ScimGroupRow) {
+	const users = await findUsersByIds(await groupMemberUserIds(group.id));
+	return formatScimGroup(group, users);
+}
+
+function formatScimGroup(
+	group: ScimGroupRow,
+	users: { id: string; email: string }[],
+) {
 	return {
 		schemas: [SCHEMA_GROUP],
 		id: group.id,
@@ -1116,10 +1136,7 @@ function memberValues(members: { value?: string }[] | undefined): string[] {
 scim.get("/Groups", async (c) => {
 	const orgId = c.get("scimOrgId");
 	const startIndex = Math.max(1, Number(c.req.query("startIndex")) || 1);
-	const perPage = Math.min(
-		200,
-		Math.max(0, Number(c.req.query("count")) || 100),
-	);
+	const perPage = parseCount(c.req.query("count"));
 	const filter = c.req.query("filter");
 	const nameMatch = filter?.match(/displayName\s+eq\s+"([^"]+)"/i);
 
@@ -1133,12 +1150,13 @@ scim.get("/Groups", async (c) => {
 			},
 			columns: { id: true, displayName: true, externalId: true },
 		});
+		const page = group && perPage > 0 ? [await toScimGroup(group)] : [];
 		return scimJson({
 			schemas: [SCHEMA_LIST],
 			totalResults: group ? 1 : 0,
 			startIndex,
-			itemsPerPage: group ? 1 : 0,
-			Resources: group ? [await toScimGroup(group)] : [],
+			itemsPerPage: page.length,
+			Resources: page,
 		});
 	}
 
@@ -1147,20 +1165,46 @@ scim.get("/Groups", async (c) => {
 		.from(tables.scimGroup)
 		.where(eq(tables.scimGroup.organizationId, orgId));
 
-	const groups = await db.query.scimGroup.findMany({
-		where: { organizationId: { eq: orgId } },
-		columns: { id: true, displayName: true, externalId: true },
-		orderBy: { createdAt: "desc" },
-		limit: perPage,
-		offset: startIndex - 1,
-	});
+	const groups =
+		perPage > 0
+			? await db.query.scimGroup.findMany({
+					where: { organizationId: { eq: orgId } },
+					columns: { id: true, displayName: true, externalId: true },
+					orderBy: { createdAt: "desc" },
+					limit: perPage,
+					offset: startIndex - 1,
+				})
+			: [];
+
+	const memberships = groups.length
+		? await db.query.scimGroupMember.findMany({
+				where: { scimGroupId: { in: groups.map((g) => g.id) } },
+				columns: { scimGroupId: true, userId: true },
+			})
+		: [];
+	const users = await findUsersByIds([
+		...new Set(memberships.map((m) => m.userId)),
+	]);
+	const usersById = new Map(users.map((u) => [u.id, u]));
+	const membersByGroup = new Map<string, { id: string; email: string }[]>();
+	for (const m of memberships) {
+		const member = usersById.get(m.userId);
+		if (!member) {
+			continue;
+		}
+		const list = membersByGroup.get(m.scimGroupId) ?? [];
+		list.push(member);
+		membersByGroup.set(m.scimGroupId, list);
+	}
 
 	return scimJson({
 		schemas: [SCHEMA_LIST],
 		totalResults: total,
 		startIndex,
 		itemsPerPage: groups.length,
-		Resources: await Promise.all(groups.map((g) => toScimGroup(g))),
+		Resources: groups.map((g) =>
+			formatScimGroup(g, membersByGroup.get(g.id) ?? []),
+		),
 	});
 });
 
@@ -1254,18 +1298,14 @@ interface ScimGroupPatchOp {
 }
 
 function patchMemberValues(value: unknown): string[] {
-	if (Array.isArray(value)) {
-		return value
-			.map((v) =>
-				v && typeof v === "object" && "value" in v
-					? (v as { value?: string }).value
-					: typeof v === "string"
-						? v
-						: undefined,
-			)
-			.filter((v): v is string => !!v);
-	}
-	return [];
+	const entries = Array.isArray(value) ? value : [value];
+	return entries
+		.map((v) =>
+			v && typeof v === "object" && "value" in v
+				? (v as { value?: unknown }).value
+				: v,
+		)
+		.filter((v): v is string => typeof v === "string" && v.length > 0);
 }
 
 // Renames a group after checking displayName uniqueness. Returns a 409 SCIM
@@ -1338,7 +1378,14 @@ scim.patch("/Groups/:id", async (c) => {
 			if (single) {
 				await removeGroupMembers(c, group.id, orgId, [single[1]]);
 			} else if (path === "members") {
-				await replaceGroupMembers(c, group.id, orgId, []);
+				// Entra removes specific members via a value list; only a valueless
+				// remove clears the whole group.
+				const ids = patchMemberValues(op.value);
+				if (ids.length > 0) {
+					await removeGroupMembers(c, group.id, orgId, ids);
+				} else if (op.value === undefined || op.value === null) {
+					await replaceGroupMembers(c, group.id, orgId, []);
+				}
 			}
 			continue;
 		}

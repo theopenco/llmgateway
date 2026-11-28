@@ -119,14 +119,17 @@ function redeemRequest(
 	});
 }
 
-function purchaseRequest(token?: string) {
+function purchaseRequest(
+	token?: string,
+	purchaseId: string = crypto.randomUUID(),
+) {
 	return app.request("/dev-plans/reset-pass/purchase", {
 		method: "POST",
 		headers: {
 			...(token ? { Cookie: token } : {}),
 			"Content-Type": "application/json",
 		},
-		body: JSON.stringify({}),
+		body: JSON.stringify({ purchaseId }),
 	});
 }
 
@@ -564,6 +567,11 @@ describe("reset pass purchase", () => {
 					devPlan: "pro",
 				}),
 			}),
+			expect.objectContaining({
+				idempotencyKey: expect.stringMatching(
+					new RegExp(`^dev-plan-reset-pass:${ORG_ID}:`),
+				),
+			}),
 		);
 
 		const org = await getOrg();
@@ -582,6 +590,69 @@ describe("reset pass purchase", () => {
 		expect(txs[0].stripePaymentIntentId).toBe("pi_reset_live");
 	});
 
+	it("forwards the purchaseId to Stripe as an org-scoped idempotency key", async () => {
+		await insertOrg();
+
+		const purchaseId = "reset-pass-attempt-1";
+		const first = await purchaseRequest(token, purchaseId);
+		expect(first.status).toBe(200);
+		const second = await purchaseRequest(token, purchaseId);
+		expect(second.status).toBe(200);
+
+		expect(stripeMock.paymentIntents.create).toHaveBeenCalledTimes(2);
+		for (const call of stripeMock.paymentIntents.create.mock.calls) {
+			expect(call[1]).toEqual({
+				idempotencyKey: `dev-plan-reset-pass:${ORG_ID}:${purchaseId}`,
+			});
+		}
+
+		// Stripe collapses both requests into the same PaymentIntent, so the
+		// pass is granted once.
+		const org = await getOrg();
+		expect(org.devPlanResetPassesPro).toBe(1);
+		const txs = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txs).toHaveLength(1);
+	});
+
+	it("rejects a purchase without a purchaseId", async () => {
+		await insertOrg();
+
+		const res = await app.request("/dev-plans/reset-pass/purchase", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({}),
+		});
+		expect(res.status).toBe(400);
+		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+	});
+
+	it("rejects a bodyless purchase instead of charging with a fallback key", async () => {
+		await insertOrg();
+
+		const res = await app.request("/dev-plans/reset-pass/purchase", {
+			method: "POST",
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(400);
+		expect(stripeMock.paymentIntents.create).not.toHaveBeenCalled();
+	});
+
+	it("maps a Stripe idempotency conflict to 409", async () => {
+		await insertOrg();
+		stripeMock.paymentIntents.create.mockRejectedValueOnce(
+			Object.assign(new Error("Keys for idempotent requests"), {
+				type: "StripeIdempotencyError",
+				code: "idempotency_error",
+			}),
+		);
+
+		const res = await purchaseRequest(token);
+		expect(res.status).toBe(409);
+		expect((await getOrg()).devPlanResetPassesPro).toBe(0);
+	});
+
 	it("falls back to the customer's default payment method", async () => {
 		await insertOrg();
 		stripeMock.subscriptions.retrieve.mockRejectedValue(
@@ -592,6 +663,7 @@ describe("reset pass purchase", () => {
 		expect(res.status).toBe(200);
 		expect(stripeMock.paymentIntents.create).toHaveBeenCalledWith(
 			expect.objectContaining({ payment_method: "pm_from_customer" }),
+			expect.objectContaining({ idempotencyKey: expect.any(String) }),
 		);
 	});
 

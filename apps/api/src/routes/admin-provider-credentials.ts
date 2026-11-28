@@ -890,11 +890,21 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 	// differ from the set actually spending money. Prefer what the gateway
 	// published about itself, and fall back to local env only when there is no
 	// snapshot.
-	const inventory = await readProviderEnvInventory();
-	// Airside listings live only in the DB catalogue; offer them too.
-	const airsideModelsByProvider = await listAirsideModelIds(
-		providers.map((provider) => provider.id),
-	);
+	// Airside listings live only in the DB catalogue; offer them too. Active
+	// custom Airside carriers accept managed credentials too: no env vars, no
+	// settings (their endpoint lives on the carrier registration), and their
+	// model list comes from their approved listings.
+	const [inventory, airsideModelsByProvider, customCarriers] =
+		await Promise.all([
+			readProviderEnvInventory(),
+			listAirsideModelIds(providers.map((provider) => provider.id)),
+			db.query.providerClaim.findMany({
+				where: {
+					status: { eq: "active" },
+					customBaseUrl: { isNotNull: true },
+				},
+			}),
+		]);
 
 	const entries = providers
 		.filter((provider) => provider.id !== "custom")
@@ -936,12 +946,6 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 			};
 		});
 
-	// Active custom Airside carriers accept managed credentials too: no env
-	// vars, no settings (their endpoint lives on the carrier registration),
-	// and their model list comes from their approved listings.
-	const customCarriers = await db.query.providerClaim.findMany({
-		where: { status: { eq: "active" }, customBaseUrl: { isNotNull: true } },
-	});
 	const customListings = customCarriers.length
 		? await db.query.providerDraftModel.findMany({
 				where: {

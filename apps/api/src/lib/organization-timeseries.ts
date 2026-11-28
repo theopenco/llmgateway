@@ -159,77 +159,11 @@ export async function getOrganizationTimeseries({
 		bucket === "hour"
 			? sql<string>`to_char(${table.hourTimestamp}, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`
 			: sql<string>`to_char(${table.hourTimestamp} AT TIME ZONE 'UTC' AT TIME ZONE ${timeZone}, 'YYYY-MM-DD')`;
-	// Key-scoped callers must not see models used only by other keys.
-	const modelOptions = !projectIds.length
-		? []
-		: apiKeyIds
-			? await db
-					.select({ key: canonical(apiKeyHourlyModelStats) })
-					.from(apiKeyHourlyModelStats)
-					.where(
-						and(
-							range(apiKeyHourlyModelStats),
-							inArray(apiKeyHourlyModelStats.apiKeyId, apiKeyIds),
-						),
-					)
-					.groupBy(sql`1`)
-					.orderBy(sql`1`)
-			: await db
-					.select({ key: canonical(projectHourlyModelStats) })
-					.from(projectHourlyModelStats)
-					.where(range(projectHourlyModelStats))
-					.groupBy(sql`1`)
-					.orderBy(sql`1`);
-	const keyOptions = projectIds.length
-		? await db
-				.select({
-					key: apiKeyHourlyModelStats.apiKeyId,
-					name: tables.apiKey.description,
-					project: tables.project.name,
-				})
-				.from(apiKeyHourlyModelStats)
-				.leftJoin(
-					tables.apiKey,
-					eq(tables.apiKey.id, apiKeyHourlyModelStats.apiKeyId),
-				)
-				.innerJoin(
-					tables.project,
-					eq(tables.project.id, apiKeyHourlyModelStats.projectId),
-				)
-				.where(
-					and(
-						range(apiKeyHourlyModelStats),
-						apiKeyIds
-							? inArray(apiKeyHourlyModelStats.apiKeyId, apiKeyIds)
-							: undefined,
-					),
-				)
-				.groupBy(sql`1, 2, 3`)
-				.orderBy(sql`1`)
-		: [];
 	if (apiKeyId && apiKeyIds && !apiKeyIds.includes(apiKeyId)) {
 		throw new HTTPException(404, {
 			message: "API key not found in this organization",
 		});
 	}
-	if (apiKeyId) {
-		const key = await db.query.apiKey.findFirst({
-			where: { id: { eq: apiKeyId }, projectId: { in: projectIds } },
-			columns: { id: true },
-		});
-		if (!key && !keyOptions.some((entry) => entry.key === apiKeyId)) {
-			throw new HTTPException(404, {
-				message: "API key not found in this organization",
-			});
-		}
-	}
-	const filters = {
-		models: modelOptions.map(({ key }) => ({ key, label: key })),
-		apiKeys: keyOptions.map(({ key, name, project }) => ({
-			key,
-			label: `${name ?? "Deleted key"} · ${project ?? "Project"} · ${key.slice(-6)}`,
-		})),
-	};
 	const needsKeys =
 		!!apiKeyId || !!apiKeyIds || groupBy === "apiKey" || groupBy === "user";
 	const table = needsKeys ? apiKeyHourlyModelStats : projectHourlyModelStats;
@@ -259,38 +193,111 @@ export async function getOrganizationTimeseries({
 		cachedTokens: sql<number>`sum(${table.cachedTokens}::numeric)`,
 		...modeSplitFields(table),
 	});
-	const rows = projectIds.length
-		? await db
-				.select({
-					timestamp: timestamp(table).as("timestamp"),
-					key: dimension.as("key"),
-					label: label.as("label"),
-					...sums(table),
+	const [modelOptions, keyOptions, apiKeyRow, rows] = await Promise.all([
+		// Key-scoped callers must not see models used only by other keys.
+		!projectIds.length
+			? []
+			: apiKeyIds
+				? db
+						.select({ key: canonical(apiKeyHourlyModelStats) })
+						.from(apiKeyHourlyModelStats)
+						.where(
+							and(
+								range(apiKeyHourlyModelStats),
+								inArray(apiKeyHourlyModelStats.apiKeyId, apiKeyIds),
+							),
+						)
+						.groupBy(sql`1`)
+						.orderBy(sql`1`)
+				: db
+						.select({ key: canonical(projectHourlyModelStats) })
+						.from(projectHourlyModelStats)
+						.where(range(projectHourlyModelStats))
+						.groupBy(sql`1`)
+						.orderBy(sql`1`),
+		projectIds.length
+			? db
+					.select({
+						key: apiKeyHourlyModelStats.apiKeyId,
+						name: tables.apiKey.description,
+						project: tables.project.name,
+					})
+					.from(apiKeyHourlyModelStats)
+					.leftJoin(
+						tables.apiKey,
+						eq(tables.apiKey.id, apiKeyHourlyModelStats.apiKeyId),
+					)
+					.innerJoin(
+						tables.project,
+						eq(tables.project.id, apiKeyHourlyModelStats.projectId),
+					)
+					.where(
+						and(
+							range(apiKeyHourlyModelStats),
+							apiKeyIds
+								? inArray(apiKeyHourlyModelStats.apiKeyId, apiKeyIds)
+								: undefined,
+						),
+					)
+					.groupBy(sql`1, 2, 3`)
+					.orderBy(sql`1`)
+			: [],
+		apiKeyId
+			? db.query.apiKey.findFirst({
+					where: { id: { eq: apiKeyId }, projectId: { in: projectIds } },
+					columns: { id: true },
 				})
-				.from(table)
-				.innerJoin(tables.project, eq(tables.project.id, table.projectId))
-				.leftJoin(
-					tables.apiKey,
-					needsKeys
-						? eq(tables.apiKey.id, apiKeyHourlyModelStats.apiKeyId)
-						: sql`false`,
-				)
-				.leftJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
-				.where(
-					and(
-						range(table),
-						model ? sql`${canonical(table)} = ${model}` : undefined,
-						apiKeyId
-							? eq(apiKeyHourlyModelStats.apiKeyId, apiKeyId)
-							: undefined,
-						apiKeyIds
-							? inArray(apiKeyHourlyModelStats.apiKeyId, apiKeyIds)
-							: undefined,
-					),
-				)
-				.groupBy(sql`1, 2, 3`)
-				.orderBy(sql`1, 2`)
-		: [];
+			: undefined,
+		projectIds.length
+			? db
+					.select({
+						timestamp: timestamp(table).as("timestamp"),
+						key: dimension.as("key"),
+						label: label.as("label"),
+						...sums(table),
+					})
+					.from(table)
+					.innerJoin(tables.project, eq(tables.project.id, table.projectId))
+					.leftJoin(
+						tables.apiKey,
+						needsKeys
+							? eq(tables.apiKey.id, apiKeyHourlyModelStats.apiKeyId)
+							: sql`false`,
+					)
+					.leftJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
+					.where(
+						and(
+							range(table),
+							model ? sql`${canonical(table)} = ${model}` : undefined,
+							apiKeyId
+								? eq(apiKeyHourlyModelStats.apiKeyId, apiKeyId)
+								: undefined,
+							apiKeyIds
+								? inArray(apiKeyHourlyModelStats.apiKeyId, apiKeyIds)
+								: undefined,
+						),
+					)
+					.groupBy(sql`1, 2, 3`)
+					.orderBy(sql`1, 2`)
+			: [],
+	]);
+	if (
+		apiKeyId &&
+		!apiKeyRow &&
+		!keyOptions.some((entry) => entry.key === apiKeyId)
+	) {
+		throw new HTTPException(404, {
+			message: "API key not found in this organization",
+		});
+	}
+	const filters = {
+		models: modelOptions.map(({ key }) => ({ key, label: key })),
+		apiKeys: keyOptions.map(({ key, name, project }) => ({
+			key,
+			label: `${name ?? "Deleted key"} · ${project ?? "Project"} · ${key.slice(-6)}`,
+		})),
+	};
+
 	const byTime = new Map<string, UsageSeries[]>();
 	const ranked = new Map<string, UsageSeries>();
 	for (const row of rows) {
