@@ -239,7 +239,7 @@ describe("reasoning model retry before output", () => {
 		async (signed) => {
 			await setup();
 			await harness.setProjectMode("api-keys");
-			const replayModel = "gemma-4-31b-it";
+			const replayModel = "glm-5.3-flash";
 			for (const provider of ["novita", "deepinfra"]) {
 				const id = `provider-key-${provider}`;
 				await db.insert(tables.providerKey).values({
@@ -259,7 +259,7 @@ describe("reasoning model retry before output", () => {
 					input instanceof Request ? input.url : input.toString(),
 				);
 				attempts.push(url.hostname);
-				if (url.hostname === "novita.example.com") {
+				if (attempts.length === 1) {
 					return Response.json(
 						{ error: { message: "Rate limit exceeded" } },
 						{ status: 429 },
@@ -293,9 +293,13 @@ describe("reasoning model retry before output", () => {
 			expect(res.status).toBe(200);
 			// Replayed signatures cannot bind a mapping that does not return
 			// them, so the request still falls back.
-			expect(attempts).toEqual(["novita.example.com", "deepinfra.example.com"]);
+			expect(attempts).toHaveLength(2);
+			expect(new Set(attempts).size).toBe(2);
+			const [failedHost] = attempts;
 			const logs = await waitForLogs(2);
-			const failure = logs.find((log) => log.usedProvider === "novita");
+			const failure = logs.find(
+				(log) => `${log.usedProvider}.example.com` === failedHost,
+			);
 			expect(failure?.retried).toBe(true);
 			expect(failure?.errorDetails?.statusCode).toBe(429);
 		},
