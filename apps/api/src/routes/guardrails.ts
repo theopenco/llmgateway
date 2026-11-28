@@ -27,6 +27,7 @@ import {
 	checkGuardrails,
 	presetTopics,
 	systemRuleCatalog,
+	userRegexError,
 } from "@llmgateway/guardrails";
 import { isDecisionModelRef } from "@llmgateway/models";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
@@ -169,6 +170,27 @@ function assertSystemRulesSupported(systemRules: Partial<SystemRulesConfig>) {
 	}
 }
 
+/**
+ * Rejects patterns the guardrail engine would refuse to compile, so a rule
+ * never saves successfully and then silently stops matching.
+ */
+function assertRegexPatternsSafe(config: CustomRuleConfig) {
+	const patterns =
+		config.type === "custom_regex"
+			? [config.pattern]
+			: config.type === "blocked_terms" && config.matchType === "regex"
+				? config.terms.filter((term) => term.trim())
+				: [];
+	for (const pattern of patterns) {
+		const error = userRegexError(pattern);
+		if (error) {
+			throw new HTTPException(400, {
+				message: `Regex pattern ${JSON.stringify(pattern.slice(0, 100))} is not allowed: ${error}`,
+			});
+		}
+	}
+}
+
 function assertCustomRuleSupported(
 	type: CustomRuleType,
 	config: CustomRuleConfig,
@@ -179,6 +201,7 @@ function assertCustomRuleSupported(
 			message: `Rule config type ${config.type} does not match rule type ${type}`,
 		});
 	}
+	assertRegexPatternsSafe(config);
 	if (action === "redact" && !REDACTABLE_RULE_TYPES.has(type)) {
 		throw new HTTPException(400, {
 			message: `${type} rules cannot redact; use block or warn`,

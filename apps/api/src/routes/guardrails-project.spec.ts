@@ -234,6 +234,68 @@ describe("project guardrails API", () => {
 		expect(orgRouteOnProjectRule.status).toBe(404);
 	});
 
+	test("regex patterns are validated when a rule is saved", async () => {
+		// Built at runtime so static analysis does not flag the fixture as ReDoS.
+		const nested = ["(a+)", "+$"].join("");
+		const regexRule = (pattern: string) => ({
+			name: "Regex rule",
+			type: "custom_regex",
+			config: { type: "custom_regex", pattern },
+		});
+
+		const invalid = await authed("/guardrails/rules/test-org-id", {
+			method: "POST",
+			body: JSON.stringify(regexRule("(unclosed")),
+		});
+		expect(invalid.status).toBe(400);
+		expect(await invalid.text()).toContain("Invalid regular expression");
+
+		const dangerous = await authed(
+			"/guardrails/projects/test-project-id/rules",
+			{ method: "POST", body: JSON.stringify(regexRule(nested)) },
+		);
+		expect(dangerous.status).toBe(400);
+		expect(await dangerous.text()).toContain("backtrack catastrophically");
+
+		const blockedTerms = await authed("/guardrails/rules/test-org-id", {
+			method: "POST",
+			body: JSON.stringify({
+				name: "Blocked regex terms",
+				type: "blocked_terms",
+				config: {
+					type: "blocked_terms",
+					terms: ["secret-\\d+", nested],
+					matchType: "regex",
+					caseSensitive: false,
+				},
+			}),
+		});
+		expect(blockedTerms.status).toBe(400);
+
+		const card = await authed("/guardrails/rules/test-org-id", {
+			method: "POST",
+			body: JSON.stringify(regexRule("(?:\\d{4}[- ]?){3}\\d{4}")),
+		});
+		expect(card.status).toBe(200);
+		const { id } = await card.json();
+
+		const update = await authed(`/guardrails/rules/test-org-id/${id}`, {
+			method: "PATCH",
+			body: JSON.stringify({
+				config: { type: "custom_regex", pattern: nested },
+			}),
+		});
+		expect(update.status).toBe(400);
+
+		const stored = await db.query.guardrailRule.findFirst({
+			where: { id: { eq: id } },
+		});
+		expect(stored?.config).toEqual({
+			type: "custom_regex",
+			pattern: "(?:\\d{4}[- ]?){3}\\d{4}",
+		});
+	});
+
 	test("project overrides are listed for the organization", async () => {
 		const empty = await (
 			await authed("/guardrails/config/test-org-id/project-overrides")
