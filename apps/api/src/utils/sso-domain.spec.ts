@@ -169,6 +169,12 @@ describe("isConfigurableDomain", () => {
 		}
 	});
 
+	it("rejects public suffixes", () => {
+		expect(isConfigurableDomain("co.uk")).toBe(false);
+		expect(isConfigurableDomain("github.io")).toBe(false);
+		expect(isConfigurableDomain("acme.co.uk")).toBe(true);
+	});
+
 	it("rejects malformed domains", () => {
 		expect(isConfigurableDomain("acme")).toBe(false);
 		expect(isConfigurableDomain("acme.")).toBe(false);

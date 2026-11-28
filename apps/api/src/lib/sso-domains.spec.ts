@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeSsoDomains } from "./sso-domains.js";
+import {
+	isPublicSuffix,
+	normalizeSsoDomains,
+	ssoDomainsOverlap,
+} from "./sso-domains.js";
 
 describe("normalizeSsoDomains", () => {
 	it("accepts a single domain", () => {
@@ -58,5 +62,31 @@ describe("normalizeSsoDomains", () => {
 	it("returns nothing for an empty or whitespace-only input", () => {
 		expect(normalizeSsoDomains("")).toEqual({ domains: [], invalid: [] });
 		expect(normalizeSsoDomains(" , ")).toEqual({ domains: [], invalid: [] });
+	});
+});
+
+describe("isPublicSuffix", () => {
+	it.each(["com", "co.uk", "com.au", "github.io"])("flags %s", (domain) => {
+		expect(isPublicSuffix(domain)).toBe(true);
+	});
+
+	it.each(["acme.com", "acme.co.uk", "acme.github.io"])(
+		"allows registrable domain %s",
+		(domain) => {
+			expect(isPublicSuffix(domain)).toBe(false);
+		},
+	);
+});
+
+describe("ssoDomainsOverlap", () => {
+	it("treats equal, parent and subdomains as overlapping", () => {
+		expect(ssoDomainsOverlap("acme.com", "acme.com")).toBe(true);
+		expect(ssoDomainsOverlap("acme.com", "eu.acme.com")).toBe(true);
+		expect(ssoDomainsOverlap("eu.acme.com", "acme.com")).toBe(true);
+	});
+
+	it("keeps siblings and look-alikes apart", () => {
+		expect(ssoDomainsOverlap("eu.acme.com", "us.acme.com")).toBe(false);
+		expect(ssoDomainsOverlap("notacme.com", "acme.com")).toBe(false);
 	});
 });
