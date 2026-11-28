@@ -304,7 +304,9 @@ export async function POST(req: Request) {
 
 	const bodyResult = await bodyPromise;
 	if (!bodyResult.ok) {
-		throw bodyResult.error;
+		return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+			status: 400,
+		});
 	}
 	const body = bodyResult.body;
 	const {

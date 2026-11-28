@@ -139,7 +139,9 @@ export function ChatPricingPlans({
 			source: viewSource,
 		});
 		if (!isAuthenticated) {
-			router.push(`/login?next=${encodeURIComponent(`/pricing?plan=${tier}`)}`);
+			router.push(
+				`/login?returnUrl=${encodeURIComponent(`/pricing?plan=${tier}`)}`,
+			);
 			return;
 		}
 		setPendingTier(tier);

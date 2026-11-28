@@ -11,8 +11,6 @@ import {
 	Trash2,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { usePostHog } from "posthog-js/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
 
@@ -41,14 +39,13 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from "@/components/ui/sidebar";
+import { useLogout } from "@/hooks/useLogout";
 import { useOrganization } from "@/hooks/useOrganization";
 import {
 	useDeleteVideoHistory,
 	useUpdateVideoHistory,
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
-import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
-import { useAuth } from "@/lib/auth-client";
 
 import { HistorySkeleton } from "./history-skeleton";
 import { OrganizationSwitcher } from "./organization-switcher";
@@ -366,32 +363,10 @@ export function VideoSidebar({
 		switcherOrganizations.find((org) => org.id === selectedOrganization?.id) ??
 		null;
 	const listContainerRef = useRef<HTMLDivElement | null>(null);
-	const router = useRouter();
-	const posthog = usePostHog();
 	const { state: sidebarState, isMobile } = useSidebar();
 	const { user, isLoading: isUserLoading } = useUser();
-	const { signOut } = useAuth();
 	const { organization, isLoading: isOrgLoading } = useOrganization();
-
-	const logout = async () => {
-		posthog.reset();
-		try {
-			await clearLastUsedProjectCookiesAction();
-		} catch {
-			// ignore
-		}
-		await signOut({
-			fetchOptions: {
-				onSuccess: () => {
-					router.push(
-						process.env.NODE_ENV === "development"
-							? "http://localhost:3003/login"
-							: "https://lounge.llmgateway.io/login",
-					);
-				},
-			},
-		});
-	};
+	const logout = useLogout();
 
 	const renameItem = useUpdateVideoHistory();
 	const deleteItem = useDeleteVideoHistory();

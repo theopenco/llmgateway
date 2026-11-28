@@ -1331,6 +1331,12 @@ export const ChatUI = ({
 	const canEditUserMessages =
 		!isBusy && !isTemporaryChat && !!onEditUserMessage;
 
+	const toastSendError = (e: unknown) => {
+		toast.error(
+			`Could not send message. ${e instanceof Error ? e.message : ""}`.trim(),
+		);
+	};
+
 	const handlePromptSubmit = async (
 		textContent: string,
 		files?: Array<{
@@ -1338,57 +1344,63 @@ export const ChatUI = ({
 			mediaType?: string | null;
 			filename?: string | null;
 		}>,
-	) => {
+	): Promise<boolean> => {
 		if (isActive) {
 			stop();
-			return;
+			return false;
 		}
 
 		if (isBusy) {
-			return;
+			return false;
 		}
 
 		try {
 			const content = textContent ?? "";
 			if (!content.trim() && !files?.length) {
-				return;
+				return false;
 			}
 
-			setText(""); // Clear input immediately
+			const hasFiles = !!files?.length;
+			const filesWithUrl = (files ?? []).filter(
+				(f): f is typeof f & { url: string } => !!f.url,
+			);
+			const imageFiles = supportsImages
+				? filesWithUrl.filter((f) => f.mediaType?.startsWith("image/"))
+				: [];
+			const audioFiles = supportsAudio
+				? filesWithUrl.filter((f) => f.mediaType?.startsWith("audio/"))
+				: [];
+			const documentFiles = supportsDocuments
+				? filesWithUrl.filter((f) => isDocumentMediaType(f.mediaType))
+				: [];
 
 			const parts: any[] = [];
 			const imagesToSave =
-				supportsImages && files?.length
-					? files
-							.filter((f) => f.mediaType?.startsWith("image/") && f.url)
-							.map((f) => ({
-								type: "image_url" as const,
-								image_url: { url: f.url! },
-							}))
+				supportsImages && hasFiles
+					? imageFiles.map((f) => ({
+							type: "image_url" as const,
+							image_url: { url: f.url },
+						}))
 					: undefined;
 
 			const audioToSave =
-				supportsAudio && files?.length
-					? files
-							.filter((f) => f.mediaType?.startsWith("audio/") && f.url)
-							.map((f) => ({
-								type: "audio" as const,
-								url: f.url!,
-								mediaType: f.mediaType!,
-								...(f.filename ? { name: f.filename } : {}),
-							}))
+				supportsAudio && hasFiles
+					? audioFiles.map((f) => ({
+							type: "audio" as const,
+							url: f.url,
+							mediaType: f.mediaType!,
+							...(f.filename ? { name: f.filename } : {}),
+						}))
 					: undefined;
 
 			const documentsToSave =
-				supportsDocuments && files?.length
-					? files
-							.filter((f) => f.url && isDocumentMediaType(f.mediaType))
-							.map((f) => ({
-								type: "file" as const,
-								url: f.url!,
-								mediaType: getDocumentMediaType(f.mediaType),
-								...(f.filename ? { name: f.filename } : {}),
-							}))
+				supportsDocuments && hasFiles
+					? documentFiles.map((f) => ({
+							type: "file" as const,
+							url: f.url,
+							mediaType: getDocumentMediaType(f.mediaType),
+							...(f.filename ? { name: f.filename } : {}),
+						}))
 					: undefined;
 
 			if (content.trim()) {
@@ -1397,43 +1409,22 @@ export const ChatUI = ({
 
 			// Attach user images/files as AI SDK "file" parts so vision /
 			// image-generation models can actually consume them.
-			if (supportsImages && files?.length) {
-				for (const file of files) {
-					if (file.mediaType?.startsWith("image/") && file.url) {
-						parts.push({
-							type: "file",
-							url: file.url,
-							mediaType: file.mediaType,
-							name: file.filename,
-						});
-					}
-				}
+			for (const file of [...imageFiles, ...audioFiles]) {
+				parts.push({
+					type: "file",
+					url: file.url,
+					mediaType: file.mediaType,
+					name: file.filename,
+				});
 			}
 
-			if (supportsAudio && files?.length) {
-				for (const file of files) {
-					if (file.mediaType?.startsWith("audio/") && file.url) {
-						parts.push({
-							type: "file",
-							url: file.url,
-							mediaType: file.mediaType,
-							name: file.filename,
-						});
-					}
-				}
-			}
-
-			if (supportsDocuments && files?.length) {
-				for (const file of files) {
-					if (file.url && isDocumentMediaType(file.mediaType)) {
-						parts.push({
-							type: "file",
-							url: file.url,
-							mediaType: getDocumentMediaType(file.mediaType),
-							name: file.filename,
-						});
-					}
-				}
+			for (const file of documentFiles) {
+				parts.push({
+					type: "file",
+					url: file.url,
+					mediaType: getDocumentMediaType(file.mediaType),
+					name: file.filename,
+				});
 			}
 
 			// OCR models do not use the chat-completions stream. Require an attached
@@ -1450,7 +1441,7 @@ export const ChatUI = ({
 				);
 				if (!ocrFile?.url) {
 					toast.error("Attach a PDF or image to run OCR.");
-					return;
+					return false;
 				}
 
 				const document = isDocumentMediaType(ocrFile.mediaType)
@@ -1474,18 +1465,19 @@ export const ChatUI = ({
 				// expected (persistent chat) but returned nothing, a limit/credit
 				// stop was hit — don't run OCR.
 				if (onUserMessage && !savedMessage && !isTemporaryChat) {
-					return;
+					return false;
 				}
 
-				await onOcrMessage(document, {
+				setText("");
+				void onOcrMessage(document, {
 					id: savedMessage?.id ?? crypto.randomUUID(),
 					parts,
-				});
-				return;
+				}).catch(toastSendError);
+				return true;
 			}
 
 			if (parts.length === 0) {
-				return;
+				return false;
 			}
 
 			const generatedMessageId = crypto.randomUUID();
@@ -1513,11 +1505,12 @@ export const ChatUI = ({
 			// returned nothing, a stop condition was hit (credits, limit, etc.).
 			// Temporary chats intentionally return undefined — streaming must still proceed.
 			if (onUserMessage && !savedMessage && !isTemporaryChat) {
-				return;
+				return false;
 			}
 
+			setText("");
 			// Call sendMessage which will handle adding the user message and API request
-			await sendMessage(
+			void sendMessage(
 				{
 					id: savedMessage?.id ?? generatedMessageId,
 					role: "user",
@@ -1528,11 +1521,11 @@ export const ChatUI = ({
 						model: selectedModel,
 					},
 				},
-			);
+			).catch(toastSendError);
+			return true;
 		} catch (e) {
-			toast.error(
-				`Could not send message. ${e instanceof Error ? e.message : ""}`.trim(),
-			);
+			toastSendError(e);
+			return false;
 		}
 	};
 	const virtualItems = virtualizer.getVirtualItems();
@@ -1826,8 +1819,12 @@ export const ChatUI = ({
 					multiple
 					globalDrop={supportsImages || supportsAudio || supportsDocuments}
 					aria-disabled={isBusy}
-					onSubmit={(message) => {
-						void handlePromptSubmit(message.text ?? "", message.files);
+					onSubmit={async (message) => {
+						if (
+							!(await handlePromptSubmit(message.text ?? "", message.files))
+						) {
+							throw new Error("not sent");
+						}
 					}}
 				>
 					<PromptInputBody>
@@ -2405,17 +2402,20 @@ function SkillTriggerMenu({
 }) {
 	const { data } = useSkills();
 	const [highlight, setHighlight] = useState(0);
-	const skills = (data?.skills as Skill[] | undefined) ?? [];
-	const filtered = skills
-		.filter((s) => s.enabled)
-		.filter((s) => !filter || s.name.toLowerCase().includes(filter));
+	const filtered = useMemo(
+		() =>
+			((data?.skills as Skill[] | undefined) ?? []).filter(
+				(s) => s.enabled && (!filter || s.name.toLowerCase().includes(filter)),
+			),
+		[data, filter],
+	);
 
 	useEffect(() => {
 		setHighlight(0);
 	}, [filter]);
 
 	useEffect(() => {
-		if (!open) {
+		if (!open || filtered.length === 0) {
 			return;
 		}
 		const handler = (e: KeyboardEvent) => {

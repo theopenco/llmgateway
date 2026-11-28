@@ -163,7 +163,7 @@ export default function VideoPageClient({
 		() => mapModels(videoGenModels, providers),
 		[videoGenModels, providers],
 	);
-	const [availableModels] = useState<ComboboxModel[]>(mapped);
+	const availableModels = mapped;
 
 	const [selectedModels, setSelectedModels] = useState<string[]>(() => {
 		const modelParam = searchParams.get("model");
@@ -406,6 +406,7 @@ export default function VideoPageClient({
 			ensuredProjectRef.current = null;
 			return;
 		}
+		const controller = new AbortController();
 		const ensureKey = async () => {
 			if (!selectedOrganization) {
 				return;
@@ -419,8 +420,9 @@ export default function VideoPageClient({
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ projectId }),
+					signal: controller.signal,
 				});
-				if (response.ok && selectedProject.id === projectId) {
+				if (response.ok && !controller.signal.aborted) {
 					ensuredProjectRef.current = projectId;
 				}
 			} catch {
@@ -428,6 +430,7 @@ export default function VideoPageClient({
 			}
 		};
 		void ensureKey();
+		return () => controller.abort();
 	}, [isAuthenticated, selectedOrganization, selectedProject]);
 
 	// Cleanup abort controllers on unmount. Runs are canceled first so a save
@@ -783,11 +786,8 @@ export default function VideoPageClient({
 	}, [selectedModels]);
 
 	const getModelName = useCallback(
-		(modelId: string) => {
-			const model = availableModels.find((m) => m.id === modelId);
-			return model?.name ?? modelId;
-		},
-		[availableModels],
+		(modelId: string) => availableModelsById.get(modelId)?.name ?? modelId,
+		[availableModelsById],
 	);
 
 	const updateGalleryModel = useCallback(

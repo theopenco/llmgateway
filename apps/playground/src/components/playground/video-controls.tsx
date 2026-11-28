@@ -571,7 +571,6 @@ export function VideoControls({
 						value={prompt}
 						onChange={(e) => setPrompt(e.target.value)}
 						onKeyDown={handleKeyDown}
-						onPaste={handlePaste}
 						placeholder="Describe the video you want to generate... (optionally paste or drop a first/last frame or reference image)"
 						className="min-h-[80px] max-h-[200px] resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 dark:bg-transparent"
 						disabled={isGenerating}

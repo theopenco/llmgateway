@@ -1,6 +1,10 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+import {
+	getGatewayErrorMessage,
+	readGatewayResponseBody,
+} from "@/app/api/video/utils";
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 import { readJsonBody } from "@/lib/read-json-body";
@@ -64,27 +68,6 @@ function resolveSessionMapping(
 		}
 	}
 	return null;
-}
-
-function getGatewayErrorMessage(body: unknown, fallback: string): string {
-	if (body && typeof body === "object" && "error" in body) {
-		const error = (body as { error: unknown }).error;
-		if (
-			error &&
-			typeof error === "object" &&
-			"message" in error &&
-			typeof (error as { message: unknown }).message === "string"
-		) {
-			return (error as { message: string }).message;
-		}
-		if (typeof error === "string" && error.length > 0) {
-			return error;
-		}
-	}
-	if (typeof body === "string" && body.length > 0) {
-		return body;
-	}
-	return fallback;
 }
 
 /**
@@ -244,15 +227,7 @@ export async function POST(req: Request) {
 		clearTimeout(timeout);
 	}
 
-	const text = await response.text();
-	let parsed: unknown = null;
-	if (text) {
-		try {
-			parsed = JSON.parse(text);
-		} catch {
-			parsed = text;
-		}
-	}
+	const parsed = await readGatewayResponseBody(response);
 
 	if (!response.ok) {
 		return NextResponse.json(

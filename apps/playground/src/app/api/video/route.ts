@@ -29,7 +29,10 @@ export async function POST(req: Request) {
 
 	const bodyResult = await bodyPromise;
 	if (!bodyResult.ok) {
-		throw bodyResult.error;
+		return NextResponse.json(
+			{ error: "Invalid JSON payload" },
+			{ status: 400 },
+		);
 	}
 	const requestBody = bodyResult.body;
 	const noFallback = req.headers.get("x-no-fallback");

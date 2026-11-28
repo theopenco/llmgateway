@@ -15,7 +15,6 @@ import {
 	SheetHeader,
 	SheetTitle,
 } from "@/components/ui/sheet";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
 	Tooltip,
 	TooltipContent,
@@ -24,8 +23,6 @@ import {
 } from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
-
-import { randomInt } from "@llmgateway/shared/random";
 
 import type { VariantProps } from "class-variance-authority";
 
@@ -618,44 +615,6 @@ function SidebarMenuBadge({
 	);
 }
 
-function SidebarMenuSkeleton({
-	className,
-	showIcon = false,
-	...props
-}: React.ComponentProps<"div"> & {
-	showIcon?: boolean;
-}) {
-	// Random width between 50 to 90%.
-	const width = React.useMemo(() => {
-		return `${randomInt(50, 90)}%`;
-	}, []);
-
-	return (
-		<div
-			data-slot="sidebar-menu-skeleton"
-			data-sidebar="menu-skeleton"
-			className={cn("flex h-8 items-center gap-2 rounded-md px-2", className)}
-			{...props}
-		>
-			{showIcon && (
-				<Skeleton
-					className="size-4 rounded-md"
-					data-sidebar="menu-skeleton-icon"
-				/>
-			)}
-			<Skeleton
-				className="h-4 max-w-(--skeleton-width) flex-1"
-				data-sidebar="menu-skeleton-text"
-				style={
-					{
-						"--skeleton-width": width,
-					} as React.CSSProperties
-				}
-			/>
-		</div>
-	);
-}
-
 function SidebarMenuSub({ className, ...props }: React.ComponentProps<"ul">) {
 	return (
 		<ul
@@ -733,7 +692,6 @@ export {
 	SidebarMenuBadge,
 	SidebarMenuButton,
 	SidebarMenuItem,
-	SidebarMenuSkeleton,
 	SidebarMenuSub,
 	SidebarMenuSubButton,
 	SidebarMenuSubItem,

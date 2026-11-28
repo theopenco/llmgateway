@@ -1,6 +1,6 @@
 "use client";
 import { useQueryClient } from "@tanstack/react-query";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
@@ -26,7 +26,8 @@ export function useUser(options?: UseUserOptions) {
 	const posthog = usePostHog();
 	const router = useRouter();
 	const api = useApi();
-	const pathname = usePathname();
+	const redirectTo = options?.redirectTo;
+	const redirectWhen = options?.redirectWhen;
 
 	const { data, isLoading, error } = api.useQuery(
 		"get",
@@ -53,29 +54,12 @@ export function useUser(options?: UseUserOptions) {
 		}
 	}, [data?.user, posthog]);
 
-	// Check for onboarding completion for all authenticated users
-	useEffect(() => {
-		if (!data?.user || isLoading) {
-			return;
-		}
-
-		const currentPath = pathname;
-		const isAuthPage = ["/login", "/signup"].includes(currentPath);
-		const isLandingPage = currentPath === "/";
-
-		// Don't redirect if already on auth pages
-		if (isAuthPage || isLandingPage) {
-			// No action needed for auth/landing pages
-		}
-	}, [data?.user, isLoading, router, pathname]);
-
 	// Handle existing redirect logic
 	useEffect(() => {
-		if (!options?.redirectTo || !options?.redirectWhen) {
+		if (!redirectTo || !redirectWhen) {
 			return;
 		}
 
-		const { redirectTo, redirectWhen } = options;
 		const hasUser = !!data?.user;
 
 		if (redirectWhen === "authenticated" && hasUser) {
@@ -87,15 +71,7 @@ export function useUser(options?: UseUserOptions) {
 		) {
 			router.push(redirectTo);
 		}
-	}, [
-		data?.user,
-		isLoading,
-		error,
-		router,
-		options?.redirectTo,
-		options?.redirectWhen,
-		options,
-	]);
+	}, [data?.user, isLoading, error, router, redirectTo, redirectWhen]);
 
 	return {
 		user: data?.user ?? null,
@@ -111,8 +87,9 @@ export function useUpdateUser() {
 
 	return api.useMutation("patch", "/user/me", {
 		onSuccess: () => {
-			void queryClient.invalidateQueries({ queryKey: ["user"] });
-			void queryClient.invalidateQueries({ queryKey: ["session"] });
+			void queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/user/me").queryKey,
+			});
 		},
 	});
 }

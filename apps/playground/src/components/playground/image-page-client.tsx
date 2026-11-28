@@ -58,6 +58,8 @@ import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { AspectRatio, GalleryImage, GalleryItem } from "@/lib/image-gen";
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
 
+const HISTORY_SAVE_RETRY_DELAYS_MS = [1000, 3000];
+
 // Opened on demand only; lazy loading keeps the Stripe top-up dialog and
 // @stripe/react-stripe-js out of the page's initial bundle. It renders
 // nothing until opened, so there is no SSR output to lose.
@@ -158,6 +160,9 @@ export default function ImagePageClient({
 	const [selectedItemId, setSelectedItemId] = useState<string | null>(
 		imageIdFromUrl,
 	);
+	// Bumped on every selection the user drives, so a history save that
+	// finishes later only selects its item when the user has not moved on.
+	const selectionTokenRef = useRef(0);
 	const [isGenerating, setIsGenerating] = useState(false);
 	const [showTopUp, setShowTopUp] = useState(false);
 
@@ -262,6 +267,11 @@ export default function ImagePageClient({
 	);
 	const { mutate: saveImageHistory } = useSaveImageHistory();
 	const savedItemIdsRef = useRef<Set<string>>(new Set());
+	const saveAttemptsRef = useRef<Map<string, number>>(new Map());
+	const [saveRetry, setSaveRetry] = useState(0);
+	const saveRetryTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(
+		new Set(),
+	);
 	const pendingSaveRef = useRef<{ localId: string; dbId: string } | null>(null);
 	// Items generated this session, keyed by their saved history id. Their
 	// previews are already decoded, so the gallery keeps showing them instead of
@@ -310,13 +320,13 @@ export default function ImagePageClient({
 	}, [activeItems, historyData, config.apiUrl, savedInlineItems]);
 
 	const displayItems = useMemo<GalleryItem[]>(() => {
-		if (activeItems.length > 0) {
-			return activeItems;
-		}
 		const item = selectedItemId
 			? galleryItems.find((i) => i.id === selectedItemId)
 			: undefined;
-		return item ? [item] : [];
+		if (item) {
+			return [item];
+		}
+		return activeItems;
 	}, [activeItems, selectedItemId, galleryItems]);
 
 	// Auto-save completed active items to DB then remove from local state
@@ -333,6 +343,7 @@ export default function ImagePageClient({
 		for (const item of done) {
 			savedItemIdsRef.current.add(item.id);
 			if (item.models.some((m) => m.images.length > 0)) {
+				const selectionToken = selectionTokenRef.current;
 				saveImageHistory(
 					{
 						body: {
@@ -359,16 +370,32 @@ export default function ImagePageClient({
 						onSuccess: (data) => {
 							const newId = data.item.id;
 							setSavedInlineItems((prev) => ({ ...prev, [newId]: item }));
-							setSelectedItemId(newId);
-							const params = new URLSearchParams(window.location.search);
-							params.set("id", newId);
-							router.replace(`${pathname}?${params.toString()}`, {
-								scroll: false,
-							});
+							if (selectionTokenRef.current === selectionToken) {
+								setSelectedItemId(newId);
+								const params = new URLSearchParams(window.location.search);
+								params.set("id", newId);
+								router.replace(`${pathname}?${params.toString()}`, {
+									scroll: false,
+								});
+							}
 							pendingSaveRef.current = { localId: item.id, dbId: newId };
 						},
 						onError: () => {
-							savedItemIdsRef.current.delete(item.id);
+							const attempts = (saveAttemptsRef.current.get(item.id) ?? 0) + 1;
+							saveAttemptsRef.current.set(item.id, attempts);
+							const retryDelay = HISTORY_SAVE_RETRY_DELAYS_MS[attempts - 1];
+							if (retryDelay !== undefined) {
+								const timer = setTimeout(() => {
+									saveRetryTimersRef.current.delete(timer);
+									savedItemIdsRef.current.delete(item.id);
+									setSaveRetry((n) => n + 1);
+								}, retryDelay);
+								saveRetryTimersRef.current.add(timer);
+								return;
+							}
+							toast.error(
+								"Images were generated but could not be saved to your history.",
+							);
 						},
 					},
 				);
@@ -376,7 +403,15 @@ export default function ImagePageClient({
 				setActiveItems((prev) => prev.filter((i) => i.id !== item.id));
 			}
 		}
-	}, [activeItems, saveImageHistory, router, pathname]);
+	}, [activeItems, saveImageHistory, router, pathname, saveRetry]);
+
+	useEffect(() => {
+		const timers = saveRetryTimersRef.current;
+		return () => {
+			timers.forEach((timer) => clearTimeout(timer));
+			timers.clear();
+		};
+	}, []);
 
 	useEffect(() => {
 		const pending = pendingSaveRef.current;
@@ -397,6 +432,7 @@ export default function ImagePageClient({
 
 	// Ensure playground key
 	const pendingRef = useRef(0);
+	const generationIdRef = useRef(0);
 	const ensuredProjectRef = useRef<string | null>(null);
 	useEffect(() => {
 		if (!isAuthenticated || !selectedProject) {
@@ -470,6 +506,7 @@ export default function ImagePageClient({
 	// Sync URL → state for back/forward navigation
 	useEffect(() => {
 		if (imageIdFromUrl !== selectedItemId) {
+			selectionTokenRef.current++;
 			setSelectedItemId(imageIdFromUrl);
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -628,6 +665,7 @@ export default function ImagePageClient({
 			};
 
 			setActiveItems((prev) => [placeholderItem, ...prev]);
+			selectionTokenRef.current++;
 			setSelectedItemId(null);
 			setPrompt("");
 			setInputImages([]);
@@ -670,6 +708,7 @@ export default function ImagePageClient({
 
 			// Fire requests independently — each updates gallery as images stream in
 			pendingRef.current = modelsToGenerate.length;
+			const generationId = ++generationIdRef.current;
 
 			for (const modelId of modelsToGenerate) {
 				const noFallback = shouldDisableFallback(modelId);
@@ -778,9 +817,11 @@ export default function ImagePageClient({
 							}),
 						);
 					} finally {
-						pendingRef.current--;
-						if (pendingRef.current === 0) {
-							setIsGenerating(false);
+						if (generationIdRef.current === generationId) {
+							pendingRef.current--;
+							if (pendingRef.current === 0) {
+								setIsGenerating(false);
+							}
 						}
 					}
 				})();
@@ -856,12 +897,14 @@ export default function ImagePageClient({
 
 	const handleNewChat = useCallback(() => {
 		setActiveItems([]);
+		selectionTokenRef.current++;
 		setSelectedItemId(null);
 		setPrompt("");
 		setInputImages([]);
 		setIsGenerating(false);
 		setComparisonMode(false);
 		pendingRef.current = 0;
+		generationIdRef.current++;
 		const params = new URLSearchParams(window.location.search);
 		params.delete("id");
 		const qs = params.toString();
@@ -870,9 +913,10 @@ export default function ImagePageClient({
 
 	const handleItemClick = useCallback(
 		(itemId: string) => {
-			if (activeItems.length > 0) {
+			if (activeItems.some((item) => item.models.some((m) => m.isLoading))) {
 				return;
 			}
+			selectionTokenRef.current++;
 			setSelectedItemId(itemId);
 			const item = galleryItems.find((i) => i.id === itemId);
 			if (item) {

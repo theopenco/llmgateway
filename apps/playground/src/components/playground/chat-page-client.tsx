@@ -53,6 +53,7 @@ import {
 	getReasoningEffortOptions,
 } from "@/lib/model-utils";
 import { shouldDisableFallback } from "@/lib/no-fallback";
+import { parseStoredImages } from "@/lib/stored-parts";
 import { getErrorMessage } from "@/lib/utils";
 
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
@@ -306,6 +307,61 @@ function getSelectedMapping(
 				(mapping.region ?? undefined) === region,
 		) ?? model.mappings.find((mapping) => mapping.providerId === providerId)
 	);
+}
+
+interface SelectedModelInfo {
+	def: ApiModel;
+	providerId: string;
+	mapping: ApiModelProviderMapping | undefined;
+}
+
+type MappingCapability = "vision" | "document" | "reasoning" | "webSearch";
+
+function getSelectedModelInfo(
+	models: ApiModel[],
+	selectedModel: string,
+): SelectedModelInfo | null {
+	if (!selectedModel) {
+		return null;
+	}
+	const { providerId, modelId, region } =
+		parseModelSelectorValue(selectedModel);
+	const def = models.find((m) => m.id === modelId);
+	if (!def) {
+		return null;
+	}
+	return {
+		def,
+		providerId,
+		mapping: providerId
+			? getSelectedMapping(def, providerId, region)
+			: undefined,
+	};
+}
+
+function hasCapability(
+	info: SelectedModelInfo | null,
+	key: MappingCapability,
+): boolean {
+	if (!info) {
+		return false;
+	}
+	if (!info.providerId) {
+		return info.def.mappings.some((p) => !!p[key]);
+	}
+	return !!info.mapping?.[key];
+}
+
+function getSelectedReasoningEfforts(info: SelectedModelInfo | null) {
+	if (!info) {
+		return null;
+	}
+	if (!info.providerId) {
+		return getReasoningEffortOptions(
+			info.def.mappings.filter((p) => p.reasoning),
+		);
+	}
+	return getReasoningEffortOptions(info.mapping ? [info.mapping] : []);
 }
 
 export default function ChatPageClient({
@@ -664,22 +720,12 @@ export default function ChatPageClient({
 		chatIdRef.current = currentChatId;
 	}, [currentChatId]);
 
-	const supportsImages = useMemo(() => {
-		if (!selectedModel) {
-			return false;
-		}
-		const { providerId, modelId, region } =
-			parseModelSelectorValue(selectedModel);
-		const def = models.find((m) => m.id === modelId);
-		if (!def) {
-			return false;
-		}
-		if (!providerId) {
-			return def.mappings.some((p: ApiModelProviderMapping) => p.vision);
-		}
-		const mapping = getSelectedMapping(def, providerId, region);
-		return !!mapping?.vision;
-	}, [models, selectedModel]);
+	const selectedModelInfo = useMemo(
+		() => getSelectedModelInfo(models, selectedModel),
+		[models, selectedModel],
+	);
+
+	const supportsImages = hasCapability(selectedModelInfo, "vision");
 
 	const supportsAudio = useMemo(() => {
 		let model = availableModels.find((m) => m.id === selectedModel);
@@ -689,96 +735,21 @@ export default function ChatPageClient({
 		return !!model?.audio;
 	}, [availableModels, selectedModel]);
 
-	const isOcrModel = useMemo(() => {
-		if (!selectedModel) {
-			return false;
-		}
-		const { modelId } = parseModelSelectorValue(selectedModel);
-		const def = models.find((m) => m.id === modelId);
-		return !!def?.output?.includes("ocr");
-	}, [models, selectedModel]);
+	const isOcrModel = !!selectedModelInfo?.def.output?.includes("ocr");
 
-	const supportsDocuments = useMemo(() => {
-		if (!selectedModel) {
-			return false;
-		}
-		if (isOcrModel) {
-			return true;
-		}
-		const { providerId, modelId, region } =
-			parseModelSelectorValue(selectedModel);
-		const def = models.find((m) => m.id === modelId);
-		if (!def) {
-			return false;
-		}
-		if (!providerId) {
-			return def.mappings.some((p: ApiModelProviderMapping) => p.document);
-		}
-		const mapping = getSelectedMapping(def, providerId, region);
-		return !!mapping?.document;
-	}, [models, selectedModel, isOcrModel]);
+	const supportsDocuments =
+		isOcrModel || hasCapability(selectedModelInfo, "document");
 
-	const supportsImageGen = useMemo(() => {
-		if (!selectedModel) {
-			return false;
-		}
-		const { modelId } = parseModelSelectorValue(selectedModel);
-		const def = models.find((m) => m.id === modelId);
-		return !!def?.output?.includes("image");
-	}, [models, selectedModel]);
+	const supportsImageGen = !!selectedModelInfo?.def.output?.includes("image");
 
-	const supportsReasoning = useMemo(() => {
-		if (!selectedModel) {
-			return false;
-		}
-		const { providerId, modelId, region } =
-			parseModelSelectorValue(selectedModel);
-		const def = models.find((m) => m.id === modelId);
-		if (!def) {
-			return false;
-		}
-		if (!providerId) {
-			return def.mappings.some((p: ApiModelProviderMapping) => p.reasoning);
-		}
-		const mapping = getSelectedMapping(def, providerId, region);
-		return !!mapping?.reasoning;
-	}, [models, selectedModel]);
+	const supportsReasoning = hasCapability(selectedModelInfo, "reasoning");
 
-	const reasoningEfforts = useMemo(() => {
-		if (!selectedModel) {
-			return null;
-		}
-		const { providerId, modelId, region } =
-			parseModelSelectorValue(selectedModel);
-		const def = models.find((m) => m.id === modelId);
-		if (!def) {
-			return null;
-		}
-		if (!providerId) {
-			return getReasoningEffortOptions(
-				def.mappings.filter((p: ApiModelProviderMapping) => p.reasoning),
-			);
-		}
-		const mapping = getSelectedMapping(def, providerId, region);
-		return getReasoningEffortOptions(mapping ? [mapping] : []);
-	}, [models, selectedModel]);
+	const reasoningEfforts = useMemo(
+		() => getSelectedReasoningEfforts(selectedModelInfo),
+		[selectedModelInfo],
+	);
 
-	const supportsWebSearch = useMemo(() => {
-		if (!selectedModel) {
-			return false;
-		}
-		const { providerId, modelId, region } =
-			parseModelSelectorValue(selectedModel);
-		const def = models.find((m) => m.id === modelId);
-		if (!def) {
-			return false;
-		}
-		if (!providerId) {
-			return def.mappings.some((p: ApiModelProviderMapping) => p.webSearch);
-		}
-		const mapping = getSelectedMapping(def, providerId, region);
-		return !!mapping?.webSearch;
-	}, [models, selectedModel]);
+	const supportsWebSearch = hasCapability(selectedModelInfo, "webSearch");
 
 	const buildRequestOptions = useCallback(
 		(hasImageAttachments: boolean, options?: any) => {
@@ -998,6 +969,7 @@ export default function ChatPageClient({
 		Record<number, (content: string) => Promise<void> | void>
 	>({});
 	const [comparisonResetToken, setComparisonResetToken] = useState(0);
+	const extraPanelChatIdsRef = useRef<Record<number, string>>({});
 
 	const sidebarRef = useRef<ChatSidebarHandle | null>(null);
 
@@ -1090,6 +1062,7 @@ export default function ChatPageClient({
 
 		const childIds = (currentChatData as any).comparisonChatIds as
 			string[] | undefined;
+		extraPanelChatIdsRef.current = {};
 		if (childIds && childIds.length > 0) {
 			setComparisonChatIds(childIds);
 			setExtraPanelIds(childIds.map((_, i) => i + 1));
@@ -1118,26 +1091,7 @@ export default function ChatPageClient({
 
 				if (msg.images) {
 					try {
-						const parsedImages = JSON.parse(msg.images);
-						const imageParts = parsedImages.map((img: any) => {
-							const dataUrl = img.image_url?.url ?? "";
-							if (dataUrl.startsWith("data:")) {
-								const [header, base64] = dataUrl.split(",");
-								const mediaType =
-									header.match(/data:([^;]+)/)?.[1] ?? "image/png";
-								return {
-									type: "file",
-									mediaType,
-									url: base64,
-								};
-							}
-							return {
-								type: "file",
-								mediaType: "image/png",
-								url: dataUrl,
-							};
-						});
-						parts.push(...imageParts);
+						parts.push(...parseStoredImages(msg.images));
 					} catch (error) {
 						toast.error("Failed to parse images: " + getErrorMessage(error));
 					}
@@ -1538,6 +1492,7 @@ export default function ChatPageClient({
 							);
 						}
 					}
+					return undefined;
 				}
 			} finally {
 				setIsLoading(false);
@@ -1547,7 +1502,7 @@ export default function ChatPageClient({
 			// submitted prompt into each extra window as a separate user message.
 			// Fire without awaiting so the primary panel can start streaming in
 			// parallel rather than waiting for all extra panels to finish first.
-			if (syncInput) {
+			if (syncInput && savedUserMessage) {
 				const submitFns = Object.values(extraSubmitRefs.current);
 				void Promise.allSettled(
 					submitFns.map((submit) => submit(content)),
@@ -1812,6 +1767,7 @@ export default function ChatPageClient({
 		setExtraPanelModels([]);
 		setComparisonResetToken((token) => token + 1);
 		extraSubmitRefs.current = {};
+		extraPanelChatIdsRef.current = {};
 		clearMessages();
 		setIsTemporaryChat(true);
 	};
@@ -1848,6 +1804,7 @@ export default function ChatPageClient({
 			setExtraPanelModels([]);
 			setComparisonResetToken((token) => token + 1);
 			extraSubmitRefs.current = {};
+			extraPanelChatIdsRef.current = {};
 			setComparisonChatIds([]);
 		} catch {
 			setError("Failed to create new chat. Please try again.");
@@ -2153,6 +2110,7 @@ export default function ChatPageClient({
 									setExtraPanelModels([]);
 									setComparisonResetToken((token) => token + 1);
 									extraSubmitRefs.current = {};
+									extraPanelChatIdsRef.current = {};
 								}
 							}}
 							showGlobalModelSelector={
@@ -2211,20 +2169,24 @@ export default function ChatPageClient({
 										size="sm"
 										variant="ghost"
 										onClick={() => {
+											const lastIndex = extraPanelIds.length - 1;
+											const removedPanelId = extraPanelIds[lastIndex];
+											if (removedPanelId === undefined) {
+												return;
+											}
 											const removedChatId =
-												comparisonChatIds[comparisonChatIds.length - 1];
-											setExtraPanelIds((prev) => {
-												if (prev.length === 0) {
-													return prev;
-												}
-												const removedId = prev[prev.length - 1];
-												const next = prev.slice(0, -1);
-												const { [removedId]: _removed, ...rest } =
-													extraSubmitRefs.current;
-												extraSubmitRefs.current = rest;
-												return next;
-											});
-											setComparisonChatIds((prev) => prev.slice(0, -1));
+												comparisonChatIds[lastIndex] ??
+												extraPanelChatIdsRef.current[removedPanelId];
+											const {
+												[removedPanelId]: _removedChatId,
+												...remainingChatIds
+											} = extraPanelChatIdsRef.current;
+											extraPanelChatIdsRef.current = remainingChatIds;
+											const { [removedPanelId]: _removed, ...rest } =
+												extraSubmitRefs.current;
+											extraSubmitRefs.current = rest;
+											setExtraPanelIds((prev) => prev.slice(0, lastIndex));
+											setComparisonChatIds((prev) => prev.slice(0, lastIndex));
 											setExtraPanelModels((prev) => prev.slice(0, -1));
 											if (removedChatId) {
 												deleteComparisonChat.mutate({
@@ -2439,6 +2401,9 @@ export default function ChatPageClient({
 												primaryChatId={currentChatId}
 												primaryChatIdRef={chatIdRef}
 												initialChatId={comparisonChatIds[index] ?? null}
+												onComparisonChatCreated={(id) => {
+													extraPanelChatIdsRef.current[panelId] = id;
+												}}
 												isParentLoading={isChatLoading}
 											/>
 										</div>
@@ -2530,6 +2495,7 @@ interface ExtraChatPanelProps {
 	onSyncedSubmitFromPanel?: (content: string) => Promise<void>;
 	syncedActiveSkills?: Skill[];
 	setSyncedActiveSkills?: (skills: Skill[]) => void;
+	onComparisonChatCreated?: (chatId: string) => void;
 }
 
 function ExtraChatPanel({
@@ -2549,6 +2515,7 @@ function ExtraChatPanel({
 	primaryChatId,
 	primaryChatIdRef,
 	initialChatId = null,
+	onComparisonChatCreated,
 	isParentLoading = false,
 	onSyncedSubmitFromPanel,
 	syncedActiveSkills,
@@ -2643,9 +2610,16 @@ function ExtraChatPanel({
 			const id = data.chat.id;
 			setComparisonChatId(id);
 			comparisonChatIdRef.current = id;
+			onComparisonChatCreated?.(id);
 			return id;
 		},
-		[createChat, selectedModel, primaryChatId, primaryChatIdRef],
+		[
+			createChat,
+			selectedModel,
+			primaryChatId,
+			primaryChatIdRef,
+			onComparisonChatCreated,
+		],
 	);
 
 	const { messages, setMessages, sendMessage, status, stop, regenerate } =
@@ -2726,31 +2700,14 @@ function ExtraChatPanel({
 		searchParams,
 	]);
 
-	const supportsImages = useMemo(() => {
-		if (!selectedModel) {
-			return false;
-		}
-		const { providerId, modelId, region } =
-			parseModelSelectorValue(selectedModel);
-		const def = models.find((m) => m.id === modelId);
-		if (!def) {
-			return false;
-		}
-		if (!providerId) {
-			return def.mappings.some((p: ApiModelProviderMapping) => p.vision);
-		}
-		const mapping = getSelectedMapping(def, providerId, region);
-		return !!mapping?.vision;
-	}, [models, selectedModel]);
+	const selectedModelInfo = useMemo(
+		() => getSelectedModelInfo(models, selectedModel),
+		[models, selectedModel],
+	);
 
-	const supportsImageGen = useMemo(() => {
-		if (!selectedModel) {
-			return false;
-		}
-		const { modelId } = parseModelSelectorValue(selectedModel);
-		const def = models.find((m) => m.id === modelId);
-		return !!def?.output?.includes("image");
-	}, [models, selectedModel]);
+	const supportsImages = hasCapability(selectedModelInfo, "vision");
+
+	const supportsImageGen = !!selectedModelInfo?.def.output?.includes("image");
 
 	const supportsAudio = useMemo(() => {
 		let model = availableModels.find((m) => m.id === selectedModel);
@@ -2760,58 +2717,14 @@ function ExtraChatPanel({
 		return !!model?.audio;
 	}, [availableModels, selectedModel]);
 
-	const supportsDocuments = useMemo(() => {
-		if (!selectedModel) {
-			return false;
-		}
-		const { providerId, modelId, region } =
-			parseModelSelectorValue(selectedModel);
-		const def = models.find((m) => m.id === modelId);
-		if (!def) {
-			return false;
-		}
-		if (!providerId) {
-			return def.mappings.some((p: ApiModelProviderMapping) => p.document);
-		}
-		const mapping = getSelectedMapping(def, providerId, region);
-		return !!mapping?.document;
-	}, [models, selectedModel]);
+	const supportsDocuments = hasCapability(selectedModelInfo, "document");
 
-	const supportsReasoning = useMemo(() => {
-		if (!selectedModel) {
-			return false;
-		}
-		const { providerId, modelId, region } =
-			parseModelSelectorValue(selectedModel);
-		const def = models.find((m) => m.id === modelId);
-		if (!def) {
-			return false;
-		}
-		if (!providerId) {
-			return def.mappings.some((p: ApiModelProviderMapping) => p.reasoning);
-		}
-		const mapping = getSelectedMapping(def, providerId, region);
-		return !!mapping?.reasoning;
-	}, [models, selectedModel]);
+	const supportsReasoning = hasCapability(selectedModelInfo, "reasoning");
 
-	const reasoningEfforts = useMemo(() => {
-		if (!selectedModel) {
-			return null;
-		}
-		const { providerId, modelId, region } =
-			parseModelSelectorValue(selectedModel);
-		const def = models.find((m) => m.id === modelId);
-		if (!def) {
-			return null;
-		}
-		if (!providerId) {
-			return getReasoningEffortOptions(
-				def.mappings.filter((p: ApiModelProviderMapping) => p.reasoning),
-			);
-		}
-		const mapping = getSelectedMapping(def, providerId, region);
-		return getReasoningEffortOptions(mapping ? [mapping] : []);
-	}, [models, selectedModel]);
+	const reasoningEfforts = useMemo(
+		() => getSelectedReasoningEfforts(selectedModelInfo),
+		[selectedModelInfo],
+	);
 
 	// Reset reasoning effort when switching to a model that doesn't support
 	// it. The effective options mirror what the selector renders: the model's
@@ -2827,22 +2740,7 @@ function ExtraChatPanel({
 		}
 	}, [supportsReasoning, reasoningEffort, reasoningEfforts, selectedModel]);
 
-	const supportsWebSearch = useMemo(() => {
-		if (!selectedModel) {
-			return false;
-		}
-		const { providerId, modelId, region } =
-			parseModelSelectorValue(selectedModel);
-		const def = models.find((m) => m.id === modelId);
-		if (!def) {
-			return false;
-		}
-		if (!providerId) {
-			return def.mappings.some((p: ApiModelProviderMapping) => p.webSearch);
-		}
-		const mapping = getSelectedMapping(def, providerId, region);
-		return !!mapping?.webSearch;
-	}, [models, selectedModel]);
+	const supportsWebSearch = hasCapability(selectedModelInfo, "webSearch");
 
 	const {
 		providerId: panelProviderId,
@@ -3055,10 +2953,12 @@ function ExtraChatPanel({
 
 	// When the primary chat is reset (New Chat), clear this panel's messages,
 	// input, and chatId so it starts fresh.
+	const lastResetTokenRef = useRef(resetToken);
 	useEffect(() => {
-		if (!resetToken) {
+		if (resetToken === lastResetTokenRef.current) {
 			return;
 		}
+		lastResetTokenRef.current = resetToken;
 		setText("");
 		setSyncedText("");
 		setMessages([]);

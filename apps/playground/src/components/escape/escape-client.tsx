@@ -423,7 +423,18 @@ export function EscapeClient({
 									models={models}
 									providers={providers}
 									value={model}
-									onValueChange={setModel}
+									onValueChange={(next) => {
+										if (next === model) {
+											return;
+										}
+										setModel(next);
+										if (
+											stateRef.current.step > 0 &&
+											stateRef.current.outcome === "running"
+										) {
+											reset(levelId);
+										}
+									}}
 									placeholder="Pick the model that plays…"
 								/>
 							</div>

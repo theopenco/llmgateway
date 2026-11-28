@@ -1,6 +1,5 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
 import {
 	ChevronDown,
 	ChevronUp,
@@ -14,7 +13,6 @@ import {
 	FileTextIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
@@ -38,9 +36,8 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from "@/components/ui/sidebar";
+import { useLogout } from "@/hooks/useLogout";
 import { useUser } from "@/hooks/useUser";
-import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
-import { useAuth } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
 import { ChatSidebarSkeleton } from "./chat-sidebar-skeleton";
@@ -77,33 +74,11 @@ export function SkillsSidebar({
 	selectedOrganization,
 	className,
 }: SkillsSidebarProps) {
-	const router = useRouter();
-	const queryClient = useQueryClient();
 	const { state: sidebarState, isMobile } = useSidebar();
 	const { user, isLoading: isUserLoading } = useUser();
-	const { signOut } = useAuth();
+	const logout = useLogout();
 
 	const isMac = useSidebarShortcut("j", onCreateOpen);
-
-	const logout = async () => {
-		try {
-			await clearLastUsedProjectCookiesAction();
-		} catch {
-			// ignore
-		}
-		await signOut({
-			fetchOptions: {
-				onSuccess: () => {
-					queryClient.clear();
-					router.push(
-						process.env.NODE_ENV === "development"
-							? "http://localhost:3003/login"
-							: "https://lounge.llmgateway.io/login",
-					);
-				},
-			},
-		});
-	};
 
 	const isHistoryHidden = sidebarState === "collapsed" && !isMobile;
 

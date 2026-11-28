@@ -67,7 +67,6 @@ export default function GroupChatClient({
 	const [messages, setMessages] = useState<GroupMessage[]>([]);
 	const [isStreaming, setIsStreaming] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [currentChatId] = useState<string | null>(null);
 	const [initialPrompt, setInitialPrompt] = useState("");
 	const turnsPerRound = 5;
 	const turnCounterRef = useRef(0);
@@ -311,8 +310,13 @@ export default function GroupChatClient({
 			<div className="flex h-svh bg-background w-full overflow-hidden">
 				<ChatSidebar
 					onNewChat={clearConversation}
-					onChatSelect={() => {}}
-					currentChatId={currentChatId ?? undefined}
+					onChatSelect={(id) => {
+						const params = new URLSearchParams(
+							Array.from(searchParams.entries()),
+						);
+						params.set("id", id);
+						router.push(`/?${params.toString()}`);
+					}}
 					isLoading={isStreaming}
 					organizations={organizations}
 					selectedOrganization={selectedOrganization}

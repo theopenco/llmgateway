@@ -691,6 +691,7 @@ export default function RealtimePageClient({
 			ensuredProjectRef.current = null;
 			return;
 		}
+		const controller = new AbortController();
 		const ensureKey = async () => {
 			if (!selectedOrganization) {
 				return;
@@ -704,8 +705,9 @@ export default function RealtimePageClient({
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ projectId }),
+					signal: controller.signal,
 				});
-				if (response.ok && selectedProject.id === projectId) {
+				if (response.ok && !controller.signal.aborted) {
 					ensuredProjectRef.current = projectId;
 				}
 			} catch {
@@ -713,6 +715,7 @@ export default function RealtimePageClient({
 			}
 		};
 		void ensureKey();
+		return () => controller.abort();
 	}, [isAuthenticated, selectedOrganization, selectedProject]);
 
 	const handleSelectOrganization = useCallback(

@@ -50,4 +50,18 @@ describe("video proxy", () => {
 			expect(new Headers(init?.headers).get("x-no-fallback")).toBe("true");
 		},
 	);
+
+	test("rejects a malformed JSON body with 400 without calling the gateway", async () => {
+		const upstream = vi.spyOn(globalThis, "fetch");
+		const response = await POST(
+			new Request("http://localhost/api/video", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: "{not json",
+			}),
+		);
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({ error: "Invalid JSON payload" });
+		expect(upstream).not.toHaveBeenCalled();
+	});
 });

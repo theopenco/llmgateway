@@ -1,7 +1,5 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
 import {
 	MessageSquare,
 	Edit2,
@@ -10,17 +8,12 @@ import {
 	Pin,
 	PinOff,
 	ChevronDown,
-	ChevronUp,
-	CreditCard,
-	LogOut,
-	ExternalLink,
 	Sparkles,
 	Trophy,
 } from "lucide-react";
 // import dynamic from "next/dynamic";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { usePostHog } from "posthog-js/react";
+import { usePathname } from "next/navigation";
 import {
 	useCallback,
 	useEffect,
@@ -30,10 +23,8 @@ import {
 	useState,
 } from "react";
 import { List, type RowComponentProps } from "react-window";
-import { toast } from "sonner";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
-import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { SidebarLoungePoints } from "@/components/lounge/sidebar-points";
 import { ProductSwitcher } from "@/components/product-switcher";
 import { Button } from "@/components/ui/button";
@@ -41,7 +32,6 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
-	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -64,12 +54,17 @@ import {
 } from "@/hooks/useChats";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useUser } from "@/hooks/useUser";
-import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
-import { useAuth } from "@/lib/auth-client";
+import {
+	DATE_GROUP_LABELS,
+	DATE_GROUP_ORDER,
+	formatRelativeDate,
+	groupByDate,
+} from "@/lib/chat-date-groups";
 
 import { ChatSidebarSkeleton } from "./chat-sidebar-skeleton";
 import { OrganizationSwitcher } from "./organization-switcher";
 import { SidebarChatSearch, SidebarNewAction } from "./sidebar-actions";
+import { SidebarUserMenu } from "./sidebar-user-menu";
 import { StudioNav } from "./studio-nav";
 // import { ProjectSwitcher } from "./project-switcher";
 
@@ -271,7 +266,8 @@ function ChatHistoryItem({
 								{chat.title}
 							</div>
 							<div className="text-xs text-muted-foreground">
-								{chat.messageCount} messages • {formatDate(chat.updatedAt)}
+								{chat.messageCount} messages •{" "}
+								{formatRelativeDate(chat.updatedAt)}
 							</div>
 						</div>
 					</SidebarMenuButton>
@@ -424,52 +420,6 @@ function ChatHistoryRowComponent({
 	);
 }
 
-function formatDate(dateString: string): string {
-	const date = new Date(dateString);
-	const now = new Date();
-	const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
-
-	if (diffInHours < 1) {
-		return "Just now";
-	} else if (diffInHours < 24) {
-		return `${Math.floor(diffInHours)}h ago`;
-	} else if (diffInHours < 48) {
-		return "Yesterday";
-	} else {
-		return format(date, "MMM d");
-	}
-}
-
-function groupChatsByDate(chats: Chat[]) {
-	const today = new Date();
-	const yesterday = new Date(today);
-	yesterday.setDate(yesterday.getDate() - 1);
-	const lastWeek = new Date(today);
-	lastWeek.setDate(lastWeek.getDate() - 7);
-
-	const groups = {
-		today: [] as Chat[],
-		yesterday: [] as Chat[],
-		lastWeek: [] as Chat[],
-		older: [] as Chat[],
-	};
-
-	chats.forEach((chat) => {
-		const chatDate = new Date(chat.updatedAt);
-		if (chatDate.toDateString() === today.toDateString()) {
-			groups.today.push(chat);
-		} else if (chatDate.toDateString() === yesterday.toDateString()) {
-			groups.yesterday.push(chat);
-		} else if (chatDate >= lastWeek) {
-			groups.lastWeek.push(chat);
-		} else {
-			groups.older.push(chat);
-		}
-	});
-
-	return groups;
-}
-
 export const ChatSidebar = function ChatSidebar({
 	ref,
 	currentChatId,
@@ -491,14 +441,10 @@ export const ChatSidebar = function ChatSidebar({
 		},
 	}));
 
-	const queryClient = useQueryClient();
-	const router = useRouter();
 	const pathname = usePathname();
-	const posthog = usePostHog();
 	const { state: sidebarState, isMobile, setOpenMobile } = useSidebar();
 	const showOrganizationSwitcher = pathname === "/" || pathname === "/group";
 	const { user, isLoading: isUserLoading } = useUser();
-	const { signOut } = useAuth();
 	const { organization, isLoading: isOrgLoading } = useOrganization();
 
 	// Resolve the org context for chat history: the selected org, or the
@@ -543,30 +489,6 @@ export const ChatSidebar = function ChatSidebar({
 	}, []);
 
 	const chats = useMemo(() => chatsData?.chats ?? [], [chatsData?.chats]);
-
-	const logout = async () => {
-		posthog.reset();
-
-		// Clear last used project cookies before signing out
-		try {
-			await clearLastUsedProjectCookiesAction();
-		} catch {
-			toast.error("Failed to clear last used project cookies");
-		}
-
-		await signOut({
-			fetchOptions: {
-				onSuccess: () => {
-					queryClient.clear();
-					router.push(
-						process.env.NODE_ENV === "development"
-							? "http://localhost:3003/login"
-							: "https://lounge.llmgateway.io/login",
-					);
-				},
-			},
-		});
-	};
 
 	const handleEditTitle = useCallback((chat: Chat) => {
 		setEditingId(chat.id);
@@ -658,17 +580,16 @@ export const ChatSidebar = function ChatSidebar({
 	);
 
 	const chatGroups = useMemo(
-		() => groupChatsByDate(sortedChats.filter((chat) => !chat.pinned)),
+		() => groupByDate(sortedChats.filter((chat) => !chat.pinned)),
 		[sortedChats],
 	);
 
 	const historyRows = useMemo<ChatHistoryRow[]>(() => {
-		const groups: Array<{ title: string; chats: Chat[] }> = [
-			{ title: "Today", chats: chatGroups.today },
-			{ title: "Yesterday", chats: chatGroups.yesterday },
-			{ title: "Last 7 days", chats: chatGroups.lastWeek },
-			{ title: "Older", chats: chatGroups.older },
-		];
+		const groups: Array<{ title: string; chats: Chat[] }> =
+			DATE_GROUP_ORDER.map((key) => ({
+				title: DATE_GROUP_LABELS[key],
+				chats: chatGroups[key],
+			}));
 		const rows: ChatHistoryRow[] = [];
 
 		// Pinned chats render in a separate sticky block above the scrollable
@@ -783,6 +704,7 @@ export const ChatSidebar = function ChatSidebar({
 						disabled={pathname !== "/"}
 						onChatSelect={handleChatSelect}
 						onNewChat={onNewChat}
+						organizationId={resolvedOrgId}
 					/>
 					<SidebarNewAction
 						label="New Chat"
@@ -942,95 +864,25 @@ export const ChatSidebar = function ChatSidebar({
 						}
 					/>
 				</div>
-				<SidebarMenu>
-					<SidebarMenuItem>
-						<DropdownMenu>
-							<DropdownMenuTrigger asChild>
-								<SidebarMenuButton
-									size="lg"
-									tooltip={user?.name ?? "User"}
-									className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-								>
-									<div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-										<span className="text-xs font-semibold">
-											{user?.name
-												?.split(" ")
-												.map((n: string) => n[0])
-												.join("")
-												.toUpperCase()
-												.slice(0, 2) ?? "U"}
-										</span>
-									</div>
-									<div className="grid flex-1 text-left text-sm leading-tight">
-										<span className="truncate font-semibold">{user?.name}</span>
-										<span className="truncate text-xs text-muted-foreground">
-											{user?.email}
-										</span>
-									</div>
-									<ChevronUp className="ml-auto size-4 group-data-[collapsible=icon]:hidden" />
-								</SidebarMenuButton>
-							</DropdownMenuTrigger>
-							<DropdownMenuContent
-								className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg"
-								side="top"
-								align="end"
-								sideOffset={4}
-							>
-								<DropdownMenuItem asChild>
-									<Link href="/profile" prefetch={true}>
-										<Sparkles className="mr-2 h-4 w-4" />
-										Profile &amp; Points
-									</Link>
-								</DropdownMenuItem>
-								<DropdownMenuItem asChild>
-									<Link href="/leaderboard" prefetch={true}>
-										<Trophy className="mr-2 h-4 w-4" />
-										Leaderboard
-									</Link>
-								</DropdownMenuItem>
-								<DropdownMenuItem asChild>
-									<Link href="/pricing" prefetch={true}>
-										<CreditCard className="mr-2 h-4 w-4" />
-										Membership &amp; Billing
-									</Link>
-								</DropdownMenuItem>
-								<DropdownMenuSeparator />
-								<DropdownMenuItem asChild>
-									<a
-										href={
-											process.env.NODE_ENV === "development"
-												? "http://localhost:3002/dashboard"
-												: "https://llmgateway.io/dashboard"
-										}
-										target="_blank"
-										rel="noopener noreferrer"
-									>
-										<ExternalLink className="mr-2 h-4 w-4" />
-										Dashboard
-									</a>
-								</DropdownMenuItem>
-								<DropdownMenuSeparator />
-								<DropdownMenuItem
-									className="justify-between gap-3"
-									onSelect={(event) => event.preventDefault()}
-								>
-									<span>Theme</span>
-									<div
-										onClick={(event) => event.stopPropagation()}
-										onKeyDown={(event) => event.stopPropagation()}
-									>
-										<ThemeToggle className="shrink-0" size="compact" />
-									</div>
-								</DropdownMenuItem>
-								<DropdownMenuSeparator />
-								<DropdownMenuItem onClick={logout}>
-									<LogOut className="mr-2 h-4 w-4" />
-									Log out
-								</DropdownMenuItem>
-							</DropdownMenuContent>
-						</DropdownMenu>
-					</SidebarMenuItem>
-				</SidebarMenu>
+				<SidebarUserMenu
+					user={user}
+					leadingItems={
+						<>
+							<DropdownMenuItem asChild>
+								<Link href="/profile" prefetch={true}>
+									<Sparkles className="mr-2 h-4 w-4" />
+									Profile &amp; Points
+								</Link>
+							</DropdownMenuItem>
+							<DropdownMenuItem asChild>
+								<Link href="/leaderboard" prefetch={true}>
+									<Trophy className="mr-2 h-4 w-4" />
+									Leaderboard
+								</Link>
+							</DropdownMenuItem>
+						</>
+					}
+				/>
 			</SidebarFooter>
 		</Sidebar>
 	);

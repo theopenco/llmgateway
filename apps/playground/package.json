@@ -95,8 +95,7 @@
 		"shiki": "3.22.0",
 		"sonner": "^2.0.7",
 		"streamdown": "2.1.0",
-		"tailwind-merge": "3.3.1",
-		"tokenlens": "1.3.1"
+		"tailwind-merge": "3.3.1"
 	},
 	"devDependencies": {
 		"@eslint/eslintrc": "^3.3.1",
