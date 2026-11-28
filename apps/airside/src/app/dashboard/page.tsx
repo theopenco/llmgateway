@@ -77,7 +77,9 @@ export default function OperationsPage() {
 		"get",
 		"/airside/filings",
 		{
-			params: { query: { providerCompanyId: company?.id ?? "" } },
+			params: {
+				query: { providerCompanyId: company?.id ?? "", status: "pending" },
+			},
 		},
 		{ enabled: !!company },
 	);
@@ -108,8 +110,26 @@ export default function OperationsPage() {
 	}
 
 	const stats = statsQuery.data;
-	const pendingFilings = (filingsQuery.data?.filings ?? []).filter(
-		(f) => f.status === "pending",
+	const pendingFilings = [
+		...(filingsQuery.data?.filings ?? []).map((filing) => ({
+			id: filing.id,
+			name: filing.modelName,
+			createdAt: filing.createdAt,
+			label:
+				filing.kind === "initial"
+					? "New listing"
+					: filing.kind === "metadata"
+						? "Metadata change"
+						: "Fare change",
+		})),
+		...(filingsQuery.data?.routingFilings ?? []).map((filing) => ({
+			id: filing.id,
+			name: filing.modelId ?? `${filing.providerId} · all models`,
+			createdAt: filing.createdAt,
+			label: "Routing fare change",
+		})),
+	].sort(
+		(a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
 	);
 
 	return (
@@ -275,20 +295,12 @@ export default function OperationsPage() {
 										className="border-border flex items-center justify-between rounded-md border px-3 py-2"
 									>
 										<div className="min-w-0">
-											<span className="font-mono text-sm">
-												{filing.modelName}
-											</span>
+											<span className="font-mono text-sm">{filing.name}</span>
 											<p className="text-muted-foreground text-xs">
 												filed <RelativeDate date={filing.createdAt} />
 											</p>
 										</div>
-										<Badge variant="pending">
-											{filing.kind === "initial"
-												? "New listing"
-												: filing.kind === "metadata"
-													? "Metadata change"
-													: "Fare change"}
-										</Badge>
+										<Badge variant="pending">{filing.label}</Badge>
 									</li>
 								))}
 							</ul>

@@ -4,6 +4,8 @@ import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { RESOURCE_PAGES } from "@/lib/resources";
 
+import { JsonLd } from "@llmgateway/shared/json-ld";
+
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -65,14 +67,7 @@ export default function Resources() {
 		<>
 			<Header />
 			<main className="mx-auto min-h-[70vh] max-w-6xl px-4 py-16 sm:px-6">
-				<script
-					type="application/ld+json"
-					// Static resource metadata, escaped for script context.
-					// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-					dangerouslySetInnerHTML={{
-						__html: JSON.stringify(schema).replace(/</g, "\\u003c"),
-					}}
-				/>
+				<JsonLd data={schema} />
 				<p className="text-primary font-mono text-xs tracking-widest uppercase">
 					Before your first request
 				</p>

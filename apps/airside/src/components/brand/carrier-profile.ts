@@ -164,9 +164,9 @@ export function profilePatchBody(
 	return body;
 }
 
-export function profileFieldError(
-	key: ProfileKey,
-	draft: ProfileDraft,
+export function profileFieldError<K extends ProfileKey>(
+	key: K,
+	draft: Pick<ProfileDraft, K>,
 ): string | null {
 	const value = draft[key].trim();
 	if (

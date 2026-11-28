@@ -20,6 +20,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { useApi } from "@/lib/fetch-client";
 import { formatPercent } from "@/lib/format";
+import { useInvalidateFleet } from "@/lib/use-invalidate-fleet";
 
 import { DEFAULT_ROUTING_WEIGHTS } from "@llmgateway/shared/routing-defaults";
 
@@ -61,6 +62,7 @@ function FareEditor({
 }) {
 	const api = useApi();
 	const queryClient = useQueryClient();
+	const invalidateFleet = useInvalidateFleet(providerCompanyId);
 	const [discount, setDiscount] = useState(setting.discountPercent);
 	const [margin, setMargin] = useState(setting.marginPercent);
 	const modelSetting = "modelId" in setting ? setting : undefined;
@@ -82,6 +84,7 @@ function FareEditor({
 						params: { query: { providerCompanyId } },
 					}).queryKey,
 				});
+				await invalidateFleet.filings();
 				toast.success(
 					filing.status === "approved"
 						? "Fare change applied — it reaches dispatch within minutes."

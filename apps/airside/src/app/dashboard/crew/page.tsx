@@ -7,6 +7,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { useCompany } from "@/components/dashboard/company-context";
+import { QueryError } from "@/components/dashboard/IncidentsTable";
 import { RelativeDate } from "@/components/RelativeDate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { useApi } from "@/lib/fetch-client";
+import { toastApiError } from "@/lib/toast-api-error";
 
 export default function CrewPage() {
 	const api = useApi();
@@ -62,9 +64,7 @@ export default function CrewPage() {
 			);
 		},
 		onError: (error) => {
-			toast.error(
-				(error as { message?: string })?.message ?? "Failed to invite",
-			);
+			toastApiError(error, "Failed to invite");
 		},
 	});
 
@@ -77,9 +77,7 @@ export default function CrewPage() {
 				toast.success("Crew member removed.");
 			},
 			onError: (error) => {
-				toast.error(
-					(error as { message?: string })?.message ?? "Failed to remove",
-				);
+				toastApiError(error, "Failed to remove");
 			},
 		},
 	);
@@ -93,9 +91,7 @@ export default function CrewPage() {
 				toast.success("Invite revoked.");
 			},
 			onError: (error) => {
-				toast.error(
-					(error as { message?: string })?.message ?? "Failed to revoke",
-				);
+				toastApiError(error, "Failed to revoke");
 			},
 		},
 	);
@@ -117,6 +113,16 @@ export default function CrewPage() {
 				</Link>
 				.
 			</p>
+		);
+	}
+
+	if (crewQuery.isError && !crewQuery.data) {
+		return (
+			<QueryError
+				message="Couldn't load your crew."
+				onRetry={() => void crewQuery.refetch()}
+				retrying={crewQuery.isFetching}
+			/>
 		);
 	}
 

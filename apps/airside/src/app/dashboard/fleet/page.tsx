@@ -1,6 +1,5 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
 import {
 	Download,
 	KeyRound,
@@ -34,6 +33,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/lib/fetch-client";
 import { formatPerMillion } from "@/lib/format";
+import { toastApiError } from "@/lib/toast-api-error";
+import { useInvalidateFleet } from "@/lib/use-invalidate-fleet";
 import { cn } from "@/lib/utils";
 
 import type { paths } from "@/lib/api/v1";
@@ -77,7 +78,7 @@ function RegionFareChip({
 	entry: RegionPrice;
 }) {
 	const api = useApi();
-	const queryClient = useQueryClient();
+	const invalidate = useInvalidateFleet(model.providerCompanyId);
 	const [confirming, setConfirming] = useState(false);
 
 	const removeRegion = api.useMutation(
@@ -85,28 +86,13 @@ function RegionFareChip({
 		"/airside/models/{id}/regions/{region}",
 		{
 			onSuccess: async () => {
-				await queryClient.invalidateQueries({
-					queryKey: api.queryOptions("get", "/airside/models", {
-						params: {
-							query: { providerCompanyId: model.providerCompanyId },
-						},
-					}).queryKey,
-				});
+				await invalidate.models();
 				// Removal lands as an auto-approved filing in the filings history.
-				await queryClient.invalidateQueries({
-					queryKey: api.queryOptions("get", "/airside/filings", {
-						params: {
-							query: { providerCompanyId: model.providerCompanyId },
-						},
-					}).queryKey,
-				});
+				await invalidate.filings();
 				toast.success(`Region '${entry.region}' removed.`);
 			},
 			onError: (error) => {
-				toast.error(
-					(error as { message?: string })?.message ??
-						"Failed to remove the region",
-				);
+				toastApiError(error, "Failed to remove the region");
 			},
 		},
 	);
@@ -153,18 +139,12 @@ function RegionFareChip({
 
 function PauseModelButton({ model }: { model: AirsideModel }) {
 	const api = useApi();
-	const queryClient = useQueryClient();
+	const invalidate = useInvalidateFleet(model.providerCompanyId);
 	const paused = !!model.pausedAt;
 
 	const options = {
 		onSuccess: async () => {
-			await queryClient.invalidateQueries({
-				queryKey: api.queryOptions("get", "/airside/models", {
-					params: {
-						query: { providerCompanyId: model.providerCompanyId },
-					},
-				}).queryKey,
-			});
+			await invalidate.models();
 			toast.success(
 				paused
 					? `${model.modelName} is back in service.`
@@ -172,9 +152,9 @@ function PauseModelButton({ model }: { model: AirsideModel }) {
 			);
 		},
 		onError: (error: unknown) => {
-			toast.error(
-				(error as { message?: string })?.message ??
-					(paused ? "Failed to resume model" : "Failed to pause model"),
+			toastApiError(
+				error,
+				paused ? "Failed to resume model" : "Failed to pause model",
 			);
 		},
 	};
@@ -214,26 +194,14 @@ function PauseModelButton({ model }: { model: AirsideModel }) {
 
 function DeleteModelButton({ model }: { model: AirsideModel }) {
 	const api = useApi();
-	const queryClient = useQueryClient();
+	const invalidate = useInvalidateFleet(model.providerCompanyId);
 	const [confirming, setConfirming] = useState(false);
 
 	const deleteModel = api.useMutation("delete", "/airside/models/{id}", {
 		onSuccess: async (data) => {
-			await queryClient.invalidateQueries({
-				queryKey: api.queryOptions("get", "/airside/models", {
-					params: {
-						query: { providerCompanyId: model.providerCompanyId },
-					},
-				}).queryKey,
-			});
+			await invalidate.models();
 			// Deleting a draft also removes its pending filing server-side.
-			await queryClient.invalidateQueries({
-				queryKey: api.queryOptions("get", "/airside/filings", {
-					params: {
-						query: { providerCompanyId: model.providerCompanyId },
-					},
-				}).queryKey,
-			});
+			await invalidate.filings();
 			toast.success(
 				data.status === "deleted"
 					? "Draft removed from the register."
@@ -241,9 +209,7 @@ function DeleteModelButton({ model }: { model: AirsideModel }) {
 			);
 		},
 		onError: (error) => {
-			toast.error(
-				(error as { message?: string })?.message ?? "Failed to remove model",
-			);
+			toastApiError(error, "Failed to remove model");
 		},
 	});
 
@@ -279,44 +245,26 @@ function DeleteModelButton({ model }: { model: AirsideModel }) {
 
 function RelistModelButton({ model }: { model: AirsideModel }) {
 	const api = useApi();
-	const queryClient = useQueryClient();
+	const invalidate = useInvalidateFleet(model.providerCompanyId);
 
 	const relist = api.useMutation("post", "/airside/models/{id}/relist", {
 		onSuccess: async () => {
-			await queryClient.invalidateQueries({
-				queryKey: api.queryOptions("get", "/airside/models", {
-					params: {
-						query: { providerCompanyId: model.providerCompanyId },
-					},
-				}).queryKey,
-			});
+			await invalidate.models();
 			toast.success(
 				`Relist request sent. ${model.modelName} returns to service at its last approved fare once LLM Gateway approves it.`,
 			);
 		},
 		onError: (error) => {
-			toast.error(
-				(error as { message?: string })?.message ??
-					"Failed to request a relist",
-			);
+			toastApiError(error, "Failed to request a relist");
 		},
 	});
 	const withdraw = api.useMutation("delete", "/airside/models/{id}/relist", {
 		onSuccess: async () => {
-			await queryClient.invalidateQueries({
-				queryKey: api.queryOptions("get", "/airside/models", {
-					params: {
-						query: { providerCompanyId: model.providerCompanyId },
-					},
-				}).queryKey,
-			});
+			await invalidate.models();
 			toast.success("Relist request withdrawn.");
 		},
 		onError: (error) => {
-			toast.error(
-				(error as { message?: string })?.message ??
-					"Failed to withdraw the relist request",
-			);
+			toastApiError(error, "Failed to withdraw the relist request");
 		},
 	});
 
@@ -348,9 +296,9 @@ function RelistModelButton({ model }: { model: AirsideModel }) {
 }
 
 export default function FleetPage() {
-	const queryClient = useQueryClient();
 	const api = useApi();
 	const { company, isLoading: companyLoading } = useCompany();
+	const invalidate = useInvalidateFleet(company?.id ?? "");
 
 	const modelsQuery = api.useQuery(
 		"get",
@@ -373,14 +321,7 @@ export default function FleetPage() {
 
 	const importModels = api.useMutation("post", "/airside/models/import", {
 		onSuccess: async (data) => {
-			await Promise.all([
-				modelsQuery.refetch(),
-				queryClient.invalidateQueries({
-					queryKey: api.queryOptions("get", "/airside/filings", {
-						params: { query: { providerCompanyId: company?.id ?? "" } },
-					}).queryKey,
-				}),
-			]);
+			await Promise.all([modelsQuery.refetch(), invalidate.filings()]);
 			toast.success(
 				data.imported.length > 0
 					? `Imported ${data.imported.length} catalogue model${data.imported.length === 1 ? "" : "s"}.`
@@ -388,10 +329,7 @@ export default function FleetPage() {
 			);
 		},
 		onError: (error) => {
-			toast.error(
-				(error as { message?: string })?.message ??
-					"Failed to import catalogue models",
-			);
+			toastApiError(error, "Failed to import catalogue models");
 		},
 	});
 

@@ -45,6 +45,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useApi } from "@/lib/fetch-client";
 import { perMillionToPerToken, perTokenToPerMillion } from "@/lib/format";
+import { useInvalidateFleet } from "@/lib/use-invalidate-fleet";
 
 import {
 	CONTEXT_TIER_TOLERANCE,
@@ -192,17 +193,10 @@ function ContextSizeWarning({
 function useInvalidateModels(providerCompanyId: string) {
 	const api = useApi();
 	const queryClient = useQueryClient();
+	const invalidateFleet = useInvalidateFleet(providerCompanyId);
 	return async () => {
-		await queryClient.invalidateQueries({
-			queryKey: api.queryOptions("get", "/airside/models", {
-				params: { query: { providerCompanyId } },
-			}).queryKey,
-		});
-		await queryClient.invalidateQueries({
-			queryKey: api.queryOptions("get", "/airside/filings", {
-				params: { query: { providerCompanyId } },
-			}).queryKey,
-		});
+		await invalidateFleet.models();
+		await invalidateFleet.filings();
 		// Claims carry the provider key a first model files.
 		await queryClient.invalidateQueries({
 			queryKey: api.queryOptions("get", "/airside/companies", {}).queryKey,
@@ -543,10 +537,12 @@ function RegionFaresEditor({
 	idPrefix,
 	rows,
 	onChange,
+	disabled = false,
 }: {
 	idPrefix: string;
 	rows: RegionFareRow[];
 	onChange: (rows: RegionFareRow[]) => void;
+	disabled?: boolean;
 }) {
 	const setRow = (index: number, patch: Partial<RegionFareRow>) => {
 		onChange(
@@ -586,6 +582,7 @@ function RegionFaresEditor({
 								}
 								placeholder="au"
 								required
+								disabled={disabled}
 							/>
 						</div>
 						<Button
@@ -594,6 +591,7 @@ function RegionFaresEditor({
 							variant="ghost"
 							aria-label="Remove region"
 							data-testid={`${idPrefix}-remove-region-${index}`}
+							disabled={disabled}
 							onClick={() =>
 								onChange(rows.filter((_, rowIndex) => rowIndex !== index))
 							}
@@ -613,6 +611,7 @@ function RegionFaresEditor({
 								onChange={(e) => setRow(index, { inputPrice: e.target.value })}
 								placeholder="2"
 								required
+								disabled={disabled}
 							/>
 						</div>
 						<div className="space-y-2">
@@ -626,6 +625,7 @@ function RegionFaresEditor({
 								onChange={(e) => setRow(index, { outputPrice: e.target.value })}
 								placeholder="6"
 								required
+								disabled={disabled}
 							/>
 						</div>
 						<div className="space-y-2">
@@ -639,6 +639,7 @@ function RegionFaresEditor({
 									setRow(index, { cachedInputPrice: e.target.value })
 								}
 								placeholder="same as default"
+								disabled={disabled}
 							/>
 							<CachedPriceWarning
 								inputPrice={row.inputPrice}
@@ -656,6 +657,7 @@ function RegionFaresEditor({
 									setRow(index, { requestPrice: e.target.value })
 								}
 								placeholder="same as default"
+								disabled={disabled}
 							/>
 						</div>
 					</div>
@@ -666,6 +668,7 @@ function RegionFaresEditor({
 				size="sm"
 				variant="outline"
 				data-testid={`${idPrefix}-add-region-fare`}
+				disabled={disabled}
 				onClick={() => onChange([...rows, EMPTY_REGION_FARE])}
 			>
 				<Plus className="size-4" /> Add region
@@ -741,11 +744,7 @@ function WebSearchFormatPicker({
 							disabled={disabled}
 							data-testid={`${testIdPrefix}${format.value}`}
 							onClick={() => onChange(format.value)}
-							className={
-								active
-									? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
-									: "border-border text-muted-foreground hover:text-foreground rounded-full border px-2.5 py-1 font-mono text-xs"
-							}
+							className={pillClassName(active)}
 						>
 							{format.label}
 						</button>
@@ -756,6 +755,145 @@ function WebSearchFormatPicker({
 				How your Chat Completions endpoint takes a web search. Preflight sends
 				it in this shape and passes only when the response shows a search ran.
 			</p>
+		</div>
+	);
+}
+
+function pillClassName(active: boolean): string {
+	return active
+		? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
+		: "border-border text-muted-foreground hover:text-foreground rounded-full border px-2.5 py-1 font-mono text-xs";
+}
+
+function toggleValue<T>(values: T[], value: T): T[] {
+	return values.includes(value)
+		? values.filter((existing) => existing !== value)
+		: [...values, value];
+}
+
+function promptCachingFor(
+	cachedInputPrice: string,
+	regionFares: RegionFareRow[],
+): boolean {
+	return (
+		Boolean(cachedInputPrice) ||
+		regionFares.some((fare) => Boolean(fare.cachedInputPrice))
+	);
+}
+
+function CapabilitiesFields({
+	decisions,
+	capabilities,
+	onCapabilitiesChange,
+	toolChoices,
+	onToolChoicesChange,
+	reasoningEfforts,
+	onReasoningEffortsChange,
+	webSearchFormat,
+	onWebSearchFormatChange,
+	disabled,
+	testIdPrefix,
+}: {
+	decisions: boolean;
+	capabilities: Record<CapabilityKey, boolean>;
+	onCapabilitiesChange: (capabilities: Record<CapabilityKey, boolean>) => void;
+	toolChoices: ToolChoiceModeOption[];
+	onToolChoicesChange: (toolChoices: ToolChoiceModeOption[]) => void;
+	reasoningEfforts: ReasoningEffortOption[];
+	onReasoningEffortsChange: (reasoningEfforts: ReasoningEffortOption[]) => void;
+	webSearchFormat: WebSearchFormatOption | null;
+	onWebSearchFormatChange: (value: WebSearchFormatOption) => void;
+	disabled: boolean;
+	testIdPrefix: string;
+}) {
+	return (
+		<div className="space-y-2">
+			<Label>Capabilities</Label>
+			<div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+				{(decisions ? DECISION_CAPABILITIES : CAPABILITIES).map((cap) => (
+					<label
+						key={cap.key}
+						className="border-border flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
+					>
+						{cap.label}
+						<Switch
+							checked={capabilities[cap.key]}
+							disabled={disabled}
+							onCheckedChange={(checked) =>
+								onCapabilitiesChange({ ...capabilities, [cap.key]: checked })
+							}
+						/>
+					</label>
+				))}
+			</div>
+			{!decisions && capabilities.tools ? (
+				<div className="space-y-1 pt-1">
+					<Label className="text-muted-foreground text-xs">
+						Accepted tool_choice modes
+					</Label>
+					<div className="flex flex-wrap gap-1.5">
+						{TOOL_CHOICE_MODES.map((mode) => {
+							const active = toolChoices.includes(mode);
+							return (
+								<button
+									key={mode}
+									type="button"
+									aria-pressed={active}
+									disabled={disabled}
+									data-testid={`${testIdPrefix}tool-choice-${mode}`}
+									onClick={() =>
+										onToolChoicesChange(toggleValue(toolChoices, mode))
+									}
+									className={pillClassName(active)}
+								>
+									{mode}
+								</button>
+							);
+						})}
+					</div>
+					<p className="text-muted-foreground text-xs">
+						Deselect a mode your endpoint mishandles — requests asking for it
+						fall back to auto instead of reaching the deployment.
+					</p>
+				</div>
+			) : null}
+			{!decisions && capabilities.webSearch ? (
+				<WebSearchFormatPicker
+					value={webSearchFormat}
+					disabled={disabled}
+					testIdPrefix={`${testIdPrefix}web-search-format-`}
+					onChange={onWebSearchFormatChange}
+				/>
+			) : null}
+			{!decisions && capabilities.reasoning ? (
+				<div className="space-y-1 pt-1">
+					<Label className="text-muted-foreground text-xs">
+						Supported reasoning efforts
+					</Label>
+					<div className="flex flex-wrap gap-1.5">
+						{REASONING_EFFORTS.map((effort) => {
+							const active = reasoningEfforts.includes(effort);
+							return (
+								<button
+									key={effort}
+									type="button"
+									aria-pressed={active}
+									disabled={disabled}
+									data-testid={`effort-${effort}`}
+									onClick={() =>
+										onReasoningEffortsChange(
+											toggleValue(reasoningEfforts, effort),
+										)
+									}
+									className={pillClassName(active)}
+								>
+									{effort}
+								</button>
+							);
+						})}
+					</div>
+				</div>
+			) : null}
 		</div>
 	);
 }
@@ -948,7 +1086,7 @@ export function RegisterModelDialog({
 		"/airside/model-verifications/{id}",
 		{ params: { path: { id: verificationId } } },
 		{
-			enabled: Boolean(verificationId),
+			enabled: open && Boolean(verificationId),
 			refetchInterval: (query) => {
 				const status = query.state.data?.verification.status;
 				return status === "queued" || status === "running" ? 1_000 : false;
@@ -961,6 +1099,17 @@ export function RegisterModelDialog({
 	const resetVerification = () => {
 		if (verificationId) {
 			setVerificationId("");
+		}
+	};
+	const resetVerificationIfPromptCachingFlips = (
+		nextCachedInputPrice: string,
+		nextRegionFares: RegionFareRow[],
+	) => {
+		if (
+			promptCachingFor(nextCachedInputPrice, nextRegionFares) !==
+			promptCachingFor(cachedInputPrice, regionFares)
+		) {
+			resetVerification();
 		}
 	};
 	const queueVerification = api.useMutation(
@@ -1056,9 +1205,7 @@ export function RegisterModelDialog({
 		externalId: externalId || undefined,
 		contextSize: Number(contextSize) || undefined,
 		promptCaching:
-			!decisions &&
-			(Boolean(cachedInputPrice) ||
-				regionFares.some((fare) => Boolean(fare.cachedInputPrice))),
+			!decisions && promptCachingFor(cachedInputPrice, regionFares),
 		...declaredCapabilities,
 	};
 
@@ -1411,117 +1558,31 @@ export function RegisterModelDialog({
 						</div>
 					)}
 
-					<div className="space-y-2">
-						<Label>Capabilities</Label>
-						<div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-							{(decisions ? DECISION_CAPABILITIES : CAPABILITIES).map((cap) => (
-								<label
-									key={cap.key}
-									className="border-border flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
-								>
-									{cap.label}
-									<Switch
-										checked={capabilities[cap.key]}
-										disabled={verificationInProgress}
-										onCheckedChange={(checked) => {
-											setCapabilities((prev) => ({
-												...prev,
-												[cap.key]: checked,
-											}));
-											resetVerification();
-										}}
-									/>
-								</label>
-							))}
-						</div>
-						{!decisions && capabilities.tools ? (
-							<div className="space-y-1 pt-1">
-								<Label className="text-muted-foreground text-xs">
-									Accepted tool_choice modes
-								</Label>
-								<div className="flex flex-wrap gap-1.5">
-									{TOOL_CHOICE_MODES.map((mode) => {
-										const active = toolChoices.includes(mode);
-										return (
-											<button
-												key={mode}
-												type="button"
-												aria-pressed={active}
-												disabled={verificationInProgress}
-												data-testid={`tool-choice-${mode}`}
-												onClick={() => {
-													setToolChoices((prev) =>
-														prev.includes(mode)
-															? prev.filter((m) => m !== mode)
-															: [...prev, mode],
-													);
-													resetVerification();
-												}}
-												className={
-													active
-														? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
-														: "border-border text-muted-foreground hover:text-foreground rounded-full border px-2.5 py-1 font-mono text-xs"
-												}
-											>
-												{mode}
-											</button>
-										);
-									})}
-								</div>
-								<p className="text-muted-foreground text-xs">
-									Deselect a mode your endpoint mishandles — requests asking for
-									it fall back to auto instead of reaching the deployment.
-								</p>
-							</div>
-						) : null}
-						{!decisions && capabilities.webSearch ? (
-							<WebSearchFormatPicker
-								value={webSearchFormat}
-								disabled={verificationInProgress}
-								testIdPrefix="web-search-format-"
-								onChange={(value) => {
-									setWebSearchFormat(value);
-									resetVerification();
-								}}
-							/>
-						) : null}
-						{!decisions && capabilities.reasoning ? (
-							<div className="space-y-1 pt-1">
-								<Label className="text-muted-foreground text-xs">
-									Supported reasoning efforts
-								</Label>
-								<div className="flex flex-wrap gap-1.5">
-									{REASONING_EFFORTS.map((effort) => {
-										const active = reasoningEfforts.includes(effort);
-										return (
-											<button
-												key={effort}
-												type="button"
-												aria-pressed={active}
-												disabled={verificationInProgress}
-												data-testid={`effort-${effort}`}
-												onClick={() => {
-													setReasoningEfforts((prev) =>
-														prev.includes(effort)
-															? prev.filter((e) => e !== effort)
-															: [...prev, effort],
-													);
-													resetVerification();
-												}}
-												className={
-													active
-														? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
-														: "border-border text-muted-foreground hover:text-foreground rounded-full border px-2.5 py-1 font-mono text-xs"
-												}
-											>
-												{effort}
-											</button>
-										);
-									})}
-								</div>
-							</div>
-						) : null}
-					</div>
+					<CapabilitiesFields
+						decisions={decisions}
+						capabilities={capabilities}
+						onCapabilitiesChange={(next) => {
+							setCapabilities(next);
+							resetVerification();
+						}}
+						toolChoices={toolChoices}
+						onToolChoicesChange={(next) => {
+							setToolChoices(next);
+							resetVerification();
+						}}
+						reasoningEfforts={reasoningEfforts}
+						onReasoningEffortsChange={(next) => {
+							setReasoningEfforts(next);
+							resetVerification();
+						}}
+						webSearchFormat={webSearchFormat}
+						onWebSearchFormatChange={(value) => {
+							setWebSearchFormat(value);
+							resetVerification();
+						}}
+						disabled={verificationInProgress}
+						testIdPrefix=""
+					/>
 
 					<div className="grid gap-4 sm:grid-cols-2">
 						<div className="space-y-2">
@@ -1572,11 +1633,16 @@ export function RegisterModelDialog({
 								model={canonicalModel}
 								providerId={effectiveProviderId}
 								onSelect={(price) => {
+									const nextCachedInputPrice = perTokenToPerMillion(
+										price.cachedInputPrice,
+									);
+									resetVerificationIfPromptCachingFlips(
+										nextCachedInputPrice,
+										regionFares,
+									);
 									setInputPrice(perTokenToPerMillion(price.inputPrice));
 									setOutputPrice(perTokenToPerMillion(price.outputPrice));
-									setCachedInputPrice(
-										perTokenToPerMillion(price.cachedInputPrice),
-									);
+									setCachedInputPrice(nextCachedInputPrice);
 									setRequestPrice(price.requestPrice ?? "");
 								}}
 							/>
@@ -1617,8 +1683,15 @@ export function RegisterModelDialog({
 											id="model-cached-price"
 											data-testid="cached-input-price"
 											value={cachedInputPrice}
-											onChange={(e) => setCachedInputPrice(e.target.value)}
+											onChange={(e) => {
+												resetVerificationIfPromptCachingFlips(
+													e.target.value,
+													regionFares,
+												);
+												setCachedInputPrice(e.target.value);
+											}}
 											placeholder="0.5"
+											disabled={verificationInProgress}
 										/>
 										<CachedPriceWarning
 											inputPrice={inputPrice}
@@ -1642,7 +1715,11 @@ export function RegisterModelDialog({
 							<RegionFaresEditor
 								idPrefix="register"
 								rows={regionFares}
-								onChange={setRegionFares}
+								disabled={verificationInProgress}
+								onChange={(rows) => {
+									resetVerificationIfPromptCachingFlips(cachedInputPrice, rows);
+									setRegionFares(rows);
+								}}
 							/>
 						)}
 						<div className="space-y-2">
@@ -2092,19 +2169,7 @@ export function EditModelDialog({
 								description: canonicalModel ? undefined : description || null,
 								family: canonicalModel?.family ?? family,
 								quantization,
-								contextSize: contextSize ? Number(contextSize) : null,
-								maxOutput: maxOutput ? Number(maxOutput) : null,
-								...capabilities,
-								supportedToolChoices: capabilities.tools
-									? toolChoicePayload(toolChoices)
-									: null,
-								reasoningEfforts:
-									capabilities.reasoning && reasoningEfforts.length > 0
-										? reasoningEfforts
-										: null,
-								webSearchFormat: capabilities.webSearch
-									? (webSearchFormat ?? undefined)
-									: undefined,
+								...proposedCapabilities,
 								maxRpm: maxRpm ? Number(maxRpm) : null,
 								maxRpd: maxRpd ? Number(maxRpd) : null,
 								rateLimitScope,
@@ -2200,119 +2265,31 @@ export function EditModelDialog({
 							/>
 						</div>
 					)}
-					<div className="space-y-2">
-						<Label>Capabilities</Label>
-						<div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-							{(model.decisions ? DECISION_CAPABILITIES : CAPABILITIES).map(
-								(cap) => (
-									<label
-										key={cap.key}
-										className="border-border flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
-									>
-										{cap.label}
-										<Switch
-											checked={capabilities[cap.key]}
-											disabled={verificationInProgress}
-											onCheckedChange={(checked) => {
-												setCapabilities((prev) => ({
-													...prev,
-													[cap.key]: checked,
-												}));
-												resetVerification();
-											}}
-										/>
-									</label>
-								),
-							)}
-						</div>
-						{capabilities.tools ? (
-							<div className="space-y-1 pt-1">
-								<Label className="text-muted-foreground text-xs">
-									Accepted tool_choice modes
-								</Label>
-								<div className="flex flex-wrap gap-1.5">
-									{TOOL_CHOICE_MODES.map((mode) => {
-										const active = toolChoices.includes(mode);
-										return (
-											<button
-												key={mode}
-												type="button"
-												aria-pressed={active}
-												disabled={verificationInProgress}
-												data-testid={`edit-tool-choice-${mode}`}
-												onClick={() => {
-													setToolChoices((prev) =>
-														prev.includes(mode)
-															? prev.filter((m) => m !== mode)
-															: [...prev, mode],
-													);
-													resetVerification();
-												}}
-												className={
-													active
-														? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
-														: "border-border text-muted-foreground hover:text-foreground rounded-full border px-2.5 py-1 font-mono text-xs"
-												}
-											>
-												{mode}
-											</button>
-										);
-									})}
-								</div>
-								<p className="text-muted-foreground text-xs">
-									Deselect a mode your endpoint mishandles — requests asking for
-									it fall back to auto instead of reaching the deployment.
-								</p>
-							</div>
-						) : null}
-						{capabilities.webSearch ? (
-							<WebSearchFormatPicker
-								value={webSearchFormat}
-								disabled={verificationInProgress}
-								testIdPrefix="edit-web-search-format-"
-								onChange={(value) => {
-									setWebSearchFormat(value);
-									resetVerification();
-								}}
-							/>
-						) : null}
-						{capabilities.reasoning ? (
-							<div className="space-y-1 pt-1">
-								<Label className="text-muted-foreground text-xs">
-									Supported reasoning efforts
-								</Label>
-								<div className="flex flex-wrap gap-1.5">
-									{REASONING_EFFORTS.map((effort) => {
-										const active = reasoningEfforts.includes(effort);
-										return (
-											<button
-												key={effort}
-												type="button"
-												aria-pressed={active}
-												disabled={verificationInProgress}
-												data-testid={`effort-${effort}`}
-												onClick={() => {
-													setReasoningEfforts((prev) =>
-														prev.includes(effort)
-															? prev.filter((e) => e !== effort)
-															: [...prev, effort],
-													);
-													resetVerification();
-												}}
-												className={
-													active
-														? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
-														: "border-border text-muted-foreground hover:text-foreground rounded-full border px-2.5 py-1 font-mono text-xs"
-												}
-											>
-												{effort}
-											</button>
-										);
-									})}
-								</div>
-							</div>
-						) : null}
-					</div>
+					<CapabilitiesFields
+						decisions={model.decisions}
+						capabilities={capabilities}
+						onCapabilitiesChange={(next) => {
+							setCapabilities(next);
+							resetVerification();
+						}}
+						toolChoices={toolChoices}
+						onToolChoicesChange={(next) => {
+							setToolChoices(next);
+							resetVerification();
+						}}
+						reasoningEfforts={reasoningEfforts}
+						onReasoningEffortsChange={(next) => {
+							setReasoningEfforts(next);
+							resetVerification();
+						}}
+						webSearchFormat={webSearchFormat}
+						onWebSearchFormatChange={(value) => {
+							setWebSearchFormat(value);
+							resetVerification();
+						}}
+						disabled={verificationInProgress}
+						testIdPrefix="edit-"
+					/>
 					<div className="grid gap-4 sm:grid-cols-2">
 						<div className="space-y-2">
 							<Label htmlFor="edit-rpm">Rate limit (req/min)</Label>
