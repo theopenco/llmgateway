@@ -60,6 +60,42 @@ describe("compileUserRegex", () => {
 		}
 	});
 
+	it("counts wildcards per alternative", () => {
+		for (const pattern of ["^foo.*$|^bar.*$", "(?:x.*|y.*)z"]) {
+			expect(compileUserRegex(pattern, "g"), pattern).toBeInstanceOf(RegExp);
+		}
+		expect(compileUserRegex(join(["^foo.*", ".*$|^bar$"]), "g")).toBeNull();
+	});
+
+	it("rejects bounded repetition of an ambiguous body", () => {
+		for (const pattern of [
+			["(a|aa)", "{1,30}"],
+			["(?:\\d|\\w)", "{10}"],
+			["((a|aa){3})", "{3}"],
+		].map(join)) {
+			expect(compileUserRegex(pattern, "g"), pattern).toBeNull();
+		}
+		expect(compileUserRegex(join(["(a|aa)", "{2}"]), "g")).toBeInstanceOf(
+			RegExp,
+		);
+	});
+
+	it("rejects unbounded runs that can match the same text", () => {
+		for (const pattern of [
+			["\\d+", "\\d+$"],
+			["[a-z]+", "[a-z0-9]+"],
+			["\\w+a", "\\w+$"],
+			["(\\d+)", "(\\d+)$"],
+			["[a-z]+", "(?:ab)+"],
+			["(\\d+\\.\\d+)", "{2}"],
+		].map(join)) {
+			expect(compileUserRegex(pattern, "gi"), pattern).toBeNull();
+		}
+		expect(userRegexError(join(["\\d+", "\\d+$"]))).toMatch(
+			/adjacent unbounded repetitions/,
+		);
+	});
+
 	it("parses a class with an escaped newline as one atom", () => {
 		const pattern = join(["(a+[\\\n)]?)", "+$"]);
 		expect(compileUserRegex(pattern, "g")).toBeNull();
