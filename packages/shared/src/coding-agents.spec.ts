@@ -39,6 +39,7 @@ describe("isRecognizedCodingAgent", () => {
 		expect(isRecognizedCodingAgent("mimocode")).toBe(true);
 		expect(isRecognizedCodingAgent("traycer")).toBe(true);
 		expect(isRecognizedCodingAgent("foundry-toolkit")).toBe(true);
+		expect(isRecognizedCodingAgent("mezair")).toBe(true);
 		expect(isRecognizedCodingAgent("anvil")).toBe(true);
 		expect(isRecognizedCodingAgent("windows-ai-studio")).toBe(true);
 		// Detection never infers this one from a User-Agent, but callers that opt
@@ -66,6 +67,7 @@ describe("isRecognizedCodingAgent", () => {
 
 describe("normalizeSourceToAgentId", () => {
 	it("maps alternate x-source values to canonical ID", () => {
+		expect(normalizeSourceToAgentId("anvil")).toBe("mezair");
 		expect(normalizeSourceToAgentId("open-code")).toBe("opencode");
 		expect(normalizeSourceToAgentId("codeium")).toBe("windsurf");
 		expect(normalizeSourceToAgentId("roo-cline")).toBe("roo-code");

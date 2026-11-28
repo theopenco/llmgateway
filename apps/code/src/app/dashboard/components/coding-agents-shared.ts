@@ -1,6 +1,6 @@
 import {
 	AnthropicIcon,
-	AnvilIcon,
+	MezairIcon,
 	AutohandIcon,
 	ClineIcon,
 	CodexIcon,
@@ -69,11 +69,11 @@ export const AGENTS: AgentDefinition[] = [
 		guideUrl: "/guides/autohand",
 	},
 	{
-		id: "anvil",
-		label: "Anvil",
-		icon: AnvilIcon,
-		sources: ["anvil"],
-		guideUrl: "/guides/anvil",
+		id: "mezair",
+		label: "Mezair",
+		icon: MezairIcon,
+		sources: ["mezair", "anvil"],
+		guideUrl: "/guides/mezair",
 	},
 	{
 		id: "empryo",

@@ -213,12 +213,16 @@ export const CODING_AGENTS: CodingAgentDefinition[] = [
 		userAgentPatterns: [/^windows[-_]ai[-_]studio/i, /^foundry[-_]toolkit/i],
 	},
 	{
-		id: "anvil",
-		label: "Anvil",
-		xSourceValues: ["anvil"],
-		// Anvil drives a Codex backend that only sets the x-source header, so
-		// only match UAs that name Anvil itself.
-		userAgentPatterns: [/^anvil\//i, /\banvil[-_]desktop\b/i],
+		id: "mezair",
+		label: "Mezair",
+		xSourceValues: ["mezair", "anvil"],
+		// Match explicit product names and accept user agents from older clients.
+		userAgentPatterns: [
+			/^mezair\//i,
+			/\bmezair[-_]desktop\b/i,
+			/^anvil\//i,
+			/\banvil[-_]desktop\b/i,
+		],
 	},
 	{
 		id: "openai-sdk",

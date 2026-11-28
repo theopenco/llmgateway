@@ -4,7 +4,7 @@ import { ArrowRight, ArrowUpRight } from "lucide-react";
 
 import {
 	AnthropicIcon,
-	AnvilIcon,
+	MezairIcon,
 	CodexIcon,
 	DevPassCodeIcon,
 	EmpryoIcon,
@@ -52,10 +52,10 @@ const integrations: Integration[] = [
 		icon: EmpryoIcon,
 	},
 	{
-		name: "Anvil",
+		name: "Mezair",
 		description: "Repo-aware desktop workspace",
-		path: "/guides/anvil",
-		icon: AnvilIcon,
+		path: "/guides/mezair",
+		icon: MezairIcon,
 	},
 	{
 		name: "SoulForge",

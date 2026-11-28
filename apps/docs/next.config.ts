@@ -60,6 +60,21 @@ const nextConfig: NextConfig = {
 		};
 		return [
 			{
+				source: "/guides/anvil",
+				destination: "/guides/mezair",
+				permanent: true,
+			},
+			{
+				source: "/guides/anvil.mdx",
+				destination: "/guides/mezair.mdx",
+				permanent: true,
+			},
+			{
+				source: "/llms.mdx/guides/anvil",
+				destination: "/llms.mdx/guides/mezair",
+				permanent: true,
+			},
+			{
 				source: "/guides/cli",
 				destination: "/developers/cli",
 				permanent: true,

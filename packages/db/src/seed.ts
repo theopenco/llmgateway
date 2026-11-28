@@ -1144,7 +1144,7 @@ const AGENT_SOURCES: Array<{ source: string; weight: number }> = [
 	{ source: "codex", weight: 0.1 },
 	{ source: "opencode", weight: 0.1 },
 	{ source: "empryo", weight: 0.08 },
-	{ source: "anvil", weight: 0.07 },
+	{ source: "mezair", weight: 0.07 },
 	{ source: "autohand", weight: 0.06 },
 	{ source: "n8n", weight: 0.04 },
 ];
@@ -1877,7 +1877,7 @@ async function seed() {
 			],
 		},
 		{
-			source: "anvil",
+			source: "mezair",
 			weight: 0.02,
 			models: [
 				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.6 },

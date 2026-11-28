@@ -63,11 +63,13 @@ describe("detectCodingAgentFromUserAgent", () => {
 		);
 	});
 
-	it("detects Anvil", () => {
-		expect(detectCodingAgentFromUserAgent("anvil/0.6.16")).toBe("anvil");
-		expect(detectCodingAgentFromUserAgent("anvil-desktop 0.6.16")).toBe(
-			"anvil",
-		);
+	it.each([
+		"mezair/0.7.11",
+		"mezair-desktop 0.7.11",
+		"anvil/0.6.16",
+		"anvil-desktop 0.6.16",
+	])("detects Mezair from %s", (userAgent) => {
+		expect(detectCodingAgentFromUserAgent(userAgent)).toBe("mezair");
 	});
 
 	it("detects Empryo", () => {
