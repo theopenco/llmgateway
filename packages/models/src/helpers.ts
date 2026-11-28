@@ -3,7 +3,11 @@ import {
 	type PricingTier,
 	type ProviderModelMapping,
 } from "./models.js";
-import { providers, type ServiceTier } from "./providers.js";
+import {
+	providers,
+	type MappingDataPolicy,
+	type ServiceTier,
+} from "./providers.js";
 import { expandAllProviderRegions } from "./region-helpers.js";
 
 /**
@@ -160,6 +164,42 @@ export function supportsOpenAIExtendedPromptCache(modelName: string): boolean {
 // OpenAI explicit prompt caching (`prompt_cache_options` +
 // `prompt_cache_breakpoint` content markers) per
 // https://developers.openai.com/api/docs/guides/prompt-caching.
+
+/**
+ * Data-policy override of the catalogue mapping serving `providerId`, matched
+ * by catalogue model id or, failing that, upstream external id.
+ */
+export function getCatalogueMappingDataPolicy(
+	providerId: string,
+	modelId: string,
+	externalId?: string,
+): MappingDataPolicy | undefined {
+	const modelMappings = models.find((model) => model.id === modelId)
+		?.providers as readonly ProviderModelMapping[] | undefined;
+	const byModel = modelMappings?.find(
+		(mapping) =>
+			mapping.providerId === providerId &&
+			(!externalId || mapping.externalId === externalId),
+	);
+	if (byModel) {
+		return byModel.dataPolicy;
+	}
+	if (!externalId) {
+		return undefined;
+	}
+	for (const model of models) {
+		for (const mapping of model.providers as readonly ProviderModelMapping[]) {
+			if (
+				mapping.providerId === providerId &&
+				mapping.externalId === externalId
+			) {
+				return mapping.dataPolicy;
+			}
+		}
+	}
+	return undefined;
+}
+
 // Only GPT-5.6 and later model families support these fields; older models
 // reject them with a 400, so they must only be forwarded for this list.
 const OPENAI_EXPLICIT_PROMPT_CACHE_MODELS = new Set<string>([
