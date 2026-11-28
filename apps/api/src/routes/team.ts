@@ -803,6 +803,18 @@ team.openapi(addMember, async (c) => {
 		});
 	}
 
+	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
+		throw new HTTPException(403, {
+			message: "Only owners and admins can add members",
+		});
+	}
+
+	if (userOrganization.role === "admin" && role === "owner") {
+		throw new HTTPException(403, {
+			message: "Only owners can add other owners",
+		});
+	}
+
 	// Project-scoped access is an Enterprise feature.
 	if (
 		isProjectScopedRole(role) &&
@@ -844,18 +856,6 @@ team.openapi(addMember, async (c) => {
 	if (currentMembers.length + pendingInvites.length >= memberLimit) {
 		throw new HTTPException(403, {
 			message: `Your organization has reached the maximum of ${memberLimit} team members. Contact us at contact@llmgateway.io to unlock more seats.`,
-		});
-	}
-
-	if (userOrganization.role !== "owner" && userOrganization.role !== "admin") {
-		throw new HTTPException(403, {
-			message: "Only owners and admins can add members",
-		});
-	}
-
-	if (userOrganization.role === "admin" && role === "owner") {
-		throw new HTTPException(403, {
-			message: "Only owners can add other owners",
 		});
 	}
 
