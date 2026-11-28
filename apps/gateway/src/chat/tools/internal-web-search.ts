@@ -408,7 +408,16 @@ export async function runInternalWebSearch(
 
 // Web content must not close (or reopen) the untrusted results block.
 function stripResultTags(text: string): string {
-	return text.replace(/<\/?\s*web_search_results\b[^>]*>/gi, "");
+	let stripped = text;
+	let previous: string;
+	do {
+		previous = stripped;
+		stripped = stripped.replace(
+			/<\/?\s*web_search_results\b[^>]*(?:>|$)/gi,
+			"",
+		);
+	} while (stripped !== previous);
+	return stripped;
 }
 
 /**
