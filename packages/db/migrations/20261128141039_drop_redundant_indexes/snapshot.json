@@ -1,0 +1,314 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "2f4a7042-9b24-48a8-8668-0357e2310710",
+  "prevIds": [
+    "1ee24511-d365-4a39-97c4-903bd2323e7a",
+    "867379af-0919-4aa6-8dbd-2da3d7287185"
+  ],
+  "footprints": [
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "referral",
+        "referral_referred_organization_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.referral_referred_organization_id_idx",
+        "n|idx|public.referral_referred_organization_id_idx",
+        "e|idx|public.referral_referred_organization_id_idx",
+        "n|rel|public.referral_referred_organization_id_idx"
+      ],
+      "reads": [
+        "e|tbl|public.referral",
+        "n|sch|public",
+        "e|col|public.referral.referred_organization_id"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "follow_up_email",
+        "follow_up_email_organization_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.follow_up_email_organization_id_idx",
+        "n|idx|public.follow_up_email_organization_id_idx",
+        "e|idx|public.follow_up_email_organization_id_idx",
+        "n|rel|public.follow_up_email_organization_id_idx"
+      ],
+      "reads": [
+        "e|tbl|public.follow_up_email",
+        "n|sch|public",
+        "e|col|public.follow_up_email.organization_id"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "dev_plan_cancellation_feedback",
+        "dev_plan_cancellation_feedback_organization_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.dev_plan_cancellation_feedback_organization_id_idx",
+        "n|idx|public.dev_plan_cancellation_feedback_organization_id_idx",
+        "e|idx|public.dev_plan_cancellation_feedback_organization_id_idx",
+        "n|rel|public.dev_plan_cancellation_feedback_organization_id_idx"
+      ],
+      "reads": [
+        "e|tbl|public.dev_plan_cancellation_feedback",
+        "n|sch|public",
+        "e|col|public.dev_plan_cancellation_feedback.organization_id"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "master_key",
+        "master_key_token_hash_idx"
+      ],
+      "writes": [
+        "s|idx|public.master_key_token_hash_idx",
+        "n|idx|public.master_key_token_hash_idx",
+        "e|idx|public.master_key_token_hash_idx",
+        "n|rel|public.master_key_token_hash_idx"
+      ],
+      "reads": [
+        "e|tbl|public.master_key",
+        "n|sch|public",
+        "e|col|public.master_key.token_hash"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "end_customer",
+        "end_customer_project_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.end_customer_project_id_idx",
+        "n|idx|public.end_customer_project_id_idx",
+        "e|idx|public.end_customer_project_id_idx",
+        "n|rel|public.end_customer_project_id_idx"
+      ],
+      "reads": [
+        "e|tbl|public.end_customer",
+        "n|sch|public",
+        "e|col|public.end_customer.project_id"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "chat_plan_cancellation_feedback",
+        "chat_plan_cancellation_feedback_organization_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.chat_plan_cancellation_feedback_organization_id_idx",
+        "n|idx|public.chat_plan_cancellation_feedback_organization_id_idx",
+        "e|idx|public.chat_plan_cancellation_feedback_organization_id_idx",
+        "n|rel|public.chat_plan_cancellation_feedback_organization_id_idx"
+      ],
+      "reads": [
+        "e|tbl|public.chat_plan_cancellation_feedback",
+        "n|sch|public",
+        "e|col|public.chat_plan_cancellation_feedback.organization_id"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "user_project",
+        "user_project_user_organization_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.user_project_user_organization_id_idx",
+        "n|idx|public.user_project_user_organization_id_idx",
+        "e|idx|public.user_project_user_organization_id_idx",
+        "n|rel|public.user_project_user_organization_id_idx"
+      ],
+      "reads": [
+        "e|tbl|public.user_project",
+        "n|sch|public",
+        "e|col|public.user_project.user_organization_id"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "scim_token",
+        "scim_token_token_hash_idx"
+      ],
+      "writes": [
+        "s|idx|public.scim_token_token_hash_idx",
+        "n|idx|public.scim_token_token_hash_idx",
+        "e|idx|public.scim_token_token_hash_idx",
+        "n|rel|public.scim_token_token_hash_idx"
+      ],
+      "reads": [
+        "e|tbl|public.scim_token",
+        "n|sch|public",
+        "e|col|public.scim_token.token_hash"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "lounge_point_event",
+        "lounge_point_event_user_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.lounge_point_event_user_id_idx",
+        "n|idx|public.lounge_point_event_user_id_idx",
+        "e|idx|public.lounge_point_event_user_id_idx",
+        "n|rel|public.lounge_point_event_user_id_idx"
+      ],
+      "reads": [
+        "e|tbl|public.lounge_point_event",
+        "n|sch|public",
+        "e|col|public.lounge_point_event.user_id"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "organization_team_project",
+        "organization_team_project_team_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.organization_team_project_team_id_idx",
+        "n|idx|public.organization_team_project_team_id_idx",
+        "e|idx|public.organization_team_project_team_id_idx",
+        "n|rel|public.organization_team_project_team_id_idx"
+      ],
+      "reads": [
+        "e|tbl|public.organization_team_project",
+        "n|sch|public",
+        "e|col|public.organization_team_project.team_id"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "email_unsubscribe",
+        "email_unsubscribe_email_idx"
+      ],
+      "writes": [
+        "s|idx|public.email_unsubscribe_email_idx",
+        "n|idx|public.email_unsubscribe_email_idx",
+        "e|idx|public.email_unsubscribe_email_idx",
+        "n|rel|public.email_unsubscribe_email_idx"
+      ],
+      "reads": [
+        "e|tbl|public.email_unsubscribe",
+        "n|sch|public",
+        "e|col|public.email_unsubscribe.email"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "prompt",
+        "prompt_project_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.prompt_project_id_idx",
+        "n|idx|public.prompt_project_id_idx",
+        "e|idx|public.prompt_project_id_idx",
+        "n|rel|public.prompt_project_id_idx"
+      ],
+      "reads": [
+        "e|tbl|public.prompt",
+        "n|sch|public",
+        "e|col|public.prompt.project_id"
+      ],
+      "sharedWrites": []
+    }
+  ],
+  "deltas": [
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"referral_referred_organization_id_idx\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"follow_up_email_organization_id_idx\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"dev_plan_cancellation_feedback_organization_id_idx\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"master_key_token_hash_idx\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"end_customer_project_id_idx\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"chat_plan_cancellation_feedback_organization_id_idx\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"user_project_user_organization_id_idx\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"scim_token_token_hash_idx\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"lounge_point_event_user_id_idx\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"organization_team_project_team_id_idx\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"email_unsubscribe_email_idx\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"prompt_project_id_idx\"]"
+    }
+  ]
+}

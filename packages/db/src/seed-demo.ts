@@ -79,7 +79,7 @@ function chance(p: number) {
 }
 
 function pick<T>(arr: readonly T[]): T {
-	return arr[cryptoRandomInt(0, arr.length - 1)];
+	return arr[cryptoRandomInt(0, arr.length)];
 }
 
 function hoursAgo(hours: number) {
