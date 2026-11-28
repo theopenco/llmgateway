@@ -305,6 +305,20 @@ export async function getGcpServiceAccountAccessToken(
 export function getGcpServiceAccountProjectId(
 	serviceAccountJson: string,
 ): string | null {
-	const sa = parseServiceAccount(serviceAccountJson);
-	return sa?.project_id ?? null;
+	try {
+		const parsed: unknown = JSON.parse(serviceAccountJson);
+		if (typeof parsed !== "object" || parsed === null) {
+			return null;
+		}
+		const projectId = (parsed as Record<string, unknown>).project_id;
+		return typeof projectId === "string" && projectId.length > 0
+			? projectId
+			: null;
+	} catch (err) {
+		logger.warn(
+			"Failed to parse GCP service account JSON",
+			err instanceof Error ? err : new Error(String(err)),
+		);
+		return null;
+	}
 }
