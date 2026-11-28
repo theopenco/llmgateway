@@ -406,18 +406,12 @@ export async function runInternalWebSearch(
 	}
 }
 
-// Web content must not close (or reopen) the untrusted results block.
+// Web content must not close (or reopen) the untrusted results block. Tags
+// reassembled by the first pass are escaped, not stripped, so work stays linear.
 function stripResultTags(text: string): string {
-	let stripped = text;
-	let previous: string;
-	do {
-		previous = stripped;
-		stripped = stripped.replace(
-			/<\/?\s*web_search_results\b[^>]*(?:>|$)/gi,
-			"",
-		);
-	} while (stripped !== previous);
-	return stripped;
+	return text
+		.replace(/<\/?\s*web_search_results\b[^>]*(?:>|$)/gi, "")
+		.replace(/<(?=\/?\s*web_search_results\b)/gi, "&lt;");
 }
 
 /**
