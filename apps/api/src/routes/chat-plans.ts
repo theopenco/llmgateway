@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { cancelPlanSubscription } from "@/lib/cancel-plan-subscription.js";
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
+import { requirePriceId } from "@/lib/required-price-id.js";
 import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
 import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import { ensureStripeCustomer } from "@/stripe.js";
@@ -25,13 +26,14 @@ import type { ServerTypes } from "@/vars.js";
 
 export const chatPlans = new OpenAPIHono<ServerTypes>();
 
-function getChatPlanPriceId(tier: ChatPlanTier): string | undefined {
-	const monthlyKeys: Record<ChatPlanTier, string> = {
-		starter: "STRIPE_CHAT_PLAN_STARTER_PRICE_ID",
-		plus: "STRIPE_CHAT_PLAN_PLUS_PRICE_ID",
-		pro: "STRIPE_CHAT_PLAN_PRO_PRICE_ID",
-	};
-	return process.env[monthlyKeys[tier]];
+const CHAT_PLAN_PRICE_ENV_KEYS: Record<ChatPlanTier, string> = {
+	starter: "STRIPE_CHAT_PLAN_STARTER_PRICE_ID",
+	plus: "STRIPE_CHAT_PLAN_PLUS_PRICE_ID",
+	pro: "STRIPE_CHAT_PLAN_PRO_PRICE_ID",
+};
+
+function requireChatPlanPriceId(tier: ChatPlanTier): string {
+	return requirePriceId(CHAT_PLAN_PRICE_ENV_KEYS[tier]);
 }
 
 const subscribe = createRoute({
@@ -90,12 +92,7 @@ chatPlans.openapi(subscribe, async (c) => {
 		});
 	}
 
-	const priceId = getChatPlanPriceId(tier);
-	if (!priceId) {
-		throw new HTTPException(500, {
-			message: `STRIPE_CHAT_PLAN_${tier.toUpperCase()}_PRICE_ID environment variable is not set`,
-		});
-	}
+	const priceId = requireChatPlanPriceId(tier);
 
 	const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
 
@@ -448,12 +445,7 @@ chatPlans.openapi(changeTier, async (c) => {
 		});
 	}
 
-	const newPriceId = getChatPlanPriceId(newTier);
-	if (!newPriceId) {
-		throw new HTTPException(500, {
-			message: `STRIPE_CHAT_PLAN_${newTier.toUpperCase()}_PRICE_ID environment variable is not set`,
-		});
-	}
+	const newPriceId = requireChatPlanPriceId(newTier);
 
 	const isUpgrade =
 		CHAT_PLAN_PRICES[newTier] >

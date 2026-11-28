@@ -48,7 +48,7 @@ import {
 	rememberDevPlanCardFingerprint,
 	rememberDevPlanCardFingerprints,
 } from "@/utils/dev-plan-card-fingerprints.js";
-import { getDevPlanPriceId } from "@/utils/dev-plan-prices.js";
+import { requireDevPlanPriceId } from "@/utils/dev-plan-prices.js";
 import { LEGACY_DEV_PLAN_TX_TYPES } from "@/utils/devpass-filter.js";
 import {
 	buildInvoiceDataForTransaction,
@@ -521,13 +521,9 @@ devPlans.openapi(subscribe, async (c) => {
 		}
 	}
 
-	const priceId = getDevPlanPriceId(tier, cycle);
-	if (!priceId) {
-		throw new HTTPException(500, {
-			message: `STRIPE_DEV_PLAN_${tier.toUpperCase()}_PRICE_ID environment variable is not set`,
-		});
-	}
+	const priceId = requireDevPlanPriceId(tier, cycle);
 
+	let session;
 	try {
 		const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
 
@@ -549,7 +545,7 @@ devPlans.openapi(subscribe, async (c) => {
 				? { devPlanPaygEnabled: String(paygEnabled) }
 				: {}),
 		};
-		const session = await getStripe().checkout.sessions.create({
+		session = await getStripe().checkout.sessions.create({
 			customer: stripeCustomerId,
 			mode: "setup",
 			payment_method_types: ["card"],
@@ -559,37 +555,37 @@ devPlans.openapi(subscribe, async (c) => {
 			metadata: checkoutMetadata,
 			setup_intent_data: { metadata: checkoutMetadata },
 		});
-
-		if (!session.url) {
-			throw new HTTPException(500, {
-				message: "Failed to generate checkout URL",
-			});
-		}
-
-		await logAuditEvent({
-			organizationId: personalOrg.id,
-			userId: user.id,
-			action: "dev_plan.subscribe",
-			resourceType: "dev_plan",
-			metadata: {
-				tier,
-				cycle,
-				paygEnabled: paygEnabled === true,
-			},
-		});
-
-		return c.json({
-			checkoutUrl: session.url,
-		});
 	} catch (error) {
 		logger.error(
 			"Stripe checkout session error for dev plan",
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		throw new HTTPException(500, {
-			message: `Failed to create checkout session: ${error}`,
+			message: "Failed to create checkout session",
 		});
 	}
+
+	if (!session.url) {
+		throw new HTTPException(500, {
+			message: "Failed to generate checkout URL",
+		});
+	}
+
+	await logAuditEvent({
+		organizationId: personalOrg.id,
+		userId: user.id,
+		action: "dev_plan.subscribe",
+		resourceType: "dev_plan",
+		metadata: {
+			tier,
+			cycle,
+			paygEnabled: paygEnabled === true,
+		},
+	});
+
+	return c.json({
+		checkoutUrl: session.url,
+	});
 });
 
 // Finalize a dev plan setup session — called by the dashboard after the user
@@ -1148,14 +1144,7 @@ devPlans.openapi(changeTierPreview, async (c) => {
 	let newCreditsLimit = currentCreditsLimit;
 	let rolloverCredits = 0;
 	if (isUpgrade) {
-		const newPriceId = getDevPlanPriceId(newTier, existingCycle);
-		if (!newPriceId) {
-			const envSuffix =
-				existingCycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
-			throw new HTTPException(500, {
-				message: `STRIPE_DEV_PLAN_${newTier.toUpperCase()}${envSuffix} environment variable is not set`,
-			});
-		}
+		const newPriceId = requireDevPlanPriceId(newTier, existingCycle);
 		amountDueCents = await getDevPlanFullPriceCents(newPriceId);
 		({ rolloverCredits, newCreditsLimit } = getDevPlanUpgradeCredits(
 			newTier,
@@ -1269,14 +1258,7 @@ devPlans.openapi(changeTier, async (c) => {
 	// Preserve the subscriber's existing billing cadence so an annual
 	// subscriber doesn't silently get switched to monthly when changing tier.
 	const existingCycle: DevPlanCycle = personalOrg.devPlanCycle;
-	const newPriceId = getDevPlanPriceId(newTier, existingCycle);
-	if (!newPriceId) {
-		const envSuffix =
-			existingCycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
-		throw new HTTPException(500, {
-			message: `STRIPE_DEV_PLAN_${newTier.toUpperCase()}${envSuffix} environment variable is not set`,
-		});
-	}
+	const newPriceId = requireDevPlanPriceId(newTier, existingCycle);
 
 	const isUpgrade = DEV_PLAN_PRICES[newTier] > DEV_PLAN_PRICES[currentTier];
 	// An upgrade applies immediately unless the user opted to schedule it for
@@ -1815,14 +1797,7 @@ devPlans.openapi(cancelDowngrade, async (c) => {
 
 	const currentTier: DevPlanTier = personalOrg.devPlan;
 	const existingCycle: DevPlanCycle = personalOrg.devPlanCycle;
-	const currentTierPriceId = getDevPlanPriceId(currentTier, existingCycle);
-	if (!currentTierPriceId) {
-		const envSuffix =
-			existingCycle === "annual" ? "_ANNUAL_PRICE_ID" : "_PRICE_ID";
-		throw new HTTPException(500, {
-			message: `STRIPE_DEV_PLAN_${currentTier.toUpperCase()}${envSuffix} environment variable is not set`,
-		});
-	}
+	const currentTierPriceId = requireDevPlanPriceId(currentTier, existingCycle);
 
 	try {
 		const subscription = await getStripe().subscriptions.retrieve(

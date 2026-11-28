@@ -1,3 +1,5 @@
+import { requirePriceId } from "@/lib/required-price-id.js";
+
 import type { DevPlanCycle, DevPlanTier } from "@llmgateway/shared";
 import type Stripe from "stripe";
 
@@ -17,11 +19,11 @@ const DEV_PLAN_PRICE_ENV_KEYS: Record<
 	},
 };
 
-export function getDevPlanPriceId(
+export function requireDevPlanPriceId(
 	tier: DevPlanTier,
 	cycle: DevPlanCycle = "monthly",
-): string | undefined {
-	return process.env[DEV_PLAN_PRICE_ENV_KEYS[cycle][tier]];
+): string {
+	return requirePriceId(DEV_PLAN_PRICE_ENV_KEYS[cycle][tier]);
 }
 
 function getDevPlanTierFromPriceId(priceId: string): DevPlanTier | null {
