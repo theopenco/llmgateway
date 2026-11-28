@@ -76,6 +76,7 @@ type CircuitState = "closed" | "open" | "half-open";
 let state: CircuitState = "closed";
 let consecutiveFailures = 0;
 let openedAt = 0;
+let probeStartedAt = 0;
 
 /** Current breaker state, for logs and tests. */
 export function getDbCircuitState(): CircuitState {
@@ -99,6 +100,14 @@ export function dbCircuitAllowsRequest(): boolean {
 	}
 	if (state === "open" && Date.now() - openedAt >= openDurationMs()) {
 		state = "half-open";
+		probeStartedAt = Date.now();
+		return true;
+	}
+	if (
+		state === "half-open" &&
+		Date.now() - probeStartedAt >= openDurationMs()
+	) {
+		probeStartedAt = Date.now();
 		return true;
 	}
 	return false;
@@ -114,6 +123,9 @@ export function recordDbSuccess(): void {
 
 export function recordDbFailure(error: unknown): void {
 	if (!isDbUnavailableError(error)) {
+		if (state === "half-open") {
+			recordDbSuccess();
+		}
 		return;
 	}
 	consecutiveFailures++;
@@ -136,4 +148,5 @@ export function resetDbCircuit(): void {
 	state = "closed";
 	consecutiveFailures = 0;
 	openedAt = 0;
+	probeStartedAt = 0;
 }
