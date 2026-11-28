@@ -23,6 +23,7 @@ export type {
 } from "./types.js";
 
 export { systemRules, presetTopics } from "./rules/index.js";
+export { compileUserRegex } from "./rules/safe-regex.js";
 export { systemRuleCatalog } from "./catalog.js";
 
 // Re-export db types for convenience
