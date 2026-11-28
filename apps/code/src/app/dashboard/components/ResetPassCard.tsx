@@ -157,11 +157,19 @@ export default function ResetPassCard({
 		"/dev-plans/reset-pass/purchase",
 		{
 			onSuccess: async (data) => {
+				setPurchaseId(crypto.randomUUID());
 				setStampOverlay({ kind: "purchased", amount: data.amount });
 				setTimeout(() => setStampOverlay(null), 2200);
 				await invalidateStatus();
 			},
 			onError: (error) => {
+				// Keep the idempotency key after a lost or unknown response so a
+				// retry replays the original charge; start a new attempt only once
+				// the charge was declined (402) or the key was rejected (409).
+				const status = (error as { status?: number })?.status;
+				if (status === 402 || status === 409) {
+					setPurchaseId(crypto.randomUUID());
+				}
 				toast.error(
 					(error as { message?: string })?.message ??
 						"The payment could not be completed. Check your payment method and try again.",
@@ -345,13 +353,7 @@ export default function ResetPassCard({
 							</Button>
 						)}
 						{price !== null && !purchaseBlocked && (
-							<AlertDialog
-								onOpenChange={(open) => {
-									if (open) {
-										setPurchaseId(crypto.randomUUID());
-									}
-								}}
-							>
+							<AlertDialog>
 								<AlertDialogTrigger asChild>
 									<Button
 										size="sm"

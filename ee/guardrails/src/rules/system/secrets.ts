@@ -42,7 +42,9 @@ function looksLikeAwsSecret(value: string, before: string): boolean {
  */
 const ASSIGNED_VALUE = `["']?\\s*[=:]\\s*(?:"([^"\\n]{8,})"|'([^'\\n]{8,})'|([^\\s'",;]{8,}))`;
 
-const CONNECTION_PASSWORD = /^[^:]+:\/\/[^\s:@/]*:([^\s:@/]+)@/;
+// The password runs to the authority's last `@`, so an unescaped `@` inside it
+// is not mistaken for the end of a placeholder.
+const CONNECTION_PASSWORD = /^[^:]+:\/\/[^\s:@/]*:([^\s/?#]+)@/;
 
 const CONNECTION_PASSWORD_PLACEHOLDER =
 	/^(?:\$\{[^}]*\}|\$[A-Z_][A-Z0-9_]*|\{\{[^}]*\}\}|<[^<>]+>|%\([^)]*\)s|[*xX]+|changeme|password)$/;

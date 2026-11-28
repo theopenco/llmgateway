@@ -104,6 +104,29 @@ describe("processMarginPayouts", () => {
 		expect(transactions[0].status).toBe("failed");
 	});
 
+	test("keeps the reservation when a retry is rate limited", async () => {
+		stripeMock.transfers.create.mockRejectedValue(
+			Object.assign(new Error("Too many requests"), {
+				type: "StripeRateLimitError",
+				statusCode: 429,
+			}),
+		);
+
+		await processMarginPayouts();
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(new Decimal(org?.endUserMarginBalance ?? "0").toFixed(2)).toBe(
+			"0.00",
+		);
+		const transactions = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(transactions).toHaveLength(1);
+		expect(transactions[0].status).toBe("pending");
+	});
+
 	test("retries a timed-out transfer with the same idempotency key instead of paying twice", async () => {
 		stripeMock.transfers.create
 			.mockRejectedValueOnce(

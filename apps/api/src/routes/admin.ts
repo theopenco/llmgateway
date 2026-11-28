@@ -1235,7 +1235,12 @@ function dateRangeFilter(
 function parseIsoDayRange(from: string, to: string) {
 	const startDate = new Date(from + "T00:00:00.000Z");
 	const endDate = new Date(to + "T23:59:59.999Z");
-	if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+	if (
+		Number.isNaN(startDate.getTime()) ||
+		Number.isNaN(endDate.getTime()) ||
+		startDate.toISOString().slice(0, 10) !== from ||
+		endDate.toISOString().slice(0, 10) !== to
+	) {
 		throw new HTTPException(400, { message: "Invalid date range" });
 	}
 	return { startDate, endDate };
@@ -13256,7 +13261,11 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			projectHourlyModelStats.usedModel,
 			projectHourlyModelStats.usedProvider,
 		)
-		.orderBy(sortOrder === "asc" ? asc(sortColumn) : desc(sortColumn))
+		.orderBy(
+			sortOrder === "asc" ? asc(sortColumn) : desc(sortColumn),
+			asc(projectHourlyModelStats.usedModel),
+			asc(projectHourlyModelStats.usedProvider),
+		)
 		.limit(limit)
 		.offset(offset);
 
@@ -18798,6 +18807,13 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		.orderBy(desc(tables.paymentFailure.createdAt))
 		.limit(50);
 
+	// Without a current tier, eligibility hinges on a historical start; settle
+	// it before the detail queries so a former non-subscriber gets a plain 404.
+	const firstStartRows = org.devPlan === "none" ? await firstStartQuery : null;
+	if (firstStartRows && !firstStartRows[0]?.firstStart) {
+		throw new HTTPException(404, { message: "Subscriber not found" });
+	}
+
 	const [
 		owner,
 		[firstStartRow],
@@ -18812,7 +18828,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		paymentFailures,
 	] = await Promise.all([
 		ownerQuery,
-		firstStartQuery,
+		firstStartRows ?? firstStartQuery,
 		tierChangesQuery,
 		realCostQuery,
 		allTimeCostQuery,
@@ -18823,10 +18839,6 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		transactionsQuery,
 		paymentFailuresQuery,
 	]);
-
-	if (org.devPlan === "none" && !firstStartRow?.firstStart) {
-		throw new HTTPException(404, { message: "Subscriber not found" });
-	}
 
 	const realCost = Number(realCostRow?.total ?? 0);
 	const mrr = tierPriceOf(org.devPlan);
@@ -20672,6 +20684,13 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 		.orderBy(desc(tables.paymentFailure.createdAt))
 		.limit(50);
 
+	// Without a current tier, eligibility hinges on a historical start; settle
+	// it before the detail queries so a former non-subscriber gets a plain 404.
+	const firstStartRows = org.chatPlan === "none" ? await firstStartQuery : null;
+	if (firstStartRows && !firstStartRows[0]?.firstStart) {
+		throw new HTTPException(404, { message: "Subscriber not found" });
+	}
+
 	const [
 		owner,
 		[firstStartRow],
@@ -20685,7 +20704,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 		paymentFailures,
 	] = await Promise.all([
 		ownerQuery,
-		firstStartQuery,
+		firstStartRows ?? firstStartQuery,
 		tierChangesQuery,
 		realCostQuery,
 		allTimeCostQuery,
@@ -20695,10 +20714,6 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 		transactionsQuery,
 		paymentFailuresQuery,
 	]);
-
-	if (org.chatPlan === "none" && !firstStartRow?.firstStart) {
-		throw new HTTPException(404, { message: "Subscriber not found" });
-	}
 
 	const realCost = Number(realCostRow?.total ?? 0);
 	const mrr = chatTierPriceOf(org.chatPlan);

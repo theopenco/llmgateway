@@ -1059,7 +1059,6 @@ export async function recalculateBucket(
 	hourTimestamp: string,
 	window: LogWindow = {},
 ) {
-	await recalculateProjectHourlyStats(projectIds, hourTimestamp, window);
 	await recalculateProjectHourlyModelStats(projectIds, hourTimestamp, window);
 	await recalculateProjectHourlySourceStats(projectIds, hourTimestamp, window);
 	await recalculateProjectHourlySourceModelStats(
@@ -1081,6 +1080,9 @@ export async function recalculateBucket(
 		window,
 	);
 	await recalculateProviderKeyHourlyStats(projectIds, hourTimestamp, window);
+	// The parent row marks the bucket processed for the stale and backfill
+	// scans, so it is written last: a failed dependent leaves it retryable.
+	await recalculateProjectHourlyStats(projectIds, hourTimestamp, window);
 }
 
 /**

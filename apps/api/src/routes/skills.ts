@@ -208,20 +208,21 @@ skills.openapi(updateSkill, async (c) => {
 	const { id } = c.req.valid("param");
 	const body = c.req.valid("json");
 
-	const [updated] = await db
-		.update(tables.skill)
-		.set({
-			...(body.name !== undefined ? { name: body.name } : {}),
-			...(body.description !== undefined
-				? { description: body.description }
-				: {}),
-			...(body.instructions !== undefined
-				? { instructions: body.instructions }
-				: {}),
-			...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
-		})
-		.where(and(eq(tables.skill.id, id), eq(tables.skill.userId, user.id)))
-		.returning();
+	const changes = {
+		...(body.name !== undefined ? { name: body.name } : {}),
+		...(body.description !== undefined
+			? { description: body.description }
+			: {}),
+		...(body.instructions !== undefined
+			? { instructions: body.instructions }
+			: {}),
+		...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+	};
+	const owned = and(eq(tables.skill.id, id), eq(tables.skill.userId, user.id));
+
+	const [updated] = Object.keys(changes).length
+		? await db.update(tables.skill).set(changes).where(owned).returning()
+		: await db.select().from(tables.skill).where(owned).limit(1);
 
 	if (!updated) {
 		throw new HTTPException(404, { message: "Skill not found" });

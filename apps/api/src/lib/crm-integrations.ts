@@ -1037,6 +1037,9 @@ export async function listCalendarMeetings(
 	range: { from: Date; to: Date },
 ): Promise<CrmCalendarEvent[]> {
 	const wanted = new Set(emails.map((e) => e.toLowerCase()));
+	if (wanted.size === 0) {
+		return [];
+	}
 	const token = await gmailAccessToken(row);
 	const lists = await Promise.all(
 		[...wanted]

@@ -606,7 +606,7 @@ adminCrm.openapi(getAccount, async (c) => {
 			? db
 					.select({
 						lifetime: sql<string>`COALESCE(SUM(${tables.transaction.amount}) FILTER (WHERE ${tables.transaction.status} = 'completed'), 0)`,
-						last90d: sql<string>`COALESCE(SUM(${tables.transaction.amount}) FILTER (WHERE ${tables.transaction.status} = 'completed' AND ${tables.transaction.createdAt} >= ${new Date(ninetyAgo)}), 0)`,
+						last90d: sql<string>`COALESCE(SUM(${tables.transaction.amount}) FILTER (WHERE ${tables.transaction.status} = 'completed' AND ${gte(tables.transaction.createdAt, new Date(ninetyAgo))}), 0)`,
 					})
 					.from(tables.transaction)
 					.where(

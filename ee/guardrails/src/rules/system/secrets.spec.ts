@@ -20,6 +20,7 @@ const clean = [
 	"postgres://u:<password>@db",
 	"postgres://u:$DB_PASSWORD@db",
 	"amqp://guest:changeme@broker",
+	"postgres://u:changeme@db/app?next=a@b",
 	"see the eyJ header docs for details",
 ];
 
@@ -40,6 +41,7 @@ const detected = [
 	["Connection String", "redis://default:secret@cache:6379"],
 	["Connection String", "redis://:secret@cache:6379"],
 	["Connection String", "mysql://root:12345678@db"],
+	["Connection String", "postgres://postgres:password@123@db"],
 	["Password", '{"password": "hunter2000!"}'],
 	["Password", "password=Tr0ub4dor&3xxx"],
 	["API Key", "api_key: sk9Xk2Lm4Qp7Rt1Zv8Bn3Cw6"],

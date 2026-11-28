@@ -732,6 +732,7 @@ export async function processAutoTopUp(): Promise<void> {
 				if (
 					!freshOrg ||
 					!freshOrg.autoTopUpEnabled ||
+					freshOrg.riskFlagged ||
 					(freshOrg.kind === "devpass" && !freshOrg.devPlanPaygEnabled) ||
 					Number(freshOrg.credits || 0) >=
 						Number(freshOrg.autoTopUpThreshold ?? 10)
@@ -3449,20 +3450,28 @@ const AUTO_PAYOUT_MIN_AMOUNT = 25;
 const MARGIN_PAYOUT_RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
 
 /**
- * Stripe answered with a 4xx other than 409 (idempotency or lock conflict), so
- * the transfer definitely was not created. Timeouts, connection errors and
- * 5xx responses leave its outcome unknown.
+ * Rate limit, authentication and permission errors are raised before Stripe
+ * consults the idempotency key, so they say nothing about an earlier attempt.
+ */
+const PRE_EXECUTION_STRIPE_STATUSES = new Set([401, 403, 409, 429]);
+
+/**
+ * Stripe answered with a 4xx that replays or reflects the keyed request itself,
+ * so the transfer definitely was not created. Pre-execution and idempotency
+ * errors, timeouts, connection errors and 5xx responses leave it unknown.
  */
 function isDefinitiveStripeFailure(error: unknown): boolean {
-	const statusCode =
-		typeof error === "object" && error !== null && "statusCode" in error
-			? error.statusCode
-			: undefined;
+	if (typeof error !== "object" || error === null) {
+		return false;
+	}
+	const statusCode = "statusCode" in error ? error.statusCode : undefined;
+	const type = "type" in error ? error.type : undefined;
 	return (
 		typeof statusCode === "number" &&
 		statusCode >= 400 &&
 		statusCode < 500 &&
-		statusCode !== 409
+		!PRE_EXECUTION_STRIPE_STATUSES.has(statusCode) &&
+		type !== "StripeIdempotencyError"
 	);
 }
 

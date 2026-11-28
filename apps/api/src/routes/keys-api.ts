@@ -56,6 +56,7 @@ import {
 	type InferSelectModel,
 	type MemberBudgetOwner,
 	inArray,
+	ne,
 } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
@@ -1692,6 +1693,9 @@ async function loadMutableApiKeys(
 		const userOrg = userOrgs.find(
 			(org) => org.organizationId === project.organizationId,
 		);
+		if (!userOrg) {
+			continue;
+		}
 		access.set(apiKey.id, {
 			apiKey,
 			organizationId: project.organizationId,
@@ -1878,15 +1882,29 @@ keysApi.openapi(bulkAction, async (c) => {
 	if (eligible.length) {
 		// Write through the cached client so onMutate busts the gateway's cached
 		// token lookups; otherwise the change only applies once the cache expires.
-		await cdb
-			.update(tables.apiKey)
-			.set({ status: targetStatus })
-			.where(
-				inArray(
-					tables.apiKey.id,
-					eligible.map((entry) => entry.apiKey.id),
-				),
-			);
+		const updatedIds = new Set(
+			(
+				await cdb
+					.update(tables.apiKey)
+					.set({ status: targetStatus })
+					.where(
+						and(
+							inArray(
+								tables.apiKey.id,
+								eligible.map((entry) => entry.apiKey.id),
+							),
+							ne(tables.apiKey.status, "deleted"),
+						),
+					)
+					.returning({ id: tables.apiKey.id })
+			).map((row) => row.id),
+		);
+		for (const { apiKey } of eligible) {
+			if (!updatedIds.has(apiKey.id)) {
+				fail(apiKey.id, "not_found");
+			}
+		}
+		eligible = eligible.filter(({ apiKey }) => updatedIds.has(apiKey.id));
 		if (targetStatus !== "active") {
 			await deleteBatchCredentialsForApiKeys(
 				eligible.map((entry) => entry.apiKey.id),
@@ -2295,8 +2313,13 @@ keysApi.openapi(updateStatus, async (c) => {
 				? { providerCompliancePolicy }
 				: {}),
 		})
-		.where(eq(tables.apiKey.id, id))
+		.where(and(eq(tables.apiKey.id, id), ne(tables.apiKey.status, "deleted")))
 		.returning();
+	if (!updatedApiKey) {
+		throw new HTTPException(404, {
+			message: "API key not found",
+		});
+	}
 	if (status !== undefined && status !== "active") {
 		await deleteBatchCredentialsForApiKeys([id]);
 	}
