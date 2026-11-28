@@ -14,6 +14,10 @@ import {
 } from "@/lib/organization-deletion.js";
 import { providerCompliancePolicySchema } from "@/lib/provider-compliance-policy.js";
 import {
+	getNetPaidTopUps,
+	REFERRAL_MIN_NET_TOP_UPS_USD,
+} from "@/lib/referral-eligibility.js";
+import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
 	hasRefundAction,
@@ -1783,6 +1787,9 @@ const getReferralStats = createRoute({
 				"application/json": {
 					schema: z.object({
 						referredCount: z.number(),
+						netPaidTopUps: z.string(),
+						minNetTopUps: z.number(),
+						eligible: z.boolean(),
 					}),
 				},
 			},
@@ -1808,16 +1815,22 @@ organization.openapi(getReferralStats, async (c) => {
 		});
 	}
 
-	const referrals = await db.query.referral.findMany({
-		where: {
-			referrerOrganizationId: {
-				eq: id,
+	const [referrals, netPaidTopUps] = await Promise.all([
+		db.query.referral.findMany({
+			where: {
+				referrerOrganizationId: {
+					eq: id,
+				},
 			},
-		},
-	});
+		}),
+		getNetPaidTopUps(id),
+	]);
 
 	return c.json({
 		referredCount: referrals.length,
+		netPaidTopUps: netPaidTopUps.toFixed(2),
+		minNetTopUps: REFERRAL_MIN_NET_TOP_UPS_USD,
+		eligible: netPaidTopUps.greaterThanOrEqualTo(REFERRAL_MIN_NET_TOP_UPS_USD),
 	});
 });
 
