@@ -2433,6 +2433,7 @@ export function withMappingDataPolicy(
 
 export interface ModelMappingAvailability {
 	providerId: string;
+	dataPolicy?: MappingDataPolicy;
 	deprecatedAt?: Date | null;
 	deactivatedAt?: Date | null;
 }
@@ -2518,7 +2519,10 @@ export function getCompliantProvidersForModel(
 		);
 		if (
 			provider &&
-			getProviderComplianceFailures(provider, policy).length === 0
+			getProviderComplianceFailures(
+				withMappingDataPolicy(provider, mapping.dataPolicy),
+				policy,
+			).length === 0
 		) {
 			compliant.add(provider.id);
 		}

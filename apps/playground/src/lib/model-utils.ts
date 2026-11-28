@@ -86,26 +86,3 @@ export function getProviderForModel(
 	const primaryProvider = model.mappings[0];
 	return providers.find((p) => p.id === primaryProvider?.providerId);
 }
-
-export function getModelCapabilities(model: ApiModel): string[] {
-	const capabilities: string[] = [];
-	const provider = model.mappings[0];
-
-	if (provider?.streaming) {
-		capabilities.push("Streaming");
-	}
-	if (provider?.vision) {
-		capabilities.push("Vision");
-	}
-	if (provider?.tools) {
-		capabilities.push("Tools");
-	}
-	if (provider?.reasoning) {
-		capabilities.push("Reasoning");
-	}
-	if (provider?.jsonOutput) {
-		capabilities.push("JSON Output");
-	}
-
-	return capabilities;
-}

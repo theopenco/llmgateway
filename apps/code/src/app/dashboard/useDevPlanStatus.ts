@@ -4,9 +4,29 @@ import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
 
 import type { paths } from "@/lib/api/v1";
+import type { Query, QueryClient } from "@tanstack/react-query";
 
 export type DevPlanStatus =
 	paths["/dev-plans/status"]["get"]["responses"]["200"]["content"]["application/json"];
+
+function isDevPlanStatusQuery(query: Query): boolean {
+	const key = query.queryKey;
+	return Array.isArray(key) && key[1] === "/dev-plans/status";
+}
+
+export async function invalidateDevPlanStatus(
+	queryClient: QueryClient,
+): Promise<void> {
+	await queryClient.invalidateQueries({ predicate: isDevPlanStatusQuery });
+}
+
+export function getCachedDevPlanStatus(
+	queryClient: QueryClient,
+): DevPlanStatus | undefined {
+	return queryClient
+		.getQueriesData<DevPlanStatus>({ predicate: isDevPlanStatusQuery })
+		.find(([, data]) => data !== undefined)?.[1];
+}
 
 /**
  * Shared DevPass status query. React Query dedupes by key, so calling this from

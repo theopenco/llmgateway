@@ -125,9 +125,23 @@ function base64url(data: Buffer | string): string {
 	return buf.toString("base64url");
 }
 
+function isServiceAccountKey(value: unknown): value is ServiceAccountKey {
+	if (typeof value !== "object" || value === null) {
+		return false;
+	}
+	const candidate = value as Record<string, unknown>;
+	return (
+		typeof candidate.client_email === "string" &&
+		candidate.client_email.length > 0 &&
+		typeof candidate.private_key === "string" &&
+		candidate.private_key.length > 0
+	);
+}
+
 function parseServiceAccount(json: string): ServiceAccountKey | null {
 	try {
-		return JSON.parse(json) as ServiceAccountKey;
+		const parsed: unknown = JSON.parse(json);
+		return isServiceAccountKey(parsed) ? parsed : null;
 	} catch (err) {
 		logger.warn(
 			"Failed to parse GCP service account JSON",
@@ -291,6 +305,20 @@ export async function getGcpServiceAccountAccessToken(
 export function getGcpServiceAccountProjectId(
 	serviceAccountJson: string,
 ): string | null {
-	const sa = parseServiceAccount(serviceAccountJson);
-	return sa?.project_id ?? null;
+	try {
+		const parsed: unknown = JSON.parse(serviceAccountJson);
+		if (typeof parsed !== "object" || parsed === null) {
+			return null;
+		}
+		const projectId = (parsed as Record<string, unknown>).project_id;
+		return typeof projectId === "string" && projectId.length > 0
+			? projectId
+			: null;
+	} catch (err) {
+		logger.warn(
+			"Failed to parse GCP service account JSON",
+			err instanceof Error ? err : new Error(String(err)),
+		);
+		return null;
+	}
 }

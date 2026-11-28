@@ -338,6 +338,7 @@ export default function DecisionsPageClient({
 			ensuredProjectRef.current = null;
 			return;
 		}
+		let cancelled = false;
 		const ensureKey = async () => {
 			if (!selectedOrganization) {
 				return;
@@ -352,7 +353,7 @@ export default function DecisionsPageClient({
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ projectId }),
 				});
-				if (response.ok && selectedProject.id === projectId) {
+				if (response.ok && !cancelled) {
 					ensuredProjectRef.current = projectId;
 				}
 			} catch {
@@ -360,6 +361,9 @@ export default function DecisionsPageClient({
 			}
 		};
 		void ensureKey();
+		return () => {
+			cancelled = true;
+		};
 	}, [isAuthenticated, selectedOrganization, selectedProject]);
 
 	// Keep URL in sync with selected model(s)

@@ -450,19 +450,10 @@ export async function validateRequestModelAccess(params: {
 	// Member rules only bind normal developer keys: platform keys are org
 	// infrastructure whose `createdBy` is merely whoever clicked create, and
 	// end-user sessions were already handled above.
-	const memberRules =
-		iamRules?.member ??
-		(apiKey.keyType === "user"
-			? await findActiveUserIamRules(apiKey.createdBy, organizationId)
-			: []);
-	const teamRules =
-		iamRules?.team ??
-		(apiKey.keyType === "user"
-			? await findActiveTeamIamRules(apiKey.createdBy, organizationId)
-			: []);
+	const rules = iamRules ?? (await findRequestIamRules(apiKey, organizationId));
 
 	const teamResult = await evaluateIamRuleSet(
-		filterRules(teamRules),
+		filterRules(rules.team),
 		modelDef,
 		requestedProvider,
 		new Set(modelDef.providers.map((p) => p.providerId)),
@@ -476,7 +467,7 @@ export async function validateRequestModelAccess(params: {
 	}
 
 	const memberResult = await evaluateIamRuleSet(
-		filterRules(memberRules),
+		filterRules(rules.member),
 		modelDef,
 		requestedProvider,
 		new Set(teamResult.allowedProviders),
@@ -489,9 +480,8 @@ export async function validateRequestModelAccess(params: {
 		return memberResult;
 	}
 
-	const keyRules = iamRules?.key ?? (await findActiveIamRules(apiKey.id));
 	return await evaluateIamRuleSet(
-		filterRules(keyRules),
+		filterRules(rules.key),
 		modelDef,
 		requestedProvider,
 		new Set(memberResult.allowedProviders),

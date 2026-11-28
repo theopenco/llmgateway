@@ -174,100 +174,100 @@ function unifiedFinishReasonForStatus(status: string): string {
 	}
 }
 
+type LogInsert = typeof log.$inferInsert;
+
+interface RealtimeUsageRowBaseInput {
+	preflight: RealtimePreflightResult;
+	sessionId: string;
+	usageKey: string;
+	totalCost: Decimal;
+	discount: number;
+	source: string | null;
+	userAgent: string | undefined;
+	usage: Record<string, number>;
+	pricingSnapshot: object;
+	status: string;
+}
+
+function buildRealtimeLogBase(input: RealtimeUsageRowBaseInput) {
+	const { preflight } = input;
+	return {
+		id: shortid(),
+		params:
+			preflight.clientSafetyIdentifier !== undefined
+				? { safety_identifier: preflight.clientSafetyIdentifier }
+				: null,
+		organizationId: preflight.project.organizationId,
+		projectId: preflight.project.id,
+		apiKeyId: preflight.apiKey.id,
+		providerKeyId: preflight.trackedKeyHealthId ?? null,
+		upstreamClientRequestId: preflight.upstreamClientRequestId ?? null,
+		// Conversation content (text transcripts, audio) is intentionally not
+		// persisted for realtime sessions.
+		content: null,
+		messages: [],
+		streamed: true,
+		cached: false,
+		mode: preflight.project.mode as "api-keys" | "credits" | "hybrid",
+		usedMode: preflight.usedMode,
+		source: normalizeLogSource(input.source),
+		apiOrigin: "realtime",
+		userAgent: input.userAgent ?? null,
+		// Float cost columns stay populated for dashboards and legacy queries;
+		// billingCost is the exact decimal the worker debits.
+		cost: input.totalCost.toNumber(),
+		requestCost: 0,
+		estimatedCost: false,
+		discount: input.discount !== 0 ? input.discount : null,
+		billingCost: input.totalCost.toString(),
+		realtimeSessionId: input.sessionId,
+		realtimeUsageKey: input.usageKey,
+		realtimeUsage: {
+			usage: input.usage,
+			pricing: Object.fromEntries(
+				Object.entries(input.pricingSnapshot).filter(
+					([, value]) => value !== undefined,
+				),
+			) as Record<string, string>,
+			status: input.status,
+		},
+		// No conversation payloads are persisted for realtime sessions, so
+		// no data-retention storage fee applies.
+		dataStorageCost: "0",
+	} satisfies Partial<LogInsert>;
+}
+
+type RealtimeLogRowFields = Omit<
+	LogInsert,
+	keyof ReturnType<typeof buildRealtimeLogBase>
+>;
+
+interface InsertRealtimeUsageRowInput extends RealtimeUsageRowBaseInput {
+	row: RealtimeLogRowFields;
+	/**
+	 * Whether the row is a model generation, counted in the session's
+	 * responseCount.
+	 */
+	incrementResponseCount: boolean;
+	duplicateMessage: string;
+}
+
 /**
- * Durably persist one billable realtime response as a log row BEFORE its
- * terminal event is forwarded to the caller. Idempotent on
- * (realtimeSessionId, "response:<responseId>") via the partial unique index —
- * a redelivered terminal event inserts nothing and charges nothing. The log
- * insert and the session aggregate update commit in one transaction.
- *
- * Throws on database failure: the caller must fail closed (close the session
- * without forwarding the terminal event) rather than deliver unbilled work.
+ * Shared write path for every billable realtime usage row: inserts the log
+ * row idempotently on (realtimeSessionId, realtimeUsageKey) and updates the
+ * session aggregates in one transaction, then advances spend counters.
  */
-export async function recordRealtimeResponse(
-	input: RecordRealtimeResponseInput,
+async function insertRealtimeUsageRow(
+	input: InsertRealtimeUsageRowInput,
 ): Promise<{ inserted: boolean }> {
-	const { preflight, usage, costs } = input;
-	const usageKey = `response:${input.responseId}`;
-	const billingCost = costs.totalCost.toString();
-	const airsideRoutingSnapshot = await getAirsideRoutingSnapshot(
-		preflight.match.mapping.providerId,
-		preflight.match.modelId,
-	);
+	const { preflight, sessionId, usageKey } = input;
+	const values: LogInsert = { ...buildRealtimeLogBase(input), ...input.row };
+	const billingCost = input.totalCost.toString();
 
 	const inserted = await db.transaction(async (tx) => {
 		const rows = await tx
 			.insert(log)
-			.values({
-				id: shortid(),
-				requestId: `${input.sessionId}:${input.responseId}`,
-				params:
-					preflight.clientSafetyIdentifier !== undefined
-						? { safety_identifier: preflight.clientSafetyIdentifier }
-						: null,
-				organizationId: preflight.project.organizationId,
-				projectId: preflight.project.id,
-				apiKeyId: preflight.apiKey.id,
-				providerKeyId: preflight.trackedKeyHealthId ?? null,
-				upstreamClientRequestId: preflight.upstreamClientRequestId ?? null,
-				duration: input.durationMs,
-				requestedModel: input.requestedModel,
-				requestedProvider: preflight.match.mapping.providerId,
-				usedModel: `${preflight.match.mapping.providerId}/${preflight.match.modelId}`,
-				usedModelMapping: preflight.match.mapping.externalId,
-				usedProvider: preflight.match.mapping.providerId,
-				...airsideRoutingSnapshot,
-				responseSize: input.responseSizeBytes,
-				// Conversation content (text transcripts, audio) is intentionally not
-				// persisted for realtime sessions.
-				content: null,
-				messages: [],
-				finishReason: input.responseStatus,
-				unifiedFinishReason: unifiedFinishReasonForStatus(input.responseStatus),
-				promptTokens: usage.inputTokens.toString(),
-				completionTokens: usage.outputTokens.toString(),
-				totalTokens: usage.totalTokens.toString(),
-				cachedTokens: usage.cachedTokens.toString(),
-				audioInputTokens: usage.inputAudioTokens.toString(),
-				audioOutputTokens: usage.outputAudioTokens.toString(),
-				imageInputTokens: usage.inputImageTokens.toString(),
-				hasError: input.responseStatus === "failed",
-				canceled: input.responseStatus === "cancelled",
-				streamed: true,
-				cached: false,
-				mode: preflight.project.mode as "api-keys" | "credits" | "hybrid",
-				usedMode: preflight.usedMode,
-				source: normalizeLogSource(input.source),
-				apiOrigin: "realtime",
-				userAgent: input.userAgent ?? null,
-				// Float cost columns stay populated for dashboards and legacy queries;
-				// billingCost is the exact decimal the worker debits.
-				cost: costs.totalCost.toNumber(),
-				inputCost: costs.inputCost.toNumber(),
-				outputCost: costs.outputCost.toNumber(),
-				cachedInputCost: costs.cachedInputCost.toNumber(),
-				audioInputCost: costs.audioInputCost.toNumber(),
-				audioOutputCost: costs.audioOutputCost.toNumber(),
-				imageInputCost: costs.imageInputCost.toNumber(),
-				requestCost: 0,
-				estimatedCost: false,
-				discount: input.discount !== 0 ? input.discount : null,
-				billingCost,
-				realtimeSessionId: input.sessionId,
-				realtimeUsageKey: usageKey,
-				realtimeUsage: {
-					usage: { ...usage },
-					pricing: Object.fromEntries(
-						Object.entries(input.pricingSnapshot).filter(
-							([, value]) => value !== undefined,
-						),
-					) as Record<string, string>,
-					status: input.responseStatus,
-				},
-				// No conversation payloads are persisted for realtime sessions, so
-				// no data-retention storage fee applies.
-				dataStorageCost: "0",
-			})
+			.values(values)
 			.onConflictDoNothing({
 				target: [log.realtimeSessionId, log.realtimeUsageKey],
 				// Pinning the arbiter keeps any other unique violation loud rather
@@ -285,18 +285,20 @@ export async function recordRealtimeResponse(
 		await tx
 			.update(realtimeSession)
 			.set({
-				responseCount: sql`${realtimeSession.responseCount} + 1`,
+				...(input.incrementResponseCount && {
+					responseCount: sql`${realtimeSession.responseCount} + 1`,
+				}),
 				totalCost: sql`${realtimeSession.totalCost} + ${billingCost}`,
 				lastActivityAt: new Date(),
 			})
-			.where(eq(realtimeSession.id, input.sessionId));
+			.where(eq(realtimeSession.id, sessionId));
 
 		return true;
 	});
 
 	if (!inserted) {
-		logger.info("Duplicate realtime usage event ignored", {
-			realtimeSessionId: input.sessionId,
+		logger.info(input.duplicateMessage, {
+			realtimeSessionId: sessionId,
 			usageKey,
 		});
 	} else {
@@ -305,10 +307,73 @@ export async function recordRealtimeResponse(
 		// turns bill nothing but still count as org activity.
 		await recordSpend(
 			preflight.project.organizationId,
-			preflight.usedMode === "credits" ? costs.totalCost.toNumber() : 0,
+			preflight.usedMode === "credits" ? input.totalCost.toNumber() : 0,
 		);
 	}
 	return { inserted };
+}
+
+/**
+ * Durably persist one billable realtime response as a log row BEFORE its
+ * terminal event is forwarded to the caller. Idempotent on
+ * (realtimeSessionId, "response:<responseId>") via the partial unique index —
+ * a redelivered terminal event inserts nothing and charges nothing. The log
+ * insert and the session aggregate update commit in one transaction.
+ *
+ * Throws on database failure: the caller must fail closed (close the session
+ * without forwarding the terminal event) rather than deliver unbilled work.
+ */
+export async function recordRealtimeResponse(
+	input: RecordRealtimeResponseInput,
+): Promise<{ inserted: boolean }> {
+	const { preflight, usage, costs } = input;
+	const airsideRoutingSnapshot = await getAirsideRoutingSnapshot(
+		preflight.match.mapping.providerId,
+		preflight.match.modelId,
+	);
+
+	return await insertRealtimeUsageRow({
+		preflight,
+		sessionId: input.sessionId,
+		usageKey: `response:${input.responseId}`,
+		totalCost: costs.totalCost,
+		discount: input.discount,
+		source: input.source,
+		userAgent: input.userAgent,
+		usage: { ...usage },
+		pricingSnapshot: input.pricingSnapshot,
+		status: input.responseStatus,
+		incrementResponseCount: true,
+		duplicateMessage: "Duplicate realtime usage event ignored",
+		row: {
+			requestId: `${input.sessionId}:${input.responseId}`,
+			duration: input.durationMs,
+			requestedModel: input.requestedModel,
+			requestedProvider: preflight.match.mapping.providerId,
+			usedModel: `${preflight.match.mapping.providerId}/${preflight.match.modelId}`,
+			usedModelMapping: preflight.match.mapping.externalId,
+			usedProvider: preflight.match.mapping.providerId,
+			...airsideRoutingSnapshot,
+			responseSize: input.responseSizeBytes,
+			finishReason: input.responseStatus,
+			unifiedFinishReason: unifiedFinishReasonForStatus(input.responseStatus),
+			promptTokens: usage.inputTokens.toString(),
+			completionTokens: usage.outputTokens.toString(),
+			totalTokens: usage.totalTokens.toString(),
+			cachedTokens: usage.cachedTokens.toString(),
+			audioInputTokens: usage.inputAudioTokens.toString(),
+			audioOutputTokens: usage.outputAudioTokens.toString(),
+			imageInputTokens: usage.inputImageTokens.toString(),
+			hasError: input.responseStatus === "failed",
+			canceled: input.responseStatus === "cancelled",
+			inputCost: costs.inputCost.toNumber(),
+			outputCost: costs.outputCost.toNumber(),
+			cachedInputCost: costs.cachedInputCost.toNumber(),
+			audioInputCost: costs.audioInputCost.toNumber(),
+			audioOutputCost: costs.audioOutputCost.toNumber(),
+			imageInputCost: costs.imageInputCost.toNumber(),
+		},
+	});
 }
 
 export interface RecordRealtimeTranscriptionInput {
@@ -359,114 +424,51 @@ export async function recordRealtimeTranscription(
 	input: RecordRealtimeTranscriptionInput,
 ): Promise<{ inserted: boolean }> {
 	const { preflight, transcription, usage, costs } = input;
-	const usageKey = `transcription:${input.itemId}:${input.contentIndex}`;
-	const billingCost = costs.totalCost.toString();
 	const airsideRoutingSnapshot = await getAirsideRoutingSnapshot(
 		transcription.mapping.providerId,
 		transcription.modelId,
 	);
 
-	const inserted = await db.transaction(async (tx) => {
-		const rows = await tx
-			.insert(log)
-			.values({
-				id: shortid(),
-				requestId: `${input.sessionId}:${input.itemId}:${input.contentIndex}`,
-				params:
-					preflight.clientSafetyIdentifier !== undefined
-						? { safety_identifier: preflight.clientSafetyIdentifier }
-						: null,
-				organizationId: preflight.project.organizationId,
-				projectId: preflight.project.id,
-				apiKeyId: preflight.apiKey.id,
-				providerKeyId: preflight.trackedKeyHealthId ?? null,
-				upstreamClientRequestId: preflight.upstreamClientRequestId ?? null,
-				duration: 0,
-				requestedModel: input.requestedModel,
-				requestedProvider: transcription.mapping.providerId,
-				usedModel: `${transcription.mapping.providerId}/${transcription.modelId}`,
-				usedModelMapping: transcription.mapping.externalId,
-				usedProvider: transcription.mapping.providerId,
-				...airsideRoutingSnapshot,
-				responseSize: input.responseSizeBytes,
-				// Transcript content is intentionally not persisted, matching the
-				// no-conversation-content policy for realtime sessions.
-				content: null,
-				messages: [],
-				finishReason: "completed",
-				unifiedFinishReason: UnifiedFinishReason.COMPLETED,
-				promptTokens: usage.inputTokens.toString(),
-				completionTokens: usage.outputTokens.toString(),
-				totalTokens: usage.totalTokens.toString(),
-				cachedTokens: "0",
-				audioInputTokens: usage.inputAudioTokens.toString(),
-				audioOutputTokens: "0",
-				imageInputTokens: "0",
-				hasError: false,
-				canceled: false,
-				streamed: true,
-				cached: false,
-				mode: preflight.project.mode as "api-keys" | "credits" | "hybrid",
-				usedMode: preflight.usedMode,
-				source: normalizeLogSource(input.source),
-				apiOrigin: "realtime",
-				userAgent: input.userAgent ?? null,
-				cost: costs.totalCost.toNumber(),
-				inputCost: costs.inputCost.toNumber(),
-				outputCost: costs.outputCost.toNumber(),
-				cachedInputCost: 0,
-				audioInputCost: costs.audioInputCost.toNumber(),
-				audioOutputCost: 0,
-				imageInputCost: 0,
-				requestCost: 0,
-				estimatedCost: false,
-				discount: input.discount !== 0 ? input.discount : null,
-				billingCost,
-				realtimeSessionId: input.sessionId,
-				realtimeUsageKey: usageKey,
-				realtimeUsage: {
-					usage: { ...usage },
-					pricing: Object.fromEntries(
-						Object.entries(input.pricingSnapshot).filter(
-							([, value]) => value !== undefined,
-						),
-					) as Record<string, string>,
-					status: "completed",
-				},
-				dataStorageCost: "0",
-			})
-			.onConflictDoNothing({
-				target: [log.realtimeSessionId, log.realtimeUsageKey],
-				where: sql`realtime_usage_key is not null`,
-			})
-			.returning({ id: log.id });
-
-		if (rows.length === 0) {
-			return false;
-		}
-
-		await tx
-			.update(realtimeSession)
-			.set({
-				totalCost: sql`${realtimeSession.totalCost} + ${billingCost}`,
-				lastActivityAt: new Date(),
-			})
-			.where(eq(realtimeSession.id, input.sessionId));
-
-		return true;
+	return await insertRealtimeUsageRow({
+		preflight,
+		sessionId: input.sessionId,
+		usageKey: `transcription:${input.itemId}:${input.contentIndex}`,
+		totalCost: costs.totalCost,
+		discount: input.discount,
+		source: input.source,
+		userAgent: input.userAgent,
+		usage: { ...usage },
+		pricingSnapshot: input.pricingSnapshot,
+		status: "completed",
+		incrementResponseCount: false,
+		duplicateMessage: "Duplicate realtime transcription event ignored",
+		row: {
+			requestId: `${input.sessionId}:${input.itemId}:${input.contentIndex}`,
+			duration: 0,
+			requestedModel: input.requestedModel,
+			requestedProvider: transcription.mapping.providerId,
+			usedModel: `${transcription.mapping.providerId}/${transcription.modelId}`,
+			usedModelMapping: transcription.mapping.externalId,
+			usedProvider: transcription.mapping.providerId,
+			...airsideRoutingSnapshot,
+			responseSize: input.responseSizeBytes,
+			finishReason: "completed",
+			unifiedFinishReason: UnifiedFinishReason.COMPLETED,
+			promptTokens: usage.inputTokens.toString(),
+			completionTokens: usage.outputTokens.toString(),
+			totalTokens: usage.totalTokens.toString(),
+			cachedTokens: "0",
+			audioInputTokens: usage.inputAudioTokens.toString(),
+			audioOutputTokens: "0",
+			imageInputTokens: "0",
+			hasError: false,
+			canceled: false,
+			inputCost: costs.inputCost.toNumber(),
+			outputCost: costs.outputCost.toNumber(),
+			cachedInputCost: 0,
+			audioInputCost: costs.audioInputCost.toNumber(),
+			audioOutputCost: 0,
+			imageInputCost: 0,
+		},
 	});
-
-	if (!inserted) {
-		logger.info("Duplicate realtime transcription event ignored", {
-			realtimeSessionId: input.sessionId,
-			usageKey,
-		});
-	} else {
-		// Same spend-cap and activity accounting as recordRealtimeResponse above.
-		await recordSpend(
-			preflight.project.organizationId,
-			preflight.usedMode === "credits" ? costs.totalCost.toNumber() : 0,
-		);
-	}
-	return { inserted };
 }

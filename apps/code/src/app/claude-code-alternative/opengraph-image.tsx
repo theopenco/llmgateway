@@ -2,6 +2,8 @@ import { ImageResponse } from "next/og";
 
 import { getBrand, type BrandSpec } from "@/components/brand-logos";
 
+import { DEV_PLAN_PRICES } from "@llmgateway/shared";
+
 export const alt =
 	"DevPass — the Claude Code alternative that keeps Claude Code";
 export const size = { width: 1200, height: 630 };
@@ -169,7 +171,7 @@ export default function ClaudeCodeAlternativeOgImage() {
 					<div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
 						<span style={{ color: "#71717a", fontSize: 18 }}>DevPass</span>
 						<span style={{ color: "#fafafa", fontSize: 26, fontWeight: 600 }}>
-							$29–$179/mo
+							{`$${DEV_PLAN_PRICES.lite}–$${DEV_PLAN_PRICES.max}/mo`}
 						</span>
 					</div>
 					<div style={{ display: "flex", flexDirection: "column", gap: 4 }}>

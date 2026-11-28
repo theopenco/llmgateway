@@ -1840,6 +1840,61 @@ function exceedsWanEditPixelLimit(imageSize: string): boolean {
 	);
 }
 
+function extractLastUserPromptAndImages(messages: BaseMessage[]): {
+	prompt: string;
+	imageUrls: string[];
+} {
+	const lastUserMessage = [...messages]
+		.reverse()
+		.find((m) => m.role === "user");
+	let prompt = "";
+	const imageUrls: string[] = [];
+	if (typeof lastUserMessage?.content === "string") {
+		prompt = lastUserMessage.content;
+	} else if (Array.isArray(lastUserMessage?.content)) {
+		for (const part of lastUserMessage.content) {
+			if (part.type === "text" && part.text) {
+				prompt += (prompt ? "\n" : "") + part.text;
+			} else if (part.type === "image_url" && part.image_url) {
+				const url =
+					typeof part.image_url === "string"
+						? part.image_url
+						: part.image_url.url;
+				if (url) {
+					imageUrls.push(url);
+				}
+			}
+		}
+	}
+	return { prompt, imageUrls };
+}
+
+function claudeThinkingBudget(
+	effort: string | undefined,
+	reasoningMaxTokens: number | undefined,
+	noEffortBudget: number,
+): number {
+	if (reasoningMaxTokens !== undefined) {
+		// Claude thinking budgets range from 1024 to 128000 tokens
+		return Math.max(Math.min(reasoningMaxTokens, 128000), 1024);
+	}
+	if (!effort) {
+		return noEffortBudget;
+	}
+	switch (effort) {
+		case "low":
+			return 1024;
+		case "high":
+			return 4000;
+		case "xhigh":
+			return 16000;
+		case "max":
+			return 32000;
+		default:
+			return 2000;
+	}
+}
+
 export async function prepareRequestBody(
 	usedProvider: ProviderId,
 	usedInternalModel: string,
@@ -2025,6 +2080,39 @@ export async function prepareRequestBody(
 			);
 		}
 	};
+	const applySamplingParams = (
+		body: Record<string, any>,
+		opts?: { maxTokensField?: "max_tokens" | "max_completion_tokens" },
+	) => {
+		if (temperature !== undefined) {
+			body.temperature = temperature;
+		}
+		if (max_tokens !== undefined) {
+			body[opts?.maxTokensField ?? "max_tokens"] = max_tokens;
+		}
+		if (top_p !== undefined) {
+			body.top_p = top_p;
+		}
+		if (frequency_penalty !== undefined) {
+			body.frequency_penalty = frequency_penalty;
+		}
+		if (presence_penalty !== undefined) {
+			body.presence_penalty = presence_penalty;
+		}
+	};
+	// Mappings that can turn thinking off declare `none` in `reasoningEfforts`;
+	// elsewhere `none` sends nothing and the provider default is kept.
+	const applyBinaryThinkingDisable = (body: Record<string, any>) => {
+		if (reasoning_effort === "none") {
+			const canDisableThinking =
+				providerMappingForOptions?.reasoningEfforts?.includes("none") ?? false;
+			if (supportsReasoning && canDisableThinking) {
+				body.thinking = { type: "disabled" };
+			}
+		} else if (reasoning_effort !== undefined) {
+			body.reasoning_effort = reasoning_effort;
+		}
+	};
 	const supportedServiceTier =
 		(service_tier === "flex" || service_tier === "priority") &&
 		supportsServiceTier(
@@ -2107,31 +2195,7 @@ export async function prepareRequestBody(
 		imageGenerations &&
 		(usedProvider === "openai" || usedProvider === "azure")
 	) {
-		// Extract prompt and image URLs from last user message
-		const lastUserMessage = [...messages]
-			.reverse()
-			.find((m) => m.role === "user");
-		let prompt = "";
-		const imageUrls: string[] = [];
-		if (lastUserMessage) {
-			if (typeof lastUserMessage.content === "string") {
-				prompt = lastUserMessage.content;
-			} else if (Array.isArray(lastUserMessage.content)) {
-				for (const part of lastUserMessage.content) {
-					if (part.type === "text" && part.text) {
-						prompt += (prompt ? "\n" : "") + part.text;
-					} else if (part.type === "image_url" && part.image_url) {
-						const url =
-							typeof part.image_url === "string"
-								? part.image_url
-								: part.image_url.url;
-						if (url) {
-							imageUrls.push(url);
-						}
-					}
-				}
-			}
-		}
+		const { prompt, imageUrls } = extractLastUserPromptAndImages(messages);
 
 		// Pass image_size straight through to OpenAI as `WxH` (or `auto`).
 		// OpenAI returns a 4xx for unsupported sizes, which we propagate.
@@ -2239,31 +2303,7 @@ export async function prepareRequestBody(
 
 	// Handle xAI image generation models
 	if (imageGenerations && usedProvider === "xai") {
-		// Extract prompt and image URLs from last user message
-		const lastUserMessage = [...messages]
-			.reverse()
-			.find((m) => m.role === "user");
-		let prompt = "";
-		const imageUrls: string[] = [];
-		if (lastUserMessage) {
-			if (typeof lastUserMessage.content === "string") {
-				prompt = lastUserMessage.content;
-			} else if (Array.isArray(lastUserMessage.content)) {
-				for (const part of lastUserMessage.content) {
-					if (part.type === "text" && part.text) {
-						prompt += (prompt ? "\n" : "") + part.text;
-					} else if (part.type === "image_url" && part.image_url) {
-						const url =
-							typeof part.image_url === "string"
-								? part.image_url
-								: part.image_url.url;
-						if (url) {
-							imageUrls.push(url);
-						}
-					}
-				}
-			}
-		}
+		const { prompt, imageUrls } = extractLastUserPromptAndImages(messages);
 
 		// xAI Grok Imagine uses OpenAI-compatible image generation format
 		// When images are present, use the edits format
@@ -2302,21 +2342,7 @@ export async function prepareRequestBody(
 
 	// Handle Z.AI image generation models
 	if (imageGenerations && usedProvider === "zai") {
-		// Extract prompt from last user message
-		const lastUserMessage = [...messages]
-			.reverse()
-			.find((m) => m.role === "user");
-		let prompt = "";
-		if (lastUserMessage) {
-			if (typeof lastUserMessage.content === "string") {
-				prompt = lastUserMessage.content;
-			} else if (Array.isArray(lastUserMessage.content)) {
-				prompt = lastUserMessage.content
-					.filter((p): p is { type: "text"; text: string } => p.type === "text")
-					.map((p) => p.text)
-					.join("\n");
-			}
-		}
+		const { prompt } = extractLastUserPromptAndImages(messages);
 
 		// Z.AI CogView uses OpenAI-compatible image generation format
 		const zaiImageRequest: any = {
@@ -2332,28 +2358,7 @@ export async function prepareRequestBody(
 	// Handle MiniMax H3 Image. Reference images switch chat.ts to the JSON
 	// /v1/images/edits endpoint, which takes them as images[].image_url.
 	if (imageGenerations && usedProvider === "minimax") {
-		const lastUserMessage = [...messages]
-			.reverse()
-			.find((m) => m.role === "user");
-		let prompt = "";
-		const imageUrls: string[] = [];
-		if (typeof lastUserMessage?.content === "string") {
-			prompt = lastUserMessage.content;
-		} else if (Array.isArray(lastUserMessage?.content)) {
-			for (const part of lastUserMessage.content) {
-				if (part.type === "text" && part.text) {
-					prompt += (prompt ? "\n" : "") + part.text;
-				} else if (part.type === "image_url" && part.image_url) {
-					const url =
-						typeof part.image_url === "string"
-							? part.image_url
-							: part.image_url.url;
-					if (url) {
-						imageUrls.push(url);
-					}
-				}
-			}
-		}
+		const { prompt, imageUrls } = extractLastUserPromptAndImages(messages);
 
 		// `size` takes WxH; 1K/2K/4K are area tiers combined with aspect_ratio.
 		// MiniMax 400s when aspect_ratio or area accompanies a WxH size.
@@ -2393,31 +2398,7 @@ export async function prepareRequestBody(
 
 	// Handle Alibaba image generation models
 	if (imageGenerations && usedProvider === "alibaba") {
-		// Extract prompt and images from last user message
-		const lastUserMessage = [...messages]
-			.reverse()
-			.find((m) => m.role === "user");
-		let prompt = "";
-		const imageUrls: string[] = [];
-		if (lastUserMessage) {
-			if (typeof lastUserMessage.content === "string") {
-				prompt = lastUserMessage.content;
-			} else if (Array.isArray(lastUserMessage.content)) {
-				for (const part of lastUserMessage.content) {
-					if (part.type === "text" && part.text) {
-						prompt += (prompt ? "\n" : "") + part.text;
-					} else if (part.type === "image_url" && part.image_url) {
-						const url =
-							typeof part.image_url === "string"
-								? part.image_url
-								: part.image_url.url;
-						if (url) {
-							imageUrls.push(url);
-						}
-					}
-				}
-			}
-		}
+		const { prompt, imageUrls } = extractLastUserPromptAndImages(messages);
 
 		// Build Alibaba DashScope content array: images first, then text
 		const alibabaContent: any[] = [];
@@ -2469,30 +2450,7 @@ export async function prepareRequestBody(
 
 	// Handle ByteDance Seedream image generation
 	if (imageGenerations && usedProvider === "bytedance") {
-		const lastUserMessage = [...messages]
-			.reverse()
-			.find((m) => m.role === "user");
-		let prompt = "";
-		const imageUrls: string[] = [];
-		if (lastUserMessage) {
-			if (typeof lastUserMessage.content === "string") {
-				prompt = lastUserMessage.content;
-			} else if (Array.isArray(lastUserMessage.content)) {
-				for (const part of lastUserMessage.content) {
-					if (part.type === "text" && part.text) {
-						prompt += (prompt ? "\n" : "") + part.text;
-					} else if (part.type === "image_url" && part.image_url) {
-						const url =
-							typeof part.image_url === "string"
-								? part.image_url
-								: part.image_url.url;
-						if (url) {
-							imageUrls.push(url);
-						}
-					}
-				}
-			}
-		}
+		const { prompt, imageUrls } = extractLastUserPromptAndImages(messages);
 
 		// Seedream 5.5 adds native background (transparent needs png) and
 		// png/jpeg output format controls.
@@ -2563,18 +2521,7 @@ export async function prepareRequestBody(
 
 	// Handle fal text-to-image models (synchronous fal.run API)
 	if (imageGenerations && usedProvider === "fal-ai") {
-		const lastUserMessage = [...messages]
-			.reverse()
-			.find((m) => m.role === "user");
-		const prompt =
-			typeof lastUserMessage?.content === "string"
-				? lastUserMessage.content
-				: (lastUserMessage?.content ?? [])
-						.filter(
-							(p): p is { type: "text"; text: string } => p.type === "text",
-						)
-						.map((p) => p.text)
-						.join("\n");
+		const { prompt } = extractLastUserPromptAndImages(messages);
 		// Always send a size: fal's defaults differ per model, and billing keys
 		// on the requested size, so only priced presets are accepted.
 		const imageSize = image_config?.image_size ?? "1024x1024";
@@ -2629,6 +2576,51 @@ export async function prepareRequestBody(
 	// working while traffic that sends no markers never pays the write premium.
 	const allowProviderCacheWrites = providerCacheControlMode !== "off";
 	const autoInjectCacheControl = providerCacheControlMode === "auto";
+	const applyOpenAIPromptCacheFields = (
+		body: Pick<
+			OpenAIResponsesRequestBody,
+			"prompt_cache_retention" | "prompt_cache_options"
+		>,
+	) => {
+		if (usedProvider === "openai") {
+			if (
+				allowProviderCacheWrites &&
+				prompt_cache_retention !== undefined &&
+				(prompt_cache_retention !== "24h" ||
+					supportsOpenAIExtendedPromptCache(usedInternalModel))
+			) {
+				body.prompt_cache_retention = prompt_cache_retention;
+			}
+			if (supportsOpenAIExplicitPromptCache(usedInternalModel)) {
+				if (!allowProviderCacheWrites) {
+					// The project opted out of provider cache writes, but GPT-5.6
+					// implicit caching auto-writes (billed at 1.25x) on every
+					// request. Force explicit mode — with all breakpoint markers
+					// stripped, this disables caching (and its write fees) entirely.
+					body.prompt_cache_options = { mode: "explicit" };
+				} else if (prompt_cache_options !== undefined) {
+					body.prompt_cache_options = prompt_cache_options;
+				} else if (!autoInjectCacheControl) {
+					// Passthrough: implicit caching writes a cache the caller never
+					// asked for. Explicit mode confines writes to the caller's own
+					// breakpoints, which is what this mode promises.
+					body.prompt_cache_options = { mode: "explicit" };
+				}
+			}
+		}
+
+		// Bedrock serves GPT-5.6+ on Mantle and on the runtime /openai/v1
+		// surface (cross-region profiles) with the same implicit caching, and
+		// bills its writes at 1.25x. Breakpoints are already stripped for this
+		// provider, so explicit mode disables caching for off-mode projects.
+		if (
+			usedProvider === "aws-mantle" &&
+			!allowProviderCacheWrites &&
+			supportsOpenAIExplicitPromptCache(usedInternalModel)
+		) {
+			body.prompt_cache_options = { mode: "explicit" };
+		}
+	};
 	const automaticCacheTtl =
 		autoInjectCacheControl &&
 		!hasCallerCacheMarkers &&
@@ -3310,45 +3302,7 @@ export async function prepareRequestBody(
 					}
 				}
 
-				if (usedProvider === "openai") {
-					if (
-						allowProviderCacheWrites &&
-						prompt_cache_retention !== undefined &&
-						(prompt_cache_retention !== "24h" ||
-							supportsOpenAIExtendedPromptCache(usedInternalModel))
-					) {
-						responsesBody.prompt_cache_retention = prompt_cache_retention;
-					}
-					if (supportsOpenAIExplicitPromptCache(usedInternalModel)) {
-						if (!allowProviderCacheWrites) {
-							// The project opted out of provider cache writes, but GPT-5.6
-							// implicit caching auto-writes (billed at 1.25x) on every
-							// request. Force explicit mode — with all breakpoint markers
-							// stripped above, this disables caching (and its write fees)
-							// entirely.
-							responsesBody.prompt_cache_options = { mode: "explicit" };
-						} else if (prompt_cache_options !== undefined) {
-							responsesBody.prompt_cache_options = prompt_cache_options;
-						} else if (!autoInjectCacheControl) {
-							// Passthrough: implicit caching writes a cache the caller never
-							// asked for. Explicit mode confines writes to the caller's own
-							// breakpoints, which is what this mode promises.
-							responsesBody.prompt_cache_options = { mode: "explicit" };
-						}
-					}
-				}
-
-				// Bedrock serves GPT-5.6+ on Mantle and on the runtime /openai/v1
-				// surface (cross-region profiles) with the same implicit caching, and
-				// bills its writes at 1.25x. Breakpoints are already stripped for this
-				// provider, so explicit mode disables caching for off-mode projects.
-				if (
-					usedProvider === "aws-mantle" &&
-					!allowProviderCacheWrites &&
-					supportsOpenAIExplicitPromptCache(usedInternalModel)
-				) {
-					responsesBody.prompt_cache_options = { mode: "explicit" };
-				}
+				applyOpenAIPromptCacheFields(responsesBody);
 
 				// prompt_cache_key influences upstream cache-shard routing; only
 				// OpenAI, Azure (v1 surface — the Responses API path is always v1),
@@ -3569,57 +3523,19 @@ export async function prepareRequestBody(
 					requestBody.service_tier = service_tier;
 				}
 
-				if (usedProvider === "openai") {
-					if (allowProviderCacheWrites) {
-						const upstreamCacheKey =
-							(prompt_cache_key !== undefined
-								? hashPromptCacheKey(prompt_cache_key)
-								: undefined) ??
-							(session_id !== undefined
-								? hashSessionCacheKey(session_id)
-								: undefined);
-						if (upstreamCacheKey !== undefined) {
-							requestBody.prompt_cache_key = upstreamCacheKey;
-						}
-					}
-					if (
-						allowProviderCacheWrites &&
-						prompt_cache_retention !== undefined &&
-						(prompt_cache_retention !== "24h" ||
-							supportsOpenAIExtendedPromptCache(usedInternalModel))
-					) {
-						requestBody.prompt_cache_retention = prompt_cache_retention;
-					}
-					if (supportsOpenAIExplicitPromptCache(usedInternalModel)) {
-						if (!allowProviderCacheWrites) {
-							// The project opted out of provider cache writes, but GPT-5.6
-							// implicit caching auto-writes (billed at 1.25x) on every
-							// request. Force explicit mode — with all breakpoint markers
-							// stripped above, this disables caching (and its write fees)
-							// entirely.
-							requestBody.prompt_cache_options = { mode: "explicit" };
-						} else if (prompt_cache_options !== undefined) {
-							requestBody.prompt_cache_options = prompt_cache_options;
-						} else if (!autoInjectCacheControl) {
-							// Passthrough: implicit caching writes a cache the caller never
-							// asked for. Explicit mode confines writes to the caller's own
-							// breakpoints, which is what this mode promises.
-							requestBody.prompt_cache_options = { mode: "explicit" };
-						}
+				if (usedProvider === "openai" && allowProviderCacheWrites) {
+					const upstreamCacheKey =
+						(prompt_cache_key !== undefined
+							? hashPromptCacheKey(prompt_cache_key)
+							: undefined) ??
+						(session_id !== undefined
+							? hashSessionCacheKey(session_id)
+							: undefined);
+					if (upstreamCacheKey !== undefined) {
+						requestBody.prompt_cache_key = upstreamCacheKey;
 					}
 				}
-
-				// Bedrock serves GPT-5.6+ on Mantle and on the runtime /openai/v1
-				// surface (cross-region profiles) with the same implicit caching, and
-				// bills its writes at 1.25x. Breakpoints are already stripped for this
-				// provider, so explicit mode disables caching for off-mode projects.
-				if (
-					usedProvider === "aws-mantle" &&
-					!allowProviderCacheWrites &&
-					supportsOpenAIExplicitPromptCache(usedInternalModel)
-				) {
-					requestBody.prompt_cache_options = { mode: "explicit" };
-				}
+				applyOpenAIPromptCacheFields(requestBody);
 
 				if (stream) {
 					requestBody.stream_options = {
@@ -3670,27 +3586,12 @@ export async function prepareRequestBody(
 					}
 				}
 
-				// Add optional parameters if they are provided
-				if (temperature !== undefined) {
-					requestBody.temperature = temperature;
-				}
-				if (max_tokens !== undefined) {
-					// GPT-5 models use max_completion_tokens instead of max_tokens
-					if (usedInternalModel.startsWith("gpt-5")) {
-						requestBody.max_completion_tokens = max_tokens;
-					} else {
-						requestBody.max_tokens = max_tokens;
-					}
-				}
-				if (top_p !== undefined) {
-					requestBody.top_p = top_p;
-				}
-				if (frequency_penalty !== undefined) {
-					requestBody.frequency_penalty = frequency_penalty;
-				}
-				if (presence_penalty !== undefined) {
-					requestBody.presence_penalty = presence_penalty;
-				}
+				// GPT-5 models use max_completion_tokens instead of max_tokens
+				applySamplingParams(requestBody, {
+					maxTokensField: usedInternalModel.startsWith("gpt-5")
+						? "max_completion_tokens"
+						: "max_tokens",
+				});
 				if (reasoning_effort !== undefined) {
 					if (usedProvider === "sakana") {
 						// Streaming Fugu uses Chat Completions, which (like its Responses
@@ -3754,22 +3655,7 @@ export async function prepareRequestBody(
 				});
 			}
 
-			// Add optional parameters if they are provided
-			if (temperature !== undefined) {
-				requestBody.temperature = temperature;
-			}
-			if (max_tokens !== undefined) {
-				requestBody.max_tokens = max_tokens;
-			}
-			if (top_p !== undefined) {
-				requestBody.top_p = top_p;
-			}
-			if (frequency_penalty !== undefined) {
-				requestBody.frequency_penalty = frequency_penalty;
-			}
-			if (presence_penalty !== undefined) {
-				requestBody.presence_penalty = presence_penalty;
-			}
+			applySamplingParams(requestBody);
 			// ZAI/GLM models use a `thinking` parameter instead of `reasoning_effort`.
 			// Mirror the OpenAI/Anthropic/Google contract: thinking is opt-in via
 			// `reasoning_effort`. "none" explicitly disables thinking, "minimal" and
@@ -3832,26 +3718,9 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
-			// Add optional parameters if they are provided
-			if (temperature !== undefined) {
-				requestBody.temperature = temperature;
-			}
-			if (max_tokens !== undefined) {
-				if (isKimiK3) {
-					requestBody.max_completion_tokens = max_tokens;
-				} else {
-					requestBody.max_tokens = max_tokens;
-				}
-			}
-			if (top_p !== undefined) {
-				requestBody.top_p = top_p;
-			}
-			if (frequency_penalty !== undefined) {
-				requestBody.frequency_penalty = frequency_penalty;
-			}
-			if (presence_penalty !== undefined) {
-				requestBody.presence_penalty = presence_penalty;
-			}
+			applySamplingParams(requestBody, {
+				maxTokensField: isKimiK3 ? "max_completion_tokens" : "max_tokens",
+			});
 			// Moonshot's K2-era thinking models don't recognize `reasoning_effort`;
 			// they take a binary `thinking` parameter (`{ type: "enabled" |
 			// "disabled" }`) and think by default. Map `none`/`minimal` to an
@@ -3898,22 +3767,7 @@ export async function prepareRequestBody(
 				applyDashScopeWebSearch(requestBody);
 			}
 
-			// Add optional parameters if they are provided
-			if (temperature !== undefined) {
-				requestBody.temperature = temperature;
-			}
-			if (max_tokens !== undefined) {
-				requestBody.max_tokens = max_tokens;
-			}
-			if (top_p !== undefined) {
-				requestBody.top_p = top_p;
-			}
-			if (frequency_penalty !== undefined) {
-				requestBody.frequency_penalty = frequency_penalty;
-			}
-			if (presence_penalty !== undefined) {
-				requestBody.presence_penalty = presence_penalty;
-			}
+			applySamplingParams(requestBody);
 			// Budget-controlled mappings use enable_thinking and thinking_budget;
 			// mappings declaring native reasoning_effort receive it directly.
 			if (
@@ -3974,22 +3828,7 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
-			// Add optional parameters if they are provided
-			if (temperature !== undefined) {
-				requestBody.temperature = temperature;
-			}
-			if (max_tokens !== undefined) {
-				requestBody.max_tokens = max_tokens;
-			}
-			if (top_p !== undefined) {
-				requestBody.top_p = top_p;
-			}
-			if (frequency_penalty !== undefined) {
-				requestBody.frequency_penalty = frequency_penalty;
-			}
-			if (presence_penalty !== undefined) {
-				requestBody.presence_penalty = presence_penalty;
-			}
+			applySamplingParams(requestBody);
 			if (supportsReasoning) {
 				requestBody.extra_body = {
 					...(requestBody.extra_body ?? {}),
@@ -4063,32 +3902,9 @@ export async function prepareRequestBody(
 
 			// Set max_tokens, ensuring it's higher than thinking budget when reasoning is enabled
 			// Use reasoning_max_tokens if provided, otherwise fall back to reasoning_effort mapping
-			const getThinkingBudget = (effort?: string) => {
-				if (!supportsReasoning) {
-					return 0;
-				}
-				// If explicit reasoning_max_tokens is provided, use it
-				if (reasoning_max_tokens !== undefined) {
-					// Anthropic has a minimum of 1024 and maximum of 128000 for thinking budget
-					return Math.max(Math.min(reasoning_max_tokens, 128000), 1024);
-				}
-				if (!effort) {
-					return 0;
-				}
-				switch (effort) {
-					case "low":
-						return 1024; // Anthropic minimum
-					case "high":
-						return 4000;
-					case "xhigh":
-						return 16000;
-					case "max":
-						return 32000;
-					default:
-						return 2000; // medium or undefined
-				}
-			};
-			const thinkingBudget = getThinkingBudget(thinkingEffort);
+			const thinkingBudget = supportsReasoning
+				? claudeThinkingBudget(thinkingEffort, reasoning_max_tokens, 0)
+				: 0;
 			// Anthropic's Messages API requires max_tokens to be set. When the
 			// caller didn't specify one, fall back to the model's full advertised
 			// maxOutput (e.g. 128000 for Opus 4.7) rather than Anthropic's
@@ -5195,27 +5011,11 @@ export async function prepareRequestBody(
 			) {
 				// Claude models on Converse all use budget thinking; adaptive ones are
 				// on the Messages API.
-				const getThinkingBudget = (effort?: string) => {
-					if (reasoning_max_tokens !== undefined) {
-						return Math.max(Math.min(reasoning_max_tokens, 128000), 1024);
-					}
-					if (!effort) {
-						return 2000;
-					}
-					switch (effort) {
-						case "low":
-							return 1024;
-						case "high":
-							return 4000;
-						case "xhigh":
-							return 16000;
-						case "max":
-							return 32000;
-						default:
-							return 2000;
-					}
-				};
-				const thinkingBudget = getThinkingBudget(bedrockThinkingEffort);
+				const thinkingBudget = claudeThinkingBudget(
+					bedrockThinkingEffort,
+					reasoning_max_tokens,
+					2000,
+				);
 				requestBody.additionalModelRequestFields ??= {};
 				requestBody.additionalModelRequestFields.thinking = {
 					type: "enabled",
@@ -5575,22 +5375,7 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
-			// Add optional parameters if they are provided
-			if (temperature !== undefined) {
-				requestBody.temperature = temperature;
-			}
-			if (max_tokens !== undefined) {
-				requestBody.max_tokens = max_tokens;
-			}
-			if (top_p !== undefined) {
-				requestBody.top_p = top_p;
-			}
-			if (frequency_penalty !== undefined) {
-				requestBody.frequency_penalty = frequency_penalty;
-			}
-			if (presence_penalty !== undefined) {
-				requestBody.presence_penalty = presence_penalty;
-			}
+			applySamplingParams(requestBody);
 
 			// Together AI is OpenAI-compatible on `reasoning_effort`, so graded
 			// tiers are forwarded verbatim (unsupported ones surface the provider's
@@ -5655,22 +5440,7 @@ export async function prepareRequestBody(
 					},
 				}));
 			}
-			// Add optional parameters if they are provided
-			if (temperature !== undefined) {
-				requestBody.temperature = temperature;
-			}
-			if (max_tokens !== undefined) {
-				requestBody.max_tokens = max_tokens;
-			}
-			if (top_p !== undefined) {
-				requestBody.top_p = top_p;
-			}
-			if (frequency_penalty !== undefined) {
-				requestBody.frequency_penalty = frequency_penalty;
-			}
-			if (presence_penalty !== undefined) {
-				requestBody.presence_penalty = presence_penalty;
-			}
+			applySamplingParams(requestBody);
 			if (reasoning_effort !== undefined) {
 				requestBody.reasoning_effort = reasoning_effort;
 			}
@@ -5792,22 +5562,7 @@ export async function prepareRequestBody(
 				}
 			}
 
-			// Add optional parameters if they are provided
-			if (temperature !== undefined) {
-				requestBody.temperature = temperature;
-			}
-			if (max_tokens !== undefined) {
-				requestBody.max_tokens = max_tokens;
-			}
-			if (top_p !== undefined) {
-				requestBody.top_p = top_p;
-			}
-			if (frequency_penalty !== undefined) {
-				requestBody.frequency_penalty = frequency_penalty;
-			}
-			if (presence_penalty !== undefined) {
-				requestBody.presence_penalty = presence_penalty;
-			}
+			applySamplingParams(requestBody);
 			break;
 		}
 		case "xiaomi": {
@@ -5836,41 +5591,15 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
-			// Add optional parameters if they are provided
-			if (temperature !== undefined) {
-				requestBody.temperature = temperature;
-			}
-			if (max_tokens !== undefined) {
-				requestBody.max_tokens = max_tokens;
-			}
-			if (top_p !== undefined) {
-				requestBody.top_p = top_p;
-			}
-			if (frequency_penalty !== undefined) {
-				requestBody.frequency_penalty = frequency_penalty;
-			}
-			if (presence_penalty !== undefined) {
-				requestBody.presence_penalty = presence_penalty;
-			}
+			applySamplingParams(requestBody);
 			// Xiaomi natively accepts `reasoning_effort` low/medium/high (verified
 			// live: high consistently thinks longer than low) but rejects every
 			// other tier with a 400, and thinking models think by default. Forward
 			// the native tiers verbatim (unsupported ones surface the provider's
 			// 4xx per the no-downgrade rule) and translate `none` to the documented
 			// binary disable (`thinking: { type: "disabled" }`, verified to zero
-			// out reasoning tokens). Mappings that can turn thinking off declare
-			// `none` in `reasoningEfforts`; elsewhere `none` sends nothing and the
-			// provider default is kept.
-			if (reasoning_effort === "none") {
-				const canDisableThinking =
-					providerMappingForOptions?.reasoningEfforts?.includes("none") ??
-					false;
-				if (supportsReasoning && canDisableThinking) {
-					requestBody.thinking = { type: "disabled" };
-				}
-			} else if (reasoning_effort !== undefined) {
-				requestBody.reasoning_effort = reasoning_effort;
-			}
+			// out reasoning tokens).
+			applyBinaryThinkingDisable(requestBody);
 			break;
 		}
 
@@ -5884,38 +5613,12 @@ export async function prepareRequestBody(
 				requestBody.response_format = response_format;
 			}
 
-			// Add optional parameters if they are provided
-			if (temperature !== undefined) {
-				requestBody.temperature = temperature;
-			}
-			if (max_tokens !== undefined) {
-				requestBody.max_tokens = max_tokens;
-			}
-			if (top_p !== undefined) {
-				requestBody.top_p = top_p;
-			}
-			if (frequency_penalty !== undefined) {
-				requestBody.frequency_penalty = frequency_penalty;
-			}
-			if (presence_penalty !== undefined) {
-				requestBody.presence_penalty = presence_penalty;
-			}
+			applySamplingParams(requestBody);
 
 			// DeepSeek V4 models think by default. Translate reasoning_effort "none"
 			// to the documented binary disable (thinking: { type: "disabled" },
-			// verified to zero out reasoning tokens). Mappings that can turn thinking
-			// off declare none in reasoningEfforts; elsewhere none sends
-			// nothing and the provider default is kept.
-			if (reasoning_effort === "none") {
-				const canDisableThinking =
-					providerMappingForOptions?.reasoningEfforts?.includes("none") ??
-					false;
-				if (supportsReasoning && canDisableThinking) {
-					requestBody.thinking = { type: "disabled" };
-				}
-			} else if (reasoning_effort !== undefined) {
-				requestBody.reasoning_effort = reasoning_effort;
-			}
+			// verified to zero out reasoning tokens).
+			applyBinaryThinkingDisable(requestBody);
 			break;
 		}
 
@@ -5951,27 +5654,12 @@ export async function prepareRequestBody(
 				requestBody.model = `${modelDef.family}/${usedExternalId}`;
 			}
 
-			// Add optional parameters if they are provided
-			if (temperature !== undefined) {
-				requestBody.temperature = temperature;
-			}
-			if (max_tokens !== undefined) {
-				// GPT-5 models use max_completion_tokens instead of max_tokens
-				if (usedInternalModel.startsWith("gpt-5")) {
-					requestBody.max_completion_tokens = max_tokens;
-				} else {
-					requestBody.max_tokens = max_tokens;
-				}
-			}
-			if (top_p !== undefined) {
-				requestBody.top_p = top_p;
-			}
-			if (frequency_penalty !== undefined) {
-				requestBody.frequency_penalty = frequency_penalty;
-			}
-			if (presence_penalty !== undefined) {
-				requestBody.presence_penalty = presence_penalty;
-			}
+			// GPT-5 models use max_completion_tokens instead of max_tokens
+			applySamplingParams(requestBody, {
+				maxTokensField: usedInternalModel.startsWith("gpt-5")
+					? "max_completion_tokens"
+					: "max_tokens",
+			});
 			if (reasoning_effort !== undefined) {
 				// Check if the model supports reasoning_effort parameter
 				const supported = providerMappingForOptions?.supportedParameters;

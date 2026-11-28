@@ -7,6 +7,7 @@ import {
 	customModelRef,
 	customProviderRef,
 	getAttestationComplianceFailures,
+	getCatalogueMappingDataPolicy,
 	getModelDenyRefs,
 	getModelPolicyListFailures,
 	getProviderComplianceFailures,
@@ -17,7 +18,6 @@ import {
 	isModelAllowedByPolicy,
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
-	models,
 	withMappingDataPolicy,
 	type ComplianceFailureReason,
 	type GatewayWebSearchEngine,
@@ -26,10 +26,7 @@ import {
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
 
-import type {
-	ProviderDefinition,
-	ProviderModelMapping,
-} from "@llmgateway/models";
+import type { ProviderDefinition } from "@llmgateway/models";
 
 interface CompliancePolicySource {
 	providerCompliancePolicy?: ProviderCompliancePolicy | null;
@@ -288,41 +285,6 @@ export async function logComplianceBlock(
 			model: meta.model,
 		});
 	}
-}
-
-/**
- * Data-policy override of the catalogue mapping serving `providerId`, matched
- * by catalogue model id or, failing that, upstream external id.
- */
-export function getCatalogueMappingDataPolicy(
-	providerId: string,
-	modelId: string,
-	externalId?: string,
-): MappingDataPolicy | undefined {
-	const modelMappings = models.find((model) => model.id === modelId)
-		?.providers as readonly ProviderModelMapping[] | undefined;
-	const byModel = modelMappings?.find(
-		(mapping) =>
-			mapping.providerId === providerId &&
-			(!externalId || mapping.externalId === externalId),
-	);
-	if (byModel) {
-		return byModel.dataPolicy;
-	}
-	if (!externalId) {
-		return undefined;
-	}
-	for (const model of models) {
-		for (const mapping of model.providers as readonly ProviderModelMapping[]) {
-			if (
-				mapping.providerId === providerId &&
-				mapping.externalId === externalId
-			) {
-				return mapping.dataPolicy;
-			}
-		}
-	}
-	return undefined;
 }
 
 /**

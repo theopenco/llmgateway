@@ -135,7 +135,15 @@ export function Comparison({
 			const responses: Record<string, Reply> = {};
 			const persisted = new Set<string>();
 			const failures: Record<string, string> = {};
-			setErrors({});
+			setErrors((value) =>
+				retry
+					? Object.fromEntries(
+							Object.entries(value).filter(
+								([key]) => !targets.some((target) => target.id === key),
+							),
+						)
+					: {},
+			);
 			setDrafts({});
 			const results = await Promise.allSettled(
 				targets.map(async (target) => {
@@ -166,7 +174,7 @@ export function Comparison({
 							: "This model could not respond.";
 				}
 			});
-			setErrors(failures);
+			setErrors((value) => (retry ? { ...value, ...failures } : failures));
 			const pendingSaves = Object.keys(responses).filter(
 				(key) => !persisted.has(key),
 			);

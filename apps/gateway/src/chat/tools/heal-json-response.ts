@@ -142,26 +142,97 @@ function extractBalancedJson(content: string, start: number): string | null {
 	return null;
 }
 
+const WORD_CHAR = /\w/;
+const WHITESPACE = /\s/;
+
 /**
- * Fixes common JSON syntax issues:
+ * Index just past the closing quote of the string starting at `start`,
+ * or -1 when the string is unterminated.
+ */
+function findStringEnd(content: string, start: number, quote: string): number {
+	for (let i = start + 1; i < content.length; i++) {
+		if (content[i] === "\\") {
+			i++;
+		} else if (content[i] === quote) {
+			return i + 1;
+		}
+	}
+	return -1;
+}
+
+function toDoubleQuoted(singleQuotedBody: string): string {
+	const body = singleQuotedBody.replace(/\\.|"/g, (match) => {
+		if (match === '"') {
+			return '\\"';
+		}
+		return match === "\\'" ? "'" : match;
+	});
+	return `"${body}"`;
+}
+
+/**
+ * Fixes common JSON syntax issues outside string literals:
  * - Trailing commas
  * - Unquoted keys (JavaScript-style)
  * - Single quotes instead of double quotes
  */
 function fixJsonSyntax(content: string): string {
-	let fixed = content;
+	let fixed = "";
+	let lastSignificant = "";
+	let i = 0;
 
-	// Remove trailing commas before } or ]
-	fixed = fixed.replace(/,(\s*[}\]])/g, "$1");
+	while (i < content.length) {
+		const char = content[i];
 
-	// Fix unquoted keys (e.g., {name: "value"} -> {"name": "value"})
-	// Match word characters followed by : but not inside quotes
-	fixed = fixed.replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3');
+		if (char === '"' || char === "'") {
+			const end = findStringEnd(content, i, char);
+			if (end === -1) {
+				fixed += content.slice(i);
+				break;
+			}
+			const literal = content.slice(i, end);
+			fixed += char === "'" ? toDoubleQuoted(literal.slice(1, -1)) : literal;
+			lastSignificant = '"';
+			i = end;
+			continue;
+		}
 
-	// Replace single quotes with double quotes for string values
-	// This is more complex as we need to avoid replacing apostrophes within strings
-	// Simple approach: only replace single quotes that look like string delimiters
-	fixed = fixed.replace(/'([^'\\]*(\\.[^'\\]*)*)'/g, '"$1"');
+		if (char === ",") {
+			let next = i + 1;
+			while (next < content.length && WHITESPACE.test(content[next])) {
+				next++;
+			}
+			if (content[next] === "}" || content[next] === "]") {
+				i++;
+				continue;
+			}
+		}
+
+		if (
+			WORD_CHAR.test(char) &&
+			(lastSignificant === "{" || lastSignificant === ",")
+		) {
+			let end = i;
+			while (end < content.length && WORD_CHAR.test(content[end])) {
+				end++;
+			}
+			let after = end;
+			while (after < content.length && WHITESPACE.test(content[after])) {
+				after++;
+			}
+			const word = content.slice(i, end);
+			fixed += content[after] === ":" ? `"${word}"` : word;
+			lastSignificant = content[end - 1];
+			i = end;
+			continue;
+		}
+
+		fixed += char;
+		if (!WHITESPACE.test(char)) {
+			lastSignificant = char;
+		}
+		i++;
+	}
 
 	return fixed;
 }

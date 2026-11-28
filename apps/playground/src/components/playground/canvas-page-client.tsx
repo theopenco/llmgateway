@@ -155,6 +155,63 @@ function CanvasSpecSkeleton() {
 	);
 }
 
+function CanvasSpecEditor({
+	title,
+	headerClassName,
+	parseError,
+	onApply,
+	showGenerationLoading,
+	editorValue,
+	onChange,
+	onKeyDown,
+	isGenerating,
+}: {
+	title: React.ReactNode;
+	headerClassName?: string;
+	parseError: string | null;
+	onApply: () => void;
+	showGenerationLoading: boolean;
+	editorValue: string;
+	onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+	onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+	isGenerating: boolean;
+}) {
+	return (
+		<>
+			<div
+				className={`flex items-center justify-between border-b px-4 py-2 ${headerClassName ?? ""}`}
+			>
+				{title}
+				<div className="flex items-center gap-2">
+					{parseError && (
+						<span className="max-w-[180px] truncate text-xs text-destructive">
+							{parseError}
+						</span>
+					)}
+					<Button size="sm" variant="secondary" onClick={onApply}>
+						<Play className="mr-1.5 h-3 w-3" />
+						Apply
+					</Button>
+				</div>
+			</div>
+			{showGenerationLoading ? (
+				<CanvasSpecSkeleton />
+			) : (
+				<textarea
+					value={editorValue}
+					onChange={onChange}
+					onKeyDown={onKeyDown}
+					readOnly={isGenerating}
+					spellCheck={false}
+					className={`flex-1 resize-none bg-muted/30 p-4 font-mono text-xs leading-relaxed outline-none ${
+						isGenerating ? "cursor-wait select-none" : ""
+					}`}
+				/>
+			)}
+		</>
+	);
+}
+
 function CanvasPreviewSkeleton() {
 	return (
 		<div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
@@ -749,80 +806,41 @@ export default function CanvasPageClient({
 										className="flex flex-col gap-0 p-0"
 										aria-describedby={undefined}
 									>
-										<div className="flex items-center justify-between border-b px-4 py-2 pr-12">
-											<SheetTitle className="text-sm font-medium text-muted-foreground">
-												JSON Spec
-											</SheetTitle>
-											<div className="flex items-center gap-2">
-												{parseError && (
-													<span className="max-w-[180px] truncate text-xs text-destructive">
-														{parseError}
-													</span>
-												)}
-												<Button
-													size="sm"
-													variant="secondary"
-													onClick={handleApply}
-												>
-													<Play className="mr-1.5 h-3 w-3" />
-													Apply
-												</Button>
-											</div>
-										</div>
-										{showGenerationLoading ? (
-											<CanvasSpecSkeleton />
-										) : (
-											<textarea
-												value={editorValue}
-												onChange={handleEditorChange}
-												onKeyDown={handleEditorKeyDown}
-												readOnly={isGenerating}
-												spellCheck={false}
-												className={`flex-1 resize-none bg-muted/30 p-4 font-mono text-xs leading-relaxed outline-none ${
-													isGenerating ? "cursor-wait select-none" : ""
-												}`}
-											/>
-										)}
+										<CanvasSpecEditor
+											title={
+												<SheetTitle className="text-sm font-medium text-muted-foreground">
+													JSON Spec
+												</SheetTitle>
+											}
+											headerClassName="pr-12"
+											parseError={parseError}
+											onApply={handleApply}
+											showGenerationLoading={showGenerationLoading}
+											editorValue={editorValue}
+											onChange={handleEditorChange}
+											onKeyDown={handleEditorKeyDown}
+											isGenerating={isGenerating}
+										/>
 									</SheetContent>
 								</Sheet>
 							) : (
 								showEditor &&
 								!previewExpanded && (
 									<div className="flex w-[400px] flex-col border-r">
-										<div className="flex items-center justify-between border-b px-4 py-2">
-											<span className="text-sm font-medium text-muted-foreground">
-												JSON Spec
-											</span>
-											<div className="flex items-center gap-2">
-												{parseError && (
-													<span className="max-w-[180px] truncate text-xs text-destructive">
-														{parseError}
-													</span>
-												)}
-												<Button
-													size="sm"
-													variant="secondary"
-													onClick={handleApply}
-												>
-													<Play className="mr-1.5 h-3 w-3" />
-													Apply
-												</Button>
-											</div>
-										</div>
-										{showGenerationLoading ? (
-											<CanvasSpecSkeleton />
-										) : (
-											<textarea
-												value={editorValue}
-												onChange={handleEditorChange}
-												onKeyDown={handleEditorKeyDown}
-												readOnly={isGenerating}
-												spellCheck={false}
-												className={`flex-1 resize-none bg-muted/30 p-4 font-mono text-xs leading-relaxed outline-none ${
-													isGenerating ? "cursor-wait select-none" : ""
-												}`}
-											/>
-										)}
+										<CanvasSpecEditor
+											title={
+												<span className="text-sm font-medium text-muted-foreground">
+													JSON Spec
+												</span>
+											}
+											parseError={parseError}
+											onApply={handleApply}
+											showGenerationLoading={showGenerationLoading}
+											editorValue={editorValue}
+											onChange={handleEditorChange}
+											onKeyDown={handleEditorKeyDown}
+											isGenerating={isGenerating}
+										/>
 									</div>
 								)
 							)}

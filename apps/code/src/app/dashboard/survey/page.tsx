@@ -56,6 +56,35 @@ export default async function SurveyPage() {
 		);
 	}
 
+	if (eligibility.topModels.every((model) => model.alreadySubmitted)) {
+		return (
+			<div className="min-h-screen bg-background py-12">
+				<div className="mx-auto max-w-2xl px-4">
+					<div className="space-y-3 rounded-xl border border-dashed p-6">
+						<div className="font-mono text-[10px] uppercase tracking-[0.35em] text-stone-500 dark:text-stone-400">
+							DevPass Model Census · {eligibility.year}
+						</div>
+						<h1 className="text-xl font-semibold">
+							All filed for Q{eligibility.quarter} {eligibility.year}
+						</h1>
+						<p className="text-sm text-muted-foreground">
+							You have rated every model that qualifies this wave. Check back
+							next quarter, or see how the registry is shaping up.
+						</p>
+						<div className="flex flex-wrap gap-2">
+							<Button asChild>
+								<Link href={`/data/${eligibility.year}`}>View the census</Link>
+							</Button>
+							<Button asChild variant="outline">
+								<Link href="/dashboard">Back to dashboard</Link>
+							</Button>
+						</div>
+					</div>
+				</div>
+			</div>
+		);
+	}
+
 	return (
 		<div className="min-h-screen bg-background py-12">
 			<div className="mx-auto max-w-2xl px-4">

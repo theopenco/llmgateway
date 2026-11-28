@@ -9,6 +9,10 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
+import {
+	buildDevPlanCreditLimitError,
+	getAvailableCredits,
+} from "@/chat/tools/resolve-provider-context.js";
 import { shouldRetryAlternateKey } from "@/chat/tools/retry-with-fallback.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import {
@@ -226,29 +230,6 @@ function getResponseContent(responseJson: unknown): string | null {
 	return JSON.stringify(responseJson);
 }
 
-function getAvailableCredits(
-	organization: InferSelectModel<typeof tables.organization>,
-) {
-	const regularCredits = parseFloat(organization.credits ?? "0");
-	const devPlanCreditsRemaining =
-		organization.devPlan !== "none"
-			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
-				parseFloat(organization.devPlanCreditsUsed ?? "0")
-			: 0;
-	const chatPlanCreditsRemaining =
-		organization.chatPlan !== "none"
-			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
-				parseFloat(organization.chatPlanCreditsUsed ?? "0")
-			: 0;
-
-	return {
-		devPlanCreditsRemaining,
-		chatPlanCreditsRemaining,
-		totalAvailableCredits:
-			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining,
-	};
-}
-
 /**
  * Moderation is billed per request, so a request that would be served with our
  * credentials needs a credit balance behind it. Mirrors the credit gate on the
@@ -259,7 +240,7 @@ async function assertCreditsAvailableForModeration(
 	c: Context,
 	organization: InferSelectModel<typeof tables.organization>,
 	insufficientCreditsMessage: string,
-	devPlanCreditLimitMessage: (renewalDate: string) => string,
+	devPlanMessagePrefix: string,
 ) {
 	// Moderation is always billed, so it is never free-model exempt.
 	await assertSpendLimit(c, organization, false);
@@ -275,12 +256,7 @@ async function assertCreditsAvailableForModeration(
 	}
 
 	if (organization.devPlan !== "none" && devPlanCreditsRemaining <= 0) {
-		const renewalDate = organization.devPlanExpiresAt
-			? new Date(organization.devPlanExpiresAt).toLocaleDateString()
-			: "your next billing date";
-		throw new HTTPException(402, {
-			message: devPlanCreditLimitMessage(renewalDate),
-		});
+		throw buildDevPlanCreditLimitError(organization, devPlanMessagePrefix);
 	}
 
 	if (organization.chatPlan !== "none" && chatPlanCreditsRemaining <= 0) {
@@ -538,8 +514,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 			c,
 			organization,
 			`Organization ${organization.id} has insufficient credits`,
-			(renewalDate) =>
-				`Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+			"",
 		);
 
 		const platformCredential = await resolvePlatformCredential("openai", {
@@ -568,8 +543,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 				c,
 				organization,
 				"No API key set for provider and organization has insufficient credits",
-				(renewalDate) =>
-					`No API key set for provider. Dev Plan credit limit reached. Upgrade your plan or wait for renewal on ${renewalDate}.`,
+				"No API key set for provider. ",
 			);
 
 			const platformCredential = await resolvePlatformCredential("openai", {

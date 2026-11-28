@@ -1,7 +1,4 @@
-import {
-	AGENTS,
-	type AgentDefinition,
-} from "@/app/dashboard/components/coding-agents-shared";
+import { agentForSource } from "@/app/dashboard/components/coding-agents-shared";
 
 import type { ProfileData } from "@/components/profile/ProfileView";
 
@@ -45,13 +42,6 @@ export interface PassportModel {
 	stamps: PassportStampData[];
 	totalRequests: number;
 	activeDays: number;
-}
-
-const AGENT_BY_SOURCE = new Map<string, AgentDefinition>();
-for (const agent of AGENTS) {
-	for (const source of agent.sources) {
-		AGENT_BY_SOURCE.set(source.toLowerCase(), agent);
-	}
 }
 
 // Human labels for model families whose icon key isn't display-ready.
@@ -139,6 +129,20 @@ export function spreadSummary(model: PassportModel, turned: number): string {
 	}
 }
 
+function earlierDate(a: string | null, b: string | null): string | null {
+	if (!a || !b) {
+		return a ?? b;
+	}
+	return Date.parse(b) < Date.parse(a) ? b : a;
+}
+
+function laterDate(a: string | null, b: string | null): string | null {
+	if (!a || !b) {
+		return a ?? b;
+	}
+	return Date.parse(b) > Date.parse(a) ? b : a;
+}
+
 export function buildPassportModel(profile: ProfileData): PassportModel {
 	const airportMap = new Map<string, PassportAirport>();
 	for (const row of profile.models) {
@@ -159,7 +163,7 @@ export function buildPassportModel(profile: ProfileData): PassportModel {
 
 	const airlineMap = new Map<string, PassportAirline>();
 	for (const agent of profile.agents) {
-		const def = AGENT_BY_SOURCE.get(agent.source.toLowerCase());
+		const def = agentForSource(agent.source);
 		const label = def?.label ?? agent.source;
 		const existing = airlineMap.get(label);
 		if (existing) {
@@ -174,16 +178,27 @@ export function buildPassportModel(profile: ProfileData): PassportModel {
 		}
 	}
 
-	const stamps: PassportStampData[] = profile.models.slice(0, 6).map((row) => {
+	const stampMap = new Map<string, PassportStampData>();
+	for (const row of profile.models) {
 		const resolved = row.canonical;
-		return {
-			model: resolved.name,
-			family: familyLabel(resolved.known ? resolved.iconKey : row.provider),
-			entry: row.firstUsed,
-			exit: row.lastUsed,
-			requestCount: row.requestCount,
-		};
-	});
+		const existing = stampMap.get(resolved.id);
+		if (existing) {
+			existing.requestCount += row.requestCount;
+			existing.entry = earlierDate(existing.entry, row.firstUsed);
+			existing.exit = laterDate(existing.exit, row.lastUsed);
+		} else {
+			stampMap.set(resolved.id, {
+				model: resolved.name,
+				family: familyLabel(resolved.known ? resolved.iconKey : row.provider),
+				entry: row.firstUsed,
+				exit: row.lastUsed,
+				requestCount: row.requestCount,
+			});
+		}
+	}
+	const stamps = Array.from(stampMap.values())
+		.sort((a, b) => b.requestCount - a.requestCount)
+		.slice(0, 6);
 
 	return {
 		holderName: profile.name?.trim() || profile.username || "Traveller",

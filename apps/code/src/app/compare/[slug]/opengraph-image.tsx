@@ -2,6 +2,8 @@ import { ImageResponse } from "next/og";
 
 import { getBrand, type BrandSpec } from "@/components/brand-logos";
 
+import { DEV_PLAN_PRICES } from "@llmgateway/shared";
+
 import { allComparisons } from "content-collections";
 
 import type { Comparison } from "content-collections";
@@ -187,7 +189,8 @@ export default async function CompareOgImage({
 					<div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
 						<span style={{ color: "#71717a", fontSize: 18 }}>DevPass</span>
 						<span style={{ color: "#fafafa", fontSize: 26, fontWeight: 600 }}>
-							{entry?.devpassPrice ?? "$29–$179/mo"}
+							{entry?.devpassPrice ??
+								`$${DEV_PLAN_PRICES.lite}–$${DEV_PLAN_PRICES.max}/mo`}
 						</span>
 					</div>
 					<div style={{ display: "flex", flexDirection: "column", gap: 4 }}>

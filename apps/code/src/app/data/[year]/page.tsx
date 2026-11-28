@@ -252,7 +252,8 @@ export default async function CensusPage({
 	const models = enrichModels(results?.models ?? []);
 	const minResponses = results?.minResponses ?? 5;
 	const now = new Date();
-	const isCurrentYear = year === now.getUTCFullYear();
+	const currentYear = now.getUTCFullYear();
+	const isCurrentYear = year === currentYear;
 	const quarter = Math.floor(now.getUTCMonth() / 3) + 1;
 	const initialQuery = parseCensusQuery(rawSearchParams);
 	const modelHrefBase = getConfig().uiUrl;
@@ -448,10 +449,17 @@ export default async function CensusPage({
 							</p>
 							<div className="mt-8 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
 								<Button size="lg" asChild>
-									<Link href="/dashboard/survey">
-										<Stamp aria-hidden="true" className="mr-1.5 h-4 w-4" />
-										File your entry · claim a free Reset Pass
-									</Link>
+									{isCurrentYear ? (
+										<Link href="/dashboard/survey">
+											<Stamp aria-hidden="true" className="mr-1.5 h-4 w-4" />
+											File your entry · claim a free Reset Pass
+										</Link>
+									) : (
+										<Link href={`/data/${currentYear}`}>
+											<Stamp aria-hidden="true" className="mr-1.5 h-4 w-4" />
+											See the {currentYear} census
+										</Link>
+									)}
 								</Button>
 								<GetDevPassButton
 									cta="get_started"
@@ -633,30 +641,55 @@ export default async function CensusPage({
 					aria-labelledby="cta-title"
 					className="census-paper border-t px-4 py-16"
 				>
-					<div className="container mx-auto max-w-3xl text-center">
-						<VisaStamp rotate={-5} sub={`Wave Q${quarter} · ${year}`}>
-							Your entry
-						</VisaStamp>
-						<h2
-							id="cta-title"
-							className="font-display mt-6 text-3xl font-bold tracking-tight text-balance sm:text-4xl"
-						>
-							Rate the models you ship with, stamp a free Reset Pass
-						</h2>
-						<p className="mx-auto mt-4 max-w-xl text-base text-muted-foreground">
-							Takes two minutes. Your first entry of the wave earns a Reset Pass
-							on your tier, and every entry sharpens the registry for the next
-							developer at the desk.
-						</p>
-						<div className="mt-8">
-							<Button size="lg" asChild>
-								<Link href="/dashboard/survey">
-									<Stamp aria-hidden="true" className="mr-1.5 h-4 w-4" />
-									Rate your models · get a free Reset Pass
-								</Link>
-							</Button>
+					{isCurrentYear ? (
+						<div className="container mx-auto max-w-3xl text-center">
+							<VisaStamp rotate={-5} sub={`Wave Q${quarter} · ${year}`}>
+								Your entry
+							</VisaStamp>
+							<h2
+								id="cta-title"
+								className="font-display mt-6 text-3xl font-bold tracking-tight text-balance sm:text-4xl"
+							>
+								Rate the models you ship with, stamp a free Reset Pass
+							</h2>
+							<p className="mx-auto mt-4 max-w-xl text-base text-muted-foreground">
+								Takes two minutes. Your first entry of the wave earns a Reset
+								Pass on your tier, and every entry sharpens the registry for the
+								next developer at the desk.
+							</p>
+							<div className="mt-8">
+								<Button size="lg" asChild>
+									<Link href="/dashboard/survey">
+										<Stamp aria-hidden="true" className="mr-1.5 h-4 w-4" />
+										Rate your models · get a free Reset Pass
+									</Link>
+								</Button>
+							</div>
 						</div>
-					</div>
+					) : (
+						<div className="container mx-auto max-w-3xl text-center">
+							<VisaStamp rotate={-5} sub={`Final ${year}`}>
+								Registry closed
+							</VisaStamp>
+							<h2
+								id="cta-title"
+								className="font-display mt-6 text-3xl font-bold tracking-tight text-balance sm:text-4xl"
+							>
+								The {year} registry is closed
+							</h2>
+							<p className="mx-auto mt-4 max-w-xl text-base text-muted-foreground">
+								New entries are filed in the {currentYear} census.
+							</p>
+							<div className="mt-8">
+								<Button size="lg" asChild>
+									<Link href={`/data/${currentYear}`}>
+										<Stamp aria-hidden="true" className="mr-1.5 h-4 w-4" />
+										See the {currentYear} census
+									</Link>
+								</Button>
+							</div>
+						</div>
+					)}
 				</section>
 			</main>
 

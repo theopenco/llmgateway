@@ -164,8 +164,9 @@ async function readRecord<T>(
 	return null;
 }
 
-async function isUsableApiKey(apiKey: string): Promise<boolean> {
-	const record = await findApiKeyByToken(apiKey);
+export function isUsableApiKeyRecord(
+	record: Awaited<ReturnType<typeof findApiKeyByToken>>,
+): boolean {
 	return Boolean(
 		record &&
 		record.status === "active" &&
@@ -175,6 +176,10 @@ async function isUsableApiKey(apiKey: string): Promise<boolean> {
 			record.expiresAt <= new Date()
 		),
 	);
+}
+
+async function isUsableApiKey(apiKey: string): Promise<boolean> {
+	return isUsableApiKeyRecord(await findApiKeyByToken(apiKey));
 }
 
 /**
@@ -418,10 +423,17 @@ function readClientCredentials(
 		const decoded = Buffer.from(authHeader.slice(6), "base64").toString();
 		const separator = decoded.indexOf(":");
 		if (separator > 0) {
-			return {
-				clientId: decodeURIComponent(decoded.slice(0, separator)),
-				clientSecret: decodeURIComponent(decoded.slice(separator + 1)),
-			};
+			try {
+				return {
+					clientId: decodeURIComponent(decoded.slice(0, separator)),
+					clientSecret: decodeURIComponent(decoded.slice(separator + 1)),
+				};
+			} catch (error) {
+				if (error instanceof URIError) {
+					return {};
+				}
+				throw error;
+			}
 		}
 	}
 	return { clientId: params.client_id, clientSecret: params.client_secret };

@@ -247,6 +247,31 @@ function getMappingPriceInfo(
 	return { label: original, original };
 }
 
+function PriceValue({
+	mapping,
+	field,
+}: {
+	mapping: ApiModelProviderMapping | undefined;
+	field: PriceField;
+}) {
+	const price = getMappingPriceInfo(mapping, field);
+	if (
+		price.original &&
+		price.discounted &&
+		price.original !== price.discounted
+	) {
+		return (
+			<>
+				<span className="line-through text-muted-foreground">
+					{price.original}
+				</span>{" "}
+				<span className="text-green-500">{price.discounted}</span>
+			</>
+		);
+	}
+	return <>{price.label}</>;
+}
+
 function MappingPriceCell({
 	label,
 	mapping,
@@ -256,27 +281,23 @@ function MappingPriceCell({
 	mapping: ApiModelProviderMapping | undefined;
 	field: PriceField;
 }) {
-	const price = getMappingPriceInfo(mapping, field);
-	const discounted =
-		price.original && price.discounted && price.original !== price.discounted;
 	return (
 		<div className="space-y-1">
 			<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
 				{label}
 			</span>
 			<p className="text-xs font-mono">
-				{discounted ? (
-					<>
-						<span className="line-through text-muted-foreground">
-							{price.original}
-						</span>{" "}
-						<span className="text-green-500">{price.discounted}</span>
-					</>
-				) : (
-					price.label
-				)}
+				<PriceValue mapping={mapping} field={field} />
 			</p>
 		</div>
+	);
+}
+
+function hasMappingImagePricing(mapping?: ApiModelProviderMapping): boolean {
+	return Boolean(
+		(mapping?.requestPrice && parseFloat(mapping.requestPrice) > 0) ||
+		(mapping?.perImagePrice && Object.keys(mapping.perImagePrice).length > 0) ||
+		(mapping?.imageInputPrice ?? null) !== null,
 	);
 }
 
@@ -386,6 +407,18 @@ function getCanonicalAggregateInfo(model: ApiModel): CanonicalAggregateInfo {
 				effectiveImageInput < minImageInputPrice)
 		) {
 			minImageInputPrice = effectiveImageInput;
+		}
+
+		const effectiveImageOutput = applyDiscount(
+			mapping.imageOutputPrice,
+			mapping.discount,
+		);
+		if (
+			effectiveImageOutput !== undefined &&
+			(minImageOutputPrice === undefined ||
+				effectiveImageOutput < minImageOutputPrice)
+		) {
+			minImageOutputPrice = effectiveImageOutput;
 		}
 
 		if (mapping.perImagePrice) {
@@ -580,6 +613,7 @@ interface ModelEntry {
 	provider?: ApiProvider;
 	isCanonical?: boolean;
 	searchText: string;
+	capabilities: string[];
 }
 
 const ROW_HEIGHT = 56;
@@ -959,13 +993,7 @@ export function ModelSelector({
 
 	// Build entries of model per provider mapping (include all, filter later)
 	const allEntries = React.useMemo(() => {
-		const out: {
-			model: ApiModel;
-			mapping?: ApiModelProviderMapping;
-			provider?: ApiProvider;
-			isCanonical?: boolean;
-			searchText: string;
-		}[] = [];
+		const out: ModelEntry[] = [];
 		const now = new Date();
 		const providerById = new Map(providers.map((p) => [p.id, p]));
 
@@ -991,6 +1019,7 @@ export function ModelSelector({
 			out.push({
 				model: autoModel,
 				isCanonical: true,
+				capabilities: getCanonicalAggregateInfo(autoModel).capabilities,
 				searchText: normalize(
 					[
 						autoModel.name ?? "",
@@ -1026,6 +1055,7 @@ export function ModelSelector({
 				model: m,
 				isCanonical: true,
 				searchText: canonicalSearchText,
+				capabilities: getCanonicalAggregateInfo(m).capabilities,
 			});
 
 			for (const mp of m.mappings) {
@@ -1051,6 +1081,7 @@ export function ModelSelector({
 						provider,
 						isCanonical: false,
 						searchText,
+						capabilities: getMappingCapabilities(mp, m),
 					});
 				}
 			}
@@ -1071,14 +1102,18 @@ export function ModelSelector({
 
 	const availableCapabilities = React.useMemo(() => {
 		const set = new Set<string>();
-		allEntries.forEach((e) =>
-			getMappingCapabilities(e.mapping, e.model).forEach((c) => set.add(c)),
-		);
+		allEntries.forEach((e) => e.capabilities.forEach((c) => set.add(c)));
 		return Array.from(set).sort();
 	}, [allEntries]);
 
 	const filteredEntries = React.useMemo(() => {
 		let list = allEntries;
+		const tokens = deferredSearch
+			? deferredSearch
+					.toLowerCase()
+					.split(/[-_\s]+/)
+					.filter(Boolean)
+			: [];
 
 		if (filters.showOnlyCanonical) {
 			list = list.filter((e) => e.isCanonical);
@@ -1101,16 +1136,10 @@ export function ModelSelector({
 				);
 			});
 		}
-		if (deferredSearch) {
-			const tokens = deferredSearch
-				.toLowerCase()
-				.split(/[-_\s]+/)
-				.filter(Boolean);
-			if (tokens.length > 0) {
-				list = list.filter((entry) =>
-					tokens.every((t) => entry.searchText.includes(t)),
-				);
-			}
+		if (tokens.length > 0) {
+			list = list.filter((entry) =>
+				tokens.every((t) => entry.searchText.includes(t)),
+			);
 		}
 		if (filters.providers.length > 0) {
 			list = list.filter(
@@ -1118,10 +1147,9 @@ export function ModelSelector({
 			);
 		}
 		if (filters.capabilities.length > 0) {
-			list = list.filter((e) => {
-				const caps = getMappingCapabilities(e.mapping, e.model);
-				return filters.capabilities.every((c) => caps.includes(c));
-			});
+			list = list.filter((e) =>
+				filters.capabilities.every((c) => e.capabilities.includes(c)),
+			);
 		}
 		if (filters.priceRange !== "all") {
 			list = list.filter((e) => {
@@ -1176,19 +1204,13 @@ export function ModelSelector({
 				return e.mapping ? providersWithKeys.has(e.mapping.providerId) : false;
 			});
 		}
-		if (deferredSearch) {
-			const tokens = deferredSearch
-				.toLowerCase()
-				.split(/[-_\s]+/)
-				.filter(Boolean);
-			if (tokens.length > 0) {
-				list = [...list].sort((a, b) => {
-					if (a.isCanonical === b.isCanonical) {
-						return 0;
-					}
-					return a.isCanonical ? -1 : 1;
-				});
-			}
+		if (tokens.length > 0) {
+			list = [...list].sort((a, b) => {
+				if (a.isCanonical === b.isCanonical) {
+					return 0;
+				}
+				return a.isCanonical ? -1 : 1;
+			});
 		}
 		return list;
 	}, [allEntries, deferredSearch, filters, isFavorite, providersWithKeys]);
@@ -2120,29 +2142,10 @@ export function ModelSelector({
 																					: "Input"}
 																			</span>
 																			<p className="text-xs font-mono">
-																				{(() => {
-																					const price = getMappingPriceInfo(
-																						previewEntry.mapping,
-																						"input",
-																					);
-																					if (
-																						price.original &&
-																						price.discounted &&
-																						price.original !== price.discounted
-																					) {
-																						return (
-																							<>
-																								<span className="line-through text-muted-foreground">
-																									{price.original}
-																								</span>{" "}
-																								<span className="text-green-500">
-																									{price.discounted}
-																								</span>
-																							</>
-																						);
-																					}
-																					return price.label;
-																				})()}
+																				<PriceValue
+																					mapping={previewEntry.mapping}
+																					field="input"
+																				/>
 																			</p>
 																		</div>
 																		<div className="space-y-1">
@@ -2150,29 +2153,10 @@ export function ModelSelector({
 																				Output
 																			</span>
 																			<p className="text-xs font-mono">
-																				{(() => {
-																					const price = getMappingPriceInfo(
-																						previewEntry.mapping,
-																						"output",
-																					);
-																					if (
-																						price.original &&
-																						price.discounted &&
-																						price.original !== price.discounted
-																					) {
-																						return (
-																							<>
-																								<span className="line-through text-muted-foreground">
-																									{price.original}
-																								</span>{" "}
-																								<span className="text-green-500">
-																									{price.discounted}
-																								</span>
-																							</>
-																						);
-																					}
-																					return price.label;
-																				})()}
+																				<PriceValue
+																					mapping={previewEntry.mapping}
+																					field="output"
+																				/>
 																			</p>
 																		</div>
 																	</>
@@ -2244,29 +2228,10 @@ export function ModelSelector({
 																		Cached Input
 																	</span>
 																	<p className="text-xs font-mono text-green-600 dark:text-green-400">
-																		{(() => {
-																			const price = getMappingPriceInfo(
-																				previewEntry.mapping,
-																				"cachedInput",
-																			);
-																			if (
-																				price.original &&
-																				price.discounted &&
-																				price.original !== price.discounted
-																			) {
-																				return (
-																					<>
-																						<span className="line-through text-muted-foreground">
-																							{price.original}
-																						</span>{" "}
-																						<span className="text-green-500">
-																							{price.discounted}
-																						</span>
-																					</>
-																				);
-																			}
-																			return price.label;
-																		})()}
+																		<PriceValue
+																			mapping={previewEntry.mapping}
+																			field="cachedInput"
+																		/>
 																	</p>
 																</div>
 															</div>
@@ -2294,9 +2259,7 @@ export function ModelSelector({
 															);
 														})()}
 													{/* Image Generation Pricing */}
-													{(previewEntry.mapping?.requestPrice ??
-														previewEntry.mapping?.perImagePrice ??
-														previewEntry.mapping?.imageInputPrice) && (
+													{hasMappingImagePricing(previewEntry.mapping) && (
 														<div className="pt-2">
 															<div className="grid grid-cols-2 gap-3">
 																{previewEntry.mapping?.perImagePrice &&
@@ -2331,62 +2294,24 @@ export function ModelSelector({
 																				Per Request
 																			</span>
 																			<p className="text-xs font-mono">
-																				{(() => {
-																					const price = getMappingPriceInfo(
-																						previewEntry.mapping,
-																						"request",
-																					);
-																					if (
-																						price.original &&
-																						price.discounted &&
-																						price.original !== price.discounted
-																					) {
-																						return (
-																							<>
-																								<span className="line-through text-muted-foreground">
-																									{price.original}
-																								</span>{" "}
-																								<span className="text-green-500">
-																									{price.discounted}
-																								</span>
-																							</>
-																						);
-																					}
-																					return price.label;
-																				})()}
+																				<PriceValue
+																					mapping={previewEntry.mapping}
+																					field="request"
+																				/>
 																			</p>
 																		</div>
 																	)}
-																{previewEntry.mapping?.imageInputPrice !==
-																	undefined && (
+																{(previewEntry.mapping?.imageInputPrice ??
+																	null) !== null && (
 																	<div className="space-y-1">
 																		<span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
 																			Image Input
 																		</span>
 																		<p className="text-xs font-mono">
-																			{(() => {
-																				const price = getMappingPriceInfo(
-																					previewEntry.mapping,
-																					"imageInput",
-																				);
-																				if (
-																					price.original &&
-																					price.discounted &&
-																					price.original !== price.discounted
-																				) {
-																					return (
-																						<>
-																							<span className="line-through text-muted-foreground">
-																								{price.original}
-																							</span>{" "}
-																							<span className="text-green-500">
-																								{price.discounted}
-																							</span>
-																						</>
-																					);
-																				}
-																				return price.label;
-																			})()}
+																			<PriceValue
+																				mapping={previewEntry.mapping}
+																				field="imageInput"
+																			/>
 																		</p>
 																	</div>
 																)}
@@ -2766,29 +2691,10 @@ export function ModelSelector({
 																Input
 															</span>
 															<p className="text-sm font-mono">
-																{(() => {
-																	const price = getMappingPriceInfo(
-																		selectedDetails.mapping,
-																		"input",
-																	);
-																	if (
-																		price.original &&
-																		price.discounted &&
-																		price.original !== price.discounted
-																	) {
-																		return (
-																			<>
-																				<span className="line-through text-muted-foreground">
-																					{price.original}
-																				</span>{" "}
-																				<span className="text-green-500">
-																					{price.discounted}
-																				</span>
-																			</>
-																		);
-																	}
-																	return price.label;
-																})()}
+																<PriceValue
+																	mapping={selectedDetails.mapping}
+																	field="input"
+																/>
 															</p>
 														</div>
 														<div className="space-y-1">
@@ -2796,29 +2702,10 @@ export function ModelSelector({
 																Output
 															</span>
 															<p className="text-sm font-mono">
-																{(() => {
-																	const price = getMappingPriceInfo(
-																		selectedDetails.mapping,
-																		"output",
-																	);
-																	if (
-																		price.original &&
-																		price.discounted &&
-																		price.original !== price.discounted
-																	) {
-																		return (
-																			<>
-																				<span className="line-through text-muted-foreground">
-																					{price.original}
-																				</span>{" "}
-																				<span className="text-green-500">
-																					{price.discounted}
-																				</span>
-																			</>
-																		);
-																	}
-																	return price.label;
-																})()}
+																<PriceValue
+																	mapping={selectedDetails.mapping}
+																	field="output"
+																/>
 															</p>
 														</div>
 													</>
@@ -2863,37 +2750,16 @@ export function ModelSelector({
 																Cached Input
 															</span>
 															<p className="text-sm font-mono text-green-600 dark:text-green-400">
-																{(() => {
-																	const price = getMappingPriceInfo(
-																		selectedDetails.mapping,
-																		"cachedInput",
-																	);
-																	if (
-																		price.original &&
-																		price.discounted &&
-																		price.original !== price.discounted
-																	) {
-																		return (
-																			<>
-																				<span className="line-through text-muted-foreground">
-																					{price.original}
-																				</span>{" "}
-																				<span className="text-green-500">
-																					{price.discounted}
-																				</span>
-																			</>
-																		);
-																	}
-																	return price.label;
-																})()}
+																<PriceValue
+																	mapping={selectedDetails.mapping}
+																	field="cachedInput"
+																/>
 															</p>
 														</div>
 													</div>
 												)}
 											{/* Image Generation Pricing */}
-											{(selectedDetails.mapping?.requestPrice ??
-												selectedDetails.mapping?.perImagePrice ??
-												selectedDetails.mapping?.imageInputPrice) && (
+											{hasMappingImagePricing(selectedDetails.mapping) && (
 												<div className="pt-2 border-t border-dashed">
 													<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-2">
 														Image Pricing
@@ -2927,62 +2793,24 @@ export function ModelSelector({
 																		Per Request
 																	</span>
 																	<p className="text-sm font-mono">
-																		{(() => {
-																			const price = getMappingPriceInfo(
-																				selectedDetails.mapping,
-																				"request",
-																			);
-																			if (
-																				price.original &&
-																				price.discounted &&
-																				price.original !== price.discounted
-																			) {
-																				return (
-																					<>
-																						<span className="line-through text-muted-foreground">
-																							{price.original}
-																						</span>{" "}
-																						<span className="text-green-500">
-																							{price.discounted}
-																						</span>
-																					</>
-																				);
-																			}
-																			return price.label;
-																		})()}
+																		<PriceValue
+																			mapping={selectedDetails.mapping}
+																			field="request"
+																		/>
 																	</p>
 																</div>
 															)}
-														{selectedDetails.mapping?.imageInputPrice !==
-															undefined && (
+														{(selectedDetails.mapping?.imageInputPrice ??
+															null) !== null && (
 															<div className="space-y-1">
 																<span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
 																	Image Input
 																</span>
 																<p className="text-sm font-mono">
-																	{(() => {
-																		const price = getMappingPriceInfo(
-																			selectedDetails.mapping,
-																			"imageInput",
-																		);
-																		if (
-																			price.original &&
-																			price.discounted &&
-																			price.original !== price.discounted
-																		) {
-																			return (
-																				<>
-																					<span className="line-through text-muted-foreground">
-																						{price.original}
-																					</span>{" "}
-																					<span className="text-green-500">
-																						{price.discounted}
-																					</span>
-																				</>
-																			);
-																		}
-																		return price.label;
-																	})()}
+																	<PriceValue
+																		mapping={selectedDetails.mapping}
+																		field="imageInput"
+																	/>
 																</p>
 															</div>
 														)}

@@ -159,6 +159,14 @@ describe("parseModelInput legacy custom/ prefix", () => {
 		expect(result.customProviderName).toBe("acme");
 		expect(result.requestedModel).toBe("acme-large");
 	});
+
+	it("keeps a colon in a custom provider model id", () => {
+		const result = parseModelInput("acme/llama3:8b");
+		expect(result.requestedProvider).toBe("custom");
+		expect(result.customProviderName).toBe("acme");
+		expect(result.requestedModel).toBe("llama3:8b");
+		expect(result.requestedRegion).toBeUndefined();
+	});
 });
 
 describe("parseModelInput dynamic routes", () => {

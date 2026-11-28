@@ -87,22 +87,6 @@ export default async function GroupPage({
 		projects: Project[];
 	} | null;
 
-	// Validate that the project exists and is not deleted (if explicitly provided)
-	if (
-		projectId &&
-		initialProjectsData &&
-		typeof initialProjectsData === "object" &&
-		"projects" in initialProjectsData
-	) {
-		const projects = (initialProjectsData as { projects: Project[] }).projects;
-		const currentProject = projects.find((p: Project) => p.id === projectId);
-
-		// If project is not found in the active projects list, it's either deleted or doesn't exist
-		if (!currentProject) {
-			notFound();
-		}
-	}
-
 	const allOrganizations = (
 		initialOrganizationsData &&
 		typeof initialOrganizationsData === "object" &&
@@ -162,7 +146,7 @@ export default async function GroupPage({
 	let selectedProject: Project | null = null;
 	if (projectId) {
 		selectedProject = projects.find((p) => p.id === projectId) ?? null;
-		if (projectId && !selectedProject && projectId.length > 0) {
+		if (!selectedProject) {
 			notFound();
 		}
 	} else if (selectedOrganization?.id) {

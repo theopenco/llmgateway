@@ -246,10 +246,15 @@ export function ShareChatDialog({
 	};
 
 	const createShare = async () => {
-		const data = await shareChat.mutateAsync({
-			params: { path: { id: currentChatId } },
-			body: { visibility: "public", allowDiscovery, allowForking },
-		});
+		let data;
+		try {
+			data = await shareChat.mutateAsync({
+				params: { path: { id: currentChatId } },
+				body: { visibility: "public", allowDiscovery, allowForking },
+			});
+		} catch {
+			return;
+		}
 		const url = `${window.location.origin}${data.share.url}`;
 		setCreatedShareUrl(url);
 		await copyLink(url);
@@ -261,23 +266,32 @@ export function ShareChatDialog({
 			return;
 		}
 
-		const data = await shareChat.mutateAsync({
-			params: { path: { id: currentChatId } },
-			body: {
-				visibility: "organization",
-				organizationId: selectedOrgId,
-				allowForking,
-			},
-		});
+		let data;
+		try {
+			data = await shareChat.mutateAsync({
+				params: { path: { id: currentChatId } },
+				body: {
+					visibility: "organization",
+					organizationId: selectedOrgId,
+					allowForking,
+				},
+			});
+		} catch {
+			return;
+		}
 		setOrgShareMap((prev) => ({ ...prev, [selectedOrgId]: data.share.id }));
 		setSelectedOrgId("");
 		toast.success("Shared with organization");
 	};
 
 	const deleteSharedLink = async () => {
-		await deleteShare.mutateAsync({
-			params: { path: { id: currentChatId } },
-		});
+		try {
+			await deleteShare.mutateAsync({
+				params: { path: { id: currentChatId } },
+			});
+		} catch {
+			return;
+		}
 		setCreatedShareUrl(null);
 	};
 
@@ -298,6 +312,8 @@ export function ShareChatDialog({
 					Object.entries(prev).filter(([key]) => key !== orgId),
 				),
 			);
+		} catch {
+			return;
 		} finally {
 			setDeletingOrgId(null);
 		}

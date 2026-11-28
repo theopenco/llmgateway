@@ -178,6 +178,30 @@ describe("healJsonResponse", () => {
 			expect(result.healed).toBe(true);
 			expect(JSON.parse(result.content)).toEqual({ name: "test" });
 		});
+
+		it("does not quote key-like text inside string values", () => {
+			const input = '{"text": "a, b: c",}';
+			const result = healJsonResponse(input);
+
+			expect(result.healed).toBe(true);
+			expect(JSON.parse(result.content)).toEqual({ text: "a, b: c" });
+		});
+
+		it("does not rewrite apostrophes inside string values", () => {
+			const input = `{"text": "it's Bob's",}`;
+			const result = healJsonResponse(input);
+
+			expect(result.healed).toBe(true);
+			expect(JSON.parse(result.content)).toEqual({ text: "it's Bob's" });
+		});
+
+		it("keeps commas before brackets inside string values", () => {
+			const input = '{"text": "a,]", "n": 1,}';
+			const result = healJsonResponse(input);
+
+			expect(result.healed).toBe(true);
+			expect(JSON.parse(result.content)).toEqual({ text: "a,]", n: 1 });
+		});
 	});
 
 	describe("truncation completion", () => {

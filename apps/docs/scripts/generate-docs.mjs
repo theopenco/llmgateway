@@ -31,6 +31,11 @@ function describeOperation(spec, path, method) {
 		}
 		fitted = `${fitted} ${next}`;
 	}
+	if (fitted.length > 160) {
+		const cut = fitted.slice(0, 157);
+		const at = cut.lastIndexOf(" ");
+		fitted = `${(at > 0 ? cut.slice(0, at) : cut).replace(/[\s,;:.]+$/, "")}...`;
+	}
 	return fitted;
 }
 

@@ -128,20 +128,25 @@ function getTrackedHealthKey(keyId: string, selectionScope?: string): string {
  * The permanent blacklist is therefore stored on an unscoped record so
  * health checks for any future scope still see the key as bad.
  */
-function markUnscopedPermanentBlacklist(
-	unscopedKey: string,
-	now: number,
-): void {
-	let unscoped = keyHealthMap.get(unscopedKey);
-	if (!unscoped) {
-		unscoped = {
+function getOrCreateHealth(healthKey: string): KeyHealth {
+	let health = keyHealthMap.get(healthKey);
+	if (!health) {
+		health = {
 			consecutiveErrors: 0,
 			lastErrorTime: 0,
 			permanentlyBlacklisted: false,
 			history: [],
 		};
-		keyHealthMap.set(unscopedKey, unscoped);
+		keyHealthMap.set(healthKey, health);
 	}
+	return health;
+}
+
+function markUnscopedPermanentBlacklist(
+	unscopedKey: string,
+	now: number,
+): void {
+	const unscoped = getOrCreateHealth(unscopedKey);
 	unscoped.permanentlyBlacklisted = true;
 	unscoped.lastErrorTime = now;
 }
@@ -188,23 +193,12 @@ export function calculateUptimePenalty(uptime: number): number {
 	return calculateRoutingUptimePenalty(uptime, UPTIME_PENALTY_THRESHOLD);
 }
 
-/**
- * Check if a specific API key is healthy and should be used
- * @param envVarName The environment variable name
- * @param keyIndex The index of the key in the comma-separated list
- * @returns true if the key is healthy, false if it should be skipped
- */
-export function isKeyHealthy(
-	envVarName: string,
-	keyIndex: number,
-	selectionScope?: string,
-): boolean {
-	if (isUnscopedPermanentlyBlacklisted(getHealthKey(envVarName, keyIndex))) {
+function isHealthyByKey(unscopedKey: string, scopedKey: string): boolean {
+	if (isUnscopedPermanentlyBlacklisted(unscopedKey)) {
 		return false;
 	}
 
-	const healthKey = getHealthKey(envVarName, keyIndex, selectionScope);
-	const health = keyHealthMap.get(healthKey);
+	const health = keyHealthMap.get(scopedKey);
 
 	if (!health) {
 		return true; // No health data = healthy
@@ -227,36 +221,57 @@ export function isKeyHealthy(
 	return true;
 }
 
+/**
+ * Check if a specific API key is healthy and should be used
+ * @param envVarName The environment variable name
+ * @param keyIndex The index of the key in the comma-separated list
+ * @returns true if the key is healthy, false if it should be skipped
+ */
+export function isKeyHealthy(
+	envVarName: string,
+	keyIndex: number,
+	selectionScope?: string,
+): boolean {
+	return isHealthyByKey(
+		getHealthKey(envVarName, keyIndex),
+		getHealthKey(envVarName, keyIndex, selectionScope),
+	);
+}
+
 export function isTrackedKeyHealthy(
 	keyId: string,
 	selectionScope?: string,
 ): boolean {
-	if (isUnscopedPermanentlyBlacklisted(getTrackedHealthKey(keyId))) {
-		return false;
-	}
+	return isHealthyByKey(
+		getTrackedHealthKey(keyId),
+		getTrackedHealthKey(keyId, selectionScope),
+	);
+}
 
-	const healthKey = getTrackedHealthKey(keyId, selectionScope);
-	const health = keyHealthMap.get(healthKey);
+function metricsByKey(unscopedKey: string, scopedKey: string): KeyMetrics {
+	const unscopedBlacklisted = isUnscopedPermanentlyBlacklisted(unscopedKey);
+	const health = keyHealthMap.get(scopedKey);
 
 	if (!health) {
-		return true; // No health data = healthy
+		return {
+			uptime: unscopedBlacklisted ? 0 : 100,
+			totalRequests: 0,
+			consecutiveErrors: 0,
+			permanentlyBlacklisted: unscopedBlacklisted,
+		};
 	}
 
-	if (health.permanentlyBlacklisted) {
-		return false;
-	}
+	const now = Date.now();
+	pruneHistory(health, now);
 
-	if (health.consecutiveErrors >= ERROR_THRESHOLD) {
-		// Check if blacklist period has expired
-		const timeSinceError = Date.now() - health.lastErrorTime;
-		if (timeSinceError < BLACKLIST_DURATION_MS) {
-			return false;
-		}
-		// Reset after blacklist period expires
-		health.consecutiveErrors = 0;
-	}
-
-	return true;
+	const permanentlyBlacklisted =
+		health.permanentlyBlacklisted || unscopedBlacklisted;
+	return {
+		uptime: permanentlyBlacklisted ? 0 : calculateUptime(health, now),
+		totalRequests: health.history.length,
+		consecutiveErrors: health.consecutiveErrors,
+		permanentlyBlacklisted,
+	};
 }
 
 /**
@@ -269,64 +284,20 @@ export function getKeyMetrics(
 	keyIndex: number,
 	selectionScope?: string,
 ): KeyMetrics {
-	const unscopedBlacklisted = isUnscopedPermanentlyBlacklisted(
+	return metricsByKey(
 		getHealthKey(envVarName, keyIndex),
+		getHealthKey(envVarName, keyIndex, selectionScope),
 	);
-	const healthKey = getHealthKey(envVarName, keyIndex, selectionScope);
-	const health = keyHealthMap.get(healthKey);
-
-	if (!health) {
-		return {
-			uptime: unscopedBlacklisted ? 0 : 100,
-			totalRequests: 0,
-			consecutiveErrors: 0,
-			permanentlyBlacklisted: unscopedBlacklisted,
-		};
-	}
-
-	const now = Date.now();
-	pruneHistory(health, now);
-
-	const permanentlyBlacklisted =
-		health.permanentlyBlacklisted || unscopedBlacklisted;
-	return {
-		uptime: permanentlyBlacklisted ? 0 : calculateUptime(health, now),
-		totalRequests: health.history.length,
-		consecutiveErrors: health.consecutiveErrors,
-		permanentlyBlacklisted,
-	};
 }
 
 export function getTrackedKeyMetrics(
 	keyId: string,
 	selectionScope?: string,
 ): KeyMetrics {
-	const unscopedBlacklisted = isUnscopedPermanentlyBlacklisted(
+	return metricsByKey(
 		getTrackedHealthKey(keyId),
+		getTrackedHealthKey(keyId, selectionScope),
 	);
-	const healthKey = getTrackedHealthKey(keyId, selectionScope);
-	const health = keyHealthMap.get(healthKey);
-
-	if (!health) {
-		return {
-			uptime: unscopedBlacklisted ? 0 : 100,
-			totalRequests: 0,
-			consecutiveErrors: 0,
-			permanentlyBlacklisted: unscopedBlacklisted,
-		};
-	}
-
-	const now = Date.now();
-	pruneHistory(health, now);
-
-	const permanentlyBlacklisted =
-		health.permanentlyBlacklisted || unscopedBlacklisted;
-	return {
-		uptime: permanentlyBlacklisted ? 0 : calculateUptime(health, now),
-		totalRequests: health.history.length,
-		consecutiveErrors: health.consecutiveErrors,
-		permanentlyBlacklisted,
-	};
 }
 
 /**
@@ -347,6 +318,18 @@ export function getAllKeyMetrics(
 	return metrics;
 }
 
+function reportSuccessByKey(scopedKey: string): void {
+	const health = getOrCreateHealth(scopedKey);
+	const now = Date.now();
+
+	if (!health.permanentlyBlacklisted) {
+		health.consecutiveErrors = 0;
+	}
+
+	health.history.push({ timestamp: now, success: true });
+	pruneHistory(health, now);
+}
+
 /**
  * Report a successful request for an API key
  * Resets the consecutive error counter and adds to history
@@ -356,89 +339,29 @@ export function reportKeySuccess(
 	keyIndex: number,
 	selectionScope?: string,
 ): void {
-	const healthKey = getHealthKey(envVarName, keyIndex, selectionScope);
-	let health = keyHealthMap.get(healthKey);
-
-	const now = Date.now();
-
-	if (!health) {
-		health = {
-			consecutiveErrors: 0,
-			lastErrorTime: 0,
-			permanentlyBlacklisted: false,
-			history: [],
-		};
-		keyHealthMap.set(healthKey, health);
-	}
-
-	if (!health.permanentlyBlacklisted) {
-		health.consecutiveErrors = 0;
-	}
-
-	// Add success to history
-	health.history.push({ timestamp: now, success: true });
-	pruneHistory(health, now);
+	reportSuccessByKey(getHealthKey(envVarName, keyIndex, selectionScope));
 }
 
 export function reportTrackedKeySuccess(
 	keyId: string,
 	selectionScope?: string,
 ): void {
-	const healthKey = getTrackedHealthKey(keyId, selectionScope);
-	let health = keyHealthMap.get(healthKey);
-
-	const now = Date.now();
-
-	if (!health) {
-		health = {
-			consecutiveErrors: 0,
-			lastErrorTime: 0,
-			permanentlyBlacklisted: false,
-			history: [],
-		};
-		keyHealthMap.set(healthKey, health);
-	}
-
-	if (!health.permanentlyBlacklisted) {
-		health.consecutiveErrors = 0;
-	}
-
-	health.history.push({ timestamp: now, success: true });
-	pruneHistory(health, now);
+	reportSuccessByKey(getTrackedHealthKey(keyId, selectionScope));
 }
 
-/**
- * Report an error for an API key
- * Increments consecutive errors, adds to history, and may blacklist the key
- * @param statusCode The HTTP status code of the error (optional)
- * @param errorText The error message text (optional)
- */
-export function reportKeyError(
-	envVarName: string,
-	keyIndex: number,
+function reportErrorByKey(
+	unscopedKey: string,
+	scopedKey: string,
 	statusCode?: number,
 	errorText?: string,
-	selectionScope?: string,
 ): void {
 	// The key works; it just lacks one optional feature. Blacklisting it would
 	// take every other request down with it.
 	if (hasFeatureAccessDeniedError(errorText)) {
 		return;
 	}
-	const healthKey = getHealthKey(envVarName, keyIndex, selectionScope);
-	let health = keyHealthMap.get(healthKey);
-
+	const health = getOrCreateHealth(scopedKey);
 	const now = Date.now();
-
-	if (!health) {
-		health = {
-			consecutiveErrors: 0,
-			lastErrorTime: 0,
-			permanentlyBlacklisted: false,
-			history: [],
-		};
-		keyHealthMap.set(healthKey, health);
-	}
 
 	const isPermanentErrorMessage = hasInvalidProviderCredentialError(errorText);
 	// Some providers report an out-of-funds account on a 4xx other than 402
@@ -466,7 +389,7 @@ export function reportKeyError(
 		(statusCode && PERMANENT_ERROR_CODES.includes(statusCode)) ||
 		isPermanentErrorMessage
 	) {
-		markUnscopedPermanentBlacklist(getHealthKey(envVarName, keyIndex), now);
+		markUnscopedPermanentBlacklist(unscopedKey, now);
 		health.permanentlyBlacklisted = true;
 		health.history.push({ timestamp: now, success: false });
 		pruneHistory(health, now);
@@ -481,59 +404,39 @@ export function reportKeyError(
 	pruneHistory(health, now);
 }
 
+/**
+ * Report an error for an API key
+ * Increments consecutive errors, adds to history, and may blacklist the key
+ * @param statusCode The HTTP status code of the error (optional)
+ * @param errorText The error message text (optional)
+ */
+export function reportKeyError(
+	envVarName: string,
+	keyIndex: number,
+	statusCode?: number,
+	errorText?: string,
+	selectionScope?: string,
+): void {
+	reportErrorByKey(
+		getHealthKey(envVarName, keyIndex),
+		getHealthKey(envVarName, keyIndex, selectionScope),
+		statusCode,
+		errorText,
+	);
+}
+
 export function reportTrackedKeyError(
 	keyId: string,
 	statusCode?: number,
 	errorText?: string,
 	selectionScope?: string,
 ): void {
-	if (hasFeatureAccessDeniedError(errorText)) {
-		return;
-	}
-	const healthKey = getTrackedHealthKey(keyId, selectionScope);
-	let health = keyHealthMap.get(healthKey);
-
-	const now = Date.now();
-
-	if (!health) {
-		health = {
-			consecutiveErrors: 0,
-			lastErrorTime: 0,
-			permanentlyBlacklisted: false,
-			history: [],
-		};
-		keyHealthMap.set(healthKey, health);
-	}
-
-	const isPermanentErrorMessage = hasInvalidProviderCredentialError(errorText);
-	const isExhaustedAccountMessage = hasExhaustedProviderAccountError(errorText);
-
-	if (
-		statusCode !== undefined &&
-		statusCode >= 400 &&
-		statusCode < 500 &&
-		!UPTIME_RELEVANT_4XX_CODES.has(statusCode) &&
-		!isPermanentErrorMessage &&
-		!isExhaustedAccountMessage
-	) {
-		return;
-	}
-
-	if (
-		(statusCode && PERMANENT_ERROR_CODES.includes(statusCode)) ||
-		isPermanentErrorMessage
-	) {
-		markUnscopedPermanentBlacklist(getTrackedHealthKey(keyId), now);
-		health.permanentlyBlacklisted = true;
-		health.history.push({ timestamp: now, success: false });
-		pruneHistory(health, now);
-		return;
-	}
-
-	health.consecutiveErrors++;
-	health.lastErrorTime = now;
-	health.history.push({ timestamp: now, success: false });
-	pruneHistory(health, now);
+	reportErrorByKey(
+		getTrackedHealthKey(keyId),
+		getTrackedHealthKey(keyId, selectionScope),
+		statusCode,
+		errorText,
+	);
 }
 
 /**

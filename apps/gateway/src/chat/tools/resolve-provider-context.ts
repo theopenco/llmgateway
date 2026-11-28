@@ -719,26 +719,40 @@ export async function resolveProviderContext(
 		serviceTierKeyFilter,
 	});
 
+	const findByokKey = async () =>
+		usedProvider === "custom" && options.customProviderName
+			? await findCustomProviderKey(
+					project.organizationId,
+					options.customProviderName,
+					usedInternalModel,
+					options.excludedProviderKeyIds,
+					options.rateLimitExemption,
+				)
+			: await findProviderKey(
+					project.organizationId,
+					usedProvider,
+					usedInternalModel,
+					options.excludedProviderKeyIds,
+					byokKeyFilter,
+					options.rateLimitExemption,
+					usedInternalModel,
+				);
+
+	const resolveEnvCredential = async () =>
+		await resolvePlatformCredential(usedProvider as Provider, {
+			selectionScope: usedInternalModel,
+			model: usedInternalModel,
+			variant: envVariant,
+			organizationId: project.organizationId,
+			region: providerMapping.region,
+			requiresServiceTier: serviceTierKeyFilter !== undefined,
+			excludedEnvIndices: options.excludedEnvKeyIndices,
+			excludedProviderKeyIds: options.excludedProviderKeyIds,
+			rateLimitExemption: options.rateLimitExemption,
+		});
+
 	if (project.mode === "api-keys") {
-		if (usedProvider === "custom" && options.customProviderName) {
-			providerKey = await findCustomProviderKey(
-				project.organizationId,
-				options.customProviderName,
-				usedInternalModel,
-				options.excludedProviderKeyIds,
-				options.rateLimitExemption,
-			);
-		} else {
-			providerKey = await findProviderKey(
-				project.organizationId,
-				usedProvider,
-				usedInternalModel,
-				options.excludedProviderKeyIds,
-				byokKeyFilter,
-				options.rateLimitExemption,
-				usedInternalModel,
-			);
-		}
+		providerKey = await findByokKey();
 
 		if (!providerKey) {
 			await assertProviderKeysNotRateLimited(
@@ -764,44 +778,14 @@ export async function resolveProviderContext(
 			modelInfo,
 			options.sponsoredOnboarding,
 		);
-		const platformCredential = await resolvePlatformCredential(
-			usedProvider as Provider,
-			{
-				selectionScope: usedInternalModel,
-				model: usedInternalModel,
-				variant: envVariant,
-				organizationId: project.organizationId,
-				region: providerMapping.region,
-				requiresServiceTier: serviceTierKeyFilter !== undefined,
-				excludedEnvIndices: options.excludedEnvKeyIndices,
-				excludedProviderKeyIds: options.excludedProviderKeyIds,
-				rateLimitExemption: options.rateLimitExemption,
-			},
-		);
-		managedKey = platformCredential.managedKey;
-		usedToken = platformCredential.token;
-		configIndex = platformCredential.configIndex;
-		envVarName = platformCredential.envVarName;
+		({
+			managedKey,
+			token: usedToken,
+			configIndex,
+			envVarName,
+		} = await resolveEnvCredential());
 	} else if (project.mode === "hybrid") {
-		if (usedProvider === "custom" && options.customProviderName) {
-			providerKey = await findCustomProviderKey(
-				project.organizationId,
-				options.customProviderName,
-				usedInternalModel,
-				options.excludedProviderKeyIds,
-				options.rateLimitExemption,
-			);
-		} else {
-			providerKey = await findProviderKey(
-				project.organizationId,
-				usedProvider,
-				usedInternalModel,
-				options.excludedProviderKeyIds,
-				byokKeyFilter,
-				options.rateLimitExemption,
-				usedInternalModel,
-			);
-		}
+		providerKey = await findByokKey();
 
 		if (providerKey) {
 			usedToken = readProviderKey(providerKey);
@@ -823,24 +807,12 @@ export async function resolveProviderContext(
 				modelInfo,
 				options.sponsoredOnboarding,
 			);
-			const platformCredential = await resolvePlatformCredential(
-				usedProvider as Provider,
-				{
-					selectionScope: usedInternalModel,
-					model: usedInternalModel,
-					variant: envVariant,
-					organizationId: project.organizationId,
-					region: providerMapping.region,
-					requiresServiceTier: serviceTierKeyFilter !== undefined,
-					excludedEnvIndices: options.excludedEnvKeyIndices,
-					excludedProviderKeyIds: options.excludedProviderKeyIds,
-					rateLimitExemption: options.rateLimitExemption,
-				},
-			);
-			managedKey = platformCredential.managedKey;
-			usedToken = platformCredential.token;
-			configIndex = platformCredential.configIndex;
-			envVarName = platformCredential.envVarName;
+			({
+				managedKey,
+				token: usedToken,
+				configIndex,
+				envVarName,
+			} = await resolveEnvCredential());
 		}
 	}
 

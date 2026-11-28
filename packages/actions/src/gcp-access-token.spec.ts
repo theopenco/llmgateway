@@ -282,6 +282,15 @@ describe("getGcpServiceAccountAccessToken", () => {
 		).rejects.toBeInstanceOf(GcpCredentialError);
 	});
 
+	it.each(["{}", "123", "[]", "null", JSON.stringify({ client_email: "a@b" })])(
+		"rejects service account JSON without client_email/private_key (%s) as a credential error",
+		async (json) => {
+			await expect(
+				getGcpServiceAccountAccessToken(json),
+			).rejects.toBeInstanceOf(GcpCredentialError);
+		},
+	);
+
 	it("ignores a user-supplied token_uri", async () => {
 		redisGetMock.mockResolvedValue(null);
 		redisSetMock.mockResolvedValue("OK");

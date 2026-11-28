@@ -7,6 +7,7 @@ import { ForkChatButton } from "@/components/playground/fork-chat-button";
 import { Wordmark } from "@/components/ui/wordmark";
 import { parsePlaygroundMessageMetadata } from "@/lib/message-metadata";
 import { createServerApiClient } from "@/lib/server-api";
+import { parseStoredImages } from "@/lib/stored-parts";
 
 import type { paths } from "@/lib/api/v1";
 import type { UIMessage } from "ai";
@@ -30,12 +31,6 @@ interface StoredDocumentPart {
 	url?: string;
 	mediaType?: string;
 	name?: string;
-}
-
-interface StoredImagePart {
-	image_url?: {
-		url?: string;
-	};
 }
 
 const MIN_USER_PROMPT_CHARS = 30;
@@ -294,27 +289,7 @@ function toUiMessage(message: SharedMessage): UIMessage {
 
 	if (message.images) {
 		try {
-			const parsedImages = JSON.parse(message.images) as unknown;
-			if (Array.isArray(parsedImages)) {
-				for (const image of parsedImages.filter(isStoredImagePart)) {
-					const dataUrl = image.image_url?.url ?? "";
-					if (dataUrl.startsWith("data:")) {
-						const [header, base64] = dataUrl.split(",");
-						const mediaType = header.match(/data:([^;]+)/)?.[1] ?? "image/png";
-						parts.push({
-							type: "file",
-							mediaType,
-							url: base64,
-						});
-					} else {
-						parts.push({
-							type: "file",
-							mediaType: "image/png",
-							url: dataUrl,
-						});
-					}
-				}
-			}
+			parts.push(...parseStoredImages(message.images));
 		} catch {
 			// Ignore malformed legacy image payloads in public snapshots.
 		}
@@ -386,20 +361,6 @@ function serializeJsonLd(value: unknown): string {
 		.replace(/</g, "\\u003c")
 		.replace(/>/g, "\\u003e")
 		.replace(/&/g, "\\u0026");
-}
-
-function isStoredImagePart(value: unknown): value is StoredImagePart {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		(!("image_url" in value) ||
-			value.image_url === undefined ||
-			(typeof value.image_url === "object" &&
-				value.image_url !== null &&
-				(!("url" in value.image_url) ||
-					value.image_url.url === undefined ||
-					typeof value.image_url.url === "string")))
-	);
 }
 
 function isStoredAudioPart(value: unknown): value is StoredAudioPart {

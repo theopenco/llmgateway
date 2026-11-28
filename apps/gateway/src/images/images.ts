@@ -1259,12 +1259,7 @@ function isSupportedInputImageUrl(value: string): boolean {
  * Convert a File object (from multipart form data) to a base64 data URI.
  */
 async function fileToDataUri(file: File): Promise<string> {
-	const arrayBuffer = await file.arrayBuffer();
-	const uint8Array = new Uint8Array(arrayBuffer);
-	const binaryString = Array.from(uint8Array, (byte) =>
-		String.fromCharCode(byte),
-	).join("");
-	const base64 = btoa(binaryString);
+	const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
 	const mimeType = file.type || "image/png";
 	return `data:${mimeType};base64,${base64}`;
 }
@@ -1651,10 +1646,11 @@ async function processImageEdit(
 		retainPayloadLogs,
 	);
 
+	const truncatedImages = imageObjects.slice(0, request.n ?? 1);
 	const usage = buildImagesUsage(chatResponse);
 	const imagesResponse: z.infer<typeof imageEditsResponseSchema> = {
 		created: Math.floor(Date.now() / 1000),
-		data: imageObjects,
+		data: truncatedImages,
 		...(usage && { usage }),
 	};
 
@@ -1666,7 +1662,7 @@ async function processImageEdit(
 			imagesResponse.output_format = request.output_format;
 		}
 	} else if (request.output_format) {
-		const deliveredFormat = deliveredImageFormat(imageObjects);
+		const deliveredFormat = deliveredImageFormat(truncatedImages);
 		if (deliveredFormat && deliveredFormat !== "svg") {
 			imagesResponse.output_format = deliveredFormat;
 		}
@@ -1679,7 +1675,7 @@ async function processImageEdit(
 	}
 
 	logger.debug("Images Edit API - returning response", {
-		imageCount: imageObjects.length,
+		imageCount: truncatedImages.length,
 		model,
 	});
 

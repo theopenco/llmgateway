@@ -984,4 +984,32 @@ describe("getCompliantProvidersForModel", () => {
 			),
 		).toEqual([]);
 	});
+
+	it("applies per-mapping data-policy overrides", () => {
+		const zdr: ProviderCompliancePolicy = {
+			enabled: true,
+			zeroDataRetention: true,
+		};
+		expect(
+			getCompliantProvidersForModel(
+				"some-model",
+				[{ providerId: "aws-bedrock" }],
+				zdr,
+				now,
+			),
+		).toEqual(["aws-bedrock"]);
+		expect(
+			getCompliantProvidersForModel(
+				"some-model",
+				[
+					{
+						providerId: "aws-bedrock",
+						dataPolicy: { promptLogging: true, retentionPeriod: "30 days" },
+					},
+				],
+				zdr,
+				now,
+			),
+		).toEqual([]);
+	});
 });

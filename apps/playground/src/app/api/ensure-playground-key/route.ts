@@ -23,7 +23,10 @@ export async function POST(req: NextRequest) {
 	}
 	const bodyResult = await bodyPromise;
 	if (!bodyResult.ok) {
-		throw bodyResult.error;
+		return NextResponse.json(
+			{ error: "Invalid JSON payload" },
+			{ status: 400 },
+		);
 	}
 	const { projectId } = bodyResult.body ?? {};
 	if (!projectId) {
@@ -62,7 +65,7 @@ export async function POST(req: NextRequest) {
 	if (!res.ok) {
 		return NextResponse.json(
 			{ error: "Failed to ensure key" },
-			{ status: 500 },
+			{ status: res.status >= 400 && res.status < 500 ? res.status : 502 },
 		);
 	}
 

@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 
 import { createServerApiClient } from "@/lib/server-api";
+import { isStoredImagePart } from "@/lib/stored-parts";
 
 import { isProviderUrlGuardEnabled } from "@llmgateway/shared";
 import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
@@ -29,12 +30,6 @@ type SharedMessage = SharedChatResponse["share"]["messages"][number];
 
 interface OgImageProps {
 	params: Promise<{ shareId: string }>;
-}
-
-interface StoredImagePart {
-	image_url?: {
-		url?: string;
-	};
 }
 
 interface SharePreview {
@@ -69,20 +64,6 @@ function pickPromptAndResponse(messages: SharedMessage[]): {
 		prompt: flatten(userMessage?.content),
 		response: flatten(assistantMessage?.content),
 	};
-}
-
-function isStoredImagePart(value: unknown): value is StoredImagePart {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		(!("image_url" in value) ||
-			value.image_url === undefined ||
-			(typeof value.image_url === "object" &&
-				value.image_url !== null &&
-				(!("url" in value.image_url) ||
-					value.image_url.url === undefined ||
-					typeof value.image_url.url === "string")))
-	);
 }
 
 function extractImageUrl(images: string | null): string | null {

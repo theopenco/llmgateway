@@ -66,16 +66,18 @@ function withRetryParam(url: string, attempt: number): string {
 const VideoPlayer = memo(
 	({
 		url,
+		modelId,
 		modelName,
 		expiresAt,
 		retryOnError,
 		onLoadError,
 	}: {
 		url: string;
+		modelId: string;
 		modelName?: string;
 		expiresAt?: number | null;
 		retryOnError: boolean;
-		onLoadError: () => void;
+		onLoadError: (modelId: string) => void;
 	}) => {
 		const [attempt, setAttempt] = useState(0);
 		const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -92,14 +94,14 @@ const VideoPlayer = memo(
 		const handleError = useCallback(() => {
 			const delay = retryOnError ? LOAD_RETRY_DELAYS_MS[attempt] : undefined;
 			if (delay === undefined) {
-				onLoadError();
+				onLoadError(modelId);
 				return;
 			}
 			retryTimerRef.current = setTimeout(
 				() => setAttempt((current) => current + 1),
 				delay,
 			);
-		}, [attempt, retryOnError, onLoadError]);
+		}, [attempt, retryOnError, onLoadError, modelId]);
 
 		const expiringSoon = isExpiringSoon(expiresAt ?? null);
 
@@ -286,6 +288,7 @@ function VideoInputThumbnails({ item }: { item: VideoGalleryItem }) {
 function SingleModeItem({ item }: { item: VideoGalleryItem }) {
 	const model = item.models[0];
 	const [loadError, setLoadError] = useState(false);
+	const handleLoadError = useCallback(() => setLoadError(true), []);
 
 	if (!model) {
 		return null;
@@ -336,9 +339,10 @@ function SingleModeItem({ item }: { item: VideoGalleryItem }) {
 					) : (
 						<VideoPlayer
 							url={model.videoUrl}
+							modelId={model.modelId}
 							expiresAt={model.expiresAt}
 							retryOnError={model.job !== null}
-							onLoadError={() => setLoadError(true)}
+							onLoadError={handleLoadError}
 						/>
 					)}
 				</div>
@@ -414,10 +418,11 @@ function ComparisonModeItem({ item }: { item: VideoGalleryItem }) {
 								) : (
 									<VideoPlayer
 										url={model.videoUrl}
+										modelId={model.modelId}
 										modelName={model.modelName}
 										expiresAt={model.expiresAt}
 										retryOnError={model.job !== null}
-										onLoadError={() => handleLoadError(model.modelId)}
+										onLoadError={handleLoadError}
 									/>
 								)
 							) : null}

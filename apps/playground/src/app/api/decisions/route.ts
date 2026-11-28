@@ -2,6 +2,10 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import {
+	getGatewayErrorMessage,
+	readGatewayResponseBody,
+} from "@/app/api/video/utils";
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 import { readJsonBody } from "@/lib/read-json-body";
@@ -92,27 +96,6 @@ const requestSchema = z.object({
 	]),
 	questions: z.array(questionSchema).min(1).max(MAX_DECISION_QUESTIONS),
 });
-
-function getDecisionErrorMessage(body: unknown, fallback: string): string {
-	if (typeof body === "string" && body.length > 0) {
-		return body;
-	}
-	if (body && typeof body === "object" && "error" in body) {
-		const error = (body as { error: unknown }).error;
-		if (typeof error === "string" && error.length > 0) {
-			return error;
-		}
-		if (
-			error &&
-			typeof error === "object" &&
-			"message" in error &&
-			typeof (error as { message: unknown }).message === "string"
-		) {
-			return (error as { message: string }).message;
-		}
-	}
-	return fallback;
-}
 
 type DecisionInput = z.infer<typeof requestSchema>["input"];
 
@@ -231,19 +214,11 @@ export async function POST(req: Request) {
 		clearTimeout(timeout);
 	}
 
-	const text = await response.text();
-	let parsed: unknown = null;
-	if (text) {
-		try {
-			parsed = JSON.parse(text);
-		} catch {
-			parsed = text;
-		}
-	}
+	const parsed = await readGatewayResponseBody(response);
 
 	if (!response.ok) {
 		return NextResponse.json(
-			{ error: getDecisionErrorMessage(parsed, "The decision request failed") },
+			{ error: getGatewayErrorMessage(parsed, "The decision request failed") },
 			{ status: response.status },
 		);
 	}

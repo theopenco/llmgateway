@@ -40,7 +40,12 @@ function revealAnchor(id: string): boolean {
 }
 
 function hashId(hash: string): string {
-	return decodeURIComponent(hash.slice(1));
+	const raw = hash.slice(1);
+	try {
+		return decodeURIComponent(raw);
+	} catch {
+		return raw;
+	}
 }
 
 export function TabAnchorHandler() {

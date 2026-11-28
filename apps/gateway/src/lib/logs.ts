@@ -1,3 +1,5 @@
+import { Decimal } from "decimal.js";
+
 import { publishToQueue, LOG_QUEUE } from "@llmgateway/cache";
 import {
 	stripRetentionSensitiveLogFields,
@@ -304,11 +306,12 @@ export function calculateDataStorageCost(
 	const prompt = Number(promptTokens) || 0;
 	const completion = Number(completionTokens) || 0;
 
-	const totalTokens = prompt + completion;
-
 	// $0.01 per 1M tokens
-	const cost = (totalTokens / 1_000_000) * 0.01;
-	return cost.toString();
+	return new Decimal(prompt)
+		.plus(completion)
+		.div(1_000_000)
+		.mul("0.01")
+		.toFixed();
 }
 
 /**
@@ -350,6 +353,10 @@ export function errorFinishReasonDetails(
 	};
 }
 
+function toDecimalOrZero(value: number | string | null | undefined): Decimal {
+	return new Decimal(Number(value ?? 0) || 0);
+}
+
 /**
  * The portion of a log's cost that actually drains `organization.credits`, which
  * is what the per-org spend caps are meant to bound. Mirrors the worker's debit
@@ -366,7 +373,7 @@ export function errorFinishReasonDetails(
  * filling a cap it can never be blocked by.
  */
 export function organizationBilledCost(logData: LogInsertData): number {
-	const storage = Number(logData.dataStorageCost ?? 0) || 0;
+	const storage = toDecimalOrZero(logData.dataStorageCost);
 
 	const chargesOrgForInference =
 		!logData.endCustomerWalletId &&
@@ -374,11 +381,12 @@ export function organizationBilledCost(logData: LogInsertData): number {
 		!logData.cached;
 
 	if (!chargesOrgForInference) {
-		return storage;
+		return storage.toNumber();
 	}
 
-	const inference = Number(logData.billingCost ?? logData.cost ?? 0) || 0;
-	return inference + storage;
+	return toDecimalOrZero(logData.billingCost ?? logData.cost)
+		.plus(storage)
+		.toNumber();
 }
 
 /**

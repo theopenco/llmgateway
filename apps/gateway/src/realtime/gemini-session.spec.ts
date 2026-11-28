@@ -70,8 +70,8 @@ vi.mock("./leases.js", () => ({
 }));
 
 vi.mock("./preflight.js", () => ({
-	getAvailableCredits: (org: { credits?: string }) =>
-		parseFloat(org.credits ?? "0"),
+	getRealtimeCreditBalance: (org: { credits?: string }) =>
+		new Decimal(org.credits ?? "0"),
 }));
 
 class FakeSocket extends EventEmitter {

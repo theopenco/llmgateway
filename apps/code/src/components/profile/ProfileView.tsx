@@ -5,9 +5,8 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 
 import {
-	AGENTS,
+	agentForSource,
 	formatTokens,
-	type AgentDefinition,
 } from "@/app/dashboard/components/coding-agents-shared";
 import { ProfilePassport } from "@/components/profile/passport/ProfilePassport";
 import { ProfileHeatmap } from "@/components/profile/ProfileHeatmap";
@@ -46,17 +45,6 @@ const ProfileTokensChart = dynamic(
 		),
 	{ ssr: false, loading: () => <div className="h-52 w-full" /> },
 );
-
-const AGENT_BY_SOURCE = new Map<string, AgentDefinition>();
-for (const agent of AGENTS) {
-	for (const source of agent.sources) {
-		AGENT_BY_SOURCE.set(source.toLowerCase(), agent);
-	}
-}
-
-function agentForSource(source: string): AgentDefinition | undefined {
-	return AGENT_BY_SOURCE.get(source.toLowerCase());
-}
 
 interface CanonicalModelUsage {
 	id: string;

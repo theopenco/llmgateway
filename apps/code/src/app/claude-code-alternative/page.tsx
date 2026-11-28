@@ -48,7 +48,7 @@ const painPoints = [
 	{
 		icon: DollarSign,
 		title: "Different subscription prices",
-		body: "Claude Pro includes Claude Code for $20/month. Max offers higher usage at $100 or $200/month. DevPass starts at $29/month; whether it saves money depends on the models and tokens you use.",
+		body: `Claude Pro includes Claude Code for $20/month. Max offers higher usage at $100 or $200/month. DevPass starts at $${DEV_PLAN_PRICES.lite}/month; whether it saves money depends on the models and tokens you use.`,
 	},
 	{
 		icon: Layers,
@@ -60,7 +60,7 @@ const painPoints = [
 const comparisonFeatures = [
 	{
 		label: "Monthly price",
-		devpass: "From $29 (Lite)",
+		devpass: `From $${DEV_PLAN_PRICES.lite} (Lite)`,
 		competitor: "$20 Pro; $100 / $200 Max",
 	},
 	{
@@ -100,8 +100,7 @@ const faqs = [
 	},
 	{
 		question: "Is DevPass cheaper than Claude?",
-		answer:
-			"Claude Pro starts at $20/month and includes Claude Code. Max is $100 or $200/month. DevPass starts at $29, with model usage metered in dollars. No fixed savings claim applies to every workload.",
+		answer: `Claude Pro starts at $20/month and includes Claude Code. Max is $100 or $200/month. DevPass starts at $${DEV_PLAN_PRICES.lite}, with model usage metered in dollars. No fixed savings claim applies to every workload.`,
 	},
 	{
 		question: "Does DevPass have weekly limits?",

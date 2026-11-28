@@ -1038,13 +1038,17 @@ anthropic.openapi(messages, async (c) => {
 			const hasDocument = message.content.some(
 				(block) => block.type === "document",
 			);
+			const hasImage = message.content.some((block) => block.type === "image");
 
-			if (hasAnyCacheControl || hasDocument) {
+			if (hasAnyCacheControl || hasDocument || hasImage) {
 				openaiMessages.push({
 					role: "user",
 					content: message.content.flatMap((block): unknown[] => {
 						if (block.type === "document") {
 							return [documentBlockToFilePart(block)];
+						}
+						if (block.type === "image") {
+							return [anthropicImageSourceToOpenAIPart(block.source)];
 						}
 						if (block.type !== "text" || (hasDocument && !block.text)) {
 							return [];
@@ -1144,12 +1148,7 @@ anthropic.openapi(messages, async (c) => {
 						};
 					}
 					if (block.type === "image" && block.source) {
-						return {
-							type: "image_url",
-							image_url: {
-								url: `data:${block.source.media_type};base64,${block.source.data}`,
-							},
-						};
+						return anthropicImageSourceToOpenAIPart(block.source);
 					}
 					if (block.type === "document") {
 						return documentBlockToFilePart(block);
@@ -2518,6 +2517,16 @@ function isAnthropicImageBlock(block: unknown): block is AnthropicImageBlock {
 	return source.type === "base64" || source.type === "url";
 }
 
+function anthropicImageSourceToOpenAIPart(
+	source: AnthropicImageBlock["source"],
+): { type: "image_url"; image_url: { url: string } } {
+	const url =
+		source.type === "base64"
+			? `data:${source.media_type};base64,${source.data}`
+			: source.url;
+	return { type: "image_url", image_url: { url } };
+}
+
 /**
  * Lower a tool_result content array to OpenAI content parts. Text and image
  * blocks map one to one; anything else keeps the stringified form the
@@ -2534,11 +2543,7 @@ function toolResultToOpenAIParts(
 	}
 	return (content ?? []).map((block) => {
 		if (isAnthropicImageBlock(block)) {
-			const url =
-				block.source.type === "base64"
-					? `data:${block.source.media_type};base64,${block.source.data}`
-					: block.source.url;
-			return { type: "image_url", image_url: { url } };
+			return anthropicImageSourceToOpenAIPart(block.source);
 		}
 		const text = block as { type?: unknown; text?: unknown };
 		if (text.type === "text" && typeof text.text === "string") {

@@ -139,9 +139,12 @@ export function VoiceCalls({ organizationId }: { organizationId: string }) {
 		"delete",
 		"/playground/realtime-history/{id}",
 		{
-			onSuccess: () => {
-				setSelectedId(undefined);
-				calls.reset();
+			onSuccess: (_data, variables) => {
+				const id = variables.params.path.id;
+				setSelectedId((current) => (current === id ? undefined : current));
+				if (id === calls.savedId) {
+					calls.reset();
+				}
 				refresh();
 			},
 		},

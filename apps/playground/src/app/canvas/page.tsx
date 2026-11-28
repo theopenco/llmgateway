@@ -1,5 +1,4 @@
 import { cookies } from "next/headers";
-import { notFound } from "next/navigation";
 
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import CanvasPageClient from "@/components/playground/canvas-page-client";
@@ -9,9 +8,8 @@ import {
 	CANVAS_MODEL_COOKIE,
 	decodeModelPreference,
 } from "@/lib/model-preferences";
-import { fetchServerData } from "@/lib/server-api";
+import { resolvePlaygroundContext } from "@/lib/resolve-playground-context";
 
-import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -39,105 +37,34 @@ export default async function CanvasPage({
 		cookieStore.get(CANVAS_MODEL_COOKIE)?.value,
 	);
 
-	// Ensure the dedicated Chat org exists, then list it so it can back the
-	// default billing context for the playground. Its response already names
-	// the Chat org, so the default selection's projects fetch can start as
-	// soon as it resolves instead of after the org list.
-	const chatOrgPromise = fetchServerData<{
-		organizationId: string;
-		projectId: string;
-	}>("GET", "/playground/chat-org");
-
 	const [
 		models,
 		providers,
-		initialOrganizationsData,
-		orgIdProjectsData,
-		chatOrgData,
-		chatOrgProjectsData,
+		{
+			organizations,
+			selectedOrganization,
+			projects,
+			selectedProject,
+			projectsLoadFailed,
+		},
 	] = await Promise.all([
 		fetchModels(),
 		fetchProviders(),
-		chatOrgPromise.then(() =>
-			fetchServerData("GET", "/orgs", {
-				params: { query: { includeChat: "true" } },
-			}),
-		),
-		orgId
-			? fetchServerData("GET", "/orgs/{id}/projects", {
-					params: {
-						path: {
-							id: orgId,
-						},
-					},
-				})
-			: null,
-		chatOrgPromise,
-		orgId
-			? null
-			: chatOrgPromise.then((chatOrg) =>
-					chatOrg
-						? fetchServerData("GET", "/orgs/{id}/projects", {
-								params: { path: { id: chatOrg.organizationId } },
-							})
-						: null,
-				),
+		resolvePlaygroundContext({
+			orgId,
+			projectId,
+			cookieStore,
+			projectIdRequiresOrgId: true,
+		}),
 	]);
-
-	const allOrganizations = (
-		initialOrganizationsData &&
-		typeof initialOrganizationsData === "object" &&
-		"organizations" in initialOrganizationsData
-			? (initialOrganizationsData as { organizations: Organization[] })
-					.organizations
-			: []
-	) as Organization[];
-	// The Chat org backs the default billing context and must not appear in the
-	// dashboard org switcher.
-	const chatOrg = allOrganizations.find((o) => o.kind === "chat") ?? null;
-	const organizations = allOrganizations.filter((o) => o.kind === "default");
-	const selectedOrganization =
-		(orgId ? organizations.find((o) => o.id === orgId) : null) ??
-		chatOrg ??
-		organizations[0] ??
-		null;
 
 	if (!selectedOrganization) {
 		return <PlaygroundSeoSection variant="canvas" />;
 	}
 
-	let initialProjectsData = (
-		orgId === selectedOrganization.id
-			? orgIdProjectsData
-			: selectedOrganization.id === chatOrgData?.organizationId
-				? chatOrgProjectsData
-				: null
-	) as { projects: Project[] } | null;
-
-	initialProjectsData ??= (await fetchServerData("GET", "/orgs/{id}/projects", {
-		params: { path: { id: selectedOrganization.id } },
-	})) as { projects: Project[] } | null;
-
-	const projects = (initialProjectsData?.projects ?? []) as Project[];
-
-	let selectedProject: Project | null = null;
-	if (projectId && orgId === selectedOrganization.id) {
-		selectedProject = projects.find((p) => p.id === projectId) ?? null;
-		if (!selectedProject) {
-			notFound();
-		}
-	} else if (selectedOrganization?.id) {
-		const cookieName = `llmgateway-last-used-project-${selectedOrganization.id}`;
-		const lastUsed = cookieStore.get(cookieName)?.value;
-		if (lastUsed) {
-			selectedProject = projects.find((p) => p.id === lastUsed) ?? null;
-		}
-	}
-	selectedProject ??= projects[0] ?? null;
-
 	return (
 		<>
-			{selectedOrganization?.id && selectedProject?.id ? (
+			{selectedProject?.id ? (
 				<LastUsedProjectTracker
 					orgId={selectedOrganization.id}
 					projectId={selectedProject.id}
@@ -150,7 +77,7 @@ export default async function CanvasPage({
 				selectedOrganization={selectedOrganization}
 				projects={projects}
 				selectedProject={selectedProject}
-				projectsLoadFailed={initialProjectsData === null}
+				projectsLoadFailed={projectsLoadFailed}
 				initialModelPreference={initialModelPreference}
 			/>
 		</>

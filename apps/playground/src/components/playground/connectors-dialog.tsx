@@ -3,7 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, ExternalLink, Loader2, Plug, Search } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -31,9 +31,30 @@ type ConnectorAction = { id: LoungeConnectorId } & (
 
 export function ConnectorsDialog() {
 	const searchParams = useSearchParams();
-	const [open, setOpen] = useState(
-		Boolean(searchParams.get("connector_status")),
-	);
+	const [status, setStatus] = useState(searchParams.get("connector_status"));
+	const [open, setOpen] = useState(Boolean(status));
+	useEffect(() => {
+		const url = new URL(window.location.href);
+		if (
+			!url.searchParams.has("connector") &&
+			!url.searchParams.has("connector_status")
+		) {
+			return;
+		}
+		url.searchParams.delete("connector");
+		url.searchParams.delete("connector_status");
+		window.history.replaceState(
+			window.history.state,
+			"",
+			url.pathname + url.search + url.hash,
+		);
+	}, []);
+	const handleOpenChange = (next: boolean) => {
+		setOpen(next);
+		if (!next) {
+			setStatus(null);
+		}
+	};
 	const [search, setSearch] = useState("");
 	const [shop, setShop] = useState("");
 	const { data, isPending, error, refetch } = useConnectors();
@@ -96,7 +117,7 @@ export function ConnectorsDialog() {
 			.includes(search.toLowerCase()),
 	);
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogTrigger asChild>
 				<Button
 					variant="ghost"
@@ -125,18 +146,18 @@ export function ConnectorsDialog() {
 					</DialogDescription>
 				</DialogHeader>
 				<div className="shrink-0 px-6 pt-4">
-					{searchParams.get("connector_status") === "failed" && (
+					{status === "failed" && (
 						<p role="alert" className="text-destructive mb-3 text-sm">
 							Could not finish connecting. Please try again.
 						</p>
 					)}
-					{searchParams.get("connector_status") === "connected" && (
+					{status === "connected" && (
 						<p role="status" className="mb-3 flex items-center gap-2 text-sm">
 							<Check className="text-primary size-4" /> Your account is
 							connected.
 						</p>
 					)}
-					{searchParams.get("connector_status") === "cancelled" && (
+					{status === "cancelled" && (
 						<p role="status" className="text-muted-foreground mb-3 text-sm">
 							Connection cancelled. You can try again whenever you’re ready.
 						</p>

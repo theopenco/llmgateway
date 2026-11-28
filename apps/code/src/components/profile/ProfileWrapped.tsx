@@ -3,9 +3,8 @@
 import { Flame, Sparkles } from "lucide-react";
 
 import {
-	AGENTS,
+	agentForSource,
 	formatTokens,
-	type AgentDefinition,
 } from "@/app/dashboard/components/coding-agents-shared";
 import {
 	PROFILE_SITE_URL,
@@ -15,13 +14,6 @@ import { Button } from "@/components/ui/button";
 import { useUser } from "@/hooks/useUser";
 
 import type { ProfileData } from "@/components/profile/ProfileView";
-
-const AGENT_BY_SOURCE = new Map<string, AgentDefinition>();
-for (const agent of AGENTS) {
-	for (const source of agent.sources) {
-		AGENT_BY_SOURCE.set(source.toLowerCase(), agent);
-	}
-}
 
 function WrappedStat({ value, label }: { value: string; label: string }) {
 	return (
@@ -50,7 +42,7 @@ export function ProfileWrapped({
 	const isOwner = !!user && (user.username ?? "") === handle;
 	const topAgent =
 		profile.agents.length > 0
-			? AGENT_BY_SOURCE.get(profile.agents[0].source.toLowerCase())
+			? agentForSource(profile.agents[0].source)
 			: undefined;
 
 	return (

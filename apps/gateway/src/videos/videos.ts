@@ -8,7 +8,10 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
-import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
+import {
+	buildByokKeyFilter,
+	getAvailableCredits,
+} from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	selectNextProvider,
@@ -100,7 +103,6 @@ import {
 	getTableName,
 	gt,
 	isNull,
-	metricsKey,
 	sql,
 	shortid,
 	tables,
@@ -545,7 +547,10 @@ const createVideoRequestSchema = z
 			});
 		}
 
-		if (value.size !== undefined && !(value.size in SUPPORTED_VIDEO_SIZES)) {
+		if (
+			value.size !== undefined &&
+			!Object.hasOwn(SUPPORTED_VIDEO_SIZES, value.size)
+		) {
 			ctx.addIssue({
 				code: z.ZodIssueCode.custom,
 				message: `size must be one of ${Object.keys(SUPPORTED_VIDEO_SIZES).join(", ")}`,
@@ -949,23 +954,6 @@ function getVideoImageFileExtension(mimeType: string): string {
 	}
 }
 
-function getAvailableCredits(
-	organization: InferSelectModel<typeof tables.organization>,
-): number {
-	const regularCredits = parseFloat(organization.credits ?? "0");
-	const devPlanCreditsRemaining =
-		organization.devPlan !== "none"
-			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
-				parseFloat(organization.devPlanCreditsUsed ?? "0")
-			: 0;
-	const chatPlanCreditsRemaining =
-		organization.chatPlan !== "none"
-			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
-				parseFloat(organization.chatPlanCreditsUsed ?? "0")
-			: 0;
-	return regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
-}
-
 /**
  * Pre-charge estimate for a credits-billed video job. Video bills only at
  * worker finalization, minutes after submission — without an up-front figure,
@@ -1049,7 +1037,8 @@ function getVideoCreditShortfall(
 	pendingUsd: number,
 ): VideoCreditShortfall | null {
 	const requiredUsd = Math.max(MIN_VIDEO_GENERATION_BALANCE, estimatedUsd);
-	const availableUsd = getAvailableCredits(organization) - pendingUsd;
+	const availableUsd =
+		getAvailableCredits(organization).totalAvailableCredits - pendingUsd;
 	return availableUsd < requiredUsd
 		? { requiredUsd, availableUsd, pendingUsd }
 		: null;
@@ -1260,6 +1249,11 @@ function getVideoModel(model: string): {
 
 function getVideoSizeConfig(size: string | undefined): VideoSizeConfig {
 	const normalizedSize = size ?? DEFAULT_VIDEO_SIZE;
+	if (!Object.hasOwn(SUPPORTED_VIDEO_SIZES, normalizedSize)) {
+		throw new HTTPException(400, {
+			message: `size must be one of ${Object.keys(SUPPORTED_VIDEO_SIZES).join(", ")}`,
+		});
+	}
 	return SUPPORTED_VIDEO_SIZES[normalizedSize as SupportedVideoSize];
 }
 
@@ -2425,62 +2419,54 @@ async function resolveVideoExecution(
 		referenceAudioCount,
 		includeAudio,
 	);
-	const configuredEligibleMappings: ProviderModelMapping[] = [];
-	for (const providerMapping of eligibleMappings) {
-		if (
-			await hasVideoProviderConfiguration(
-				providerMapping.providerId as Provider,
-				project,
-				organizationId,
-				modelInfo.id,
-			)
-		) {
-			configuredEligibleMappings.push(providerMapping);
-		}
-	}
-
-	if (!requestedProvider) {
-		const configuredProviders: Provider[] = [];
-		for (const providerMapping of modelInfo.providers) {
-			const providerId = providerMapping.providerId as Provider;
-			if (
-				providerMapping.videoGenerations &&
-				(await hasVideoProviderConfiguration(
-					providerId,
-					project,
-					organizationId,
-					modelInfo.id,
-				))
-			) {
-				configuredProviders.push(providerId);
-			}
-		}
-
-		if (configuredProviders.length > 0) {
-			const configuredProviderMappings = modelInfo.providers.filter(
-				(provider) =>
-					provider.videoGenerations &&
-					configuredProviders.includes(provider.providerId as Provider),
-			);
-			const configuredEligibleMappings = eligibleMappings.filter((provider) =>
-				configuredProviders.includes(provider.providerId as Provider),
-			);
-			if (configuredEligibleMappings.length === 0) {
-				throw new HTTPException(400, {
-					message: formatVideoProviderConstraintSummary(
+	const candidateProviderIds = new Set(
+		(requestedProvider
+			? eligibleMappings
+			: modelInfo.providers.filter((provider) => provider.videoGenerations)
+		).map((provider) => provider.providerId as Provider),
+	);
+	const configuredProviders = new Set(
+		(
+			await Promise.all(
+				[...candidateProviderIds].map(async (providerId) =>
+					(await hasVideoProviderConfiguration(
+						providerId,
+						project,
+						organizationId,
 						modelInfo.id,
-						configuredProviderMappings,
-						videoSize,
-						videoDurationSeconds,
-						inputMode,
-						inputImageCount,
-						referenceVideoCount,
-						referenceAudioCount,
-						includeAudio,
-					),
-				});
-			}
-		}
+					))
+						? providerId
+						: null,
+				),
+			)
+		).filter((providerId): providerId is Provider => providerId !== null),
+	);
+	const configuredEligibleMappings = eligibleMappings.filter((provider) =>
+		configuredProviders.has(provider.providerId as Provider),
+	);
+
+	if (
+		!requestedProvider &&
+		configuredProviders.size > 0 &&
+		configuredEligibleMappings.length === 0
+	) {
+		throw new HTTPException(400, {
+			message: formatVideoProviderConstraintSummary(
+				modelInfo.id,
+				modelInfo.providers.filter(
+					(provider) =>
+						provider.videoGenerations &&
+						configuredProviders.has(provider.providerId as Provider),
+				),
+				videoSize,
+				videoDurationSeconds,
+				inputMode,
+				inputImageCount,
+				referenceVideoCount,
+				referenceAudioCount,
+				includeAudio,
+			),
+		});
 	}
 
 	if (configuredEligibleMappings.length === 0) {
@@ -2503,158 +2489,42 @@ async function resolveVideoExecution(
 			routingCfg,
 		);
 
-		const requestedMapping = requestedProvider
-			? configuredEligibleMappings.find(
-					(provider) => provider.providerId === requestedProvider,
-				)
-			: undefined;
-		const requestedKey = requestedMapping
-			? metricsKey(
-					modelInfo.id,
-					requestedMapping.providerId,
-					requestedMapping.region,
-				)
-			: undefined;
-
-		if (
-			requestedProvider &&
-			!noFallback &&
-			requestedKey &&
-			metricsMap.has(requestedKey)
-		) {
-			const requestedMetrics = metricsMap.get(requestedKey);
-			const requestedUptime = requestedMetrics?.uptime;
-
-			if (
-				requestedUptime !== undefined &&
-				requestedUptime < routingCfg.retry.lowUptimeFallbackThreshold
-			) {
-				const betterMappings = configuredEligibleMappings.filter((provider) => {
-					if (provider.providerId === requestedProvider) {
-						return false;
-					}
-
-					const providerMetrics = metricsMap.get(
-						metricsKey(modelInfo.id, provider.providerId, provider.region),
-					);
-					return (
-						!providerMetrics ||
-						(providerMetrics.uptime ?? 100) > requestedUptime
-					);
-				});
-
-				if (betterMappings.length > 0) {
-					const betterResult = await getCheapestFromAvailableProviders(
-						betterMappings,
-						modelInfo,
-						{
-							metricsMap,
-							isStreaming: false,
-							videoPricing,
-							routingConfig: routingCfg,
-							organizationId,
-							providerDiscountResolver,
-							providerRoutingScoreMultiplierResolver,
-						},
-					);
-
-					if (betterResult) {
-						const originalMapping = configuredEligibleMappings.find(
-							(provider) => provider.providerId === requestedProvider,
-						);
-						const { price: originalPrice, discount: originalDiscount } =
-							await getDiscountedProviderSelectionPrice(
-								originalMapping,
-								modelInfo.id,
-								{
-									organizationId,
-									videoPricing,
-									providerDiscountResolver,
-								},
-							);
-						routingMetadata = {
-							...betterResult.metadata,
-							selectionReason: "low-uptime-fallback",
-							originalProvider: requestedProvider,
-							originalProviderUptime: requestedUptime,
-							providerScores: [
-								{
-									providerId: requestedProvider,
-									score: -1,
-									price: originalPrice.toNumber(),
-									discount: originalDiscount.toNumber(),
-									uptime: requestedUptime,
-									latency: requestedMetrics?.averageLatency,
-									throughput: requestedMetrics?.throughput,
-								},
-								...betterResult.metadata.providerScores,
-							],
-							...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
-						};
-
-						const orderedProviderIds = [
-							betterResult.provider.providerId,
-							requestedProvider,
-							...betterResult.metadata.providerScores
-								.filter(
-									(score) =>
-										score.providerId !== betterResult.provider.providerId,
-								)
-								.map((score) => score.providerId),
-						];
-						orderedMappings = orderedProviderIds
-							.map((providerId) =>
-								configuredEligibleMappings.find(
-									(provider) => provider.providerId === providerId,
-								),
-							)
-							.filter((provider): provider is ProviderModelMapping =>
-								Boolean(provider),
-							);
-					}
-				}
-			}
-		}
-
-		if (!routingMetadata) {
-			const cheapestResult = await getCheapestFromAvailableProviders(
-				configuredEligibleMappings,
-				modelInfo,
-				{
-					metricsMap,
-					isStreaming: false,
-					videoPricing,
-					routingConfig: routingCfg,
-					organizationId,
-					providerDiscountResolver,
-					providerRoutingScoreMultiplierResolver,
-				},
-			);
-			if (cheapestResult) {
-				routingMetadata = {
-					...cheapestResult.metadata,
-					...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
-				};
-				const orderedProviderIds = [
-					cheapestResult.provider.providerId,
-					...cheapestResult.metadata.providerScores
-						.filter(
-							(score) =>
-								score.providerId !== cheapestResult.provider.providerId,
-						)
-						.sort((a, b) => a.score - b.score)
-						.map((score) => score.providerId),
-				];
-				orderedMappings = orderedProviderIds
-					.map((providerId) =>
-						configuredEligibleMappings.find(
-							(provider) => provider.providerId === providerId,
-						),
+		const cheapestResult = await getCheapestFromAvailableProviders(
+			configuredEligibleMappings,
+			modelInfo,
+			{
+				metricsMap,
+				isStreaming: false,
+				videoPricing,
+				routingConfig: routingCfg,
+				organizationId,
+				providerDiscountResolver,
+				providerRoutingScoreMultiplierResolver,
+			},
+		);
+		if (cheapestResult) {
+			routingMetadata = {
+				...cheapestResult.metadata,
+				...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
+			};
+			const orderedProviderIds = [
+				cheapestResult.provider.providerId,
+				...cheapestResult.metadata.providerScores
+					.filter(
+						(score) => score.providerId !== cheapestResult.provider.providerId,
 					)
-					.filter((provider): provider is ProviderModelMapping =>
-						Boolean(provider),
-					);
-			}
+					.sort((a, b) => a.score - b.score)
+					.map((score) => score.providerId),
+			];
+			orderedMappings = orderedProviderIds
+				.map((providerId) =>
+					configuredEligibleMappings.find(
+						(provider) => provider.providerId === providerId,
+					),
+				)
+				.filter((provider): provider is ProviderModelMapping =>
+					Boolean(provider),
+				);
 		}
 	}
 
@@ -4058,20 +3928,19 @@ async function buildAtlasCloudKlingVideoRequest(
 	referenceImageInputs: VideoImageInput[],
 	referenceVideoUrls: string[],
 ): Promise<Record<string, unknown>> {
-	const imageUrl = firstFrameInput
-		? await getAtlasCloudImageUrl(providerContext, firstFrameInput)
-		: null;
-	const endImageUrl = lastFrameInput
-		? await getAtlasCloudImageUrl(providerContext, lastFrameInput)
-		: null;
-	const referenceImageUrls =
-		referenceImageInputs.length > 0
-			? await Promise.all(
-					referenceImageInputs.map((imageInput) =>
-						getAtlasCloudImageUrl(providerContext, imageInput),
-					),
-				)
-			: [];
+	const [imageUrl, endImageUrl, referenceImageUrls] = await Promise.all([
+		firstFrameInput
+			? getAtlasCloudImageUrl(providerContext, firstFrameInput)
+			: null,
+		lastFrameInput
+			? getAtlasCloudImageUrl(providerContext, lastFrameInput)
+			: null,
+		Promise.all(
+			referenceImageInputs.map((imageInput) =>
+				getAtlasCloudImageUrl(providerContext, imageInput),
+			),
+		),
+	]);
 	if (upstreamModelName.endsWith("/reference-to-video")) {
 		const [referenceVideoUrl] = referenceVideoUrls;
 		if (referenceVideoUrl) {
@@ -4130,12 +3999,14 @@ async function buildAtlasCloudLumaVideoRequest(
 			message: "Luma Ray requires image when last_frame is provided",
 		});
 	}
-	const imageUrl = firstFrameInput
-		? await getAtlasCloudImageUrl(providerContext, firstFrameInput)
-		: null;
-	const lastImageUrl = lastFrameInput
-		? await getAtlasCloudImageUrl(providerContext, lastFrameInput)
-		: null;
+	const [imageUrl, lastImageUrl] = await Promise.all([
+		firstFrameInput
+			? getAtlasCloudImageUrl(providerContext, firstFrameInput)
+			: null,
+		lastFrameInput
+			? getAtlasCloudImageUrl(providerContext, lastFrameInput)
+			: null,
+	]);
 	return {
 		model: upstreamModelName,
 		prompt,
@@ -5846,12 +5717,15 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				});
 				failedProviders.add(selectedProviderContext.providerId);
 
-				const nextProvider = selectNextProvider(
-					enrichedRoutingMetadata?.providerScores ?? [],
-					failedProviders,
-					orderedMappings,
-				);
-				if (!nextProvider || requestedProvider) {
+				const nextProvider =
+					!requestedProvider && !noFallback
+						? selectNextProvider(
+								enrichedRoutingMetadata?.providerScores ?? [],
+								failedProviders,
+								orderedMappings,
+							)
+						: null;
+				if (!nextProvider) {
 					throw new HTTPException(400, {
 						message: getVertexInlineVideoRetentionMessage(
 							selectedProviderContext,

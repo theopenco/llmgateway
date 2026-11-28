@@ -231,11 +231,14 @@ export async function stripRejectedAnthropicThinking<
 	try {
 		// Bounded batches, but the whole history: rejected blocks are the
 		// oldest ones, so a cap on the newest would miss them.
+		const slices: string[][] = [];
 		for (let i = 0; i < ids.length; i += MAX_PIN_LOOKUP_IDS) {
-			const batch = await readPins(
-				organizationId,
-				ids.slice(i, i + MAX_PIN_LOOKUP_IDS),
-			);
+			slices.push(ids.slice(i, i + MAX_PIN_LOOKUP_IDS));
+		}
+		const batches = await Promise.all(
+			slices.map((slice) => readPins(organizationId, slice)),
+		);
+		for (const batch of batches) {
 			for (const [id, pin] of batch) {
 				pins.set(id, pin);
 			}

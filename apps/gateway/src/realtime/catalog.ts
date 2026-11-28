@@ -11,6 +11,24 @@ export interface RealtimeMappingMatch {
 	modelId: string;
 }
 
+function isActiveMapping(mapping: ProviderModelMapping, now: Date): boolean {
+	return !(mapping.deactivatedAt && now > mapping.deactivatedAt);
+}
+
+function splitPinnedModel(requestedModel: string): {
+	provider?: string;
+	modelKey: string;
+} {
+	const slashIdx = requestedModel.indexOf("/");
+	if (slashIdx > 0) {
+		return {
+			provider: requestedModel.slice(0, slashIdx),
+			modelKey: requestedModel.slice(slashIdx + 1),
+		};
+	}
+	return { modelKey: requestedModel };
+}
+
 /**
  * Resolve a requested realtime model ("gpt-realtime", an alias, or a
  * "provider/model" pinned form) to its catalogue definition and provider
@@ -21,13 +39,8 @@ export function findRealtimeMapping(
 	requestedModel: string,
 	now: Date = new Date(),
 ): RealtimeMappingMatch | null {
-	let requestedProvider: string | undefined;
-	let modelKey = requestedModel;
-	const slashIdx = requestedModel.indexOf("/");
-	if (slashIdx > 0) {
-		requestedProvider = requestedModel.slice(0, slashIdx);
-		modelKey = requestedModel.slice(slashIdx + 1);
-	}
+	const { provider: requestedProvider, modelKey } =
+		splitPinnedModel(requestedModel);
 
 	for (const rawModel of modelDefinitions) {
 		const model = rawModel as ModelDefinition;
@@ -42,7 +55,7 @@ export function findRealtimeMapping(
 			if (requestedProvider && candidate.providerId !== requestedProvider) {
 				continue;
 			}
-			if (candidate.deactivatedAt && now > candidate.deactivatedAt) {
+			if (!isActiveMapping(candidate, now)) {
 				continue;
 			}
 			return {
@@ -67,14 +80,10 @@ export function findRealtimeTranscriptionMapping(
 	providerId: string,
 	now: Date = new Date(),
 ): RealtimeMappingMatch | null {
-	let modelKey = requestedModel;
-	const slashIdx = requestedModel.indexOf("/");
-	if (slashIdx > 0) {
-		const requestedProvider = requestedModel.slice(0, slashIdx);
-		if (requestedProvider !== providerId) {
-			return null;
-		}
-		modelKey = requestedModel.slice(slashIdx + 1);
+	const { provider: requestedProvider, modelKey } =
+		splitPinnedModel(requestedModel);
+	if (requestedProvider && requestedProvider !== providerId) {
+		return null;
 	}
 
 	for (const rawModel of modelDefinitions) {
@@ -95,7 +104,7 @@ export function findRealtimeTranscriptionMapping(
 			if (!matchesKey && candidate.externalId !== modelKey) {
 				continue;
 			}
-			if (candidate.deactivatedAt && now > candidate.deactivatedAt) {
+			if (!isActiveMapping(candidate, now)) {
 				continue;
 			}
 			return {
@@ -120,13 +129,8 @@ export function findTranscriptionSessionMapping(
 	requestedModel: string,
 	now: Date = new Date(),
 ): RealtimeMappingMatch | null {
-	let requestedProvider: string | undefined;
-	let modelKey = requestedModel;
-	const slashIdx = requestedModel.indexOf("/");
-	if (slashIdx > 0) {
-		requestedProvider = requestedModel.slice(0, slashIdx);
-		modelKey = requestedModel.slice(slashIdx + 1);
-	}
+	const { provider: requestedProvider, modelKey } =
+		splitPinnedModel(requestedModel);
 
 	for (const rawModel of modelDefinitions) {
 		const model = rawModel as ModelDefinition;
@@ -141,7 +145,7 @@ export function findTranscriptionSessionMapping(
 			if (requestedProvider && candidate.providerId !== requestedProvider) {
 				continue;
 			}
-			if (candidate.deactivatedAt && now > candidate.deactivatedAt) {
+			if (!isActiveMapping(candidate, now)) {
 				continue;
 			}
 			return {
@@ -174,7 +178,7 @@ export function listRealtimeTranscriptionMappings(
 			if (candidate.providerId !== providerId) {
 				continue;
 			}
-			if (candidate.deactivatedAt && now > candidate.deactivatedAt) {
+			if (!isActiveMapping(candidate, now)) {
 				continue;
 			}
 			matches.push({
@@ -195,25 +199,5 @@ export function findDefaultRealtimeTranscriptionMapping(
 	providerId: string,
 	now: Date = new Date(),
 ): RealtimeMappingMatch | null {
-	for (const rawModel of modelDefinitions) {
-		const model = rawModel as ModelDefinition;
-		for (const mapping of model.providers) {
-			const candidate = mapping as ProviderModelMapping;
-			if (candidate.realtimeTranscription !== true) {
-				continue;
-			}
-			if (candidate.providerId !== providerId) {
-				continue;
-			}
-			if (candidate.deactivatedAt && now > candidate.deactivatedAt) {
-				continue;
-			}
-			return {
-				modelDef: model,
-				mapping: candidate,
-				modelId: model.id,
-			};
-		}
-	}
-	return null;
+	return listRealtimeTranscriptionMappings(providerId, now)[0] ?? null;
 }

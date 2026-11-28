@@ -314,34 +314,7 @@ export function processStreamChunk(
 	if (!delta) {
 		// Check for usage in the final chunk
 		if (chunk.usage) {
-			const usage = chunk.usage as Record<string, unknown>;
-			state.usage.input_tokens =
-				(usage.prompt_tokens as number) ?? state.usage.input_tokens;
-			state.usage.output_tokens =
-				(usage.completion_tokens as number) ?? state.usage.output_tokens;
-			state.usage.total_tokens =
-				(usage.total_tokens as number) ?? state.usage.total_tokens;
-			const ptd = usage.prompt_tokens_details as
-				Record<string, unknown> | undefined;
-			if (ptd?.cached_tokens !== undefined) {
-				state.usage.input_tokens_details = {
-					cached_tokens: ptd.cached_tokens as number,
-				};
-			}
-			const ctd = usage.completion_tokens_details as
-				Record<string, unknown> | undefined;
-			if (ctd?.reasoning_tokens !== undefined) {
-				state.usage.output_tokens_details = {
-					reasoning_tokens: ctd.reasoning_tokens as number,
-				};
-			}
-			if (usage.cost !== undefined) {
-				state.usage.cost = usage.cost as number;
-			}
-			if (usage.cost_details !== undefined) {
-				state.usage.cost_details =
-					usage.cost_details as StreamingState["usage"]["cost_details"];
-			}
+			applyChunkUsage(state, chunk.usage);
 		}
 		return events;
 	}
@@ -613,34 +586,7 @@ export function processStreamChunk(
 
 	// Check for usage in the chunk
 	if (chunk.usage) {
-		const usage = chunk.usage as Record<string, unknown>;
-		state.usage.input_tokens =
-			(usage.prompt_tokens as number) ?? state.usage.input_tokens;
-		state.usage.output_tokens =
-			(usage.completion_tokens as number) ?? state.usage.output_tokens;
-		state.usage.total_tokens =
-			(usage.total_tokens as number) ?? state.usage.total_tokens;
-		const ptd = usage.prompt_tokens_details as
-			Record<string, unknown> | undefined;
-		if (ptd?.cached_tokens !== undefined) {
-			state.usage.input_tokens_details = {
-				cached_tokens: ptd.cached_tokens as number,
-			};
-		}
-		const ctd = usage.completion_tokens_details as
-			Record<string, unknown> | undefined;
-		if (ctd?.reasoning_tokens !== undefined) {
-			state.usage.output_tokens_details = {
-				reasoning_tokens: ctd.reasoning_tokens as number,
-			};
-		}
-		if (usage.cost !== undefined) {
-			state.usage.cost = usage.cost as number;
-		}
-		if (usage.cost_details !== undefined) {
-			state.usage.cost_details =
-				usage.cost_details as StreamingState["usage"]["cost_details"];
-		}
+		applyChunkUsage(state, chunk.usage);
 	}
 
 	return events;
@@ -1040,4 +986,34 @@ export function getChatStreamError(
 			kind === "invalid_request_error",
 	);
 	return { code: isClientError ? "invalid_prompt" : "server_error", message };
+}
+function applyChunkUsage(state: StreamingState, rawUsage: unknown): void {
+	const usage = rawUsage as Record<string, unknown>;
+	state.usage.input_tokens =
+		(usage.prompt_tokens as number) ?? state.usage.input_tokens;
+	state.usage.output_tokens =
+		(usage.completion_tokens as number) ?? state.usage.output_tokens;
+	state.usage.total_tokens =
+		(usage.total_tokens as number) ?? state.usage.total_tokens;
+	const ptd = usage.prompt_tokens_details as
+		Record<string, unknown> | undefined;
+	if (ptd?.cached_tokens !== undefined) {
+		state.usage.input_tokens_details = {
+			cached_tokens: ptd.cached_tokens as number,
+		};
+	}
+	const ctd = usage.completion_tokens_details as
+		Record<string, unknown> | undefined;
+	if (ctd?.reasoning_tokens !== undefined) {
+		state.usage.output_tokens_details = {
+			reasoning_tokens: ctd.reasoning_tokens as number,
+		};
+	}
+	if (usage.cost !== undefined) {
+		state.usage.cost = usage.cost as number;
+	}
+	if (usage.cost_details !== undefined) {
+		state.usage.cost_details =
+			usage.cost_details as StreamingState["usage"]["cost_details"];
+	}
 }

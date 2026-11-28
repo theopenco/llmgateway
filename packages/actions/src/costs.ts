@@ -381,33 +381,39 @@ export async function calculateCosts(
 			} as ModelDefinition)
 		: (models.find((m) => m.id === model) as ModelDefinition);
 
+	const nullCosts = (
+		resultPromptTokens: number | null,
+		resultCompletionTokens: number | null,
+		estimatedCost: boolean,
+	) => ({
+		inputCost: null,
+		outputCost: null,
+		cachedInputCost: null,
+		cacheWriteInputCost: null,
+		requestCost: null,
+		webSearchCost: null,
+		webSearchCount: 0,
+		contentFilterCost: null,
+		imageInputTokens: null,
+		imageOutputTokens: null,
+		imageInputCost: null,
+		imageOutputCost: null,
+		audioInputTokens: null,
+		audioInputCost: null,
+		totalCost: null,
+		dataStorageCost: null as number | null,
+		promptTokens: resultPromptTokens,
+		completionTokens: resultCompletionTokens,
+		cachedTokens,
+		cacheWriteTokens,
+		estimatedCost,
+		discount: undefined,
+		pricingTier: undefined,
+		pricingPeriod: undefined,
+	});
+
 	if (!modelInfo) {
-		return {
-			inputCost: null,
-			outputCost: null,
-			cachedInputCost: null,
-			cacheWriteInputCost: null,
-			requestCost: null,
-			webSearchCost: null,
-			webSearchCount: 0,
-			contentFilterCost: null,
-			imageInputTokens: null,
-			imageOutputTokens: null,
-			imageInputCost: null,
-			imageOutputCost: null,
-			audioInputTokens: null,
-			audioInputCost: null,
-			totalCost: null,
-			dataStorageCost: null as number | null,
-			promptTokens,
-			completionTokens,
-			cachedTokens,
-			cacheWriteTokens,
-			estimatedCost: false,
-			discount: undefined,
-			pricingTier: undefined,
-			pricingPeriod: undefined,
-		};
+		return nullCosts(promptTokens, completionTokens, false);
 	}
 
 	// If token counts are not provided, try to calculate them from fullOutput
@@ -515,32 +521,11 @@ export async function calculateCosts(
 	}
 
 	if (!providerInfo) {
-		return {
-			inputCost: null,
-			outputCost: null,
-			cachedInputCost: null,
-			cacheWriteInputCost: null,
-			requestCost: null,
-			webSearchCost: null,
-			webSearchCount: 0,
-			contentFilterCost: null,
-			imageInputTokens: null,
-			imageOutputTokens: null,
-			imageInputCost: null,
-			imageOutputCost: null,
-			audioInputTokens: null,
-			audioInputCost: null,
-			totalCost: null,
-			dataStorageCost: null as number | null,
-			promptTokens: calculatedPromptTokens,
-			completionTokens: calculatedCompletionTokens ?? 0,
-			cachedTokens,
-			cacheWriteTokens,
-			estimatedCost: isEstimated,
-			discount: undefined,
-			pricingTier: undefined,
-			pricingPeriod: undefined,
-		};
+		return nullCosts(
+			calculatedPromptTokens,
+			calculatedCompletionTokens ?? 0,
+			isEstimated,
+		);
 	}
 
 	// An estimated output count is a guess, so bound it by what the deployment
@@ -575,32 +560,11 @@ export async function calculateCosts(
 			outputImageCount > 0) ||
 		parseFloat(providerInfo.requestPrice ?? "0") > 0;
 	if (!calculatedPromptTokens && !billsWithoutTokenUsage) {
-		return {
-			inputCost: null,
-			outputCost: null,
-			cachedInputCost: null,
-			cacheWriteInputCost: null,
-			requestCost: null,
-			webSearchCost: null,
-			webSearchCount: 0,
-			contentFilterCost: null,
-			imageInputTokens: null,
-			imageOutputTokens: null,
-			imageInputCost: null,
-			imageOutputCost: null,
-			audioInputTokens: null,
-			audioInputCost: null,
-			totalCost: null,
-			dataStorageCost: null as number | null,
-			promptTokens: calculatedPromptTokens,
-			completionTokens: calculatedCompletionTokens,
-			cachedTokens,
-			cacheWriteTokens,
-			estimatedCost: isEstimated,
-			discount: undefined,
-			pricingTier: undefined,
-			pricingPeriod: undefined,
-		};
+		return nullCosts(
+			calculatedPromptTokens,
+			calculatedCompletionTokens,
+			isEstimated,
+		);
 	}
 	calculatedPromptTokens = calculatedPromptTokens || 0;
 	// Set completion tokens to 0 if not available (but still calculate input costs)
@@ -999,7 +963,7 @@ export async function calculateCosts(
 
 	// Calculate web search cost. A discount can exclude it (e.g. a provider
 	// promo that cuts token prices but not grounding fees).
-	const webSearchPrice = new Decimal((providerInfo as any).webSearchPrice ?? 0);
+	const webSearchPrice = new Decimal(providerInfo.webSearchPrice ?? 0);
 	const webSearchDiscountMultiplier =
 		effectiveDiscountResult.excludedCostTypes?.includes("web_search")
 			? new Decimal(1)

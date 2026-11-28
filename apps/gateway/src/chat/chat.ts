@@ -90,6 +90,7 @@ import {
 } from "@/lib/gcp-token.js";
 import {
 	evaluateProviderAccessRestriction,
+	findRequestIamRules,
 	throwIamException,
 	validateRequestModelAccess,
 } from "@/lib/iam.js";
@@ -270,6 +271,7 @@ import {
 	supportsWebSearch,
 	usesGatewayWebSearch,
 	usesEncryptedReasoning,
+	type ToolCall,
 } from "@llmgateway/models";
 import {
 	complianceExclusionReason,
@@ -1150,7 +1152,7 @@ function withUsedCredential(
 	};
 }
 
-function usesGoogleQueryToken(provider: string): boolean {
+function isGoogleCompatibleProvider(provider: string): boolean {
 	return (
 		provider === "google-ai-studio" ||
 		provider === "google-vertex" ||
@@ -1158,12 +1160,34 @@ function usesGoogleQueryToken(provider: string): boolean {
 	);
 }
 
-function isGoogleCompatibleProvider(provider: string): boolean {
-	return (
-		provider === "google-ai-studio" ||
-		provider === "google-vertex" ||
-		provider === "quartz"
-	);
+function resolveImageEditUrl(
+	url: string | undefined,
+	provider: string | undefined,
+	requestBody: object,
+	isImageGeneration: boolean,
+): string | undefined {
+	if (!isImageGeneration || !url) {
+		return url;
+	}
+	if (requestBody instanceof FormData) {
+		if (provider === "openai") {
+			return url.replace("/v1/images/generations", "/v1/images/edits");
+		}
+		// Azure ai-foundry and deployment-based URLs both contain
+		// "/images/generations" before the query string.
+		if (provider === "azure") {
+			return url.replace("/images/generations", "/images/edits");
+		}
+		return url;
+	}
+	if (
+		(provider === "xai" &&
+			("image" in requestBody || "images" in requestBody)) ||
+		(provider === "minimax" && "images" in requestBody)
+	) {
+		return url.replace("/v1/images/generations", "/v1/images/edits");
+	}
+	return url;
 }
 
 function isVertexCompatibleProvider(provider: string): boolean {
@@ -1382,6 +1406,19 @@ const STREAM_PREAMBLE_EVENT_TYPES = new Set([
 	"ping",
 	"keepalive",
 ]);
+
+function findLastStreamingToolCall<T>(
+	calls: readonly (T | null | undefined)[],
+	predicate: (call: T) => boolean,
+): T | null {
+	for (let i = calls.length - 1; i >= 0; i--) {
+		const call = calls[i];
+		if (call && predicate(call)) {
+			return call;
+		}
+	}
+	return null;
+}
 
 function getImmediateStreamError(
 	parsedEvent: unknown,
@@ -3957,6 +3994,7 @@ chat.openapi(completions, async (c) => {
 	const requestedModelAlias = parseResult.dynamicRouteName
 		? undefined
 		: getRequestedModelAlias(modelInput, modelInfo.id);
+	const iamRules = await findRequestIamRules(apiKey, project.organizationId);
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
@@ -3967,6 +4005,7 @@ chat.openapi(completions, async (c) => {
 		requestedModelAlias,
 		activeModelInfo: modelInfo,
 		clientIp,
+		iamRules,
 	});
 	const routingCustomProviderKeysById = new Map<
 		string,
@@ -4022,6 +4061,7 @@ chat.openapi(completions, async (c) => {
 						activeModelInfo: { ...modelInfo, providers: [mapping] },
 						clientIp,
 						smartRouting: true,
+						iamRules,
 					});
 					return customIam.allowed ? mapping : undefined;
 				}),
@@ -4407,13 +4447,17 @@ chat.openapi(completions, async (c) => {
 			],
 		};
 	};
-	const applySelectedCustomProvider = (provider: ProviderModelMapping) => {
+	const applySelectedCustomProvider = (
+		provider: ProviderModelMapping,
+		keysById: ReadonlyMap<
+			string,
+			InferSelectModel<typeof tables.providerKey>
+		> = routingCustomProviderKeysById,
+	) => {
 		if (!isCustomAutoRoutingMapping(provider)) {
 			return;
 		}
-		const providerKey = routingCustomProviderKeysById.get(
-			provider.customProviderKeyId,
-		);
+		const providerKey = keysById.get(provider.customProviderKeyId);
 		customProviderName = provider.customProviderName;
 		customProviderKey = providerKey;
 		customPricingMapping = provider;
@@ -4837,6 +4881,7 @@ chat.openapi(completions, async (c) => {
 				activeModelInfo: modelDef,
 				clientIp,
 				smartRouting: true,
+				iamRules,
 			});
 			const candidateAllowedProviders = candidateIam.allowedProviders;
 
@@ -4947,6 +4992,7 @@ chat.openapi(completions, async (c) => {
 								activeModelInfo: { ...modelDef, providers: [mapping] },
 								clientIp,
 								smartRouting: true,
+								iamRules,
 							});
 							return customIam.allowed ? mapping : undefined;
 						}),
@@ -5262,22 +5308,6 @@ chat.openapi(completions, async (c) => {
 		}
 
 		let providerAgnosticSelectedProviders = selectedProviders;
-		const applySelectedCustomProvider = (provider: ProviderModelMapping) => {
-			if (!isCustomAutoRoutingMapping(provider)) {
-				return;
-			}
-			const providerKey = customProviderKeysById.get(
-				provider.customProviderKeyId,
-			);
-			customProviderName = provider.customProviderName;
-			customProviderKey = providerKey;
-			customPricingMapping = provider;
-			complianceContext = {
-				effectiveProviders,
-				customAttestation: providerKey?.complianceAttestation ?? null,
-				customProviderName: provider.customProviderName,
-			};
-		};
 
 		// If we found a suitable model, use the cheapest provider from it
 		if (selectedModel && selectedProviders.length > 0) {
@@ -5338,7 +5368,10 @@ chat.openapi(completions, async (c) => {
 				usedInternalModel = selectedModel.id;
 				usedExternalId = cheapestResult.provider.externalId;
 				usedRegion = cheapestResult.provider.region;
-				applySelectedCustomProvider(cheapestResult.provider);
+				applySelectedCustomProvider(
+					cheapestResult.provider,
+					customProviderKeysById,
+				);
 				routingMetadata = {
 					...cheapestResult.metadata,
 					...getNoFallbackRoutingMetadata(noFallback, xNoFallbackHeaderSet),
@@ -5355,7 +5388,10 @@ chat.openapi(completions, async (c) => {
 				usedProvider = selectedProviders[0].providerId;
 				usedInternalModel = selectedModel.id;
 				usedExternalId = selectedProviders[0].externalId;
-				applySelectedCustomProvider(selectedProviders[0]);
+				applySelectedCustomProvider(
+					selectedProviders[0],
+					customProviderKeysById,
+				);
 			}
 
 			if (usedProvider === "custom") {
@@ -5470,6 +5506,7 @@ chat.openapi(completions, async (c) => {
 			activeModelInfo: modelInfo,
 			clientIp,
 			smartRouting: true,
+			iamRules,
 		});
 		if (!resolvedIamValidation.allowed) {
 			throwIamException(resolvedIamValidation.reason ?? "Model access denied");
@@ -8075,7 +8112,7 @@ chat.openapi(completions, async (c) => {
 				endpointProvider,
 				credentialBaseUrl ?? airsideCustomBaseUrl,
 				upstreamModelName,
-				usesGoogleQueryToken(transportProvider)
+				isGoogleCompatibleProvider(transportProvider)
 					? usedToken
 					: vertexServiceAccountJson,
 				stream,
@@ -8775,10 +8812,7 @@ chat.openapi(completions, async (c) => {
 
 	// Validate max_tokens against model's maxOutput limit
 	if (max_tokens !== undefined && finalModelInfo) {
-		// Find the provider mapping for the used provider
-		const providerMapping = finalModelInfo.providers.find(
-			(p) => p.providerId === usedProvider && p.region === usedRegion,
-		);
+		const providerMapping = getUsedProviderMapping();
 
 		if (
 			providerMapping &&
@@ -8825,9 +8859,7 @@ chat.openapi(completions, async (c) => {
 
 	// Check if effort parameter is supported by the specific provider being used
 	if (effort !== undefined && finalModelInfo) {
-		const providerMapping = finalModelInfo.providers.find(
-			(p) => p.providerId === usedProvider && p.region === usedRegion,
-		);
+		const providerMapping = getUsedProviderMapping();
 
 		if (providerMapping) {
 			const params = providerMapping.supportedParameters;
@@ -8844,9 +8876,7 @@ chat.openapi(completions, async (c) => {
 	// input tokens once and accumulate output across choices natively
 	// (currently OpenAI Chat Completions and Google Gemini 2.5 models).
 	if (n !== undefined && n > 1 && finalModelInfo) {
-		const providerMapping = finalModelInfo.providers.find(
-			(p) => p.providerId === usedProvider && p.region === usedRegion,
-		);
+		const providerMapping = getUsedProviderMapping();
 		if (!providerMapping?.supportsN) {
 			throw new HTTPException(400, {
 				message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the n parameter for multiple choices. Send n separate requests instead.`,
@@ -8879,9 +8909,7 @@ chat.openapi(completions, async (c) => {
 	// Strip unsupported parameters based on model's supportedParameters
 	const strippedParameters: string[] = [];
 	if (finalModelInfo) {
-		const providerMapping = finalModelInfo.providers.find(
-			(p) => p.providerId === usedProvider && p.region === usedRegion,
-		);
+		const providerMapping = getUsedProviderMapping();
 		const supported = providerMapping?.supportedParameters;
 		if (supported && supported.length > 0) {
 			if (temperature !== undefined && !supported.includes("temperature")) {
@@ -8952,38 +8980,38 @@ chat.openapi(completions, async (c) => {
 		isGoogleCompatibleProvider(transportProvider) &&
 		!zeroDataRetentionEnabled
 	) {
-		for (const message of messages) {
-			if (
-				message.role === "assistant" &&
-				message.tool_calls &&
-				Array.isArray(message.tool_calls)
-			) {
-				for (const toolCall of message.tool_calls) {
-					if (
-						toolCall.id &&
-						!toolCall.extra_content?.google?.thought_signature
-					) {
-						try {
-							// Use redisClient.get directly since thought_signature is a plain string, not JSON
-							const cachedSignature = await redisClient.get(
-								`thought_signature:${toolCall.id}`,
-							);
-							if (cachedSignature) {
-								// Add to extra_content so transformGoogleMessages can find it
-								if (!(toolCall as any).extra_content) {
-									(toolCall as any).extra_content = {};
-								}
-								if (!(toolCall as any).extra_content.google) {
-									(toolCall as any).extra_content.google = {};
-								}
-								(toolCall as any).extra_content.google.thought_signature =
-									cachedSignature;
-							}
-						} catch {
-							// Silently fail - thought_signature is optional
+		const toolCallsWithoutSignature = messages.flatMap((message) =>
+			message.role === "assistant" && Array.isArray(message.tool_calls)
+				? message.tool_calls.filter(
+						(toolCall) =>
+							toolCall.id && !toolCall.extra_content?.google?.thought_signature,
+					)
+				: [],
+		);
+		if (toolCallsWithoutSignature.length > 0) {
+			try {
+				// thought_signature is stored as a plain string, not JSON
+				const cachedSignatures = await redisClient.mget(
+					...toolCallsWithoutSignature.map(
+						(toolCall) => `thought_signature:${toolCall.id}`,
+					),
+				);
+				for (const [index, toolCall] of toolCallsWithoutSignature.entries()) {
+					const cachedSignature = cachedSignatures[index];
+					if (cachedSignature) {
+						// Add to extra_content so transformGoogleMessages can find it
+						if (!(toolCall as any).extra_content) {
+							(toolCall as any).extra_content = {};
 						}
+						if (!(toolCall as any).extra_content.google) {
+							(toolCall as any).extra_content.google = {};
+						}
+						(toolCall as any).extra_content.google.thought_signature =
+							cachedSignature;
 					}
 				}
+			} catch {
+				// Silently fail - thought_signature is optional
 			}
 		}
 	}
@@ -9353,10 +9381,7 @@ chat.openapi(completions, async (c) => {
 		requestBody.max_tokens !== undefined &&
 		finalModelInfo
 	) {
-		// Find the provider mapping for the used provider
-		const providerMapping = finalModelInfo.providers.find(
-			(p) => p.providerId === usedProvider && p.region === usedRegion,
-		);
+		const providerMapping = getUsedProviderMapping();
 		if (
 			providerMapping &&
 			"maxOutput" in providerMapping &&
@@ -9370,42 +9395,10 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Switch xAI / MiniMax image generation endpoint to /edits when input images are present
-	if (
-		isImageGeneration &&
-		url &&
-		!(requestBody instanceof FormData) &&
-		((usedProvider === "xai" &&
-			("image" in requestBody || "images" in requestBody)) ||
-			(usedProvider === "minimax" && "images" in requestBody))
-	) {
-		url = url.replace("/v1/images/generations", "/v1/images/edits");
-	}
-
-	// Switch OpenAI image generation endpoint to /edits when input images are present.
-	// prepareRequestBody returns a FormData (multipart/form-data) only for this edits flow.
-	if (
-		isImageGeneration &&
-		usedProvider === "openai" &&
-		url &&
-		requestBody instanceof FormData
-	) {
-		url = url.replace("/v1/images/generations", "/v1/images/edits");
-	}
-
-	// Switch Azure image generation endpoint to /edits when input images are present.
-	// Handles both ai-foundry (/openai/v1/images/generations?api-version=preview) and
-	// deployment-based (/openai/deployments/{model}/images/generations?api-version=...)
-	// URL shapes — the literal "/images/generations" substring appears before the
-	// query string in both, so the in-place replace works for both.
-	if (
-		isImageGeneration &&
-		usedProvider === "azure" &&
-		url &&
-		requestBody instanceof FormData
-	) {
-		url = url.replace("/images/generations", "/images/edits");
-	}
+	// Switch image generation endpoints to /edits when input images are present.
+	// prepareRequestBody returns a FormData (multipart/form-data) only for the
+	// OpenAI/Azure edits flow.
+	url = resolveImageEditUrl(url, usedProvider, requestBody, isImageGeneration);
 
 	const startTime = Date.now();
 	const failedKeys = createFailedKeyTracker();
@@ -9584,34 +9577,13 @@ chat.openapi(completions, async (c) => {
 			requestBody = injectImageStreamParams(requestBody);
 		}
 		// resolveProviderContext only knows the base /images/generations endpoint;
-		// mirror the post-prepareRequestBody URL swap so retry fallbacks still hit
-		// /images/edits when the body is multipart FormData.
-		if (
-			isImageGeneration &&
-			usedProvider === "openai" &&
-			url &&
-			requestBody instanceof FormData
-		) {
-			url = url.replace("/v1/images/generations", "/v1/images/edits");
-		}
-		if (
-			isImageGeneration &&
-			usedProvider === "azure" &&
-			url &&
-			requestBody instanceof FormData
-		) {
-			url = url.replace("/images/generations", "/images/edits");
-		}
-		if (
-			isImageGeneration &&
-			url &&
-			!(requestBody instanceof FormData) &&
-			((usedProvider === "xai" &&
-				("image" in requestBody || "images" in requestBody)) ||
-				(usedProvider === "minimax" && "images" in requestBody))
-		) {
-			url = url.replace("/v1/images/generations", "/v1/images/edits");
-		}
+		// apply the same /images/edits swap so retry fallbacks still hit it.
+		url = resolveImageEditUrl(
+			url,
+			usedProvider,
+			requestBody,
+			isImageGeneration,
+		);
 		supportsReasoning = ctx.supportsReasoning;
 		splitTaggedReasoning = ctx.splitTaggedReasoning ?? false;
 		healStreamingJsonOutput = ctx.healStreamingJsonOutput ?? false;
@@ -10276,10 +10248,14 @@ chat.openapi(completions, async (c) => {
 						throw new Error("Provider context not initialized");
 					}
 
-					if (retryAttempt > 0) {
-						// Re-add abort listener (catch block removes it on error)
-						c.req.raw.signal.addEventListener("abort", onAbort);
+					// Re-add abort listener every attempt (catch block removes it on
+					// error); re-run onAbort if the client left between attempts.
+					c.req.raw.signal.addEventListener("abort", onAbort);
+					if (c.req.raw.signal.aborted) {
+						onAbort();
+					}
 
+					if (retryAttempt > 0) {
 						const nextProvider = selectNextProvider(
 							routingMetadata?.providerScores ?? [],
 							failedProviderIds,
@@ -10375,10 +10351,7 @@ chat.openapi(completions, async (c) => {
 						if (
 							anthropicRequestNeedsEffortBeta(transportProvider, requestBody)
 						) {
-							const currentBeta = headers["anthropic-beta"];
-							headers["anthropic-beta"] = currentBeta
-								? `${currentBeta},effort-2025-11-24`
-								: "effort-2025-11-24";
+							appendAnthropicBeta(headers, "effort-2025-11-24");
 						}
 
 						// Add structured outputs beta header for Anthropic if json_schema response_format is specified
@@ -10619,10 +10592,6 @@ chat.openapi(completions, async (c) => {
 
 							if (willRetrySameKey) {
 								sameKeyRetryCount++;
-								// Re-add abort listener (removed by catch/finally on the
-								// failed attempt) so a client disconnect during the
-								// retried upstream call still cancels.
-								c.req.raw.signal.addEventListener("abort", onAbort);
 								await sameKeyRetryDelay(sameKeyRetryCount);
 								retryAttempt--;
 								continue;
@@ -10635,7 +10604,7 @@ chat.openapi(completions, async (c) => {
 								continue;
 							}
 
-							await stream.writeSSE({
+							await writeSSEAndCache({
 								event: "error",
 								data: JSON.stringify({
 									error: {
@@ -10650,6 +10619,12 @@ chat.openapi(completions, async (c) => {
 								}),
 								id: String(eventId++),
 							});
+							await writeSSEAndCache({
+								event: "done",
+								data: "[DONE]",
+								id: String(eventId++),
+							});
+							clearKeepalive();
 							return;
 						} else if (error instanceof Error && error.name === "AbortError") {
 							await respondCanceledStreaming(perAttemptStartTime);
@@ -10837,10 +10812,6 @@ chat.openapi(completions, async (c) => {
 
 							if (willRetrySameKey) {
 								sameKeyRetryCount++;
-								// Re-add abort listener (removed by catch/finally on the
-								// failed attempt) so a client disconnect during the
-								// retried upstream call still cancels.
-								c.req.raw.signal.addEventListener("abort", onAbort);
 								await sameKeyRetryDelay(sameKeyRetryCount);
 								retryAttempt--;
 								continue;
@@ -11179,10 +11150,6 @@ chat.openapi(completions, async (c) => {
 
 						if (willRetrySameKey) {
 							sameKeyRetryCount++;
-							// Re-add abort listener (removed by catch/finally on the
-							// failed attempt) so a client disconnect during the
-							// retried upstream call still cancels.
-							c.req.raw.signal.addEventListener("abort", onAbort);
 							await sameKeyRetryDelay(sameKeyRetryCount);
 							retryAttempt--;
 							continue;
@@ -11496,10 +11463,6 @@ chat.openapi(completions, async (c) => {
 
 						if (willRetrySameKey) {
 							sameKeyRetryCount++;
-							// Re-add abort listener (removed by catch/finally on the
-							// failed attempt) so a client disconnect during the
-							// retried upstream call still cancels.
-							c.req.raw.signal.addEventListener("abort", onAbort);
 							await sameKeyRetryDelay(sameKeyRetryCount);
 							retryAttempt--;
 							continue;
@@ -11631,12 +11594,12 @@ chat.openapi(completions, async (c) => {
 				const reader = res.body.getReader();
 				let fullContent = "";
 				let fullReasoningContent = "";
-				let finishReason = null;
+				let finishReason: string | null = null;
 				let promptTokens = null;
 				let completionTokens = null;
 				let totalTokens = null;
-				let reasoningTokens = null;
-				let cachedTokens = null;
+				let reasoningTokens: number | null = null;
+				let cachedTokens: number | null = null;
 				let cacheCreationTokens: number | null = null;
 				let cacheCreation5mTokens: number | null = null;
 				let cacheCreation1hTokens: number | null = null;
@@ -11644,7 +11607,15 @@ chat.openapi(completions, async (c) => {
 				let cachedAudioInputTokens: number | null = null;
 				let imageInputTokens: number | null = null;
 				let imageOutputTokens: number | null = null;
-				let streamingToolCalls = null;
+				let streamingToolCalls:
+					| (ToolCall & { index?: number; _contentBlockIndex?: number })[]
+					| null = null;
+				// Bedrock tool deltas carry only contentBlockIndex; map it to the
+				// call started by the matching contentBlockStart.
+				const bedrockToolCallsByBlockIndex = new Map<
+					number,
+					{ function: { arguments?: string } }
+				>();
 				let imageByteSize = 0; // Track total image data size for token estimation
 				let outputImageCount = 0; // Track number of output images for cost calculation
 				// Track web search calls for cost calculation. Providers that report
@@ -13070,11 +13041,27 @@ chat.openapi(completions, async (c) => {
 										) {
 											existingCall =
 												streamingToolCalls[newCall._contentBlockIndex];
-										} else {
-											// For other providers and Anthropic content_block_start, match by ID
+										} else if (newCall.id) {
+											// Match by ID when the chunk carries one
 											// Note: Array may have sparse entries due to index-based assignment, so check for null/undefined
 											existingCall = streamingToolCalls.find(
 												(call) => call && call.id === newCall.id,
+											);
+										} else if (newCall._contentBlockIndex !== undefined) {
+											existingCall = bedrockToolCallsByBlockIndex.get(
+												newCall._contentBlockIndex,
+											);
+										} else if (newCall.index !== undefined) {
+											// OpenAI continuation chunks carry only index and arguments;
+											// an upstream may reuse an index, so the latest call wins.
+											existingCall = findLastStreamingToolCall(
+												streamingToolCalls,
+												(call) => call.index === newCall.index,
+											);
+										} else if (!newCall.function?.name) {
+											existingCall = findLastStreamingToolCall(
+												streamingToolCalls,
+												() => true,
 											);
 										}
 
@@ -13085,11 +13072,20 @@ chat.openapi(completions, async (c) => {
 													(existingCall.function.arguments ?? "") +
 													newCall.function.arguments;
 											}
-										} else {
+										} else if (newCall.id || newCall.function?.name) {
 											// Clean up temporary fields and add new tool call
 											const cleanCall = { ...newCall };
 											delete cleanCall._contentBlockIndex;
 											streamingToolCalls.push(cleanCall);
+											if (
+												streamFormatProvider === "aws-bedrock" &&
+												typeof data.contentBlockIndex === "number"
+											) {
+												bedrockToolCallsByBlockIndex.set(
+													data.contentBlockIndex,
+													cleanCall,
+												);
+											}
 										}
 									}
 								}
@@ -13686,6 +13682,70 @@ chat.openapi(completions, async (c) => {
 					let streamingCostsEarly:
 						Awaited<ReturnType<typeof calculateCosts>> | undefined;
 
+					const emptyStreamingCosts = () => ({
+						inputCost: null,
+						outputCost: null,
+						cachedInputCost: null,
+						cacheWriteInputCost: null,
+						requestCost: null,
+						webSearchCost: null,
+						webSearchCount: 0,
+						contentFilterCost: null,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						audioInputTokens: null,
+						audioInputCost: null,
+						totalCost: null,
+						promptTokens: null,
+						completionTokens: null,
+						cachedTokens: null,
+						cacheWriteTokens: null,
+						estimatedCost: false,
+						discount: undefined,
+						pricingTier: undefined,
+						pricingPeriod: undefined,
+						dataStorageCost: null as number | null,
+					});
+					const streamingCostProvider = usedProvider;
+					const computeStreamingCosts = async (allowOutputEstimate?: boolean) =>
+						await calculateCosts(
+							usedInternalModel,
+							streamingCostProvider,
+							usedRegion ?? null,
+							calculatedPromptTokens,
+							calculatedCompletionTokens,
+							cachedTokens,
+							{
+								prompt: messages
+									.map((m) => messageContentToString(m.content))
+									.join("\n"),
+								completion: fullContent,
+								toolResults: streamingToolCalls ?? undefined,
+							},
+							reasoningTokens,
+							outputImageCount,
+							image_config?.image_size,
+							inputImageCountFor(usedInternalModel),
+							webSearchCount,
+							project.organizationId,
+							image_config?.image_quality,
+							imageInputTokens,
+							imageOutputTokens,
+							{
+								cacheWriteTokens: cacheCreationTokens,
+								cacheWrite1hTokens: cacheCreation1hTokens,
+								audioInputTokens,
+								cachedAudioInputTokens,
+								explicitCacheUsed,
+								servedServiceTier,
+								customPricing: customPricingMapping,
+								allowOutputEstimate,
+							},
+							finishReason === "content_filter",
+						);
+
 					if (hasUpstreamErrorFinishReason || hasEmptyResponse) {
 						const errorMessage = hasUpstreamErrorFinishReason
 							? `Upstream provider terminated the stream with finish_reason "${finishReason}"`
@@ -13804,66 +13864,8 @@ chat.openapi(completions, async (c) => {
 						const billCancelledRequestsEarly = shouldBillCancelledRequests();
 						streamingCostsEarly =
 							canceled && !billCancelledRequestsEarly
-								? {
-										inputCost: null,
-										outputCost: null,
-										cachedInputCost: null,
-										cacheWriteInputCost: null,
-										requestCost: null,
-										webSearchCost: null,
-										webSearchCount: 0,
-										contentFilterCost: null,
-										imageInputTokens: null,
-										imageOutputTokens: null,
-										imageInputCost: null,
-										imageOutputCost: null,
-										audioInputTokens: null,
-										audioInputCost: null,
-										totalCost: null,
-										promptTokens: null,
-										completionTokens: null,
-										cachedTokens: null,
-										cacheWriteTokens: null,
-										estimatedCost: false,
-										discount: undefined,
-										pricingTier: undefined,
-										pricingPeriod: undefined,
-										dataStorageCost: null as number | null,
-									}
-								: await calculateCosts(
-										usedInternalModel,
-										usedProvider,
-										usedRegion ?? null,
-										calculatedPromptTokens,
-										calculatedCompletionTokens,
-										cachedTokens,
-										{
-											prompt: messages
-												.map((m) => messageContentToString(m.content))
-												.join("\n"),
-											completion: fullContent,
-											toolResults: streamingToolCalls ?? undefined,
-										},
-										reasoningTokens,
-										outputImageCount,
-										image_config?.image_size,
-										inputImageCountFor(usedInternalModel),
-										webSearchCount,
-										project.organizationId,
-										image_config?.image_quality,
-										imageInputTokens,
-										imageOutputTokens,
-										{
-											cacheWriteTokens: cacheCreationTokens,
-											cacheWrite1hTokens: cacheCreation1hTokens,
-											audioInputTokens,
-											cachedAudioInputTokens,
-											explicitCacheUsed,
-											servedServiceTier,
-											customPricing: customPricingMapping,
-										},
-										finishReason === "content_filter",
-									);
+								? emptyStreamingCosts()
+								: await computeStreamingCosts();
 						if (streamingCostsEarly.totalCost !== null) {
 							streamingCostsEarly.dataStorageCost = toDataStorageCostNumber(
 								streamingCostsEarly.promptTokens ?? calculatedPromptTokens,
@@ -14153,73 +14155,13 @@ chat.openapi(completions, async (c) => {
 					// Reuse costs calculated earlier (before usage chunk was sent)
 					// If we came through the error path (hasEmptyResponse), calculate now
 					const billCancelledRequests = shouldBillCancelledRequests();
+					// A stream that died never delivered a usage frame, so there is
+					// nothing to estimate output from but partial text. Don't guess.
 					const costs =
 						streamingCostsEarly ??
 						(canceled && !billCancelledRequests
-							? {
-									inputCost: null,
-									outputCost: null,
-									cachedInputCost: null,
-									cacheWriteInputCost: null,
-									requestCost: null,
-									webSearchCost: null,
-									webSearchCount: 0,
-									contentFilterCost: null,
-									imageInputTokens: null,
-									imageOutputTokens: null,
-									imageInputCost: null,
-									imageOutputCost: null,
-									audioInputTokens: null,
-									audioInputCost: null,
-									totalCost: null,
-									promptTokens: null,
-									completionTokens: null,
-									cachedTokens: null,
-									cacheWriteTokens: null,
-									estimatedCost: false,
-									discount: undefined,
-									pricingTier: undefined,
-									pricingPeriod: undefined,
-									dataStorageCost: null as number | null,
-								}
-							: await calculateCosts(
-									usedInternalModel,
-									usedProvider,
-									usedRegion ?? null,
-									calculatedPromptTokens,
-									calculatedCompletionTokens,
-									cachedTokens,
-									{
-										prompt: messages
-											.map((m) => messageContentToString(m.content))
-											.join("\n"),
-										completion: fullContent,
-										toolResults: streamingToolCalls ?? undefined,
-									},
-									reasoningTokens,
-									outputImageCount,
-									image_config?.image_size,
-									inputImageCountFor(usedInternalModel),
-									webSearchCount,
-									project.organizationId,
-									image_config?.image_quality,
-									imageInputTokens,
-									imageOutputTokens,
-									{
-										cacheWriteTokens: cacheCreationTokens,
-										cacheWrite1hTokens: cacheCreation1hTokens,
-										audioInputTokens,
-										cachedAudioInputTokens,
-										explicitCacheUsed,
-										servedServiceTier,
-										customPricing: customPricingMapping,
-										// A stream that died never delivered a usage frame, so
-										// there is nothing to estimate from but the partial text
-										// and tool-call JSON that happened to arrive. Don't guess.
-										allowOutputEstimate: streamingError === null,
-									},
-									finishReason === "content_filter",
-								));
+							? emptyStreamingCosts()
+							: await computeStreamingCosts(streamingError === null));
 
 					// A stream that ended in a gateway- or upstream-side failure returns
 					// an error to the caller, so it is not billed for the tokens the
@@ -14361,16 +14303,24 @@ chat.openapi(completions, async (c) => {
 					const shouldIncludeTokensForBilling =
 						!canceled || (canceled && billCancelledRequests);
 
-					const streamingErrorStatusCode =
+					const getStreamingErrorDetail = (key: string): unknown =>
 						typeof streamingError === "object" &&
 						streamingError !== null &&
 						"details" in streamingError &&
 						typeof streamingError.details === "object" &&
-						streamingError.details !== null &&
-						"statusCode" in streamingError.details &&
-						typeof streamingError.details.statusCode === "number"
-							? streamingError.details.statusCode
+						streamingError.details !== null
+							? Reflect.get(streamingError.details, key)
+							: undefined;
+					const streamingErrorStatusCodeDetail =
+						getStreamingErrorDetail("statusCode");
+					const streamingErrorStatusCode =
+						typeof streamingErrorStatusCodeDetail === "number"
+							? streamingErrorStatusCodeDetail
 							: 500;
+					const streamingErrorStatusTextDetail =
+						getStreamingErrorDetail("statusText");
+					const streamingErrorResponseTextDetail =
+						getStreamingErrorDetail("responseText");
 
 					await pinSuccessfulFallback({
 						failedProviders: failedProviderIds,
@@ -14423,24 +14373,12 @@ chat.openapi(completions, async (c) => {
 							? {
 									statusCode: streamingErrorStatusCode,
 									statusText:
-										typeof streamingError === "object" &&
-										streamingError !== null &&
-										"details" in streamingError &&
-										typeof streamingError.details === "object" &&
-										streamingError.details !== null &&
-										"statusText" in streamingError.details &&
-										typeof streamingError.details.statusText === "string"
-											? streamingError.details.statusText
+										typeof streamingErrorStatusTextDetail === "string"
+											? streamingErrorStatusTextDetail
 											: "Streaming Error",
 									responseText:
-										typeof streamingError === "object" &&
-										streamingError !== null &&
-										"details" in streamingError &&
-										typeof streamingError.details === "object" &&
-										streamingError.details !== null &&
-										"responseText" in streamingError.details &&
-										typeof streamingError.details.responseText === "string"
-											? streamingError.details.responseText
+										typeof streamingErrorResponseTextDetail === "string"
+											? streamingErrorResponseTextDetail
 											: typeof streamingError === "object" &&
 												  streamingError !== null &&
 												  "details" in streamingError
@@ -14780,10 +14718,14 @@ chat.openapi(completions, async (c) => {
 			throw new Error("Provider context not initialized");
 		}
 
-		if (retryAttempt > 0) {
-			// Re-add abort listener (finally block removes it)
-			c.req.raw.signal.addEventListener("abort", onAbort);
+		// Re-add abort listener every attempt (finally block removes it); re-run
+		// onAbort if the client left between attempts.
+		c.req.raw.signal.addEventListener("abort", onAbort);
+		if (c.req.raw.signal.aborted) {
+			onAbort();
+		}
 
+		if (retryAttempt > 0) {
 			const nextProvider = selectNextProvider(
 				routingMetadata?.providerScores ?? [],
 				failedProviderIds,
@@ -14878,10 +14820,7 @@ chat.openapi(completions, async (c) => {
 			// effort-based reasoning fields — triggered by the explicit `effort` param
 			// or by a `reasoning_effort` mapped onto an adaptive model (Opus 4.7+).
 			if (anthropicRequestNeedsEffortBeta(transportProvider, requestBody)) {
-				const currentBeta = headers["anthropic-beta"];
-				headers["anthropic-beta"] = currentBeta
-					? `${currentBeta},effort-2025-11-24`
-					: "effort-2025-11-24";
+				appendAnthropicBeta(headers, "effort-2025-11-24");
 			}
 
 			// Add structured outputs beta header for Anthropic if json_schema response_format is specified
@@ -15166,10 +15105,6 @@ chat.openapi(completions, async (c) => {
 
 			if (willRetrySameKey) {
 				sameKeyRetryCount++;
-				// Re-add abort listener (removed by the per-attempt finally) so
-				// a client disconnect during the retried upstream call still
-				// cancels.
-				c.req.raw.signal.addEventListener("abort", onAbort);
 				await sameKeyRetryDelay(sameKeyRetryCount);
 				retryAttempt--;
 				continue;
@@ -15659,10 +15594,6 @@ chat.openapi(completions, async (c) => {
 
 			if (willRetrySameKey) {
 				sameKeyRetryCount++;
-				// Re-add abort listener (removed by the per-attempt finally) so
-				// a client disconnect during the retried upstream call still
-				// cancels.
-				c.req.raw.signal.addEventListener("abort", onAbort);
 				await sameKeyRetryDelay(sameKeyRetryCount);
 				retryAttempt--;
 				continue;
@@ -16338,6 +16269,9 @@ chat.openapi(completions, async (c) => {
 			// DeepSeek omits server_tool_use when nothing billable ran.
 			serverToolUseAlwaysReported: usedProvider === "deepseek",
 			thinkingProvider: thinkingProvider(),
+			jsonOutputRequested:
+				response_format?.type === "json_object" ||
+				response_format?.type === "json_schema",
 		},
 	);
 	let { content, totalTokens, webSearchCount } = parsedResponse;

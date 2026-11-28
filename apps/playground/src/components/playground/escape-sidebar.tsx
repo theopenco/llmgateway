@@ -1,9 +1,7 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
 import { ChevronUp, CreditCard, ExternalLink, LogOut } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
@@ -27,9 +25,8 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from "@/components/ui/sidebar";
+import { useLogout } from "@/hooks/useLogout";
 import { useUser } from "@/hooks/useUser";
-import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
-import { useAuth } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
 import { ESCAPE_LEVELS } from "@llmgateway/shared/sandbox-escape";
@@ -51,31 +48,9 @@ export function EscapeSidebar({
 	onSelectLevel,
 	className,
 }: EscapeSidebarProps) {
-	const router = useRouter();
-	const queryClient = useQueryClient();
 	const { state: sidebarState, isMobile } = useSidebar();
 	const { user, isLoading: isUserLoading } = useUser();
-	const { signOut } = useAuth();
-
-	const logout = async () => {
-		try {
-			await clearLastUsedProjectCookiesAction();
-		} catch {
-			// ignore
-		}
-		await signOut({
-			fetchOptions: {
-				onSuccess: () => {
-					queryClient.clear();
-					router.push(
-						process.env.NODE_ENV === "development"
-							? "http://localhost:3003/login"
-							: "https://lounge.llmgateway.io/login",
-					);
-				},
-			},
-		});
-	};
+	const logout = useLogout();
 
 	const levelsHidden = sidebarState === "collapsed" && !isMobile;
 

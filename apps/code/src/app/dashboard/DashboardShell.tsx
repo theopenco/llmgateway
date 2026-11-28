@@ -48,7 +48,11 @@ import { useStripe } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
 
 import { usePlans } from "./plans";
-import { useDevPlanStatus } from "./useDevPlanStatus";
+import {
+	getCachedDevPlanStatus,
+	invalidateDevPlanStatus,
+	useDevPlanStatus,
+} from "./useDevPlanStatus";
 
 import type { PlanTier } from "./types";
 import type { DevPlanStatus } from "./useDevPlanStatus";
@@ -346,9 +350,15 @@ export default function DashboardShell({
 				}
 				if (result?.status === "ok" || result?.status === "already_processed") {
 					setSetupActivationStatus("success");
+					await invalidateDevPlanStatus(queryClient);
+					if (signal.aborted) {
+						return;
+					}
 					if (purchaseTrackedSession.current !== sessionId) {
 						purchaseTrackedSession.current = sessionId;
-						const tier = devPlanStatusRef.current?.devPlan;
+						const tier =
+							getCachedDevPlanStatus(queryClient)?.devPlan ??
+							devPlanStatusRef.current?.devPlan;
 						const planData =
 							tier && tier !== "none"
 								? plans.find((plan) => plan.tier === tier)
@@ -361,12 +371,6 @@ export default function DashboardShell({
 							sendTo: googleAdsPurchaseConversion,
 						});
 					}
-					void queryClient.invalidateQueries({
-						predicate: (query) => {
-							const key = query.queryKey;
-							return Array.isArray(key) && key[1] === "/dev-plans/status";
-						},
-					});
 					// Hold the success screen long enough for the stamp to land and
 					// be read before the setup param is cleared and the card unmounts.
 					await wait(1600, signal);

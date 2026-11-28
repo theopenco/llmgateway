@@ -1214,6 +1214,89 @@ describe("parseProviderResponse", () => {
 		});
 	});
 
+	describe("mistral json code fence unwrapping", () => {
+		const responseWith = (content: string) => ({
+			choices: [
+				{
+					message: { content, role: "assistant" },
+					finish_reason: "stop",
+				},
+			],
+			usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+		});
+
+		it("unwraps a reply that is a single json code block", () => {
+			const result = parseProviderResponse(
+				"mistral",
+				"mistral-large-latest",
+				responseWith('```json\n{"a": 1}\n```'),
+			);
+
+			expect(result.content).toBe('{"a":1}');
+		});
+
+		it("keeps prose around a json code example", () => {
+			const content =
+				'Here is an example:\n```json\n{"a": 1}\n```\nThen send it.';
+			const result = parseProviderResponse(
+				"mistral",
+				"mistral-large-latest",
+				responseWith(content),
+			);
+
+			expect(result.content).toBe(content);
+		});
+
+		it("keeps a reply with several json code blocks", () => {
+			const content = '```json\n{"a": 1}\n```\nor\n```json\n{"b": 2}\n```';
+			const result = parseProviderResponse(
+				"novita",
+				"glm-4",
+				responseWith(content),
+			);
+
+			expect(result.content).toBe(content);
+		});
+
+		it.each(["mistral", "novita"] as const)(
+			"unwraps a %s json block surrounded by prose when JSON output was requested",
+			(provider) => {
+				const result = parseProviderResponse(
+					provider,
+					"mistral-large-latest",
+					responseWith(
+						'Here is the result:\n```json\n{"a": 1}\n```\nLet me know if you need more.',
+					),
+					[],
+					true,
+					false,
+					false,
+					false,
+					{ jsonOutputRequested: true },
+				);
+
+				expect(result.content).toBe('{"a":1}');
+			},
+		);
+
+		it("keeps prose around an invalid json block when JSON output was requested", () => {
+			const content = 'Result:\n```json\n{"a": \n```';
+			const result = parseProviderResponse(
+				"mistral",
+				"mistral-large-latest",
+				responseWith(content),
+				[],
+				true,
+				false,
+				false,
+				false,
+				{ jsonOutputRequested: true },
+			);
+
+			expect(result.content).toBe(content);
+		});
+	});
+
 	describe("alibaba finish reason mapping", () => {
 		it("normalizes 'stop' to 'tool_calls' when the message has tool calls", () => {
 			const json = {

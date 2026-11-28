@@ -225,7 +225,7 @@ importers:
     dependencies:
       '@better-auth/passkey':
         specifier: 1.7.16
-        version: 1.7.16(3ee7e7e2436114b474a0e65dfd193995)
+        version: 1.7.16(b132061214e1b0dfe78dfec71a777c9d)
       '@fontsource-variable/archivo':
         specifier: 5.3.0
         version: 5.3.0
@@ -545,7 +545,7 @@ importers:
     dependencies:
       '@better-auth/passkey':
         specifier: 1.7.16
-        version: 1.7.16(3ee7e7e2436114b474a0e65dfd193995)
+        version: 1.7.16(b132061214e1b0dfe78dfec71a777c9d)
       '@content-collections/core':
         specifier: 0.15.0
         version: 0.15.0(typescript@5.9.3)
@@ -1116,7 +1116,7 @@ importers:
         version: 4.0.99(react@19.3.1)(zod@4.6.7)
       '@better-auth/passkey':
         specifier: 1.7.16
-        version: 1.7.16(3ee7e7e2436114b474a0e65dfd193995)
+        version: 1.7.16(b132061214e1b0dfe78dfec71a777c9d)
       '@fontsource-variable/fraunces':
         specifier: 5.3.0
         version: 5.3.0
@@ -1342,9 +1342,6 @@ importers:
       tailwind-merge:
         specifier: 3.3.1
         version: 3.3.1
-      tokenlens:
-        specifier: 1.3.1
-        version: 1.3.1
     devDependencies:
       '@eslint/eslintrc':
         specifier: ^3.3.1
@@ -1405,7 +1402,7 @@ importers:
         version: 4.0.99(react@19.3.1)(zod@4.6.7)
       '@better-auth/passkey':
         specifier: 1.7.16
-        version: 1.7.16(3ee7e7e2436114b474a0e65dfd193995)
+        version: 1.7.16(b132061214e1b0dfe78dfec71a777c9d)
       '@better-auth/sso':
         specifier: 1.7.16
         version: 1.7.16(3da7be8d31cb931839cc13337684f86d)
@@ -1721,7 +1718,7 @@ importers:
     dependencies:
       '@better-auth/passkey':
         specifier: 1.7.16
-        version: 1.7.16(3ee7e7e2436114b474a0e65dfd193995)
+        version: 1.7.16(b132061214e1b0dfe78dfec71a777c9d)
       '@fontsource-variable/geist-mono':
         specifier: 5.3.0
         version: 5.3.0
@@ -7122,18 +7119,6 @@ packages:
     peerDependenciesMeta:
       jest:
         optional: true
-
-  '@tokenlens/core@1.3.0':
-    resolution: {integrity: sha512-d8YNHNC+q10bVpi95fELJwJyPVf1HfvBEI18eFQxRSZTdByXrP+f/ZtlhSzkx0Jl0aEmYVeBA5tPeeYRioLViQ==}
-
-  '@tokenlens/fetch@1.3.0':
-    resolution: {integrity: sha512-RONDRmETYly9xO8XMKblmrZjKSwCva4s5ebJwQNfNlChZoA5kplPoCgnWceHnn1J1iRjLVlrCNB43ichfmGBKQ==}
-
-  '@tokenlens/helpers@1.3.1':
-    resolution: {integrity: sha512-t6yL8N6ES8337E6eVSeH4hCKnPdWkZRFpupy9w5E66Q9IeqQ9IO7XQ6gh12JKjvWiRHuyyJ8MBP5I549Cr41EQ==}
-
-  '@tokenlens/models@1.3.0':
-    resolution: {integrity: sha512-9mx7ZGeewW4ndXAiD7AT1bbCk4OpJeortbjHHyNkgap+pMPPn1chY6R5zqe1ggXIUzZ2l8VOAKfPqOvpcrisJw==}
 
   '@tootallnate/once@2.0.1':
     resolution: {integrity: sha512-HqmEUIGRJ5fSXchkVgR5F7qn48bDBzv0kWj/Kfu5e6uci4UlEeng4331LnBkWffb++Ei3FOVLxo8JJWMFBDMeQ==}
@@ -14307,9 +14292,6 @@ packages:
     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
     engines: {node: '>=0.6'}
 
-  tokenlens@1.3.1:
-    resolution: {integrity: sha512-7oxmsS5PNCX3z+b+z07hL5vCzlgHKkCGrEQjQmWl5l+v5cUrtL7S1cuST4XThaL1XyjbTX8J5hfP0cjDJRkaLA==}
-
   touch@3.1.1:
     resolution: {integrity: sha512-r0eojU4bI8MnHr8c5bNo7lJDdI2qXlWWJk6a9EAFG7vbhTjElYhBVS3/miuE0uOuoLdb8Mc/rVfsmm6eo5o9GA==}
     hasBin: true
@@ -16129,7 +16111,7 @@ snapshots:
       '@better-auth/core': 1.7.16(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.0)(better-call@1.4.5(zod@4.6.7))(jose@6.2.9)(kysely@0.28.17)(nanostores@1.5.0)
       '@better-auth/utils': 0.5.1
 
-  '@better-auth/passkey@1.7.16(3ee7e7e2436114b474a0e65dfd193995)':
+  '@better-auth/passkey@1.7.16(b132061214e1b0dfe78dfec71a777c9d)':
     dependencies:
       '@better-auth/core': 1.7.16(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.0)(better-call@1.4.5(zod@4.6.7))(jose@6.2.9)(kysely@0.28.17)(nanostores@1.5.0)
       '@better-auth/utils': 0.5.1
@@ -20803,21 +20785,6 @@ snapshots:
       test-renderer: 1.2.0(@types/react@19.3.0)(react@19.3.1)
     optionalDependencies:
       jest: 29.7.0(@types/node@26.6.5)
-
-  '@tokenlens/core@1.3.0': {}
-
-  '@tokenlens/fetch@1.3.0':
-    dependencies:
-      '@tokenlens/core': 1.3.0
-
-  '@tokenlens/helpers@1.3.1':
-    dependencies:
-      '@tokenlens/core': 1.3.0
-      '@tokenlens/fetch': 1.3.0
-
-  '@tokenlens/models@1.3.0':
-    dependencies:
-      '@tokenlens/core': 1.3.0
 
   '@tootallnate/once@2.0.1': {}
 
@@ -29471,13 +29438,6 @@ snapshots:
       is-number: 7.0.0
 
   toidentifier@1.0.1: {}
-
-  tokenlens@1.3.1:
-    dependencies:
-      '@tokenlens/core': 1.3.0
-      '@tokenlens/fetch': 1.3.0
-      '@tokenlens/helpers': 1.3.1
-      '@tokenlens/models': 1.3.0
 
   touch@3.1.1: {}
 

@@ -20,6 +20,7 @@ import {
 	assertOriginAllowed,
 	loadEndUserWallet,
 } from "@/lib/end-user-session.js";
+import { parseApiToken } from "@/lib/extract-api-token.js";
 import { getAuthenticatedReadAccess } from "@/lib/gateway-read-access.js";
 import { internalPrincipalHeaders } from "@/lib/internal-principal-headers.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
@@ -133,21 +134,7 @@ async function authenticateRequest(
 	// reads a stored response and must stay accessible even when over budget.
 	enforceSpendLimits = false,
 ) {
-	const auth = c.req.header("Authorization");
-	const xApiKey = c.req.header("x-api-key");
-
-	let token: string | undefined;
-
-	if (auth) {
-		const split = auth.split("Bearer ");
-		if (split.length === 2 && split[1]) {
-			token = split[1];
-		}
-	}
-
-	if (!token && xApiKey) {
-		token = xApiKey;
-	}
+	const token = parseApiToken(c);
 
 	if (!token) {
 		return { error: "No API key provided", status: 401 as const };
@@ -1140,7 +1127,9 @@ responses.post("/compact", async (c) => {
 			compactionId,
 			{
 				id: compactionId,
-				input: inputItems,
+				// The compacted output replaces the history, so chaining from it
+				// must not replay the original input.
+				input: [],
 				output: compactionResponse.output,
 				instructions: req.instructions,
 				model: responseModel,

@@ -4,7 +4,7 @@ import { CheckIcon, CopyIcon } from "lucide-react";
 import { Highlight, themes } from "prism-react-renderer";
 import React, { useState } from "react";
 
-import type { Language } from "prism-react-renderer";
+import type { Language, PrismTheme } from "prism-react-renderer";
 
 // Custom dark theme inspired by fumadocs/shiki
 const customDarkTheme = {
@@ -173,6 +173,67 @@ function extractFileInfo(className: string | undefined): {
 
 	return { language, filename };
 }
+function HighlightedCode({
+	code,
+	language,
+	theme,
+	mode,
+	preProps,
+}: {
+	code: string;
+	language: Language;
+	theme: PrismTheme;
+	mode: "light" | "dark";
+	preProps: React.ComponentPropsWithoutRef<"pre">;
+}) {
+	return (
+		<Highlight code={code} language={language} theme={theme}>
+			{({ className, style, tokens, getLineProps, getTokenProps }) => (
+				<pre
+					className={`${className} p-4 overflow-x-auto text-sm font-mono leading-relaxed`}
+					style={{
+						...style,
+						margin: 0,
+						background: "transparent",
+					}}
+					{...preProps}
+				>
+					<code className={`${className} block`}>
+						{tokens.map((line, i) => {
+							const lineProps = getLineProps({ line });
+							const diffColor = getDiffColor(language, line, mode);
+							const lineClassName =
+								`${lineProps.className ?? ""} table-row`.trim();
+							return (
+								<span key={i} {...lineProps} className={lineClassName}>
+									<span className="table-cell pr-4 text-muted-foreground select-none text-right opacity-50">
+										{i + 1}
+									</span>
+									<span className="table-cell">
+										{line.map((token, key) => {
+											const tokenProps = getTokenProps({ token });
+											const isDiffMarkerToken =
+												key === 0 &&
+												(token.content.startsWith("+") ||
+													token.content.startsWith("-"));
+											if (diffColor && isDiffMarkerToken) {
+												tokenProps.style = {
+													...tokenProps.style,
+													color: diffColor,
+												};
+											}
+											return <span key={key} {...tokenProps} />;
+										})}
+									</span>
+								</span>
+							);
+						})}
+					</code>
+				</pre>
+			)}
+		</Highlight>
+	);
+}
 
 // Copy button component
 function CopyButton({ code }: { code: string }) {
@@ -303,99 +364,23 @@ export const SyntaxHighlightedPre = ({
 			<CopyButton code={code} />
 
 			<div className="block dark:hidden">
-				<Highlight code={code} language={language} theme={customLightTheme}>
-					{({ className, style, tokens, getLineProps, getTokenProps }) => (
-						<pre
-							className={`${className} p-4 overflow-x-auto text-sm font-mono leading-relaxed`}
-							style={{
-								...style,
-								margin: 0,
-								background: "transparent",
-							}}
-							{...props}
-						>
-							<code className={`${className} block`}>
-								{tokens.map((line, i) => {
-									const lineProps = getLineProps({ line });
-									const diffColor = getDiffColor(language, line, "light");
-									const lineClassName =
-										`${lineProps.className ?? ""} table-row`.trim();
-									return (
-										<span key={i} {...lineProps} className={lineClassName}>
-											<span className="table-cell pr-4 text-muted-foreground select-none text-right opacity-50">
-												{i + 1}
-											</span>
-											<span className="table-cell">
-												{line.map((token, key) => {
-													const tokenProps = getTokenProps({ token });
-													const isDiffMarkerToken =
-														key === 0 &&
-														(token.content.startsWith("+") ||
-															token.content.startsWith("-"));
-													if (diffColor && isDiffMarkerToken) {
-														tokenProps.style = {
-															...tokenProps.style,
-															color: diffColor,
-														};
-													}
-													return <span key={key} {...tokenProps} />;
-												})}
-											</span>
-										</span>
-									);
-								})}
-							</code>
-						</pre>
-					)}
-				</Highlight>
+				<HighlightedCode
+					code={code}
+					language={language}
+					theme={customLightTheme}
+					mode="light"
+					preProps={props}
+				/>
 			</div>
 
 			<div className="hidden dark:block">
-				<Highlight code={code} language={language} theme={customDarkTheme}>
-					{({ className, style, tokens, getLineProps, getTokenProps }) => (
-						<pre
-							className={`${className} p-4 overflow-x-auto text-sm font-mono leading-relaxed`}
-							style={{
-								...style,
-								margin: 0,
-								background: "transparent",
-							}}
-							{...props}
-						>
-							<code className={`${className} block`}>
-								{tokens.map((line, i) => {
-									const lineProps = getLineProps({ line });
-									const diffColor = getDiffColor(language, line, "dark");
-									const lineClassName =
-										`${lineProps.className ?? ""} table-row`.trim();
-									return (
-										<span key={i} {...lineProps} className={lineClassName}>
-											<span className="table-cell pr-4 text-muted-foreground select-none text-right opacity-50">
-												{i + 1}
-											</span>
-											<span className="table-cell">
-												{line.map((token, key) => {
-													const tokenProps = getTokenProps({ token });
-													const isDiffMarkerToken =
-														key === 0 &&
-														(token.content.startsWith("+") ||
-															token.content.startsWith("-"));
-													if (diffColor && isDiffMarkerToken) {
-														tokenProps.style = {
-															...tokenProps.style,
-															color: diffColor,
-														};
-													}
-													return <span key={key} {...tokenProps} />;
-												})}
-											</span>
-										</span>
-									);
-								})}
-							</code>
-						</pre>
-					)}
-				</Highlight>
+				<HighlightedCode
+					code={code}
+					language={language}
+					theme={customDarkTheme}
+					mode="dark"
+					preProps={props}
+				/>
 			</div>
 		</figure>
 	);

@@ -81,7 +81,6 @@ interface AgentModelUsageChartProps {
 
 interface ChartRow {
 	slot: string;
-	formattedDate: string;
 	totalRequests: number;
 	totalCost: number;
 	totalTokens: number;
@@ -313,9 +312,6 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 			rows.map((row) => {
 				const base: ChartRow = {
 					slot: row.slot,
-					formattedDate: hourly
-						? formatBucketLabel(row.slot, "hourMinute")
-						: formatBucketLabel(row.slot, "monthDay"),
 					totalRequests: row.totalRequests,
 					totalCost: row.totalCost,
 					totalTokens: row.totalTokens,
@@ -345,7 +341,7 @@ export function AgentModelUsageChart({ projectId }: AgentModelUsageChartProps) {
 				}
 				return base;
 			}),
-		[rows, models, metric, hourly],
+		[rows, models, metric],
 	);
 
 	const visibleModels = models.slice(0, 10);

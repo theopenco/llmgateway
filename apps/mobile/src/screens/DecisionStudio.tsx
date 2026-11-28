@@ -399,8 +399,10 @@ export function DecisionStudio({
 		"delete",
 		"/playground/decision-history/{id}",
 		{
-			onSuccess: () => {
-				setSelectedId(undefined);
+			onSuccess: (_data, variables) => {
+				setSelectedId((current) =>
+					current === variables.params.path.id ? undefined : current,
+				);
 				void refresh();
 			},
 		},

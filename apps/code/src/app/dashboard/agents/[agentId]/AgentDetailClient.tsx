@@ -12,7 +12,6 @@ import {
 	Terminal,
 	Zap,
 } from "lucide-react";
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { notFound, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -31,16 +30,6 @@ import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import { Time, buildAgentLogsCsv } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
-
-// The model usage chart pulls in recharts and renders below the fold, so
-// keep it out of the agent detail page's initial bundle.
-const AgentModelUsageChart = dynamic(
-	() =>
-		import("@/app/dashboard/components/AgentModelUsageChart").then(
-			(mod) => mod.AgentModelUsageChart,
-		),
-	{ ssr: false, loading: () => <div className="h-[280px]" /> },
-);
 
 type ModelSortColumn =
 	| "id"
@@ -582,7 +571,6 @@ function AgentDetailBody({
 				</div>
 			) : (
 				<>
-					<AgentModelUsageChart projectId={projectId} />
 					<ModelUsageBreakdown models={modelBreakdown} />
 					<div className="overflow-hidden rounded-xl border">
 						<div className="border-b bg-muted/30 px-4 py-2.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">

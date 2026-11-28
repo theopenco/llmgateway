@@ -1,6 +1,5 @@
 "use client";
 
-import { format } from "date-fns";
 import { Plus, Loader2, MessageSquare, Search, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
@@ -12,6 +11,12 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+	DATE_GROUP_LABELS,
+	DATE_GROUP_ORDER,
+	formatRelativeDate,
+	groupByDate,
+} from "@/lib/chat-date-groups";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +45,7 @@ interface ChatSearchDialogProps {
 	onOpenChange: (open: boolean) => void;
 	onNewChat?: () => void;
 	onChatSelect?: (chatId: string) => void;
+	organizationId?: string;
 }
 
 interface SearchRowProps {
@@ -58,59 +64,6 @@ function useDebouncedValue(value: string, delay: number) {
 	}, [delay, value]);
 
 	return debouncedValue;
-}
-
-function formatDate(dateString: string): string {
-	const date = new Date(dateString);
-	const now = new Date();
-	const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
-
-	if (diffInHours < 1) {
-		return "Just now";
-	}
-
-	if (diffInHours < 24) {
-		return `${Math.floor(diffInHours)}h ago`;
-	}
-
-	if (diffInHours < 48) {
-		return "Yesterday";
-	}
-
-	return format(date, "MMM d");
-}
-
-// `now` is passed in so the caller controls the reference point,
-// avoiding silent bugs if the component is rendered across midnight.
-function groupChatsByDate(chats: Chat[], now: Date) {
-	const today = new Date(now);
-	const yesterday = new Date(now);
-	yesterday.setDate(yesterday.getDate() - 1);
-	const lastWeek = new Date(now);
-	lastWeek.setDate(lastWeek.getDate() - 7);
-
-	const groups = {
-		today: [] as Chat[],
-		yesterday: [] as Chat[],
-		lastWeek: [] as Chat[],
-		older: [] as Chat[],
-	};
-
-	chats.forEach((chat) => {
-		const chatDate = new Date(chat.updatedAt);
-
-		if (chatDate.toDateString() === today.toDateString()) {
-			groups.today.push(chat);
-		} else if (chatDate.toDateString() === yesterday.toDateString()) {
-			groups.yesterday.push(chat);
-		} else if (chatDate >= lastWeek) {
-			groups.lastWeek.push(chat);
-		} else {
-			groups.older.push(chat);
-		}
-	});
-
-	return groups;
 }
 
 function getSearchRowHeight(index: number, { rows }: SearchRowProps) {
@@ -211,7 +164,7 @@ function SearchRowComponent({
 						{row.chat.title}
 					</span>
 					<span className="shrink-0 text-xs text-muted-foreground">
-						{formatDate(row.chat.updatedAt)}
+						{formatRelativeDate(row.chat.updatedAt)}
 					</span>
 				</button>
 			</div>
@@ -224,6 +177,7 @@ export function ChatSearchDialog({
 	onOpenChange,
 	onNewChat,
 	onChatSelect,
+	organizationId,
 }: ChatSearchDialogProps) {
 	const api = useApi();
 	const inputRef = useRef<HTMLInputElement | null>(null);
@@ -252,6 +206,7 @@ export function ChatSearchDialog({
 					query: {
 						q: debouncedQuery,
 						limit: PAGE_SIZE,
+						...(organizationId ? { organizationId } : {}),
 					},
 				},
 			},
@@ -287,19 +242,16 @@ export function ChatSearchDialog({
 	);
 
 	const rows = useMemo<SearchRow[]>(() => {
-		const groups = groupChatsByDate(chats, nowRef.current);
+		const groups = groupByDate(chats, nowRef.current);
 		const nextRows: SearchRow[] = [];
 
 		if (!debouncedQuery.trim()) {
 			nextRows.push({ type: "action", key: "new-chat" });
 		}
 
-		[
-			{ title: "Today", chats: groups.today },
-			{ title: "Yesterday", chats: groups.yesterday },
-			{ title: "Previous 7 Days", chats: groups.lastWeek },
-			{ title: "Older", chats: groups.older },
-		].forEach(({ title, chats: groupedChats }) => {
+		DATE_GROUP_ORDER.forEach((groupKey) => {
+			const title = DATE_GROUP_LABELS[groupKey];
+			const groupedChats = groups[groupKey];
 			if (groupedChats.length === 0) {
 				return;
 			}

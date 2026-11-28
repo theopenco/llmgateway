@@ -88,4 +88,29 @@ describe("rerank", () => {
 		expect(log?.content).toBeNull();
 		expect(log?.messages).toBeNull();
 	});
+
+	test("/v1/rerank returns 402 when the dev-plan allowance is exhausted and PAYG overflow is off", async () => {
+		await seedKeys(
+			"real-token-rerank-devplan-exhausted",
+			"token-id-rerank-devplan-exhausted",
+		);
+		await harness.setProjectMode("credits");
+		await harness.setDevPlan({
+			devPlan: "pro",
+			creditsLimit: "100",
+			creditsUsed: "100",
+			paygEnabled: false,
+		});
+		await db
+			.update(tables.organization)
+			.set({ kind: "default", credits: "50" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		const res = await rerankRequest("real-token-rerank-devplan-exhausted");
+
+		expect(res.status).toBe(402);
+		expect(JSON.stringify(await res.json())).toContain(
+			"Dev Plan credit limit reached",
+		);
+	});
 });

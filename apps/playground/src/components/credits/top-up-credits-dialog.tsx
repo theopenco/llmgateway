@@ -36,17 +36,6 @@ import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type React from "react";
 
-export function TopUpCreditsButton() {
-	return (
-		<TopUpCreditsDialog>
-			<Button className="flex items-center">
-				<Plus className="mr-2 h-4 w-4" />
-				Top Up Credits
-			</Button>
-		</TopUpCreditsDialog>
-	);
-}
-
 interface TopUpCreditsDialogProps {
 	children?: React.ReactNode;
 	open?: boolean;
@@ -139,11 +128,24 @@ function BillingTopUpCreditsDialog({
 		await queryClient.invalidateQueries({
 			queryKey: api.queryOptions("get", "/orgs").queryKey,
 		});
+		setLoading(false);
 		setStep("success");
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={setOpen}>
+		<Dialog
+			open={open}
+			onOpenChange={(isOpen) => {
+				if (isOpen) {
+					setOpen(true);
+					return;
+				}
+				if (loading) {
+					return;
+				}
+				handleClose();
+			}}
+		>
 			{children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
 			<DialogContent className="sm:max-w-[500px]">
 				{step === "amount" ? (

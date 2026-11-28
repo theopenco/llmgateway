@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	getCatalogueMappingDataPolicy,
 	getModelStreamingSupport,
 	resolvePricingPeriod,
 	resolveTierTimeBasedPricing,
@@ -319,5 +320,32 @@ describe("getModelStreamingSupport", () => {
 
 	it("returns null for an unknown model", () => {
 		expect(getModelStreamingSupport("does-not-exist")).toBeNull();
+	});
+});
+
+describe("getCatalogueMappingDataPolicy", () => {
+	const retains = { promptLogging: true, retentionPeriod: "30 days" };
+
+	it("finds the catalogue mapping by model or external id", () => {
+		expect(
+			getCatalogueMappingDataPolicy("aws-bedrock", "claude-fable-5-2"),
+		).toEqual(retains);
+		expect(
+			getCatalogueMappingDataPolicy(
+				"aws-bedrock",
+				"listing-name",
+				"anthropic.claude-fable-5-2",
+			),
+		).toEqual(retains);
+		expect(
+			getCatalogueMappingDataPolicy("anthropic", "claude-fable-5-2"),
+		).toBeUndefined();
+		expect(
+			getCatalogueMappingDataPolicy(
+				"aws-bedrock",
+				"claude-fable-5-2",
+				"some-other-model",
+			),
+		).toBeUndefined();
 	});
 });

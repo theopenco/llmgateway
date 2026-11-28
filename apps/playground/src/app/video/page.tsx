@@ -88,20 +88,6 @@ export default async function VideoPage({
 		projects: Project[];
 	} | null;
 
-	if (
-		projectId &&
-		initialProjectsData &&
-		typeof initialProjectsData === "object" &&
-		"projects" in initialProjectsData
-	) {
-		const projects = (initialProjectsData as { projects: Project[] }).projects;
-		const currentProject = projects.find((p: Project) => p.id === projectId);
-
-		if (!currentProject) {
-			notFound();
-		}
-	}
-
 	const allOrganizations = (
 		initialOrganizationsData &&
 		typeof initialOrganizationsData === "object" &&
@@ -159,7 +145,7 @@ export default async function VideoPage({
 	let selectedProject: Project | null = null;
 	if (projectId) {
 		selectedProject = projects.find((p) => p.id === projectId) ?? null;
-		if (projectId && !selectedProject && projectId.length > 0) {
+		if (!selectedProject) {
 			notFound();
 		}
 	} else if (selectedOrganization?.id) {

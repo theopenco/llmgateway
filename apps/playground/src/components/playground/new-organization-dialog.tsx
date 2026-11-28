@@ -106,11 +106,16 @@ export function NewOrganizationDialog({
 			return;
 		}
 
-		const result = await createOrgMutation.mutateAsync({
-			body: {
-				name: orgName.trim(),
-			},
-		});
+		let result;
+		try {
+			result = await createOrgMutation.mutateAsync({
+				body: {
+					name: orgName.trim(),
+				},
+			});
+		} catch {
+			return;
+		}
 
 		if (result.organization) {
 			onOrganizationCreated(result.organization);
@@ -155,7 +160,7 @@ export function NewOrganizationDialog({
 						</Button>
 						<Button
 							type="submit"
-							disabled={createOrgMutation.isPending ?? !orgName.trim()}
+							disabled={createOrgMutation.isPending || !orgName.trim()}
 						>
 							{createOrgMutation.isPending
 								? "Creating..."

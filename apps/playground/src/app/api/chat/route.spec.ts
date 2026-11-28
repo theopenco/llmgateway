@@ -277,4 +277,16 @@ describe("Lounge connector chat", () => {
 		});
 		expect((await POST(request())).status).toBe(409);
 	});
+	it("rejects a malformed JSON body with 400", async () => {
+		const response = await POST(
+			new Request("http://localhost/api/chat", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: "{not json",
+			}),
+		);
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({ error: "Invalid JSON body" });
+		expect(fixture.api).not.toHaveBeenCalled();
+	});
 });

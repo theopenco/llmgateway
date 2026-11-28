@@ -110,8 +110,10 @@ export async function readRequestWindow(
 	const windowDurationMs = windowSeconds * 1000;
 	const windowStart = now - windowDurationMs;
 
-	await redisClient.zremrangebyscore(key, "-inf", windowStart);
-	const currentCount = await redisClient.zcard(key);
+	const [, currentCount] = await Promise.all([
+		redisClient.zremrangebyscore(key, "-inf", windowStart),
+		redisClient.zcard(key),
+	]);
 
 	if (currentCount >= limit) {
 		const oldestEntry = await redisClient.zrange(key, 0, 0, "WITHSCORES");
@@ -222,8 +224,10 @@ export async function addWindowEntry(
 	now: number,
 	member: string,
 ): Promise<void> {
-	await redisClient.zadd(key, now, member);
-	await redisClient.expire(key, providerRateLimitWindows[window].seconds * 2);
+	await Promise.all([
+		redisClient.zadd(key, now, member),
+		redisClient.expire(key, providerRateLimitWindows[window].seconds * 2),
+	]);
 }
 
 export async function addTokenWindowEntry(
@@ -234,6 +238,102 @@ export async function addTokenWindowEntry(
 ): Promise<void> {
 	const bucketMs = tokenBucketMs(window);
 	const bucketStart = Math.floor(now / bucketMs) * bucketMs;
-	await redisClient.hincrby(key, String(bucketStart), Math.ceil(tokens));
-	await redisClient.expire(key, providerRateLimitWindows[window].seconds * 2);
+	await Promise.all([
+		redisClient.hincrby(key, String(bucketStart), Math.ceil(tokens)),
+		redisClient.expire(key, providerRateLimitWindows[window].seconds * 2),
+	]);
+}
+
+const ADMIT_SORTED_SET_ENTRY = [
+	"redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])",
+	"local count = redis.call('ZCARD', KEYS[1])",
+	"if count >= tonumber(ARGV[2]) then",
+	"\tlocal oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')",
+	"\treturn {0, count, oldest[2]}",
+	"end",
+	"redis.call('ZADD', KEYS[1], ARGV[3], ARGV[4])",
+	"redis.call('EXPIRE', KEYS[1], ARGV[5])",
+	"return {1, count}",
+].join("\n");
+
+export interface SortedSetAdmission {
+	allowed: boolean;
+	/** Members left after trimming, before this entry was added. */
+	currentCount: number;
+	/** Score of the oldest remaining member; set only when rejected. */
+	oldestScore?: number;
+}
+
+/**
+ * Atomically trim a sorted set, count it and, when under `limit`, add
+ * `member`. Concurrent callers cannot all pass the same count.
+ */
+export async function admitSortedSetEntry(
+	key: string,
+	options: {
+		trimBefore: number;
+		limit: number;
+		score: number;
+		member: string;
+		ttlSeconds: number;
+	},
+): Promise<SortedSetAdmission> {
+	if (!Number.isFinite(options.ttlSeconds)) {
+		throw new Error("Sorted set admission TTL must be finite");
+	}
+	// EXPIRE accepts only integers; a fractional TTL would add the member and
+	// then fail the script.
+	const ttlSeconds = Math.max(1, Math.ceil(options.ttlSeconds));
+	const result = await redisClient.eval(
+		ADMIT_SORTED_SET_ENTRY,
+		1,
+		key,
+		options.trimBefore,
+		options.limit,
+		options.score,
+		options.member,
+		ttlSeconds,
+	);
+	if (
+		!Array.isArray(result) ||
+		(result[0] !== 0 && result[0] !== 1) ||
+		typeof result[1] !== "number"
+	) {
+		throw new Error("Invalid sorted set admission result");
+	}
+	const oldestScore = result[2] === undefined ? Number.NaN : Number(result[2]);
+	return {
+		allowed: result[0] === 1,
+		currentCount: result[1],
+		...(Number.isFinite(oldestScore) && { oldestScore }),
+	};
+}
+
+/**
+ * Sliding-window request limiter: admits and records one request unless
+ * `limit` requests already fall inside the last `windowSeconds`.
+ */
+export async function checkAndAddSlidingWindow(
+	key: string,
+	windowSeconds: number,
+	limit: number,
+	now: number,
+	member: string,
+): Promise<{ allowed: boolean; currentCount: number; retryAfter?: number }> {
+	const windowMs = windowSeconds * 1000;
+	const admission = await admitSortedSetEntry(key, {
+		trimBefore: now - windowMs,
+		limit,
+		score: now,
+		member,
+		ttlSeconds: windowSeconds * 2,
+	});
+	if (admission.allowed) {
+		return { allowed: true, currentCount: admission.currentCount };
+	}
+	const retryAfter =
+		admission.oldestScore === undefined
+			? windowSeconds
+			: Math.max(1, Math.ceil((admission.oldestScore + windowMs - now) / 1000));
+	return { allowed: false, currentCount: admission.currentCount, retryAfter };
 }

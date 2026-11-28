@@ -9,7 +9,10 @@ import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
-import { buildByokKeyFilter } from "@/chat/tools/resolve-provider-context.js";
+import {
+	buildByokKeyFilter,
+	getAvailableCredits,
+} from "@/chat/tools/resolve-provider-context.js";
 import {
 	getErrorType,
 	isRetryableErrorType,
@@ -195,29 +198,6 @@ function findRerankMapping(modelId: string): {
 		}
 	}
 	return null;
-}
-
-function getAvailableCredits(
-	organization: InferSelectModel<typeof tables.organization>,
-) {
-	const regularCredits = parseFloat(organization.credits ?? "0");
-	const devPlanCreditsRemaining =
-		organization.devPlan !== "none"
-			? parseFloat(organization.devPlanCreditsLimit ?? "0") -
-				parseFloat(organization.devPlanCreditsUsed ?? "0")
-			: 0;
-	const chatPlanCreditsRemaining =
-		organization.chatPlan !== "none"
-			? parseFloat(organization.chatPlanCreditsLimit ?? "0") -
-				parseFloat(organization.chatPlanCreditsUsed ?? "0")
-			: 0;
-
-	return {
-		devPlanCreditsRemaining,
-		chatPlanCreditsRemaining,
-		totalAvailableCredits:
-			regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining,
-	};
 }
 
 async function assertCreditsAvailableForRerank(

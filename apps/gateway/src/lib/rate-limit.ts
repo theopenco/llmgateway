@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 
 import { findOrganizationById } from "@/lib/cached-queries.js";
 
-import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
+
+import { checkAndAddSlidingWindow } from "./rate-limit-windows.js";
 
 import type { ModelDefinition } from "@llmgateway/models";
 
@@ -95,26 +96,13 @@ export async function checkFreeModelRateLimit(
 
 		const key = getRateLimitKey(organizationId, model);
 
-		// Use sliding window approach with Redis
 		const now = Date.now();
-		// eslint-disable-next-line no-mixed-operators
-		const windowStart = now - window * 1000;
+		// Unique member: `now` alone collides under same-millisecond concurrency.
+		const member = `${now}:${randomUUID()}`;
+		const { allowed, currentCount, retryAfter } =
+			await checkAndAddSlidingWindow(key, window, limit, now, member);
 
-		// Remove old entries and count current requests in window
-		await redisClient.zremrangebyscore(key, "-inf", windowStart);
-		const currentCount = await redisClient.zcard(key);
-
-		if (currentCount >= limit) {
-			// Rate limited - calculate retry after
-			const oldestEntry = await redisClient.zrange(key, 0, 0, "WITHSCORES");
-			const retryAfter =
-				oldestEntry.length > 1
-					? Math.ceil(
-							// eslint-disable-next-line no-mixed-operators
-							(parseInt(oldestEntry[1], 10) + window * 1000 - now) / 1000,
-						)
-					: window;
-
+		if (!allowed) {
 			logger.info(`Rate limit exceeded for free model`, {
 				organizationId,
 				model,
@@ -127,12 +115,6 @@ export async function checkFreeModelRateLimit(
 
 			return { allowed: false, retryAfter, remaining: 0, limit };
 		}
-
-		// Add current request to sliding window with a unique member.
-		// Using only `now` as member can collide under same-millisecond concurrency.
-		const member = `${now}:${randomUUID()}`;
-		await redisClient.zadd(key, now, member);
-		await redisClient.expire(key, window * 2); // Set expiry to 2x window for cleanup
 
 		logger.debug(`Free model rate limit check passed`, {
 			organizationId,

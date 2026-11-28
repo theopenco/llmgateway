@@ -82,12 +82,14 @@ interface SidebarChatSearchProps {
 	disabled?: boolean;
 	onChatSelect?: (chatId: string) => void;
 	onNewChat?: () => void;
+	organizationId?: string;
 }
 
 export function SidebarChatSearch({
 	disabled = false,
 	onChatSelect,
 	onNewChat,
+	organizationId,
 }: SidebarChatSearchProps) {
 	const [isSearchOpen, setIsSearchOpen] = useState(false);
 	const isMac = useSidebarShortcut("k", () => setIsSearchOpen(true), !disabled);
@@ -112,6 +114,7 @@ export function SidebarChatSearch({
 					onOpenChange={setIsSearchOpen}
 					onNewChat={onNewChat}
 					onChatSelect={onChatSelect}
+					organizationId={organizationId}
 				/>
 			)}
 		</>

@@ -1,5 +1,8 @@
 import { shortid } from "@llmgateway/db";
 
+/** Id prefix of compaction items this gateway creates and can decode. */
+export const GATEWAY_COMPACTION_ID_PREFIX = "cmp_gw_";
+
 interface ChatCompletionUsage {
 	prompt_tokens?: number;
 	completion_tokens?: number;
@@ -162,10 +165,10 @@ export function normalizeOutputItem(item: unknown): Record<string, unknown> {
 
 /**
  * Build a CompactResource payload from the raw chat-completions summary call.
- * The compacted output is the original input items (normalized to the spec's
- * Message shape) with a trailing `compaction` item whose `encrypted_content`
- * carries the summary text (base64-wrapped — the spec only types this field
- * as a string).
+ * The compacted output keeps only the user messages (normalized to the spec's
+ * Message shape), like OpenAI's compact, followed by a `compaction` item whose
+ * `encrypted_content` carries the summary text (base64-wrapped — the spec only
+ * types this field as a string). Everything else is covered by the summary.
  */
 export function convertChatResponseToCompaction(
 	chat: ChatCompletionResponse,
@@ -177,13 +180,15 @@ export function convertChatResponseToCompaction(
 	const encryptedContent = Buffer.from(summaryText, "utf8").toString("base64");
 
 	const compactionItem: CompactionItem = {
-		id: `cmp_${shortid(24)}`,
+		id: `${GATEWAY_COMPACTION_ID_PREFIX}${shortid(24)}`,
 		type: "compaction",
 		encrypted_content: encryptedContent,
 	};
 
-	const normalized = inputItems.map((item) => normalizeOutputItem(item));
-	const output = [...normalized, compactionItem];
+	const userMessages = inputItems
+		.map((item) => normalizeOutputItem(item))
+		.filter((item) => item.type === "message" && item.role === "user");
+	const output = [...userMessages, compactionItem];
 
 	const usage: CompactionUsage = {
 		input_tokens: chat.usage?.prompt_tokens ?? 0,

@@ -19,7 +19,7 @@ import { setMockVideoStatus } from "@/test-utils/mock-openai-server.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
-import { cdb, db, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 // Credits-billed video jobs are gated on their estimated cost, minus what the
@@ -107,6 +107,24 @@ describe("video credit estimate gate", () => {
 		});
 		expect(res.status).toBe(402);
 		expect((await res.json()).error.message).toContain("minimum $1.00");
+	});
+
+	test("does not count PAYG credits once the dev-plan allowance is exhausted and overflow is off", async () => {
+		await harness.setDevPlan({
+			devPlan: "pro",
+			creditsLimit: "100",
+			creditsUsed: "100",
+			paygEnabled: false,
+		});
+		await db
+			.update(tables.organization)
+			.set({ kind: "default", credits: "50.00" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		const res = await submit();
+		expect(res.status).toBe(402);
+		expect((await res.json()).error.message).toContain("$0.00 available");
+		expect(await db.query.videoJob.findMany()).toHaveLength(0);
 	});
 
 	test("counts reservations of in-flight jobs until the worker finalizes them", async () => {

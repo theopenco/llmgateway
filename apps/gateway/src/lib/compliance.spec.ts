@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
 	filterCompliantProviders,
 	getActiveCompliancePolicy,
-	getCatalogueMappingDataPolicy,
 	getComplianceFailureReasons,
 	getEffectiveRetentionLevel,
 	isModelIdCompliant,
@@ -262,29 +261,6 @@ describe("mapping data policy overrides", () => {
 				mappingDataPolicy: retains,
 			}),
 		).toContain("zeroDataRetention");
-	});
-
-	it("finds the catalogue mapping by model or external id", () => {
-		expect(
-			getCatalogueMappingDataPolicy("aws-bedrock", "claude-fable-5-2"),
-		).toEqual(retains);
-		expect(
-			getCatalogueMappingDataPolicy(
-				"aws-bedrock",
-				"listing-name",
-				"anthropic.claude-fable-5-2",
-			),
-		).toEqual(retains);
-		expect(
-			getCatalogueMappingDataPolicy("anthropic", "claude-fable-5-2"),
-		).toBeUndefined();
-		expect(
-			getCatalogueMappingDataPolicy(
-				"aws-bedrock",
-				"claude-fable-5-2",
-				"some-other-model",
-			),
-		).toBeUndefined();
 	});
 
 	it("keeps the provider compliant when the policy allows retention", () => {
